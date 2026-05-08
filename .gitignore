@@ -1,0 +1,38 @@
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Claude Code
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Flutter
+frontend/.dart_tool/
+frontend/.flutter-plugins
+frontend/.flutter-plugins-dependencies
+frontend/.packages
+frontend/build/
+
+# Kotlin / Spring Boot
+newsfeedbackend/**/build/
+newsfeedbackend/**/target/
+newsfeedbackend/**/data/
+*.jar
+*.war
+
+# Environment & secrets
+.env
+.env.*
+*.local.properties
+application-local.yml
+application-local.yaml
+
+# Logs
+*.log
+
+# Node (voor tooling)
+node_modules/

@@ -1,0 +1,1070 @@
+openapi: 3.1.0
+info:
+  title: Personal News Feed API
+  version: 1.0.0
+  description: |
+    REST API voor de Personal News Feed backend.
+    Alle endpoints (behalve /api/auth/** en /ws/**) vereisen een JWT Bearer token.
+
+    ## WebSocket
+    Naast de REST API is er een WebSocket endpoint:
+    - **ws://{host}/ws/requests**
+    - Geen authenticatie vereist
+    - Alleen server → client (broadcast)
+    - Bij elke statuswijziging van een NewsRequest stuurt de server het volledige
+      NewsRequest object als JSON naar alle verbonden clients
+    - Clients hoeven niets te sturen
+
+servers:
+  - url: http://localhost:8080
+    description: Lokale ontwikkelserver
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Auth
+    description: Registreren en inloggen
+  - name: Settings
+    description: Categorie-instellingen
+  - name: RSS Feeds
+    description: Geconfigureerde RSS-feed URLs
+  - name: RSS Items
+    description: Ruwe RSS-artikelen na AI-verwerking
+  - name: Feed Items
+    description: Gecureerde persoonlijke feed-items
+  - name: Requests
+    description: Verwerkingsverzoeken (ad-hoc en dagelijkse updates)
+  - name: Podcasts
+    description: Gegenereerde podcasts
+
+paths:
+
+  # ── Auth ────────────────────────────────────────────────────────────────────
+
+  /api/auth/register:
+    post:
+      tags: [Auth]
+      operationId: register
+      summary: Registreer een nieuwe gebruiker
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthRequest'
+      responses:
+        '201':
+          description: Gebruiker aangemaakt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: Wachtwoord te kort (minimaal 4 tekens)
+        '409':
+          description: Gebruikersnaam al in gebruik
+
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      operationId: login
+      summary: Log in en ontvang een JWT token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthRequest'
+      responses:
+        '200':
+          description: Succesvol ingelogd
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Ongeldige inloggegevens
+
+  # ── Settings ─────────────────────────────────────────────────────────────────
+
+  /api/settings:
+    get:
+      tags: [Settings]
+      operationId: getSettings
+      summary: Haal categorie-instellingen op
+      description: |
+        Geeft de categorie-instellingen terug. Als er nog geen instellingen zijn
+        worden de standaard categorieën aangemaakt (kotlin, flutter, ai, blockchain,
+        spring, web_dev, overig).
+      responses:
+        '200':
+          description: Lijst van categorieën
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CategorySettings'
+    put:
+      tags: [Settings]
+      operationId: saveSettings
+      summary: Sla categorie-instellingen op
+      description: |
+        Systeemcategorieën worden altijd toegevoegd als ze ontbreken in de opgegeven lijst.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/CategorySettings'
+      responses:
+        '200':
+          description: Opgeslagen categorieën
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CategorySettings'
+
+  # ── RSS Feed URLs ─────────────────────────────────────────────────────────────
+
+  /api/rss-feeds:
+    get:
+      tags: [RSS Feeds]
+      operationId: getRssFeeds
+      summary: Haal geconfigureerde RSS-feed URLs op
+      responses:
+        '200':
+          description: RSS-feed instellingen
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RssFeedsSettings'
+    put:
+      tags: [RSS Feeds]
+      operationId: saveRssFeeds
+      summary: Sla RSS-feed URLs op
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RssFeedsSettings'
+      responses:
+        '200':
+          description: Opgeslagen RSS-feed instellingen
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RssFeedsSettings'
+
+  # ── RSS Items ─────────────────────────────────────────────────────────────────
+
+  /api/rss:
+    get:
+      tags: [RSS Items]
+      operationId: getRssItems
+      summary: Haal alle RSS-items op
+      description: Gesorteerd op timestamp aflopend.
+      responses:
+        '200':
+          description: Lijst van RSS-items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RssItem'
+
+  /api/rss/refresh:
+    post:
+      tags: [RSS Items]
+      operationId: refreshRss
+      summary: Trigger handmatig een dagelijkse update
+      description: |
+        Start asynchroon de RSS-fetch en AI-verwerkingspipeline.
+        De response komt direct terug; verwerking loopt op de achtergrond.
+        Statusupdates worden via WebSocket /ws/requests verstuurd.
+      responses:
+        '200':
+          description: Update gestart
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusOk'
+
+  /api/rss/cleanup:
+    delete:
+      tags: [RSS Items]
+      operationId: cleanupRss
+      summary: Verwijder oude RSS-items
+      parameters:
+        - name: olderThanDays
+          in: query
+          schema:
+            type: integer
+            default: 30
+          description: Verwijder items ouder dan N dagen
+        - name: keepStarred
+          in: query
+          schema:
+            type: boolean
+            default: true
+          description: Bewaar gesteunde items
+        - name: keepLiked
+          in: query
+          schema:
+            type: boolean
+            default: true
+          description: Bewaar gelikete items
+        - name: keepUnread
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: Bewaar ongelezen items
+      responses:
+        '200':
+          description: Aantal verwijderde items
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RemovedCount'
+
+  /api/rss/{id}/read:
+    put:
+      tags: [RSS Items]
+      operationId: markRssRead
+      summary: Markeer RSS-item als gelezen
+      parameters:
+        - $ref: '#/components/parameters/ItemId'
+      responses:
+        '200':
+          description: Gelukt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusOk'
+
+  /api/rss/{id}/unread:
+    put:
+      tags: [RSS Items]
+      operationId: markRssUnread
+      summary: Markeer RSS-item als ongelezen
+      parameters:
+        - $ref: '#/components/parameters/ItemId'
+      responses:
+        '200':
+          description: Gelukt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusOk'
+
+  /api/rss/{id}/star:
+    put:
+      tags: [RSS Items]
+      operationId: toggleRssStar
+      summary: Toggle ster op RSS-item
+      description: Werkt ook de onderwerp-geschiedenis bij.
+      parameters:
+        - $ref: '#/components/parameters/ItemId'
+      responses:
+        '200':
+          description: Gelukt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusOk'
+
+  /api/rss/{id}/feedback:
+    put:
+      tags: [RSS Items]
+      operationId: setRssFeedback
+      summary: Sla like/dislike feedback op voor een RSS-item
+      description: Werkt ook de onderwerp-geschiedenis bij.
+      parameters:
+        - $ref: '#/components/parameters/ItemId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FeedbackBody'
+      responses:
+        '200':
+          description: Gelukt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusOk'
+
+  /api/rss/{id}:
+    delete:
+      tags: [RSS Items]
+      operationId: deleteRssItem
+      summary: Verwijder een RSS-item
+      parameters:
+        - $ref: '#/components/parameters/ItemId'
+      responses:
+        '200':
+          description: Gelukt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusOk'
+
+  # ── Feed Items ────────────────────────────────────────────────────────────────
+
+  /api/feed:
+    get:
+      tags: [Feed Items]
+      operationId: getFeedItems
+      summary: Haal alle feed-items op
+      description: |
+        Gesorteerd op createdAt aflopend. Bevat ook de dagelijkse
+        AI-samenvatting (isSummary: true).
+      responses:
+        '200':
+          description: Lijst van feed-items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FeedItem'
+
+  /api/feed/cleanup:
+    delete:
+      tags: [Feed Items]
+      operationId: cleanupFeed
+      summary: Verwijder oude feed-items
+      parameters:
+        - name: olderThanDays
+          in: query
+          schema:
+            type: integer
+            default: 30
+        - name: keepStarred
+          in: query
+          schema:
+            type: boolean
+            default: true
+        - name: keepLiked
+          in: query
+          schema:
+            type: boolean
+            default: true
+        - name: keepUnread
+          in: query
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Aantal verwijderde items
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RemovedCount'
+
+  /api/feed/{id}/read:
+    put:
+      tags: [Feed Items]
+      operationId: markFeedRead
+      summary: Markeer feed-item als gelezen
+      parameters:
+        - $ref: '#/components/parameters/ItemId'
+      responses:
+        '200':
+          description: Gelukt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusOk'
+
+  /api/feed/{id}/unread:
+    put:
+      tags: [Feed Items]
+      operationId: markFeedUnread
+      summary: Markeer feed-item als ongelezen
+      parameters:
+        - $ref: '#/components/parameters/ItemId'
+      responses:
+        '200':
+          description: Gelukt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusOk'
+
+  /api/feed/{id}/star:
+    put:
+      tags: [Feed Items]
+      operationId: toggleFeedStar
+      summary: Toggle ster op feed-item
+      description: Werkt ook de onderwerp-geschiedenis bij.
+      parameters:
+        - $ref: '#/components/parameters/ItemId'
+      responses:
+        '200':
+          description: Gelukt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusOk'
+
+  /api/feed/{id}/feedback:
+    put:
+      tags: [Feed Items]
+      operationId: setFeedFeedback
+      summary: Sla like/dislike feedback op voor een feed-item
+      description: Werkt ook de onderwerp-geschiedenis bij.
+      parameters:
+        - $ref: '#/components/parameters/ItemId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FeedbackBody'
+      responses:
+        '200':
+          description: Gelukt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusOk'
+
+  /api/feed/{id}:
+    delete:
+      tags: [Feed Items]
+      operationId: deleteFeedItem
+      summary: Verwijder een feed-item
+      parameters:
+        - $ref: '#/components/parameters/ItemId'
+      responses:
+        '200':
+          description: Gelukt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusOk'
+
+  # ── Requests ──────────────────────────────────────────────────────────────────
+
+  /api/requests:
+    get:
+      tags: [Requests]
+      operationId: getRequests
+      summary: Haal alle verzoeken op
+      responses:
+        '200':
+          description: Lijst van verzoeken
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/NewsRequest'
+    post:
+      tags: [Requests]
+      operationId: createRequest
+      summary: Maak een nieuw ad-hoc verzoek aan
+      description: |
+        Wordt direct asynchroon verwerkt. Statusupdates via WebSocket /ws/requests.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRequestDto'
+      responses:
+        '201':
+          description: Verzoek aangemaakt (status PENDING)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NewsRequest'
+
+  /api/requests/{id}:
+    delete:
+      tags: [Requests]
+      operationId: deleteRequest
+      summary: Verwijder een verzoek
+      description: |
+        Verzoeken met ID-prefix 'daily-update-' of 'daily-summary-' kunnen niet
+        verwijderd worden.
+      parameters:
+        - $ref: '#/components/parameters/ItemId'
+      responses:
+        '204':
+          description: Verwijderd
+
+  /api/requests/{id}/rerun:
+    post:
+      tags: [Requests]
+      operationId: rerunRequest
+      summary: Herstart een verzoek
+      description: Reset het verzoek naar PENDING en start verwerking opnieuw.
+      parameters:
+        - $ref: '#/components/parameters/ItemId'
+      responses:
+        '200':
+          description: Verzoek hergestart
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NewsRequest'
+
+  /api/requests/{id}/cancel:
+    post:
+      tags: [Requests]
+      operationId: cancelRequest
+      summary: Annuleer een actief verzoek
+      description: |
+        Als het verzoek PROCESSING is wordt de achtergrondtaak onderbroken
+        zodra dit veilig mogelijk is.
+      parameters:
+        - $ref: '#/components/parameters/ItemId'
+      responses:
+        '204':
+          description: Geannuleerd
+
+  # ── Podcasts ──────────────────────────────────────────────────────────────────
+
+  /api/podcasts:
+    get:
+      tags: [Podcasts]
+      operationId: getPodcasts
+      summary: Haal alle podcasts op
+      description: scriptText is niet opgenomen in de lijstrespons.
+      responses:
+        '200':
+          description: Lijst van podcasts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Podcast'
+    post:
+      tags: [Podcasts]
+      operationId: createPodcast
+      summary: Maak een nieuwe podcast aan
+      description: |
+        Start asynchroon de podcastgeneratie. Statusverloop:
+        PENDING → DETERMINING_TOPICS → GENERATING_SCRIPT → GENERATING_AUDIO → DONE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePodcastDto'
+      responses:
+        '201':
+          description: Podcast aangemaakt (status PENDING)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Podcast'
+
+  /api/podcasts/{id}:
+    get:
+      tags: [Podcasts]
+      operationId: getPodcast
+      summary: Haal podcastdetail op
+      description: Inclusief volledig scriptText.
+      parameters:
+        - $ref: '#/components/parameters/ItemId'
+      responses:
+        '200':
+          description: Podcastdetail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Podcast'
+        '404':
+          description: Niet gevonden
+    delete:
+      tags: [Podcasts]
+      operationId: deletePodcast
+      summary: Verwijder een podcast
+      description: Verwijdert ook het MP3-audiobestand.
+      parameters:
+        - $ref: '#/components/parameters/ItemId'
+      responses:
+        '204':
+          description: Verwijderd
+
+  /api/podcasts/{id}/audio:
+    get:
+      tags: [Podcasts]
+      operationId: getPodcastAudio
+      summary: Stream podcast audio als MP3
+      parameters:
+        - $ref: '#/components/parameters/ItemId'
+        - name: token
+          in: query
+          schema:
+            type: string
+          description: JWT token als query-parameter (voor directe browser/mediaplayer toegang)
+        - name: v
+          in: query
+          schema:
+            type: integer
+          description: Cache-busting versienummer (bijv. durationSeconds)
+      responses:
+        '200':
+          description: MP3 audiostream
+          headers:
+            Accept-Ranges:
+              schema:
+                type: string
+                example: bytes
+            Cache-Control:
+              schema:
+                type: string
+                example: no-store
+          content:
+            audio/mpeg:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Audio nog niet beschikbaar
+
+# ── Components ─────────────────────────────────────────────────────────────────
+
+components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    ItemId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Uniek ID van het item
+
+  schemas:
+
+    # Auth
+
+    AuthRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          example: robbert
+        password:
+          type: string
+          minLength: 4
+          example: geheim
+
+    AuthResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: JWT token, geldig 30 dagen
+        username:
+          type: string
+
+    # Settings
+
+    CategorySettings:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          example: kotlin
+        name:
+          type: string
+          example: Kotlin
+        enabled:
+          type: boolean
+          default: true
+        extraInstructions:
+          type: string
+          default: ''
+          description: Extra instructies voor de AI bij het verwerken van artikelen in deze categorie
+        isSystem:
+          type: boolean
+          default: false
+          description: Systeemcategorieën kunnen niet verwijderd worden
+
+    RssFeedsSettings:
+      type: object
+      properties:
+        feeds:
+          type: array
+          items:
+            type: string
+            format: uri
+          example:
+            - https://feeds.feedburner.com/KotlinWeekly
+            - https://dartweekly.com/rss
+
+    # RSS Items
+
+    RssItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        summary:
+          type: string
+          description: AI-gegenereerde samenvatting, 150-250 woorden, Nederlands
+        url:
+          type: string
+          format: uri
+        category:
+          type: string
+          description: Categorie-ID toegewezen door AI
+        feedUrl:
+          type: string
+          format: uri
+          description: URL van de RSS-feed waaruit dit item afkomstig is
+        source:
+          type: string
+          description: Naam van de nieuwsbron
+        snippet:
+          type: string
+          description: Ruwe RSS-tekst, max 1000 tekens, HTML gestript
+        publishedDate:
+          type: string
+          nullable: true
+          example: '2025-05-07'
+          description: Publicatiedatum in YYYY-MM-DD formaat
+        timestamp:
+          type: string
+          format: date-time
+          description: Tijdstip van opslaan (ISO-8601)
+        processedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Tijdstip van AI-verwerking
+        inFeed:
+          type: boolean
+          description: Of AI dit item geselecteerd heeft voor de persoonlijke feed
+        feedReason:
+          type: string
+          description: Korte Nederlandse uitleg waarom dit item wel/niet in de feed staat
+        isRead:
+          type: boolean
+        starred:
+          type: boolean
+        liked:
+          type: boolean
+          nullable: true
+          description: "true=geliket, false=niet relevant, null=geen feedback"
+        topics:
+          type: array
+          items:
+            type: string
+          description: 2-3 canonieke onderwerpen in het Nederlands
+        feedItemId:
+          type: string
+          nullable: true
+          description: Gekoppeld FeedItem ID (als inFeed=true)
+
+    # Feed Items
+
+    FeedItem:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        summary:
+          type: string
+          description: Uitgebreide AI-samenvatting, 400-600 woorden, Nederlands (Markdown bij isSummary=true)
+        url:
+          type: string
+          format: uri
+        category:
+          type: string
+        source:
+          type: string
+        sourceRssIds:
+          type: array
+          items:
+            type: string
+          description: IDs van gekoppelde RssItems
+        sourceUrls:
+          type: array
+          items:
+            type: string
+            format: uri
+        topics:
+          type: array
+          items:
+            type: string
+        feedReason:
+          type: string
+        isRead:
+          type: boolean
+        starred:
+          type: boolean
+        liked:
+          type: boolean
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        publishedDate:
+          type: string
+          nullable: true
+          example: '2025-05-07'
+        isSummary:
+          type: boolean
+          default: false
+          description: >
+            true als dit de dagelijkse AI-samenvatting is. Het summary-veld
+            bevat dan Markdown-tekst (600-1000 woorden). ID-formaat: daily-summary-feed-{datum}.
+
+    # Requests
+
+    NewsRequest:
+      type: object
+      properties:
+        id:
+          type: string
+        subject:
+          type: string
+        sourceItemId:
+          type: string
+          nullable: true
+        sourceItemTitle:
+          type: string
+          nullable: true
+        preferredCount:
+          type: integer
+          default: 2
+        maxCount:
+          type: integer
+          default: 5
+        extraInstructions:
+          type: string
+        maxAgeDays:
+          type: integer
+          default: 3
+        status:
+          $ref: '#/components/schemas/RequestStatus'
+        createdAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        newItemCount:
+          type: integer
+          description: Aantal nieuw gevonden en opgeslagen items
+        costUsd:
+          type: number
+          format: double
+          description: Geschatte AI-kosten in USD
+        isDailyUpdate:
+          type: boolean
+          description: Automatische dagelijkse RSS-update
+        isDailySummary:
+          type: boolean
+          description: Automatische dagelijkse AI-samenvatting
+        categoryResults:
+          type: array
+          items:
+            $ref: '#/components/schemas/CategoryResult'
+        processingStartedAt:
+          type: string
+          format: date-time
+          nullable: true
+        durationSeconds:
+          type: integer
+
+    RequestStatus:
+      type: string
+      enum: [PENDING, PROCESSING, DONE, FAILED, CANCELLED]
+      description: >
+        PENDING: wacht op verwerking.
+        PROCESSING: wordt verwerkt.
+        DONE: succesvol afgerond.
+        FAILED: mislukt.
+        CANCELLED: geannuleerd door gebruiker.
+
+    CategoryResult:
+      type: object
+      properties:
+        categoryId:
+          type: string
+        categoryName:
+          type: string
+        articleCount:
+          type: integer
+        costUsd:
+          type: number
+          format: double
+        searchResultCount:
+          type: integer
+        filteredCount:
+          type: integer
+
+    CreateRequestDto:
+      type: object
+      required: [subject]
+      properties:
+        subject:
+          type: string
+          description: Onderwerp om artikelen over te zoeken
+          example: Kotlin 2.0 release
+        sourceItemId:
+          type: string
+          nullable: true
+          description: ID van het bronartikel (bij 'meer hierover'-functie)
+        sourceItemTitle:
+          type: string
+          nullable: true
+        preferredCount:
+          type: integer
+          default: 2
+        maxCount:
+          type: integer
+          default: 5
+        extraInstructions:
+          type: string
+          default: ''
+        maxAgeDays:
+          type: integer
+          default: 3
+
+    # Podcasts
+
+    Podcast:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+          example: 'DevTalk 12, 2025-05-07 — Kotlin, Flutter'
+        periodDescription:
+          type: string
+          example: afgelopen week
+        periodDays:
+          type: integer
+        durationMinutes:
+          type: integer
+        status:
+          $ref: '#/components/schemas/PodcastStatus'
+        createdAt:
+          type: string
+          format: date-time
+        scriptText:
+          type: string
+          nullable: true
+          description: Volledig podcastscript (alleen aanwezig in GET /api/podcasts/{id})
+        topics:
+          type: array
+          items:
+            type: string
+        audioPath:
+          type: string
+          nullable: true
+          description: Serverpad naar MP3-bestand
+        durationSeconds:
+          type: integer
+          nullable: true
+        costUsd:
+          type: number
+          format: double
+        customTopics:
+          type: array
+          items:
+            type: string
+          description: Door gebruiker opgegeven onderwerpen (optioneel)
+        ttsProvider:
+          $ref: '#/components/schemas/TtsProvider'
+        podcastNumber:
+          type: integer
+          description: Oplopend volgnummer per gebruiker
+        generationSeconds:
+          type: integer
+          nullable: true
+          description: Generatieduur in seconden
+
+    PodcastStatus:
+      type: string
+      enum: [PENDING, DETERMINING_TOPICS, GENERATING_SCRIPT, GENERATING_AUDIO, DONE, FAILED]
+
+    TtsProvider:
+      type: string
+      enum: [OPENAI, ELEVENLABS]
+      description: >
+        OPENAI: OpenAI TTS-1, stemmen onyx (interviewer) en alloy (gast).
+        ELEVENLABS: ElevenLabs eleven_multilingual_v2, configu­reerbare stemmen.
+
+    CreatePodcastDto:
+      type: object
+      required: [periodDays, durationMinutes]
+      properties:
+        periodDays:
+          type: integer
+          example: 7
+          description: Periode in dagen voor nieuwsselectie
+        durationMinutes:
+          type: integer
+          example: 15
+          description: Gewenste podcastduur in minuten
+        customTopics:
+          type: array
+          items:
+            type: string
+          description: Optionele vaste onderwerpen (als leeg bepaalt AI de onderwerpen zelf)
+          example: ['Kotlin 2.0', 'Flutter Web']
+        ttsProvider:
+          $ref: '#/components/schemas/TtsProvider'
+
+    # Shared
+
+    StatusOk:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ok
+
+    RemovedCount:
+      type: object
+      properties:
+        removed:
+          type: integer
+          description: Aantal verwijderde items
+          example: 12
+
+    FeedbackBody:
+      type: object
+      properties:
+        liked:
+          type: boolean
+          nullable: true
+          description: "true=leuk, false=niet relevant, null=feedback verwijderen"
