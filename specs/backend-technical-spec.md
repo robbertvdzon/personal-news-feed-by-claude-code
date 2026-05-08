@@ -151,10 +151,20 @@ Domeinmodellen worden **nooit** direct geserialiseerd naar HTTP-responses.
 
 **Scheduled jobs (INFO):**
 ```
-[RSS] Start dagelijkse verwerking voor gebruiker '{username}'
-[RSS] Klaar: {n} nieuwe artikelen, {m} in feed, duur {s}s
-[SUMMARY] Dagelijkse samenvatting aangemaakt voor '{username}'
+[RSS] start uurlijkse verwerking voor gebruiker '{username}'
+[RSS] stap 1/4: {n} feeds parallel ophalen voor '{username}'
+[RSS] {n} nieuwe artikelen voor '{username}'
+[RSS] stap 2/4: AI-samenvatting per artikel ({n} stuks)
+[RSS]   samengevat {i}/{n}                        (elke 5 items, plus de laatste)
+[RSS] stap 3/4: AI-selectie voor de persoonlijke feed ({n} kandidaten)
+[RSS]   selectie: {m} van {n} artikelen geselecteerd
+[RSS] stap 4/4: uitgebreide feed-samenvattingen genereren ({m} stuks)
+[RSS]   feed-item {i}/{m}: {title-truncated-80}    (per item, voor lange Claude-calls)
+[RSS] klaar: {n} nieuwe artikelen, {m} in feed, duur {s}s
+[Summary] dagelijkse samenvatting aangemaakt voor '{username}'
 ```
+
+Deze stap-voor-stap progress-logs zijn essentieel voor de gebruiker tijdens een lange run — met API-keys duurt stap 2 al gauw enkele minuten bij ~50 items, en stap 4 een paar seconden per geselecteerd item. Zonder deze logs is er geen feedback tussen de start- en klaar-regels in.
 
 **Externe API-aanroepen (DEBUG):**
 ```

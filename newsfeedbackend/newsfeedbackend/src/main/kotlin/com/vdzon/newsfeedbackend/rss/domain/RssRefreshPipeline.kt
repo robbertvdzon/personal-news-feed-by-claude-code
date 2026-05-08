@@ -75,6 +75,7 @@ class RssRefreshPipeline(
             val existingItems = rssRepo.load(username)
             val existingUrls = existingItems.map { it.url }.toHashSet()
 
+            log.info("[RSS] stap 1/4: {} feeds parallel ophalen voor '{}'", feedUrls.size, username)
             val fetched = feedUrls.parallelStream()
                 .map { fetcher.fetch(it) }
                 .toList()
@@ -83,11 +84,21 @@ class RssRefreshPipeline(
                 .distinctBy { it.url }
 
             log.info("[RSS] {} nieuwe artikelen voor '{}'", fetched.size, username)
-            val processed = fetched.mapNotNull { summarize(it, cats) }
+            log.info("[RSS] stap 2/4: AI-samenvatting per artikel ({} stuks)", fetched.size)
+            val processed = mutableListOf<RssItem>()
+            fetched.forEachIndexed { idx, item ->
+                val summarized = summarize(item, cats)
+                if (summarized != null) processed.add(summarized)
+                if ((idx + 1) % 5 == 0 || idx + 1 == fetched.size) {
+                    log.info("[RSS]   samengevat {}/{}", idx + 1, fetched.size)
+                }
+            }
             rssRepo.upsertAll(username, processed)
 
+            log.info("[RSS] stap 3/4: AI-selectie voor de persoonlijke feed ({} kandidaten)", processed.size)
             val selected = if (processed.isEmpty()) emptyList()
             else selectForFeed(username, processed, cats, existingItems)
+            log.info("[RSS]   selectie: {} van {} artikelen geselecteerd", selected.size, processed.size)
             val withSelection = processed.map {
                 val sel = selected.find { s -> s.first == it.id }
                 if (sel != null) it.copy(inFeed = true, feedReason = sel.second)
@@ -95,8 +106,11 @@ class RssRefreshPipeline(
             }
             rssRepo.upsertAll(username, withSelection)
 
+            val toFeed = withSelection.filter { it.inFeed }
+            log.info("[RSS] stap 4/4: uitgebreide feed-samenvattingen genereren ({} stuks)", toFeed.size)
             var feedCount = 0
-            for (rss in withSelection.filter { it.inFeed }) {
+            for ((idx, rss) in toFeed.withIndex()) {
+                log.info("[RSS]   feed-item {}/{}: {}", idx + 1, toFeed.size, rss.title.take(80))
                 val feedItem = generateFeedItem(rss, cats)
                 feed.save(username, feedItem)
                 rssRepo.upsert(username, rss.copy(feedItemId = feedItem.id))

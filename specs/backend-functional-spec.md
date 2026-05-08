@@ -379,3 +379,15 @@ Alle configuratie via `application.properties` of omgevingsvariabelen.
 - **Annulering:** Verzoeken kunnen geannuleerd worden; de verwerking stopt bij het eerstvolgende controlepunt.
 - **Restart-herstel:** Bij serverherstart worden openstaande PENDING/PROCESSING verzoeken gereset naar FAILED.
 - **Claude rate limiting:** Bij HTTP 429 wordt automatisch gewacht en opnieuw geprobeerd (exponentieel backoff, max 4 pogingen).
+
+---
+
+## 11. RSS-items opnieuw laten beoordelen
+
+De pipeline behandelt alleen artikelen waarvan de URL nog niet in `rss_items.json` staat. Wil je een batch opnieuw laten beoordelen (bijvoorbeeld omdat de prompt verbeterd is, of omdat tijdens de eerste run nog geen API-key was ingesteld), dan zijn er drie manieren:
+
+1. **Volledig wissen via filesystem** — `rm data/users/{username}/rss_items.json` (eventueel ook `feed_items.json` als je de feed leeg wilt). De repository leest het bestand bij elke call opnieuw, dus de backend hoeft niet herstart te worden.
+2. **Via de API** — `DELETE /api/rss/cleanup?olderThanDays=0&keepStarred=false&keepLiked=false&keepUnread=false` ruimt alles op (combineer eventueel met `DELETE /api/feed/cleanup?...`). Dezelfde knop zit in de Flutter-app onder Settings → "Artikelen opruimen".
+3. **JSON handmatig editen** — selectief entries verwijderen met een editor; sla op als geldige JSON. Goed voor het terugbrengen van specifieke artikelen.
+
+Na een van de bovenstaande acties: trigger een refresh via `POST /api/rss/refresh`, of via de play-knop op het `hourly-update-{username}` record in de queue.
