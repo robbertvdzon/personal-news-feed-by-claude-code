@@ -3,6 +3,8 @@ package com.vdzon.newsfeedbackend.request.domain
 import com.vdzon.newsfeedbackend.ai.AnthropicClient
 import com.vdzon.newsfeedbackend.feed.FeedItem
 import com.vdzon.newsfeedbackend.feed.FeedService
+import com.vdzon.newsfeedbackend.request.RequestCreatedEvent
+import com.vdzon.newsfeedbackend.request.RequestRerunEvent
 import com.vdzon.newsfeedbackend.request.RequestStatus
 import com.vdzon.newsfeedbackend.request.infrastructure.RequestRepository
 import com.vdzon.newsfeedbackend.request.infrastructure.TavilyClient

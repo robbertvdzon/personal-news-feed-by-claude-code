@@ -4,6 +4,8 @@ import com.vdzon.newsfeedbackend.auth.AuthService
 import com.vdzon.newsfeedbackend.common.NotFoundException
 import com.vdzon.newsfeedbackend.request.CreateRequestDto
 import com.vdzon.newsfeedbackend.request.NewsRequest
+import com.vdzon.newsfeedbackend.request.RequestCreatedEvent
+import com.vdzon.newsfeedbackend.request.RequestRerunEvent
 import com.vdzon.newsfeedbackend.request.RequestService
 import com.vdzon.newsfeedbackend.request.RequestStatus
 import com.vdzon.newsfeedbackend.request.infrastructure.RequestRepository
