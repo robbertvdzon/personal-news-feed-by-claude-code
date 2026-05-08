@@ -147,29 +147,37 @@ Wordt elk uur automatisch uitgevoerd voor elke gebruiker. Handmatig te triggeren
 > **Naamgeving:** het bijbehorende `NewsRequest`-record heeft id `hourly-update-{username}` en subject `"Uurlijkse RSS-update"`. Dit is één vast record per gebruiker dat bij elke run (uurlijks of handmatig via `POST /api/rss/refresh`) **in-place** wordt bijgewerkt — er ontstaat dus geen nieuw record per uur. Het record vertegenwoordigt "de status van de laatste RSS-refresh".
 
 **Pipeline:**
-1. Haal alle RSS-feeds op die de gebruiker geconfigureerd heeft (parallel). Filter artikelen ouder dan 4 dagen.
+1. Haal alle RSS-feeds op die de gebruiker geconfigureerd heeft (parallel, met connect-/read-timeout om hangende feeds niet de hele run te laten blokkeren). Filter artikelen ouder dan 4 dagen.
 2. Filter artikelen waarvan de URL al bekend is in de opgeslagen RssItems.
-3. Voor elk nieuw artikel: vraag Claude om een Nederlandse samenvatting (150-250 woorden), categorie-toewijzing en 2-3 canonieke onderwerpen.
+3. Voor elk nieuw artikel: vraag Claude om een Nederlandse samenvatting (150-250 woorden), categorie-toewijzing en 2-3 canonieke onderwerpen. De prompt bevat per beschikbare categorie ook de gebruikersinstructies (`extraInstructions`) zodat Claude de meest passende categorie kan kiezen.
 4. Sla alle nieuwe RssItems op (`inFeed: false`).
-5. Vraag Claude in één batch-aanroep om per artikel te bepalen of het in de feed hoort (maximaal ~50 artikelen per aanroep; bij meer artikelen worden ze opgesplitst in batches). Er is geen minimum of maximum percentage — als niets interessant genoeg is selecteert Claude niets, als alles interessant is selecteert Claude alles. Context meegegeven: eerder gelikete/gedislikete items, onderwerp-geschiedenis, bestaande feed-items (exclusief dagelijkse samenvattingen).
-6. Update `inFeed` en `feedReason` op de geselecteerde RssItems.
-7. Voor elk geselecteerd item: vraag Claude om een uitgebreide Nederlandse FeedItem-samenvatting (400-600 woorden).
+5. Vraag Claude in één batch-aanroep om per artikel te bepalen of het in de feed hoort (maximaal ~50 artikelen per aanroep; bij meer artikelen worden ze opgesplitst in batches). Er is geen minimum of maximum percentage — als niets interessant genoeg is selecteert Claude niets, als alles interessant is selecteert Claude alles. Context die meegestuurd wordt:
+   - Categorieën + bijbehorende `extraInstructions` (gebruikersvoorkeur per categorie)
+   - Recente onderwerpen uit `topic_history.json` (gerangschikt op gewogen score van likes/sterren/news-count)
+   - Titels van eerder gelikete artikelen (max 20)
+   - Titels van eerder afgewezen artikelen (max 20)
+   - Titels van bewaarde (gesternde) artikelen (max 10)
+6. Update `inFeed` en `feedReason` op alle nieuwe RssItems. **Ook items die níet geselecteerd worden krijgen een `feedReason`** (bv. "Niet geselecteerd voor de persoonlijke feed" of de motivatie van Claude). Zo weet de gebruiker altijd waarom een item wel/niet in de feed staat.
+7. Voor elk geselecteerd item: haal de volledige artikeltekst op via een eenvoudige HTML-fetch (max 8000 tekens, na strip van scripts/styles/nav/header/footer). Vraag Claude vervolgens om een uitgebreide Nederlandse FeedItem-samenvatting (400-600 woorden) op basis van deze ruwe tekst plus de gebruikersinstructies van de toegewezen categorie.
 8. Sla FeedItems op en koppel `feedItemId` terug op de RssItems.
 9. Werk onderwerp-geschiedenis bij op basis van alle nieuwe items met topics.
-10. Stuur WebSocket updates bij elke statuswijziging.
+10. Stuur WebSocket updates bij elke statuswijziging van het bijbehorende `hourly-update-{username}` record.
 
 **Concurrency:** Per-gebruiker lock voorkomt overlappende runs.
 
+**Geen API-key:** Als `ANTHROPIC_API_KEY` ontbreekt logt de Claude-client een waarschuwing en retourneert hij een lege respons. De pipeline gaat door — items worden opgeslagen, maar zonder samenvatting/categorie/topics, en niets eindigt in de feed. Zet de env-var en trigger handmatig een refresh om dat goed te maken.
+
 ---
 
-### 6.2 Dagelijkse samenvatting (automatisch, 06:00)
+### 6.2 Dagelijkse samenvatting (automatisch 06:00 + handmatig)
 
-Elke dag om 06:00 wordt voor elke gebruiker een dagelijkse samenvatting aangemaakt.
+Wordt elke dag om 06:00 automatisch uitgevoerd voor elke gebruiker. **Daarnaast handmatig te triggeren**: de gebruiker kan het bijbehorende vaste verzoek-record `daily-summary-{username}` herstarten via `POST /api/requests/{id}/rerun` (in de Flutter-app de play-knop op de "Dagelijkse samenvatting"-rij in de Queue-tab). Het rerun-event wordt door de rss-module afgehandeld zodat dezelfde pipeline draait als bij de scheduled job.
 
 **Pipeline:**
 1. Verzamel alle FeedItems van de afgelopen 24 uur + alle RssItems van de afgelopen 7 dagen.
 2. Stuur dit naar Claude voor een uitgebreid Nederlandstalig dagelijks nieuwsoverzicht in Markdown-formaat (600-1000 woorden).
 3. Sla op als FeedItem met `isSummary: true` en ID `daily-summary-feed-{datum}`. Een eventueel bestaand item met hetzelfde ID wordt eerst verwijderd.
+4. Zet het `daily-summary-{username}` request op `DONE` met de geactualiseerde `costUsd` en `newItemCount`.
 
 ---
 

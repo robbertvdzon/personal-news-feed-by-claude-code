@@ -12,6 +12,31 @@ class PodcastScreen extends ConsumerStatefulWidget {
   ConsumerState<PodcastScreen> createState() => _PodcastScreenState();
 }
 
+bool _isInProgress(String status) =>
+    status == 'PENDING' ||
+    status == 'DETERMINING_TOPICS' ||
+    status == 'GENERATING_SCRIPT' ||
+    status == 'GENERATING_AUDIO';
+
+String _statusLabel(String status) {
+  switch (status) {
+    case 'PENDING':
+      return 'In wachtrij…';
+    case 'DETERMINING_TOPICS':
+      return 'Onderwerpen bepalen…';
+    case 'GENERATING_SCRIPT':
+      return 'Script schrijven…';
+    case 'GENERATING_AUDIO':
+      return 'Audio genereren…';
+    case 'DONE':
+      return 'Klaar';
+    case 'FAILED':
+      return 'Mislukt';
+    default:
+      return status;
+  }
+}
+
 class _PodcastScreenState extends ConsumerState<PodcastScreen> {
   Timer? _pollTimer;
 
@@ -28,7 +53,8 @@ class _PodcastScreenState extends ConsumerState<PodcastScreen> {
         p.status == 'GENERATING_SCRIPT' ||
         p.status == 'GENERATING_AUDIO');
     if (pending) {
-      _pollTimer ??= Timer.periodic(const Duration(seconds: 4), (_) => ref.invalidate(podcastProvider));
+      _pollTimer ??= Timer.periodic(const Duration(seconds: 4),
+          (_) => ref.read(podcastProvider.notifier).poll());
     } else {
       _pollTimer?.cancel();
       _pollTimer = null;
@@ -66,10 +92,20 @@ class _PodcastScreenState extends ConsumerState<PodcastScreen> {
                       background: Container(color: Colors.red, alignment: Alignment.centerRight, padding: const EdgeInsets.only(right: 16), child: const Icon(Icons.delete, color: Colors.white)),
                       child: Card(
                         child: ListTile(
-                          leading: const Icon(Icons.podcasts),
+                          leading: _isInProgress(p.status)
+                              ? const SizedBox(
+                                  width: 32,
+                                  height: 32,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : Icon(p.status == 'FAILED' ? Icons.error : Icons.podcasts,
+                                  color: p.status == 'FAILED' ? Colors.red : null),
                           title: Text(p.title.isEmpty ? 'DevTalk ${p.podcastNumber}' : p.title),
                           subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                            Text('Status: ${p.status}'),
+                            Text(_statusLabel(p.status), style: TextStyle(
+                              color: _isInProgress(p.status) ? Theme.of(context).colorScheme.primary : null,
+                              fontWeight: _isInProgress(p.status) ? FontWeight.bold : null,
+                            )),
                             Text('Duur: ${p.durationMinutes}min · TTS: ${p.ttsProvider}'),
                             if (p.costUsd > 0) Text('Kosten: \$${p.costUsd.toStringAsFixed(4)}'),
                           ]),

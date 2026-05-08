@@ -3,6 +3,23 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/models.dart';
 import '../providers/data_providers.dart';
 
+String _statusLabel(String status) {
+  switch (status) {
+    case 'PENDING':
+      return 'In wachtrij…';
+    case 'PROCESSING':
+      return 'Bezig…';
+    case 'DONE':
+      return 'Klaar';
+    case 'FAILED':
+      return 'Mislukt';
+    case 'CANCELLED':
+      return 'Geannuleerd';
+    default:
+      return status;
+  }
+}
+
 class QueueScreen extends ConsumerWidget {
   const QueueScreen({super.key});
 
@@ -31,6 +48,7 @@ class QueueScreen extends ConsumerWidget {
                   itemBuilder: (ctx, i) {
                     final r = items[i];
                     final fixed = r.id.startsWith('hourly-update-') || r.id.startsWith('daily-summary-');
+                    final inProgress = r.status == 'PENDING' || r.status == 'PROCESSING';
                     return Dismissible(
                       key: Key('req_${r.id}'),
                       direction: fixed ? DismissDirection.none : DismissDirection.endToStart,
@@ -38,22 +56,44 @@ class QueueScreen extends ConsumerWidget {
                       background: Container(color: Colors.red, alignment: Alignment.centerRight, padding: const EdgeInsets.only(right: 16), child: const Icon(Icons.delete, color: Colors.white)),
                       child: Card(
                         child: ListTile(
+                          leading: inProgress
+                              ? const SizedBox(
+                                  width: 28, height: 28,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : Icon(
+                                  r.status == 'FAILED' ? Icons.error :
+                                  r.status == 'CANCELLED' ? Icons.block :
+                                  r.isHourlyUpdate ? Icons.rss_feed :
+                                  r.isDailySummary ? Icons.summarize :
+                                  Icons.search,
+                                  color: r.status == 'FAILED' ? Colors.red : null,
+                                ),
                           title: Text(r.subject),
                           subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                            Text('Status: ${r.status}'),
+                            Text(_statusLabel(r.status), style: TextStyle(
+                              color: inProgress ? Theme.of(ctx).colorScheme.primary : null,
+                              fontWeight: inProgress ? FontWeight.bold : null,
+                            )),
                             if (r.newItemCount > 0) Text('Items: ${r.newItemCount}, kosten: \$${r.costUsd.toStringAsFixed(4)}'),
                             if (r.durationSeconds > 0) Text('Duur: ${r.durationSeconds}s'),
                           ]),
                           onTap: () => _detail(context, r),
                           trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                            if (r.status == 'PENDING' || r.status == 'PROCESSING')
+                            if (inProgress)
                               IconButton(
+                                tooltip: 'Annuleren',
                                 icon: const Icon(Icons.cancel),
                                 onPressed: () => ref.read(requestProvider.notifier).cancel(r.id),
                               ),
-                            if (r.status == 'FAILED' || r.status == 'CANCELLED' || r.status == 'DONE')
+                            if (!inProgress)
                               IconButton(
-                                icon: const Icon(Icons.refresh),
+                                tooltip: r.isDailySummary
+                                    ? 'Genereer dagelijkse samenvatting nu'
+                                    : r.isHourlyUpdate
+                                        ? 'RSS-feeds nu vernieuwen'
+                                        : 'Opnieuw uitvoeren',
+                                icon: const Icon(Icons.play_arrow),
                                 onPressed: () => ref.read(requestProvider.notifier).rerun(r.id),
                               ),
                           ]),

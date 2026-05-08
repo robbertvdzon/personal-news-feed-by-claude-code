@@ -8,8 +8,10 @@ import com.vdzon.newsfeedbackend.request.NewsRequest
 import com.vdzon.newsfeedbackend.request.RequestService
 import com.vdzon.newsfeedbackend.request.RequestStatus
 import com.vdzon.newsfeedbackend.rss.RssItem
+import com.vdzon.newsfeedbackend.rss.infrastructure.ArticleFetcher
 import com.vdzon.newsfeedbackend.rss.infrastructure.RssFetcher
 import com.vdzon.newsfeedbackend.rss.infrastructure.RssItemRepository
+import com.vdzon.newsfeedbackend.settings.CategorySettings
 import com.vdzon.newsfeedbackend.settings.SettingsService
 import io.micrometer.core.instrument.MeterRegistry
 import org.slf4j.LoggerFactory
@@ -22,12 +24,12 @@ import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.locks.ReentrantLock
-import kotlin.concurrent.withLock
 
 @Component
 class RssRefreshPipeline(
     private val rssRepo: RssItemRepository,
     private val fetcher: RssFetcher,
+    private val articleFetcher: ArticleFetcher,
     private val anthropic: AnthropicClient,
     private val settings: SettingsService,
     private val feed: FeedService,
@@ -81,37 +83,21 @@ class RssRefreshPipeline(
                 .distinctBy { it.url }
 
             log.info("[RSS] {} nieuwe artikelen voor '{}'", fetched.size, username)
-            val processed = fetched.mapNotNull { summarize(username, it, cats.map { c -> c.id to c.name }) }
+            val processed = fetched.mapNotNull { summarize(it, cats) }
             rssRepo.upsertAll(username, processed)
 
-            val selected = if (processed.isEmpty()) emptyList() else selectForFeed(username, processed, cats.map { c -> c.id to c.name })
+            val selected = if (processed.isEmpty()) emptyList()
+            else selectForFeed(username, processed, cats, existingItems)
             val withSelection = processed.map {
                 val sel = selected.find { s -> s.first == it.id }
-                if (sel != null) it.copy(inFeed = true, feedReason = sel.second) else it
+                if (sel != null) it.copy(inFeed = true, feedReason = sel.second)
+                else it.copy(feedReason = "Niet geselecteerd voor de persoonlijke feed")
             }
             rssRepo.upsertAll(username, withSelection)
 
             var feedCount = 0
             for (rss in withSelection.filter { it.inFeed }) {
-                val ai = anthropic.complete(
-                    operation = "generateFeedItemSummary",
-                    system = "Je schrijft een uitgebreide journalistieke samenvatting van 400-600 woorden in het Nederlands.",
-                    user = "Titel: ${rss.title}\nURL: ${rss.url}\n\nBron-tekst:\n${rss.snippet}"
-                )
-                val feedItem = FeedItem(
-                    id = UUID.randomUUID().toString(),
-                    title = rss.title,
-                    summary = ai.text,
-                    url = rss.url,
-                    category = rss.category,
-                    source = rss.source,
-                    sourceRssIds = listOf(rss.id),
-                    sourceUrls = listOf(rss.url),
-                    topics = rss.topics,
-                    feedReason = rss.feedReason,
-                    publishedDate = rss.publishedDate,
-                    createdAt = Instant.now()
-                )
+                val feedItem = generateFeedItem(rss, cats)
                 feed.save(username, feedItem)
                 rssRepo.upsert(username, rss.copy(feedItemId = feedItem.id))
                 feedCount++
@@ -144,21 +130,26 @@ class RssRefreshPipeline(
         }
     }
 
-    private fun summarize(username: String, rss: RssItem, categories: List<Pair<String, String>>): RssItem? {
-        val catList = categories.joinToString("\n") { "- ${it.first}: ${it.second}" }
+    private fun summarize(rss: RssItem, categories: List<CategorySettings>): RssItem? {
+        val catList = categories.joinToString("\n") { c ->
+            val instr = if (c.extraInstructions.isNotBlank()) " — ${c.extraInstructions.take(200)}" else ""
+            "- ${c.id}: ${c.name}$instr"
+        }
         val ai = anthropic.complete(
             operation = "summarizeRssItem",
             model = anthropic.summaryModel(),
-            system = "Je vat artikelen kort samen (150-250 woorden) in het Nederlands. Wijs een categorie-id toe en extraheer 2-3 onderwerpen.",
+            system = "Je vat artikelen kort samen (150-250 woorden) in het Nederlands. Wijs een categorie-id toe op basis van de gebruikersvoorkeuren en extraheer 2-3 onderwerpen.",
             user = """
-                Beschikbare categorieën:
+                Beschikbare categorieën (id, naam, gebruikersinstructies):
                 $catList
 
                 Artikel:
                 Titel: ${rss.title}
+                Bron: ${rss.source}
                 Snippet: ${rss.snippet}
 
-                Antwoord uitsluitend in JSON met velden: {"summary": "...", "category": "kotlin", "topics": ["...","..."]}
+                Antwoord uitsluitend in geldig JSON met velden:
+                {"summary": "Nederlandse samenvatting 150-250 woorden", "category": "kotlin", "topics": ["onderwerp 1", "onderwerp 2"]}
             """.trimIndent()
         )
         return try {
@@ -175,17 +166,49 @@ class RssRefreshPipeline(
         }
     }
 
-    private fun selectForFeed(username: String, items: List<RssItem>, categories: List<Pair<String, String>>): List<Pair<String, String>> {
+    private fun selectForFeed(
+        username: String,
+        items: List<RssItem>,
+        categories: List<CategorySettings>,
+        existing: List<RssItem>
+    ): List<Pair<String, String>> {
         val titles = items.joinToString("\n") { "${it.id}|${it.category}|${it.title}" }
+        val likedTitles = existing.filter { it.liked == true }.takeLast(20).joinToString("\n") { "+ ${it.title}" }
+        val dislikedTitles = existing.filter { it.liked == false }.takeLast(20).joinToString("\n") { "- ${it.title}" }
+        val starredTitles = existing.filter { it.starred }.takeLast(10).joinToString("\n") { "* ${it.title}" }
+        val recentTopics = topicHistory.load(username)
+            .sortedByDescending { (it.likedCount + it.starredCount) * 5 + it.newsCount }
+            .take(15)
+            .joinToString(", ") { "${it.topic}(news=${it.newsCount},liked=${it.likedCount})" }
+
+        val catContext = categories.joinToString("\n") { c ->
+            val instr = if (c.extraInstructions.isNotBlank()) "\n  voorkeur: ${c.extraInstructions}" else ""
+            "${c.id} (${c.name})$instr"
+        }
+
         val ai = anthropic.complete(
             operation = "selectFeedItems",
-            system = "Je selecteert artikelen voor een persoonlijke feed. Geen vaste minimum of maximum.",
+            system = "Je beoordeelt artikelen voor een persoonlijke feed van een softwareontwikkelaar. Gebruik de gebruikersvoorkeuren per categorie als leidraad. Selecteer alleen écht relevante artikelen — geen vast minimum of maximum. Geef per artikel een korte Nederlandse motivatie (max 1 zin) waarom je het wel of niet kiest.",
             user = """
-                Artikelen (id|category|title):
+                Categorieën en voorkeuren:
+                $catContext
+
+                Recent gelezen onderwerpen: ${recentTopics.ifBlank { "(geen)" }}
+
+                Eerder geliket:
+                ${likedTitles.ifBlank { "(geen)" }}
+
+                Eerder afgewezen:
+                ${dislikedTitles.ifBlank { "(geen)" }}
+
+                Eerder bewaard (sterren):
+                ${starredTitles.ifBlank { "(geen)" }}
+
+                Nieuwe artikelen (id|category|title):
                 $titles
 
-                Antwoord uitsluitend met JSON-array: [{"id": "...", "inFeed": true, "reason": "..."}]
-                Includeer alleen artikelen die echt interessant zijn.
+                Antwoord uitsluitend met een geldig JSON-array. Voor élk artikel uit de lijst hierboven één entry, in dezelfde volgorde, in het format:
+                [{"id": "...", "inFeed": true, "reason": "korte Nederlandse uitleg"}, ...]
             """.trimIndent()
         )
         return try {
@@ -194,8 +217,45 @@ class RssRefreshPipeline(
                 .map { it.path("id").asText() to it.path("reason").asText("") }
         } catch (e: Exception) {
             log.warn("[RSS] selectie parse fout: {}", e.message)
+            log.debug("[RSS] selectie ruwe AI-output: {}", ai.text)
             emptyList()
         }
+    }
+
+    private fun generateFeedItem(rss: RssItem, categories: List<CategorySettings>): FeedItem {
+        val fullText = articleFetcher.fetchPlainText(rss.url) ?: rss.snippet
+        val catInstr = categories.find { it.id == rss.category }?.extraInstructions.orEmpty()
+        val ai = anthropic.complete(
+            operation = "generateFeedItemSummary",
+            system = "Je schrijft een uitgebreide journalistieke samenvatting van 400-600 woorden in het Nederlands. " +
+                "Geef context, betekenis en relevantie. Gebruik geen markdown-headers maar wel duidelijke paragrafen.",
+            user = buildString {
+                appendLine("Titel: ${rss.title}")
+                appendLine("Bron: ${rss.source}")
+                appendLine("URL: ${rss.url}")
+                if (catInstr.isNotBlank()) {
+                    appendLine()
+                    appendLine("Lezerscontext (categorie '${rss.category}'): $catInstr")
+                }
+                appendLine()
+                appendLine("Volledige artikeltekst (mogelijk afgekort):")
+                append(fullText.take(8000))
+            }
+        )
+        return FeedItem(
+            id = UUID.randomUUID().toString(),
+            title = rss.title,
+            summary = ai.text.ifBlank { rss.summary.ifBlank { rss.snippet } },
+            url = rss.url,
+            category = rss.category,
+            source = rss.source,
+            sourceRssIds = listOf(rss.id),
+            sourceUrls = listOf(rss.url),
+            topics = rss.topics,
+            feedReason = rss.feedReason,
+            publishedDate = rss.publishedDate,
+            createdAt = Instant.now()
+        )
     }
 
     private fun updateTopicHistory(username: String, items: List<RssItem>) {

@@ -213,6 +213,19 @@ class PodcastNotifier extends AsyncNotifier<List<Podcast>> {
     state = await AsyncValue.guard(() => build());
   }
 
+  /// Re-fetch the list silently — keeps current data visible during the
+  /// in-flight request so polling doesn't flash a loading spinner over
+  /// in-progress podcast cards.
+  Future<void> poll() async {
+    try {
+      final list = await _api.get('/api/podcasts') as List<dynamic>;
+      state = AsyncData(
+          list.map((e) => Podcast.fromJson(e as Map<String, dynamic>)).toList());
+    } catch (_) {
+      // ignore — keep current state
+    }
+  }
+
   Future<Podcast> create({required int periodDays, required int durationMinutes, required String ttsProvider, List<String> customTopics = const []}) async {
     final r = await _api.post('/api/podcasts', {
       'periodDays': periodDays,

@@ -85,15 +85,25 @@ class _RssItemDetailScreenState extends ConsumerState<RssItemDetailScreen> {
                     ),
                   Chip(label: Text(it.category)),
                   if (it.publishedDate != null) Chip(label: Text(it.publishedDate!)),
-                  Chip(label: Text(it.inFeed ? 'in feed' : 'niet in feed'),
-                      backgroundColor: it.inFeed ? Colors.green.shade100 : null),
                 ]),
+                const SizedBox(height: 12),
+                _FeedReasonBanner(item: it),
+                if (it.topics.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    children: it.topics
+                        .map((t) => Chip(
+                              label: Text(t),
+                              visualDensity: VisualDensity.compact,
+                              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ))
+                        .toList(),
+                  ),
+                ],
                 const SizedBox(height: 16),
                 Text(it.summary.isEmpty ? it.snippet : it.summary),
-                if (it.feedReason.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  Text('Reden: ${it.feedReason}', style: Theme.of(context).textTheme.bodySmall),
-                ],
                 const SizedBox(height: 24),
                 Wrap(spacing: 8, children: [
                   if (it.url.isNotEmpty)
@@ -112,6 +122,47 @@ class _RssItemDetailScreenState extends ConsumerState<RssItemDetailScreen> {
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+class _FeedReasonBanner extends StatelessWidget {
+  final RssItem item;
+  const _FeedReasonBanner({required this.item});
+
+  @override
+  Widget build(BuildContext context) {
+    final inFeed = item.inFeed;
+    final color = inFeed ? Colors.green : Colors.orange;
+    final icon = inFeed ? Icons.check_circle : Icons.info_outline;
+    final headline = inFeed ? 'In persoonlijke feed' : 'Niet in persoonlijke feed';
+    final reason = item.feedReason.isNotEmpty
+        ? item.feedReason
+        : 'Geen reden door AI gegeven (mogelijk nog niet beoordeeld of API-key ontbreekt).';
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        border: Border.all(color: color.withValues(alpha: 0.4)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(headline, style: Theme.of(context).textTheme.titleSmall),
+                const SizedBox(height: 4),
+                Text(reason),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

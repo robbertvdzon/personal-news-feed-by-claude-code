@@ -144,6 +144,10 @@ Toont: titel, bron, categorie, datum, snippet. Een badge geeft aan of het item *
 ### RssItemDetailScreen
 Identiek qua PageView-navigatie en AppBar-acties als FeedItemDetailScreen.
 
+**Feed-status banner:** prominent zichtbaar onder de chips, met groene tint + check-icon als `inFeed: true` ("In persoonlijke feed") of oranje tint + info-icon als `inFeed: false` ("Niet in persoonlijke feed"). Onder de kop staat het volledige `feedReason`-veld met de motivatie van Claude. Als `feedReason` leeg is wordt een fallback-tekst getoond ("Geen reden door AI gegeven (mogelijk nog niet beoordeeld of API-key ontbreekt)") zodat de gebruiker altijd ziet of het item is beoordeeld.
+
+**Topics:** als `topics` niet leeg is worden ze als compacte chips onder de banner getoond.
+
 **Extra acties:**
 - **"Meer hierover"-knop:** maakt een nieuw verzoek aan (POST `/api/requests`) met het artikel als bronverwijzing (`sourceItemId`, `sourceItemTitle`). Opent een dialoog om het verzoek te bevestigen.
 - **"Open feed-item"-knop:** alleen zichtbaar als `feedItemId` ingevuld is. Navigeert naar FeedItemDetailScreen voor het gekoppelde feed-item.
@@ -162,9 +166,14 @@ Toont de lijst van verwerkingsverzoeken: `GET /api/requests`.
 
 **Uurlijkse RSS-update (vast, niet verwijderbaar):** item met ID `hourly-update-{username}` en flag `isHourlyUpdate: true`. Vertegenwoordigt de status van de uurlijkse RSS-verwerking — één vast record dat in-place wordt bijgewerkt bij elke run, niet één per uur. Toont status, voortgangs-indicator tijdens verwerking, kosten en itemtelling na voltooiing. Looptijd wordt live bijgehouden (elapsed timer).
 
-**Dagelijkse samenvatting (vast, niet verwijderbaar):** item met ID `daily-summary-{username}`. Zelfde weergave.
+**Dagelijkse samenvatting (vast, niet verwijderbaar):** item met ID `daily-summary-{username}` en flag `isDailySummary: true`. Zelfde weergave als de uurlijkse RSS-update. **Handmatig triggeren** gebeurt via de play-knop op deze rij — dat stuurt `POST /api/requests/{id}/rerun`, wat aan de backend-kant de daily-summary pipeline (her)start. Tooltip op de knop voor dit record: "Genereer dagelijkse samenvatting nu".
 
 **Ad-hoc verzoeken:** alle overige items. Zelfde weergave als boven.
+
+### Visuele weergave per rij
+- **Leading icon:** een `CircularProgressIndicator` zolang status `PENDING` of `PROCESSING` is, anders een type-specifiek icoon (`rss_feed` voor uurlijks, `summarize` voor daily summary, `search` voor ad-hoc, `error` rood voor FAILED, `block` voor CANCELLED).
+- **Statuslabel:** Nederlandse weergave ("In wachtrij…", "Bezig…", "Klaar", "Mislukt", "Geannuleerd"), blauw + bold tijdens uitvoering.
+- **Trailing-knop:** annuleer-knop tijdens uitvoering, anders een play-knop met type-specifieke tooltip ("RSS-feeds nu vernieuwen", "Genereer dagelijkse samenvatting nu", of "Opnieuw uitvoeren").
 
 ### Acties
 - **FAB / knop "Nieuw verzoek":** opent NieuwVerzoekDialog
@@ -174,8 +183,8 @@ Toont de lijst van verwerkingsverzoeken: `GET /api/requests`.
   - Indienen: POST `/api/requests`; direct optimistisch een tijdelijk item toevoegen met status PENDING
 - **Tik op verzoek:** opent VerzoekDetailDialog met per-categorie resultaten en totale kosten
 - **Swipe links:** verzoek verwijderen (DELETE `/api/requests/{id}`); niet mogelijk voor vaste verzoeken
-- **"Annuleren"-knop:** POST `/api/requests/{id}/cancel`; optimistisch status → CANCELLED
-- **"Opnieuw"-knop:** POST `/api/requests/{id}/rerun`; optimistisch status → PENDING
+- **Annuleer-knop:** POST `/api/requests/{id}/cancel`; optimistisch status → CANCELLED
+- **Play-knop (rerun):** POST `/api/requests/{id}/rerun`; optimistisch status → PENDING. Voor `hourly-update-*` wordt de RSS-pipeline (her)start, voor `daily-summary-*` de daily summary pipeline.
 - **Pull-to-refresh / vernieuwen-icoon:** herlaad verzoeken
 
 ### WebSocket-integratie
@@ -197,6 +206,8 @@ Toont gegenereerde podcasts: `GET /api/podcasts`.
 
 ### PodcastCard (in de lijst)
 Toont: podcastnummer, titel, datum, duur, status, kosten, TTS-provider.
+
+**Visuele progress-indicatie:** zolang de podcast nog niet `DONE` of `FAILED` is, vervangt een `CircularProgressIndicator` het podcasts-icoon, en wordt het Nederlandse statuslabel ("In wachtrij…", "Onderwerpen bepalen…", "Script schrijven…", "Audio genereren…") in primaire kleur en bold getoond. Bij `FAILED` toont een rood error-icon en label "Mislukt".
 
 **Acties:**
 - **Play/pause-icoon op kaart:** laadt audio en speelt af / pauzeert (zie audiospeler)
@@ -232,6 +243,8 @@ Zolang audio actief is (ook na navigeren naar andere schermen binnen de Podcast-
 
 ### Podcast-polling
 Zolang een of meer podcasts de status `PENDING`, `DETERMINING_TOPICS`, `GENERATING_SCRIPT` of `GENERATING_AUDIO` hebben, wordt elke 4 seconden GET `/api/podcasts` opnieuw aangeroepen totdat alle podcasts `DONE` of `FAILED` zijn.
+
+> **Belangrijk:** poll-fetches mogen de provider níet via `invalidate()` resetten — dat zou de `AsyncData` voor 1-2 frames terugzetten naar `loading` en de progress-indicator op de kaart laten flikkeren. Implementatie: een aparte `poll()` notifier-methode die de lijst stilletjes ophaalt en de state vervangt zonder eerst `AsyncLoading` te zetten.
 
 ---
 

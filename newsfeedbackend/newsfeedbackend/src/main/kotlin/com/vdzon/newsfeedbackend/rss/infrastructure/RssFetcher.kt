@@ -24,12 +24,16 @@ import java.util.UUID
 class RssFetcher {
 
     private val log = LoggerFactory.getLogger(javaClass)
-    private val http: HttpClient = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.ALWAYS).build()
+    private val http: HttpClient = HttpClient.newBuilder()
+        .connectTimeout(java.time.Duration.ofSeconds(10))
+        .followRedirects(HttpClient.Redirect.ALWAYS)
+        .build()
 
     fun fetch(feedUrl: String): List<RssItem> {
         return try {
             val req = HttpRequest.newBuilder().uri(URI.create(feedUrl))
                 .header("User-Agent", "PersonalNewsFeed/1.0")
+                .timeout(java.time.Duration.ofSeconds(20))
                 .GET().build()
             val resp = http.send(req, HttpResponse.BodyHandlers.ofInputStream())
             if (resp.statusCode() >= 400) {
