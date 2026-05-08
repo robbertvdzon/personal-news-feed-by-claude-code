@@ -403,6 +403,19 @@ make build-apk-ext
 - Bouwt een release-APK
 - Gebruikt backend op **`http://217.120.100.76:19283`**
 
+**Android cleartext-HTTP**: omdat de backend self-hosted is zonder TLS, moeten twee dingen geregeld zijn in de Android-manifest (anders krijgt de release-APK `Operation not permitted, errno = 1` op elke API-call):
+
+1. `<uses-permission android:name="android.permission.INTERNET"/>` in `frontend/android/app/src/main/AndroidManifest.xml`. Het Flutter-template zet die default alleen in de debug-manifest, niet in main.
+2. `android:usesCleartextTraffic="true"` op de `<application>`, plus een `network_security_config.xml` (in `res/xml/`) die cleartext-HTTP whitelist voor specifieke domains/IPs:
+   ```xml
+   <domain-config cleartextTrafficPermitted="true">
+       <domain includeSubdomains="false">217.120.100.76</domain>
+       <domain includeSubdomains="false">localhost</domain>
+       <domain includeSubdomains="false">10.0.2.2</domain>
+   </domain-config>
+   ```
+   Andere domains blijven default HTTPS-only. `10.0.2.2` is het host-loopback van de Android emulator.
+
 Intern zoiets als:
 ```bash
 flutter build apk --release \
