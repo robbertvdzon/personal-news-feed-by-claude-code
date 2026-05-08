@@ -70,8 +70,34 @@ class AnthropicHttpClient(
                         meters.counter("newsfeed.ai.retries", "operation", operation).increment()
                         throw RateLimitException("rate limited")
                     }
+                    if (resp.statusCode() == 529) {
+                        // Anthropic-specifiek: tijdelijke overbelasting van het systeem.
+                        meters.counter("newsfeed.ai.retries", "operation", operation).increment()
+                        throw RateLimitException("overloaded")
+                    }
                     if (resp.statusCode() >= 400) {
-                        log.error("[Anthropic] {} -> {} {}", operation, resp.statusCode(), resp.body())
+                        val errBody = resp.body()
+                        when {
+                            errBody.contains("credit balance is too low", ignoreCase = true) ->
+                                log.error(
+                                    "[Anthropic] {} → 400 API-tegoed is op. Dit gaat NIET vanzelf over. " +
+                                        "Vul credits aan op https://console.anthropic.com/settings/billing. " +
+                                        "Let op: een Pro-abonnement op claude.ai geldt NIET voor API-gebruik — " +
+                                        "die billing is volledig gescheiden.", operation
+                                )
+                            resp.statusCode() == 401 ->
+                                log.error(
+                                    "[Anthropic] {} → 401 ongeldige API-key. Check ANTHROPIC_API_KEY in je env.",
+                                    operation
+                                )
+                            resp.statusCode() == 403 ->
+                                log.error(
+                                    "[Anthropic] {} → 403 toegang geweigerd: {}",
+                                    operation, errBody.take(200)
+                                )
+                            else ->
+                                log.error("[Anthropic] {} → {} {}", operation, resp.statusCode(), errBody.take(500))
+                        }
                         return AiResponse("", 0, 0, 0.0, chosen)
                     }
                     val parsed = mapper.readTree(resp.body())
