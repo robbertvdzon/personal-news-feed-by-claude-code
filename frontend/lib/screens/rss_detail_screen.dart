@@ -120,8 +120,12 @@ class _RssItemDetailScreenState extends ConsumerState<RssItemDetailScreen> {
         },
         itemBuilder: (ctx, i) {
           final it = _liveItem(i);
+          // Bottom-padding compenseert voor Android nav-bar / iOS home-
+          // indicator zodat "Open bron" en "Meer hierover" niet onder
+          // de system gesture-area verdwijnen.
+          final bottomInset = MediaQuery.of(context).padding.bottom;
           return SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
+            padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + bottomInset),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [

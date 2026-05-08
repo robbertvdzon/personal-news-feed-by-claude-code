@@ -86,12 +86,17 @@ class _PodcastDetailScreenState extends ConsumerState<PodcastDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final p = _podcast;
+    // Android system gesture bar (en iOS home indicator) zit onderin het
+    // scherm; zonder extra padding verdwijnen Draaiboek/Download-knoppen
+    // erachter en zijn ze niet aan te tikken. SafeArea + extra bottom-
+    // padding (16 +/- system inset) vangt dat op.
+    final bottomInset = MediaQuery.of(context).padding.bottom;
     return Scaffold(
       appBar: AppBar(title: Text(p?.title ?? 'Podcast')),
       body: p == null
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
+              padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + bottomInset),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [

@@ -104,8 +104,12 @@ class _FeedItemDetailScreenState extends ConsumerState<FeedItemDetailScreen> {
   }
 
   Widget _itemView(FeedItem it) {
+    // Bottom-padding compenseert voor Android nav-bar / iOS home-indicator
+    // zodat de "Open bron"-knop onderin niet onder de system gesture-area
+    // verdwijnt.
+    final bottomInset = MediaQuery.of(context).padding.bottom;
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + bottomInset),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

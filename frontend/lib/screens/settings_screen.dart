@@ -14,9 +14,12 @@ class SettingsScreen extends ConsumerWidget {
     final cats = ref.watch(settingsProvider);
     final feeds = ref.watch(rssFeedsProvider);
     final appearance = ref.watch(appearanceProvider);
+    final bottomInset = MediaQuery.of(context).padding.bottom;
     return Scaffold(
       appBar: AppBar(title: const Text('Instellingen')),
-      body: ListView(padding: const EdgeInsets.all(16), children: [
+      // Bottom-padding zodat de "Artikelen opruimen"-knop onderin niet
+      // onder de Android nav-bar / iOS home-indicator verdwijnt.
+      body: ListView(padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + bottomInset), children: [
         Text('Account', style: Theme.of(context).textTheme.titleLarge),
         ListTile(
           leading: const Icon(Icons.person),

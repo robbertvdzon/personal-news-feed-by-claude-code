@@ -343,6 +343,9 @@ De lettergrootte-instelling geldt app-breed via een `MediaQuery`-wrapper in de r
 - Bij netwerkverlies toont de app de laatste bekende data
 - Laadstatus wordt per scherm weergegeven (laadindicator)
 
+### System inset / SafeArea
+Detail-schermen zonder bottom navigation bar (FeedItemDetailScreen, RssItemDetailScreen, PodcastDetailScreen) en de Settings-ListView passen `MediaQuery.of(context).padding.bottom` als extra bottom-padding op de scrollende inhoud toe. Zonder dat verdwijnen de onderste knoppen ("Open bron", "Meer hierover", "Draaiboek", "Download", "Artikelen opruimen") op Android achter de gesture nav-bar en op iOS achter de home-indicator. De Material 3 `NavigationBar` van de MainShell is zelf safe-area-aware en heeft die fix niet nodig.
+
 ---
 
 ## 12. Configuratie
