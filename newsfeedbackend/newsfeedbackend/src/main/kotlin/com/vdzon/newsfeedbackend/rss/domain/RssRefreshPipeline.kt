@@ -289,7 +289,7 @@ class RssRefreshPipeline(
 
         val ai = anthropic.complete(
             operation = "selectFeedItems",
-            maxTokens = 8000,
+            maxTokens = 16000,
             system = """
                 Je bent een nieuwsredacteur die voor een softwareontwikkelaar bepaalt welke artikelen interessant genoeg zijn voor zijn persoonlijke feed.
 
@@ -298,6 +298,7 @@ class RssRefreshPipeline(
                 - Wees niet te streng. Twijfelgevallen die binnen de gebruikers­voorkeuren vallen mogen worden meegenomen.
                 - Schrijf de redenen in het Nederlands, max 1 zin.
                 - Beantwoord álle aangeleverde artikelen, in dezelfde volgorde.
+                - Antwoord met **alleen** de pure JSON-array, geen markdown-codefences (geen ```), geen prose ervoor of erna.
             """.trimIndent(),
             user = """
                 Categorieën en voorkeuren:
@@ -410,10 +411,65 @@ class RssRefreshPipeline(
         }
     }
 
+    /**
+     * Pulls the JSON payload out of a Claude response.
+     *
+     * Claude routinely wraps its answers in ```json ... ``` markdown fences,
+     * so we strip those first. After that we find the earliest opening
+     * bracket — `[` for an array, `{` for an object — and walk forward
+     * tracking brace/bracket depth (respecting strings + escape chars) to
+     * locate the matching close. That gives us a clean balanced segment
+     * even when Claude appends prose after the JSON, and it avoids the
+     * old bug where `indexOf('{')` picked up a position *inside* the array
+     * (the first object's opener) and skipped the array's own `[`.
+     *
+     * If the depth never closes (response truncated by max_tokens), we
+     * return everything from the opener onwards — the caller will get a
+     * Jackson parse error and log the raw text for debugging.
+     */
     private fun extractJson(text: String): String {
-        val start = text.indexOf('{').let { o -> if (o < 0) text.indexOf('[') else o }
-        val end = maxOf(text.lastIndexOf('}'), text.lastIndexOf(']'))
-        if (start < 0 || end < 0 || end <= start) return text
-        return text.substring(start, end + 1)
+        var s = text.trim()
+        // Strip leading ```json or ``` fence
+        s = s.removePrefix("```json").removePrefix("```JSON").removePrefix("```").trim()
+        // Strip trailing ``` fence
+        if (s.endsWith("```")) s = s.dropLast(3).trim()
+
+        val curly = s.indexOf('{')
+        val bracket = s.indexOf('[')
+        val start = when {
+            curly < 0 && bracket < 0 -> return s
+            curly < 0 -> bracket
+            bracket < 0 -> curly
+            else -> minOf(curly, bracket)
+        }
+        val openChar = s[start]
+        val closeChar = if (openChar == '{') '}' else ']'
+
+        var depth = 0
+        var inString = false
+        var escape = false
+        for (i in start until s.length) {
+            val c = s[i]
+            if (escape) {
+                escape = false
+                continue
+            }
+            if (inString) {
+                if (c == '\\') escape = true
+                else if (c == '"') inString = false
+                continue
+            }
+            when (c) {
+                '"' -> inString = true
+                openChar -> depth++
+                closeChar -> {
+                    depth--
+                    if (depth == 0) return s.substring(start, i + 1)
+                }
+            }
+        }
+        // Unbalanced — return from opener; Jackson will fail and the
+        // caller logs a parse error with the raw text.
+        return s.substring(start)
     }
 }
