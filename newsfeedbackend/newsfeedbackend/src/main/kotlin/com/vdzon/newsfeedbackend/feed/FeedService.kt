@@ -16,6 +16,12 @@ interface FeedService {
 data class FeedItem(
     val id: String,
     val title: String,
+    // Explicit @JsonProperty om collision met de Kotlin-getter `isSummary()`
+    // van de Boolean `isSummary` (default Jackson-naam ook "summary") te
+    // voorkomen — anders dropt Jackson dit veld in de serialisatie.
+    @get:com.fasterxml.jackson.annotation.JsonProperty("summary")
+    @field:com.fasterxml.jackson.annotation.JsonProperty("summary")
+    @param:com.fasterxml.jackson.annotation.JsonProperty("summary")
     val summary: String,
     val url: String? = null,
     val category: String = "overig",
