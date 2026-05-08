@@ -358,7 +358,7 @@ De frontend wordt aangestuurd via een `Makefile` in de `frontend/` map.
 make serve-ext   # of: make run
 ```
 
-- Start de Flutter web-app op **poort 3000**
+- Start de Flutter web-app op **poort 3000**, alleen op `localhost`
 - Gebruikt backend op **`http://localhost:8080`**
 - Geschikt voor lokale ontwikkeling terwijl de backend lokaal draait
 
@@ -367,6 +367,28 @@ Intern voert dit zoiets uit als:
 flutter run -d web-server --web-port 3000 \
   --dart-define=API_BASE_URL=http://localhost:8080
 ```
+
+### Web extern beschikbaar maken (LAN / port-forward)
+
+Flutter's `web-server` device luistert **standaard alleen op localhost**. Voor toegang vanaf een ander apparaat (LAN-test) of via een port-forward (extern), is `--web-hostname 0.0.0.0` nodig:
+
+```bash
+make serve-public PUBLIC_API=http://217.120.100.76:19286
+```
+
+Twee dingen om te weten:
+
+1. **Flutter listen-adres.** Met `--web-hostname 0.0.0.0` luistert de dev-server op alle interfaces zodat browsers op andere machines hem kunnen bereiken op de LAN-ip of het externe IP.
+2. **API-base moet ook van buiten bereikbaar zijn.** De externe browser doet zelf `fetch(API_BASE_URL)` — die URL moet dus een adres zijn dat *hun* browser kan resolven, niet `localhost` (= hun eigen pc). Zet in `PUBLIC_API` het publieke adres+poort waar de Spring Boot backend bereikbaar is.
+
+In de praktijk betekent dit twee port-forwards op de router:
+
+| Externe poort | → | Mac-poort | Doel |
+|---|---|---|---|
+| 19285 | → | 3000 | Flutter web-server |
+| 19286 | → | 8080 | Spring Boot backend |
+
+(Of gebruik een reverse-proxy zoals nginx/Caddy om alles op één externe poort aan te bieden — zie repo-README voor een voorbeeld.)
 
 ### APK bouwen (Android, productie)
 

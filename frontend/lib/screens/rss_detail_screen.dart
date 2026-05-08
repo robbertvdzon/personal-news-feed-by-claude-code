@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/models.dart';
@@ -103,7 +104,12 @@ class _RssItemDetailScreenState extends ConsumerState<RssItemDetailScreen> {
                   ),
                 ],
                 const SizedBox(height: 16),
-                Text(it.summary.isEmpty ? it.snippet : it.summary),
+                // AI-samenvatting als Markdown + selecteerbaar; val terug op
+                // de RSS-snippet als het item nog niet door AI verwerkt is.
+                MarkdownBody(
+                  data: it.summary.isEmpty ? it.snippet : it.summary,
+                  selectable: true,
+                ),
                 const SizedBox(height: 24),
                 Wrap(spacing: 8, children: [
                   if (it.url.isNotEmpty)

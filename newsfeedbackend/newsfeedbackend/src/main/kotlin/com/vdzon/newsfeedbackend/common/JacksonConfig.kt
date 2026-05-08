@@ -1,5 +1,6 @@
 package com.vdzon.newsfeedbackend.common
 
+import com.fasterxml.jackson.databind.DeserializationFeature
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.SerializationFeature
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
@@ -18,6 +19,11 @@ class JacksonConfig {
             registerModule(kotlinModule())
             registerModule(JavaTimeModule())
             disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
+            // Wees tolerant bij JSON-bestanden die nog oude veldnamen
+            // bevatten (bv. legacy isDailyUpdate na rename naar
+            // isHourlyUpdate). Onbekende velden negeren we i.p.v.
+            // de hele startup te laten falen.
+            disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
         }
     }
 }

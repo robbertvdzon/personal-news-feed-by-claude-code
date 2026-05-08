@@ -61,10 +61,12 @@ class _FeedItemDetailScreenState extends ConsumerState<FeedItemDetailScreen> {
             if (it.publishedDate != null) Chip(label: Text(it.publishedDate!)),
           ]),
           const SizedBox(height: 16),
-          if (it.isSummary)
-            MarkdownBody(data: it.summary, selectable: true)
-          else
-            SelectableText(it.summary),
+          // Alle samenvattingen als Markdown + selecteerbaar: Claude levert
+          // headers, vet/cursief en lijsten in zowel de uitgebreide
+          // feed-samenvatting (400-600 woorden) als de dagelijkse briefing
+          // (600-1000 woorden). Selectable=true werkt op Flutter web zodat
+          // je tekst kunt kopiëren met cmd/ctrl+c.
+          MarkdownBody(data: it.summary, selectable: true),
           const SizedBox(height: 24),
           if (it.url != null)
             FilledButton.icon(
