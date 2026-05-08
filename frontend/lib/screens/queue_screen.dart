@@ -30,7 +30,7 @@ class QueueScreen extends ConsumerWidget {
                   itemCount: items.length,
                   itemBuilder: (ctx, i) {
                     final r = items[i];
-                    final fixed = r.id.startsWith('daily-update-') || r.id.startsWith('daily-summary-');
+                    final fixed = r.id.startsWith('hourly-update-') || r.id.startsWith('daily-summary-');
                     return Dismissible(
                       key: Key('req_${r.id}'),
                       direction: fixed ? DismissDirection.none : DismissDirection.endToStart,

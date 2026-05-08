@@ -38,10 +38,10 @@ data class NewsRequest(
     val completedAt: Instant? = null,
     val newItemCount: Int = 0,
     val costUsd: Double = 0.0,
-    @get:com.fasterxml.jackson.annotation.JsonProperty("isDailyUpdate")
-    @field:com.fasterxml.jackson.annotation.JsonProperty("isDailyUpdate")
-    @param:com.fasterxml.jackson.annotation.JsonProperty("isDailyUpdate")
-    val isDailyUpdate: Boolean = false,
+    @get:com.fasterxml.jackson.annotation.JsonProperty("isHourlyUpdate")
+    @field:com.fasterxml.jackson.annotation.JsonProperty("isHourlyUpdate")
+    @param:com.fasterxml.jackson.annotation.JsonProperty("isHourlyUpdate")
+    val isHourlyUpdate: Boolean = false,
     @get:com.fasterxml.jackson.annotation.JsonProperty("isDailySummary")
     @field:com.fasterxml.jackson.annotation.JsonProperty("isDailySummary")
     @param:com.fasterxml.jackson.annotation.JsonProperty("isDailySummary")

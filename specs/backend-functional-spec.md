@@ -118,10 +118,10 @@ Daarin staan alle endpoints met paden, methoden, request/response bodies, query 
 **Berichtformaat:** een enkel JSON-object, identiek aan het `NewsRequest` schema uit `openapi.yaml`. Voorbeeld:
 ```json
 {
-  "id": "daily-update-robbert",
-  "subject": "Dagelijkse update",
+  "id": "hourly-update-robbert",
+  "subject": "Uurlijkse RSS-update",
   "status": "DONE",
-  "isDailyUpdate": true,
+  "isHourlyUpdate": true,
   "isDailySummary": false,
   "newItemCount": 7,
   "costUsd": 0.012,
@@ -144,7 +144,7 @@ De ontvanger (frontend) matcht het bericht op `id` en vervangt het bestaande ite
 
 Wordt elk uur automatisch uitgevoerd voor elke gebruiker. Handmatig te triggeren via `POST /api/rss/refresh`.
 
-> **Naamgeving:** het bijbehorende `NewsRequest`-record heeft id `daily-update-{username}` en subject `"Dagelijkse update"`. Dit is één vast record per gebruiker dat bij elke run (uurlijks of handmatig) **in-place** wordt bijgewerkt — er ontstaat dus geen nieuw record per uur. De `daily-` prefix is historisch; conceptueel is dit "de status van de laatste RSS-refresh".
+> **Naamgeving:** het bijbehorende `NewsRequest`-record heeft id `hourly-update-{username}` en subject `"Uurlijkse RSS-update"`. Dit is één vast record per gebruiker dat bij elke run (uurlijks of handmatig via `POST /api/rss/refresh`) **in-place** wordt bijgewerkt — er ontstaat dus geen nieuw record per uur. Het record vertegenwoordigt "de status van de laatste RSS-refresh".
 
 **Pipeline:**
 1. Haal alle RSS-feeds op die de gebruiker geconfigureerd heeft (parallel). Filter artikelen ouder dan 4 dagen.
@@ -215,7 +215,7 @@ Wordt asynchroon gestart bij `POST /api/podcasts`.
 
 Bij serverstart worden alle verzoeken met status `PENDING` of `PROCESSING` gereset naar `FAILED` (herstel na herstart).
 
-Voor elke bestaande gebruiker worden de vaste verzoekrecords `daily-update-{username}` en `daily-summary-{username}` aangemaakt als ze nog niet bestaan.
+Voor elke bestaande gebruiker worden de vaste verzoekrecords `hourly-update-{username}` en `daily-summary-{username}` aangemaakt als ze nog niet bestaan.
 
 ---
 

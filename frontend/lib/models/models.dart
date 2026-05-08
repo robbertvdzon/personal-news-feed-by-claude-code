@@ -204,7 +204,7 @@ class NewsRequest {
   final String? sourceItemTitle;
   final int newItemCount;
   final double costUsd;
-  final bool isDailyUpdate;
+  final bool isHourlyUpdate;
   final bool isDailySummary;
   final String status;
   final String? completedAt;
@@ -219,7 +219,7 @@ class NewsRequest {
     this.sourceItemTitle,
     this.newItemCount = 0,
     this.costUsd = 0,
-    this.isDailyUpdate = false,
+    this.isHourlyUpdate = false,
     this.isDailySummary = false,
     this.status = 'PENDING',
     this.completedAt,
@@ -235,7 +235,7 @@ class NewsRequest {
         sourceItemTitle: j['sourceItemTitle'],
         newItemCount: j['newItemCount'] ?? 0,
         costUsd: (j['costUsd'] ?? 0).toDouble(),
-        isDailyUpdate: j['isDailyUpdate'] ?? false,
+        isHourlyUpdate: j['isHourlyUpdate'] ?? j['isDailyUpdate'] ?? false,
         isDailySummary: j['isDailySummary'] ?? false,
         status: j['status'] ?? 'PENDING',
         completedAt: j['completedAt'],
@@ -251,7 +251,7 @@ class NewsRequest {
         sourceItemTitle: sourceItemTitle,
         newItemCount: newItemCount,
         costUsd: costUsd,
-        isDailyUpdate: isDailyUpdate,
+        isHourlyUpdate: isHourlyUpdate,
         isDailySummary: isDailySummary,
         status: status ?? this.status,
         completedAt: completedAt,

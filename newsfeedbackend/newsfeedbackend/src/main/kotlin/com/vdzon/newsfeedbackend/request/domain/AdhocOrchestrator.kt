@@ -39,7 +39,7 @@ class AdhocOrchestrator(
 
     fun process(username: String, requestId: String) {
         val current = repo.load(username).find { it.id == requestId } ?: return
-        if (current.isDailyUpdate || current.isDailySummary) return // handled elsewhere
+        if (current.isHourlyUpdate || current.isDailySummary) return // handled elsewhere
 
         MDC.put("username", username)
         MDC.put("requestId", requestId)

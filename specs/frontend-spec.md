@@ -160,7 +160,7 @@ Toont de lijst van verwerkingsverzoeken: `GET /api/requests`.
 
 ### Verzoektypen in de lijst
 
-**Dagelijkse update (vast, niet verwijderbaar):** item met ID `daily-update-{username}`. Vertegenwoordigt de status van de **uurlijkse** RSS-verwerking — één vast record dat in-place wordt bijgewerkt bij elke run (niet één per uur). Toont status, voortgangs-indicator tijdens verwerking, kosten en itemtelling na voltooiing. Looptijd wordt live bijgehouden (elapsed timer).
+**Uurlijkse RSS-update (vast, niet verwijderbaar):** item met ID `hourly-update-{username}` en flag `isHourlyUpdate: true`. Vertegenwoordigt de status van de uurlijkse RSS-verwerking — één vast record dat in-place wordt bijgewerkt bij elke run, niet één per uur. Toont status, voortgangs-indicator tijdens verwerking, kosten en itemtelling na voltooiing. Looptijd wordt live bijgehouden (elapsed timer).
 
 **Dagelijkse samenvatting (vast, niet verwijderbaar):** item met ID `daily-summary-{username}`. Zelfde weergave.
 

@@ -499,7 +499,7 @@ paths:
       operationId: deleteRequest
       summary: Verwijder een verzoek
       description: |
-        Verzoeken met ID-prefix 'daily-update-' of 'daily-summary-' kunnen niet
+        Verzoeken met ID-prefix 'hourly-update-' of 'daily-summary-' kunnen niet
         verwijderd worden.
       parameters:
         - $ref: '#/components/parameters/ItemId'
@@ -885,12 +885,12 @@ components:
           type: number
           format: double
           description: Geschatte AI-kosten in USD
-        isDailyUpdate:
+        isHourlyUpdate:
           type: boolean
-          description: Automatische dagelijkse RSS-update
+          description: Automatische uurlijkse RSS-update (id-prefix 'hourly-update-')
         isDailySummary:
           type: boolean
-          description: Automatische dagelijkse AI-samenvatting
+          description: Automatische dagelijkse AI-samenvatting (id-prefix 'daily-summary-')
         categoryResults:
           type: array
           items:

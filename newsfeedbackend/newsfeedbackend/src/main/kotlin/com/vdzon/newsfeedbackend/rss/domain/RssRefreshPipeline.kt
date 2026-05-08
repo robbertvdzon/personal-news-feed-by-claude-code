@@ -51,19 +51,19 @@ class RssRefreshPipeline(
         }
         MDC.put("username", username)
         try {
-            log.info("[RSS] start dagelijkse verwerking voor gebruiker '{}'", username)
+            log.info("[RSS] start uurlijkse verwerking voor gebruiker '{}'", username)
             val started = Instant.now()
 
-            val requestId = "daily-update-$username"
+            val requestId = "hourly-update-$username"
             requests.upsert(
                 username,
                 requests.get(username, requestId)
                     ?.copy(status = RequestStatus.PROCESSING, processingStartedAt = started)
                     ?: NewsRequest(
                         id = requestId,
-                        subject = "Dagelijkse update",
+                        subject = "Uurlijkse RSS-update",
                         status = RequestStatus.PROCESSING,
-                        isDailyUpdate = true,
+                        isHourlyUpdate = true,
                         processingStartedAt = started
                     )
             )
@@ -136,7 +136,7 @@ class RssRefreshPipeline(
             log.info("[RSS] klaar: {} nieuwe artikelen, {} in feed, duur {}s", processed.size, feedCount, took)
         } catch (e: Exception) {
             log.error("[RSS] verwerking mislukt voor gebruiker '{}': {}", username, e.message, e)
-            val r = requests.get(username, "daily-update-$username")
+            val r = requests.get(username, "hourly-update-$username")
             if (r != null) requests.upsert(username, r.copy(status = RequestStatus.FAILED, completedAt = Instant.now()))
         } finally {
             MDC.clear()

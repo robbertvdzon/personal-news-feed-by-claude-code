@@ -52,7 +52,7 @@ class RequestServiceImpl(
     }
 
     override fun delete(username: String, id: String): Boolean {
-        if (id.startsWith("daily-update-") || id.startsWith("daily-summary-")) return false
+        if (id.startsWith("hourly-update-") || id.startsWith("daily-summary-")) return false
         return repo.delete(username, id)
     }
 
@@ -90,11 +90,15 @@ class RequestServiceImpl(
 
     override fun ensureFixedRequests(username: String) {
         val all = repo.load(username)
+        // Migration: drop legacy daily-update-* records (renamed to hourly-update-*).
+        val before = all.size
+        all.removeAll { it.id.startsWith("daily-update-") }
+        var changed = all.size != before
+
         val fixed = listOf(
-            "daily-update-$username" to "Dagelijkse update",
+            "hourly-update-$username" to "Uurlijkse RSS-update",
             "daily-summary-$username" to "Dagelijkse samenvatting"
         )
-        var changed = false
         fixed.forEach { (id, subject) ->
             if (all.none { it.id == id }) {
                 all.add(
@@ -102,7 +106,7 @@ class RequestServiceImpl(
                         id = id,
                         subject = subject,
                         status = RequestStatus.DONE,
-                        isDailyUpdate = id.startsWith("daily-update-"),
+                        isHourlyUpdate = id.startsWith("hourly-update-"),
                         isDailySummary = id.startsWith("daily-summary-")
                     )
                 )
