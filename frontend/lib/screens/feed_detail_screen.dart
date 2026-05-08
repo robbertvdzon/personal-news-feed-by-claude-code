@@ -53,7 +53,21 @@ class _FeedItemDetailScreenState extends ConsumerState<FeedItemDetailScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(it.title, style: Theme.of(context).textTheme.headlineSmall),
+          // Headline = korte Nederlandse titel (titleNl). Voor legacy items
+          // zonder titleNl valt displayTitle terug op het originele Engels.
+          Text(it.displayTitle, style: Theme.of(context).textTheme.headlineSmall),
+          // Originele (vaak Engelse) titel klein eronder als 'ie verschilt —
+          // zo blijft de bron-titel herkenbaar voor wie het origineel zoekt.
+          if (it.titleNl.isNotEmpty && it.titleNl != it.title) ...[
+            const SizedBox(height: 4),
+            Text(
+              it.title,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).hintColor,
+                    fontStyle: FontStyle.italic,
+                  ),
+            ),
+          ],
           const SizedBox(height: 8),
           Wrap(spacing: 8, children: [
             if (it.source.isNotEmpty) Chip(label: Text(it.source)),

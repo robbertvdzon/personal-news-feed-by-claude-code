@@ -361,10 +361,18 @@ class RssRefreshPipeline(
         val catInstr = categories.find { it.id == rss.category }?.extraInstructions.orEmpty()
         val ai = anthropic.complete(
             operation = "generateFeedItemSummary",
-            system = "Je schrijft een uitgebreide journalistieke samenvatting van 400-600 woorden in het Nederlands. " +
-                "Geef context, betekenis en relevantie. Gebruik geen markdown-headers maar wel duidelijke paragrafen.",
+            maxTokens = 4000,
+            system = """
+                Je schrijft drie velden voor een persoonlijk nieuwsoverzicht in het Nederlands.
+
+                titleNl: Korte beschrijvende titel (max 70 tekens) die in één oogopslag duidelijk maakt waar het artikel over gaat. Géén opsmuk, geen punten aan het eind, geen quotes.
+                shortSummary: Twee regels Nederlandse samenvatting (~30-50 woorden, plain text — GÉÉN markdown). Vat de kern van het nieuws samen zoals een teaser onder een krantenkop. Eindig met een punt.
+                longSummary: Uitgebreide journalistieke samenvatting van 400-600 woorden in het Nederlands. Geef context, betekenis en relevantie. Gebruik géén markdown-headers (`#`), maar **vet** voor begrippen en aparte paragrafen mogen.
+
+                Antwoord uitsluitend met geldig JSON, geen markdown-codefences (geen ```), geen prose ervoor of erna.
+            """.trimIndent(),
             user = buildString {
-                appendLine("Titel: ${rss.title}")
+                appendLine("Originele titel: ${rss.title}")
                 appendLine("Bron: ${rss.source}")
                 appendLine("URL: ${rss.url}")
                 if (catInstr.isNotBlank()) {
@@ -373,13 +381,37 @@ class RssRefreshPipeline(
                 }
                 appendLine()
                 appendLine("Volledige artikeltekst (mogelijk afgekort):")
-                append(fullText.take(8000))
+                appendLine(fullText.take(8000))
+                appendLine()
+                appendLine("Antwoord met JSON in dit format:")
+                append("""{"titleNl": "...", "shortSummary": "...", "longSummary": "..."}""")
             }
         )
+        log.debug("[RSS] feed-item ruwe AI-output ({} chars): {}", ai.text.length, ai.text.take(800))
+
+        var titleNl = ""
+        var shortSummary = ""
+        var longSummary = ""
+        try {
+            val tree = mapper.readTree(extractJson(ai.text))
+            titleNl = tree.path("titleNl").asText("").trim()
+            shortSummary = tree.path("shortSummary").asText("").trim()
+            longSummary = tree.path("longSummary").asText("").trim()
+        } catch (e: Exception) {
+            log.warn("[RSS] feed-item parse fout voor '{}': {} — eerste 500 chars: {}",
+                rss.title, e.message, ai.text.take(500))
+        }
+        // Fallback-keten zodat een mislukte parse de feed niet leeg laat:
+        if (longSummary.isBlank()) longSummary = ai.text.ifBlank { rss.summary.ifBlank { rss.snippet } }
+        if (shortSummary.isBlank()) shortSummary = rss.summary.take(200).ifBlank { rss.snippet.take(200) }
+        if (titleNl.isBlank()) titleNl = rss.title
+
         return FeedItem(
             id = UUID.randomUUID().toString(),
             title = rss.title,
-            summary = ai.text.ifBlank { rss.summary.ifBlank { rss.snippet } },
+            titleNl = titleNl,
+            summary = longSummary,
+            shortSummary = shortSummary,
             url = rss.url,
             category = rss.category,
             source = rss.source,

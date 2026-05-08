@@ -15,14 +15,28 @@ interface FeedService {
 
 data class FeedItem(
     val id: String,
+    /** Originele titel uit de RSS-feed (vaak Engels). */
     val title: String,
+    /**
+     * Korte Nederlandse titel (max ~70 tekens) — gebruikt op de feed-lijst
+     * en als headline op het detail-scherm. Leeg voor legacy items van
+     * vóór deze rewrite; frontend moet dan terugvallen op `title`.
+     */
+    val titleNl: String = "",
     // Explicit @JsonProperty om collision met de Kotlin-getter `isSummary()`
     // van de Boolean `isSummary` (default Jackson-naam ook "summary") te
     // voorkomen — anders dropt Jackson dit veld in de serialisatie.
     @get:com.fasterxml.jackson.annotation.JsonProperty("summary")
     @field:com.fasterxml.jackson.annotation.JsonProperty("summary")
     @param:com.fasterxml.jackson.annotation.JsonProperty("summary")
+    /** Uitgebreide Nederlandse samenvatting (400-600 woorden, mag markdown bevatten) — detail-scherm. */
     val summary: String,
+    /**
+     * Korte Nederlandse samenvatting van 2 regels (~30-50 woorden, **plain
+     * text** — geen markdown) — gebruikt onder de titel op de feed-lijst.
+     * Leeg voor legacy items.
+     */
+    val shortSummary: String = "",
     val url: String? = null,
     val category: String = "overig",
     val source: String = "",

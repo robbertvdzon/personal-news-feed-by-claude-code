@@ -1,7 +1,15 @@
 class FeedItem {
   final String id;
+  /// Originele titel uit de RSS-feed (vaak Engels).
   final String title;
+  /// Korte Nederlandse titel — gebruikt op de feed-lijst en als headline.
+  /// Leeg voor legacy items: dan terugvallen op [title].
+  final String titleNl;
+  /// Uitgebreide Nederlandse samenvatting (400-600 woorden, kan markdown bevatten).
   final String summary;
+  /// Korte 2-regel Nederlandse samenvatting (plain text, ~30-50 woorden) — feed-lijst.
+  /// Leeg voor legacy items: dan terugvallen op de eerste regels van [summary].
+  final String shortSummary;
   final String? url;
   final String category;
   final String source;
@@ -19,7 +27,9 @@ class FeedItem {
   FeedItem({
     required this.id,
     required this.title,
+    this.titleNl = '',
     required this.summary,
+    this.shortSummary = '',
     this.url,
     this.category = 'overig',
     this.source = '',
@@ -35,10 +45,20 @@ class FeedItem {
     this.isSummary = false,
   });
 
+  /// Display-titel voor list/detail. Pakt eerst [titleNl], anders [title].
+  String get displayTitle => titleNl.isNotEmpty ? titleNl : title;
+
+  /// 2-regel preview voor de feed-lijst. Pakt eerst [shortSummary],
+  /// anders een afgekapte versie van [summary] (legacy fallback).
+  String get listPreview =>
+      shortSummary.isNotEmpty ? shortSummary : summary.replaceAll(RegExp(r'\s+'), ' ').trim();
+
   factory FeedItem.fromJson(Map<String, dynamic> j) => FeedItem(
         id: j['id'] ?? '',
         title: j['title'] ?? '',
+        titleNl: j['titleNl'] ?? '',
         summary: j['summary'] ?? '',
+        shortSummary: j['shortSummary'] ?? '',
         url: j['url'],
         category: j['category'] ?? 'overig',
         source: j['source'] ?? '',
@@ -57,7 +77,9 @@ class FeedItem {
   FeedItem copyWith({bool? isRead, bool? starred, Object? liked = const _Sentinel()}) => FeedItem(
         id: id,
         title: title,
+        titleNl: titleNl,
         summary: summary,
+        shortSummary: shortSummary,
         url: url,
         category: category,
         source: source,

@@ -96,7 +96,10 @@ Toont de gecureerde persoonlijke feed: `GET /api/feed` (gesorteerd op `createdAt
 - **Teller gelezen items:** knop die ongelezen/gelezen items toggelt ("Gelezen (n)"). Standaard verborgen.
 
 ### FeedItem-kaart (in de lijst)
-Toont per item: titel, bron, categorie, datum, korte samenvatting.
+Toont per item:
+- **Titel:** de Nederlandse `titleNl` van het item (door Claude tegelijk met de samenvatting gegenereerd, ~70 tekens). Voor legacy items zonder `titleNl` valt de UI terug op het originele `title`-veld.
+- **Bron, categorie, datum** uit de bekende velden.
+- **Preview:** de `shortSummary` (2 regels Nederlandse plain-text, ~30-50 woorden, eveneens door Claude gegenereerd). Voor legacy items zonder `shortSummary` valt de kaart terug op een afgekapte versie van de lange `summary`. De preview wordt op 2 regels afgekapt door `maxLines: 2` op de Text widget.
 
 **Acties per kaart:**
 - **Tik:** open FeedItemDetailScreen
@@ -112,11 +115,12 @@ Toont per item: titel, bron, categorie, datum, korte samenvatting.
 ### FeedItemDetailScreen
 PageView waarmee je door alle (gefilterde) items heen kunt bladeren.
 
-**Toont:** volledige samenvatting (Markdown gerenderd), titel, bron, categorie, datum, bronlink(s).
-
-**Bronlinks:** tik om te openen in externe browser; lang indrukken om URL te kopiëren.
-
-**Samenvatting-items (`isSummary: true`):** weergegeven als Markdown (met koppen, lijsten, vet/cursief).
+**Toont:**
+- **Headline** = `titleNl` (fallback op `title` voor legacy items).
+- Als `titleNl` aanwezig is **én** afwijkt van `title`, wordt het originele Engels eronder klein, cursief en in hint-kleur getoond — zo blijft de bron-titel herkenbaar voor wie het origineel zoekt.
+- Bron, categorie, datum als chips.
+- **Volledige samenvatting** = `summary` (uitgebreide Nederlandse 400-600 woord versie, 600-1000 voor daily summaries). Altijd via `MarkdownBody` + `selectable: true` zodat headers, vet/cursief, lijsten en paragrafen netjes worden gerenderd én de tekst gekopieerd kan worden met cmd/ctrl+c.
+- Bronlink(s) onderaan: tik om te openen in externe browser; lang indrukken om URL te kopiëren.
 
 **AppBar-acties:**
 - Gelezen/ongelezen toggle (PUT `/api/feed/{id}/read` of `/unread`)

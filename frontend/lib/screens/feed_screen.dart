@@ -89,11 +89,11 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
                           itemBuilder: (ctx, i) {
                             final it = filtered[i];
                             return ItemCard(
-                              title: it.title,
+                              title: it.displayTitle,
                               source: it.source,
                               category: it.category,
                               date: it.publishedDate,
-                              snippet: it.summary,
+                              snippet: it.listPreview,
                               isRead: it.isRead,
                               starred: it.starred,
                               liked: it.liked,

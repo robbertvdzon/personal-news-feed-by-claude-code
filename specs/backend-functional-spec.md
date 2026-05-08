@@ -158,7 +158,12 @@ Wordt elk uur automatisch uitgevoerd voor elke gebruiker. Handmatig te triggeren
    - Titels van eerder afgewezen artikelen (max 20)
    - Titels van bewaarde (gesternde) artikelen (max 10)
 6. Update `inFeed` en `feedReason` op alle nieuwe RssItems. **Ook items die níet geselecteerd worden krijgen een `feedReason`** (bv. "Niet geselecteerd voor de persoonlijke feed" of de motivatie van Claude). Zo weet de gebruiker altijd waarom een item wel/niet in de feed staat.
-7. Voor elk geselecteerd item: haal de volledige artikeltekst op via een eenvoudige HTML-fetch (max 8000 tekens, na strip van scripts/styles/nav/header/footer). Vraag Claude vervolgens om een uitgebreide Nederlandse FeedItem-samenvatting (400-600 woorden) op basis van deze ruwe tekst plus de gebruikersinstructies van de toegewezen categorie.
+7. Voor elk geselecteerd item: haal de volledige artikeltekst op via een eenvoudige HTML-fetch (max 8000 tekens, na strip van scripts/styles/nav/header/footer). Vraag Claude vervolgens in **één call** om drie Nederlandstalige velden op basis van die tekst + gebruikersinstructies van de toegewezen categorie:
+   - `titleNl`: korte beschrijvende Nederlandse titel (max ~70 tekens) — voor de feed-lijst en als headline op het detail-scherm.
+   - `shortSummary`: 2-regel Nederlandse samenvatting (~30-50 woorden, **plain text**) — voor de preview onder de titel op de feed-lijst.
+   - `longSummary`: uitgebreide journalistieke Nederlandse samenvatting (400-600 woorden, mag markdown bevatten zoals **vet** en aparte paragrafen, géén headers) — voor het detail-scherm.
+
+   Claude antwoordt met JSON `{"titleNl": "...", "shortSummary": "...", "longSummary": "..."}`. De parser is dezelfde tolerant-extractor als bij `selectFeedItems` (markdown-fence-strip + balanced-bracket extraction). Bij parse-fout valt elk veld terug op respectievelijk de originele RSS-titel, de eerste 200 tekens van de RssItem-samenvatting, en de complete ruwe AI-output — zodat een fout nooit een volledig leeg feed-item oplevert.
 8. Sla FeedItems op en koppel `feedItemId` terug op de RssItems.
 9. Werk onderwerp-geschiedenis bij op basis van alle nieuwe items met topics.
 10. Stuur WebSocket updates bij elke statuswijziging van het bijbehorende `hourly-update-{username}` record.

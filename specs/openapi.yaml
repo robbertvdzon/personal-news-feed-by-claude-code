@@ -822,9 +822,27 @@ components:
           type: string
         title:
           type: string
+          description: Originele titel uit de RSS-feed (vaak Engels)
+        titleNl:
+          type: string
+          description: |
+            Korte Nederlandse titel (max ~70 tekens), gegenereerd door Claude
+            tegelijk met de samenvatting. Gebruikt op de feed-lijst en als
+            headline op het detail-scherm. Leeg voor legacy items van vóór
+            deze rewrite — frontend valt dan terug op `title`.
         summary:
           type: string
-          description: Uitgebreide AI-samenvatting, 400-600 woorden, Nederlands (Markdown bij isSummary=true)
+          description: |
+            Uitgebreide AI-samenvatting van 400-600 woorden in het Nederlands.
+            Mag markdown bevatten (vet, paragrafen) maar geen headers; bij
+            isSummary=true (dagelijkse briefing) ook met headers en lijsten.
+            Wordt door de frontend altijd via een Markdown-renderer getoond.
+        shortSummary:
+          type: string
+          description: |
+            2-regel Nederlandse samenvatting (~30-50 woorden, **plain text**
+            — geen markdown), gegenereerd door Claude. Gebruikt als preview
+            onder de titel op de feed-lijst. Leeg voor legacy items.
         url:
           type: string
           format: uri
