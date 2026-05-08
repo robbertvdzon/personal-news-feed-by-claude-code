@@ -62,6 +62,13 @@ class RssNotifier extends AsyncNotifier<List<RssItem>> {
     await _api.post('/api/rss/refresh');
   }
 
+  /// Re-run only the AI selection step against the items already stored.
+  /// Cheap (single Claude call, no fetches/summaries), useful when prefs
+  /// change or selection failed in a previous run.
+  Future<void> reselect() async {
+    await _api.post('/api/rss/reselect');
+  }
+
   Future<void> setRead(String id, bool read) async {
     state = AsyncData(state.value!.map((it) => it.id == id ? it.copyWith(isRead: read) : it).toList());
     await _api.put('/api/rss/$id/${read ? "read" : "unread"}');

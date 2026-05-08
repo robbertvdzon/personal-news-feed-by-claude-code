@@ -25,12 +25,29 @@ class _RssScreenState extends ConsumerState<RssScreen> {
       appBar: AppBar(
         title: const Text('RSS'),
         actions: [
-          IconButton(icon: const Icon(Icons.cloud_download), onPressed: () async {
-            await ref.read(rssProvider.notifier).refresh();
-            if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Verversing gestart')));
-          }),
-          IconButton(icon: const Icon(Icons.refresh), onPressed: () => ref.read(rssProvider.notifier).reload()),
+          IconButton(
+            tooltip: 'Vernieuwen van bron — haal nieuwe artikelen op uit alle feeds',
+            icon: const Icon(Icons.cloud_download),
+            onPressed: () async {
+              await ref.read(rssProvider.notifier).refresh();
+              if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Verversing gestart')));
+            },
+          ),
+          IconButton(
+            tooltip: 'AI feed-selectie opnieuw uitvoeren op bestaande items',
+            icon: const Icon(Icons.auto_awesome),
+            onPressed: () async {
+              await ref.read(rssProvider.notifier).reselect();
+              if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('AI-selectie opnieuw gestart — check backend log')));
+            },
+          ),
+          IconButton(
+            tooltip: 'Lijst herladen',
+            icon: const Icon(Icons.refresh),
+            onPressed: () => ref.read(rssProvider.notifier).reload(),
+          ),
         ],
       ),
       body: Column(children: [

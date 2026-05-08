@@ -199,6 +199,32 @@ paths:
               schema:
                 $ref: '#/components/schemas/StatusOk'
 
+  /api/rss/reselect:
+    post:
+      tags: [RSS Items]
+      operationId: reselectRss
+      summary: Voer alleen de AI-selectie-stap opnieuw uit
+      description: |
+        Draait alleen stap 3 van de RSS-pipeline opnieuw: Claude bepaalt op
+        basis van de huidige gebruikersvoorkeuren welke al-opgeslagen items
+        in de persoonlijke feed thuishoren. Geen nieuwe fetch, geen nieuwe
+        per-artikel-samenvatting — één Claude-call met de hele lijst.
+
+        Items waarvoor Claude een verdict geeft krijgen een bijgewerkte
+        `inFeed` + `feedReason`. Items zonder verdict blijven onaangeraakt.
+        Voor items die nieuw `inFeed=true` worden wordt een uitgebreide
+        FeedItem-samenvatting (stap 4) gegenereerd.
+
+        Handig wanneer de selectie-prompt is verbeterd, of nadat de
+        gebruiker zijn `extraInstructions` per categorie heeft aangepast.
+      responses:
+        '200':
+          description: Reselect gestart (asynchroon)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusOk'
+
   /api/rss/cleanup:
     delete:
       tags: [RSS Items]

@@ -45,6 +45,10 @@ class RssRefreshPipeline(
     @Async
     fun onRefresh(event: RssRefreshRequested) = run(event.username)
 
+    @EventListener
+    @Async
+    fun onReselect(event: RssReselectRequested) = reselect(event.username)
+
     fun run(username: String) {
         val lock = locks.computeIfAbsent(username) { ReentrantLock() }
         if (!lock.tryLock()) {
@@ -96,13 +100,23 @@ class RssRefreshPipeline(
             rssRepo.upsertAll(username, processed)
 
             log.info("[RSS] stap 3/4: AI-selectie voor de persoonlijke feed ({} kandidaten)", processed.size)
-            val selected = if (processed.isEmpty()) emptyList()
+            val selectionResults = if (processed.isEmpty()) emptyMap()
             else selectForFeed(username, processed, cats, existingItems)
-            log.info("[RSS]   selectie: {} van {} artikelen geselecteerd", selected.size, processed.size)
-            val withSelection = processed.map {
-                val sel = selected.find { s -> s.first == it.id }
-                if (sel != null) it.copy(inFeed = true, feedReason = sel.second)
-                else it.copy(feedReason = "Niet geselecteerd voor de persoonlijke feed")
+            val selectedCount = selectionResults.values.count { it.inFeed }
+            log.info("[RSS]   selectie: {} van {} artikelen geselecteerd", selectedCount, processed.size)
+            val withSelection = processed.map { item ->
+                val sel = selectionResults[item.id]
+                when {
+                    sel == null -> item.copy(
+                        inFeed = false,
+                        feedReason = "AI heeft dit artikel niet beoordeeld (parse-fout of overgeslagen — zie backend log)"
+                    )
+                    sel.inFeed -> item.copy(inFeed = true, feedReason = sel.reason.ifBlank { "Geselecteerd door AI" })
+                    else -> item.copy(
+                        inFeed = false,
+                        feedReason = sel.reason.ifBlank { "Niet geselecteerd voor de persoonlijke feed" }
+                    )
+                }
             }
             rssRepo.upsertAll(username, withSelection)
 
@@ -138,6 +152,71 @@ class RssRefreshPipeline(
             log.error("[RSS] verwerking mislukt voor gebruiker '{}': {}", username, e.message, e)
             val r = requests.get(username, "hourly-update-$username")
             if (r != null) requests.upsert(username, r.copy(status = RequestStatus.FAILED, completedAt = Instant.now()))
+        } finally {
+            MDC.clear()
+            lock.unlock()
+        }
+    }
+
+    /**
+     * Re-runs only the selection step on already-stored RssItems. Skips
+     * fetching and summarising — the cheap path. Useful when the selection
+     * prompt changed or Claude rejected everything in a previous run.
+     *
+     * Items that newly land in the feed get a real FeedItem generated.
+     * Items that go from inFeed=true → false keep their existing FeedItem
+     * (we don't auto-delete to avoid surprising the user).
+     */
+    fun reselect(username: String) {
+        val lock = locks.computeIfAbsent(username) { ReentrantLock() }
+        if (!lock.tryLock()) {
+            log.info("[RSS] reselect skipped — refresh already running for '{}'", username)
+            return
+        }
+        MDC.put("username", username)
+        try {
+            log.info("[RSS] start reselect voor '{}'", username)
+            val cats = settings.getCategories(username).filter { it.enabled || it.isSystem }
+            val all = rssRepo.load(username).toMutableList()
+            if (all.isEmpty()) {
+                log.info("[RSS] reselect: geen items om te beoordelen")
+                return
+            }
+            log.info("[RSS] reselect: {} items naar AI-selectie", all.size)
+            val verdicts = selectForFeed(username, all, cats, all)
+            if (verdicts.isEmpty()) {
+                log.warn("[RSS] reselect: AI gaf geen verdicts terug — bestaande inFeed/feedReason ongewijzigd. Check ANTHROPIC_API_KEY of de selectie-prompt.")
+                return
+            }
+            val newlySelectedIds = mutableListOf<String>()
+            var updatedCount = 0
+            for (i in all.indices) {
+                val item = all[i]
+                val v = verdicts[item.id] ?: continue // geen verdict voor dit id → laat staan
+                val updated = if (v.inFeed) {
+                    if (!item.inFeed) newlySelectedIds.add(item.id)
+                    item.copy(inFeed = true, feedReason = v.reason.ifBlank { "Geselecteerd door AI" })
+                } else {
+                    item.copy(inFeed = false, feedReason = v.reason.ifBlank { "Niet geselecteerd voor de persoonlijke feed" })
+                }
+                all[i] = updated
+                updatedCount++
+            }
+            rssRepo.save(username, all)
+            log.info("[RSS] reselect klaar: AI gaf {} verdicts ({} items geüpdatet, {} nieuw in feed)",
+                verdicts.size, updatedCount, newlySelectedIds.size)
+
+            // Generate FeedItem for newly-selected items only.
+            for ((idx, id) in newlySelectedIds.withIndex()) {
+                val rss = all.find { it.id == id } ?: continue
+                if (rss.feedItemId != null) continue // already has one
+                log.info("[RSS] reselect feed-item {}/{}: {}", idx + 1, newlySelectedIds.size, rss.title.take(80))
+                val feedItem = generateFeedItem(rss, cats)
+                feed.save(username, feedItem)
+                rssRepo.upsert(username, rss.copy(feedItemId = feedItem.id))
+            }
+        } catch (e: Exception) {
+            log.error("[RSS] reselect mislukt voor '{}': {}", username, e.message, e)
         } finally {
             MDC.clear()
             lock.unlock()
@@ -180,13 +259,21 @@ class RssRefreshPipeline(
         }
     }
 
+    data class SelectionVerdict(val inFeed: Boolean, val reason: String)
+
     private fun selectForFeed(
         username: String,
         items: List<RssItem>,
         categories: List<CategorySettings>,
         existing: List<RssItem>
-    ): List<Pair<String, String>> {
-        val titles = items.joinToString("\n") { "${it.id}|${it.category}|${it.title}" }
+    ): Map<String, SelectionVerdict> {
+        val titles = items.joinToString("\n") {
+            // include the AI-generated summary head + topics so Claude has more
+            // signal than just title — useful when titles are vague.
+            val headline = it.summary.take(180).ifBlank { it.snippet.take(180) }
+            val topics = if (it.topics.isNotEmpty()) " [topics: ${it.topics.joinToString(", ")}]" else ""
+            "${it.id}|${it.category}|${it.title}$topics\n  → $headline"
+        }
         val likedTitles = existing.filter { it.liked == true }.takeLast(20).joinToString("\n") { "+ ${it.title}" }
         val dislikedTitles = existing.filter { it.liked == false }.takeLast(20).joinToString("\n") { "- ${it.title}" }
         val starredTitles = existing.filter { it.starred }.takeLast(10).joinToString("\n") { "* ${it.title}" }
@@ -202,7 +289,16 @@ class RssRefreshPipeline(
 
         val ai = anthropic.complete(
             operation = "selectFeedItems",
-            system = "Je beoordeelt artikelen voor een persoonlijke feed van een softwareontwikkelaar. Gebruik de gebruikersvoorkeuren per categorie als leidraad. Selecteer alleen écht relevante artikelen — geen vast minimum of maximum. Geef per artikel een korte Nederlandse motivatie (max 1 zin) waarom je het wel of niet kiest.",
+            maxTokens = 8000,
+            system = """
+                Je bent een nieuwsredacteur die voor een softwareontwikkelaar bepaalt welke artikelen interessant genoeg zijn voor zijn persoonlijke feed.
+
+                Belangrijk:
+                - Gebruik de 'voorkeur'-tekst per categorie actief: een artikel dat past bij de voorkeur is in principe relevant.
+                - Wees niet te streng. Twijfelgevallen die binnen de gebruikers­voorkeuren vallen mogen worden meegenomen.
+                - Schrijf de redenen in het Nederlands, max 1 zin.
+                - Beantwoord álle aangeleverde artikelen, in dezelfde volgorde.
+            """.trimIndent(),
             user = """
                 Categorieën en voorkeuren:
                 $catContext
@@ -218,21 +314,44 @@ class RssRefreshPipeline(
                 Eerder bewaard (sterren):
                 ${starredTitles.ifBlank { "(geen)" }}
 
-                Nieuwe artikelen (id|category|title):
+                Te beoordelen artikelen (id|category|title [topics] → samenvattingsbegin):
                 $titles
 
-                Antwoord uitsluitend met een geldig JSON-array. Voor élk artikel uit de lijst hierboven één entry, in dezelfde volgorde, in het format:
-                [{"id": "...", "inFeed": true, "reason": "korte Nederlandse uitleg"}, ...]
+                Antwoord met een geldig JSON-array (geen prose ervoor of erna). Voor élk id één entry in dezelfde volgorde:
+                [{"id": "...", "inFeed": true, "reason": "korte Nederlandse uitleg"}]
+                Gebruik inFeed=true voor relevante artikelen, inFeed=false voor de rest.
             """.trimIndent()
         )
+        log.debug("[RSS] selectie ruwe AI-output ({} chars): {}", ai.text.length, ai.text.take(2000))
         return try {
             val tree = mapper.readTree(extractJson(ai.text))
-            tree.filter { it.path("inFeed").asBoolean(false) }
-                .map { it.path("id").asText() to it.path("reason").asText("") }
+            if (!tree.isArray) {
+                log.warn("[RSS] selectie: AI gaf geen JSON-array terug — eerste 500 chars: {}", ai.text.take(500))
+                return emptyMap()
+            }
+            val results = mutableMapOf<String, SelectionVerdict>()
+            var inFeedCount = 0
+            for (node in tree) {
+                val id = node.path("id").asText("")
+                if (id.isBlank()) continue
+                val inFeed = node.path("inFeed").asBoolean(false)
+                val reason = node.path("reason").asText("")
+                results[id] = SelectionVerdict(inFeed, reason)
+                if (inFeed) inFeedCount++
+            }
+            log.info("[RSS]   selectie response: {} entries beoordeeld ({} inFeed=true, {} inFeed=false)",
+                results.size, inFeedCount, results.size - inFeedCount)
+            if (inFeedCount == 0 && results.isNotEmpty()) {
+                val sampleReasons = results.entries.take(3).joinToString(" | ") { (id, v) ->
+                    val title = items.find { it.id == id }?.title?.take(40).orEmpty()
+                    "[$title] ${v.reason.take(80)}"
+                }
+                log.info("[RSS]   AI heeft alle artikelen afgewezen — voorbeelden: {}", sampleReasons)
+            }
+            results
         } catch (e: Exception) {
-            log.warn("[RSS] selectie parse fout: {}", e.message)
-            log.debug("[RSS] selectie ruwe AI-output: {}", ai.text)
-            emptyList()
+            log.warn("[RSS] selectie parse fout: {} — eerste 500 chars: {}", e.message, ai.text.take(500))
+            emptyMap()
         }
     }
 

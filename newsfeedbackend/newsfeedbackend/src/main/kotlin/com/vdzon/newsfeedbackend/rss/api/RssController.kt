@@ -29,6 +29,12 @@ class RssController(private val service: RssService) {
         return mapOf("status" to "ok")
     }
 
+    @PostMapping("/reselect")
+    fun reselect(): Map<String, String> {
+        service.triggerReselect(user())
+        return mapOf("status" to "ok")
+    }
+
     @DeleteMapping("/cleanup")
     fun cleanup(
         @RequestParam(defaultValue = "30") olderThanDays: Int,

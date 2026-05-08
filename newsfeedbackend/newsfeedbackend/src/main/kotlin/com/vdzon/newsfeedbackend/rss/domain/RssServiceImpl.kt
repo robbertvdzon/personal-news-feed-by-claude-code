@@ -9,6 +9,7 @@ import java.time.Instant
 import java.time.temporal.ChronoUnit
 
 data class RssRefreshRequested(val username: String)
+data class RssReselectRequested(val username: String)
 
 @Service
 class RssServiceImpl(
@@ -60,6 +61,10 @@ class RssServiceImpl(
 
     override fun triggerRefresh(username: String) {
         events.publishEvent(RssRefreshRequested(username))
+    }
+
+    override fun triggerReselect(username: String) {
+        events.publishEvent(RssReselectRequested(username))
     }
 
     private fun mutate(username: String, id: String, fn: (RssItem) -> RssItem): Boolean {

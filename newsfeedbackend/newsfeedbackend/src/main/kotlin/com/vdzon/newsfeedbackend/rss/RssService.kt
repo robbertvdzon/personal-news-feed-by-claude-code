@@ -11,6 +11,15 @@ interface RssService {
     fun setFeedback(username: String, id: String, liked: Boolean?): Boolean
     fun cleanup(username: String, olderThanDays: Int, keepStarred: Boolean, keepLiked: Boolean, keepUnread: Boolean): Int
     fun triggerRefresh(username: String)
+
+    /**
+     * Re-run only the AI selection step against already-stored RssItems.
+     * Skips fetch + per-article summarisation; just calls Claude once
+     * with the user's preferences and updates inFeed/feedReason on every
+     * stored item. New entries get a generated FeedItem; existing
+     * inFeed=true entries keep theirs even if Claude flips them.
+     */
+    fun triggerReselect(username: String)
 }
 
 data class RssItem(

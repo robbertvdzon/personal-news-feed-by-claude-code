@@ -154,7 +154,9 @@ Identiek qua PageView-navigatie en AppBar-acties als FeedItemDetailScreen.
 - Tik op bronnaam: opent `feedUrl` of `url` in externe browser.
 
 ### Toolbar-acties
-- **Vernieuwen (van bron):** roept POST `/api/rss/refresh` aan, daarna periodiek (elke 4 seconden) opnieuw GET `/api/rss` tot verversing klaar is.
+- **Vernieuwen (van bron) (`cloud_download`):** roept POST `/api/rss/refresh` aan, daarna periodiek (elke 4 seconden) opnieuw GET `/api/rss` tot verversing klaar is.
+- **AI-selectie opnieuw (`auto_awesome`):** roept POST `/api/rss/reselect` aan om alleen de AI-selectie-stap te draaien op de al-opgeslagen items, zonder fetch/summary opnieuw. Toont snackbar "AI-selectie opnieuw gestart — check backend log".
+- **Lijst herladen (`refresh`):** alleen de lokale lijst opnieuw ophalen (GET `/api/rss`).
 
 ---
 

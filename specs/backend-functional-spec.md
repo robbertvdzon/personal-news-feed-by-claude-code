@@ -384,10 +384,26 @@ Alle configuratie via `application.properties` of omgevingsvariabelen.
 
 ## 11. RSS-items opnieuw laten beoordelen
 
-De pipeline behandelt alleen artikelen waarvan de URL nog niet in `rss_items.json` staat. Wil je een batch opnieuw laten beoordelen (bijvoorbeeld omdat de prompt verbeterd is, of omdat tijdens de eerste run nog geen API-key was ingesteld), dan zijn er drie manieren:
+De pipeline behandelt alleen artikelen waarvan de URL nog niet in `rss_items.json` staat. Wil je een batch opnieuw laten beoordelen, dan zijn er twee scenario's:
+
+### A. Alleen de AI-selectie opnieuw (goedkoop, behoudt summaries)
+
+Wanneer de items al verwerkt zijn (summaries + categorieën aanwezig) maar Claude in een eerdere run niets heeft geselecteerd — bijvoorbeeld door een parse-fout of een te strenge prompt — gebruik dan `POST /api/rss/reselect`. Dit:
+
+- **Slaat fetch en samenvatting over** — geen tokens voor stap 1 en 2.
+- Doet één enkele Claude-call met **alle** opgeslagen items + de huidige gebruikersvoorkeuren.
+- Werkt `inFeed` en `feedReason` bij voor items waarvoor Claude een verdict geeft.
+- Genereert een uitgebreide FeedItem-samenvatting voor items die nieuw `inFeed=true` worden.
+- Items zonder verdict blijven onaangeraakt (zodat een lege Claude-respons je bestaande feed niet leegmaakt).
+
+In de Flutter-app: knop met sparkle-icoon (`auto_awesome`) bovenin de RSS-tab.
+
+### B. Volledig opnieuw verwerken (duurder, verse samenvattingen)
+
+Wanneer je items helemaal opnieuw wilt laten samenvatten en categoriseren (bv. omdat het summary-model is verbeterd, of omdat je tijdens de eerste run zonder API-key draaide), moeten de items eerst weg uit `rss_items.json`. Drie manieren:
 
 1. **Volledig wissen via filesystem** — `rm data/users/{username}/rss_items.json` (eventueel ook `feed_items.json` als je de feed leeg wilt). De repository leest het bestand bij elke call opnieuw, dus de backend hoeft niet herstart te worden.
-2. **Via de API** — `DELETE /api/rss/cleanup?olderThanDays=0&keepStarred=false&keepLiked=false&keepUnread=false` ruimt alles op (combineer eventueel met `DELETE /api/feed/cleanup?...`). Dezelfde knop zit in de Flutter-app onder Settings → "Artikelen opruimen".
+2. **Via de API** — `DELETE /api/rss/cleanup?olderThanDays=0&keepStarred=false&keepLiked=false&keepUnread=false` ruimt alles op (combineer met `DELETE /api/feed/cleanup?...`). Dezelfde knop zit in de Flutter-app onder Settings → "Artikelen opruimen" (bij 0 dagen worden ook bewaard/geliket/ongelezen meegenomen).
 3. **JSON handmatig editen** — selectief entries verwijderen met een editor; sla op als geldige JSON. Goed voor het terugbrengen van specifieke artikelen.
 
-Na een van de bovenstaande acties: trigger een refresh via `POST /api/rss/refresh`, of via de play-knop op het `hourly-update-{username}` record in de queue.
+Na een van bovenstaande acties: `POST /api/rss/refresh` of de play-knop op het `hourly-update-{username}` record in de queue.
