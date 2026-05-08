@@ -161,7 +161,12 @@ class _PodcastDetailScreenState extends ConsumerState<PodcastDetailScreen> {
                         label: const Text('Download'),
                         onPressed: () {
                           final api = ref.read(apiProvider);
-                          final url = '${ApiClient.baseUrl}/api/podcasts/${p.id}/audio?token=${api.token}';
+                          // ?download=1 → backend zet Content-Disposition op
+                          // attachment, browser triggert dan een echte
+                          // download met de podcast-titel als filename
+                          // i.p.v. inline-player in een nieuwe tab te openen.
+                          final url = '${ApiClient.baseUrl}/api/podcasts/${p.id}/audio'
+                              '?token=${api.token}&download=1';
                           launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
                         },
                       ),

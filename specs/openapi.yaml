@@ -646,6 +646,17 @@ paths:
           schema:
             type: integer
           description: Cache-busting versienummer (bijv. durationSeconds)
+        - name: download
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: |
+            Als `true` zet de server `Content-Disposition: attachment;
+            filename="..."` zodat browsers een echte download triggeren
+            i.p.v. de audio inline af te spelen. Default `false` (inline)
+            zodat just_audio in de app de stream kan afspelen zonder dat
+            er een download getriggerd wordt.
       responses:
         '200':
           description: MP3 audiostream
@@ -661,13 +672,17 @@ paths:
             Content-Disposition:
               schema:
                 type: string
-                example: 'inline; filename="DevTalk 12, 2026-05-08 — Kotlin, Flutter.mp3"'
+                example: 'attachment; filename="DevTalk 12, 2026-05-08 — Kotlin, Flutter.mp3"'
               description: |
                 Bevat de podcast-titel als bestandsnaam (gesaneerd: tekens
                 `\\/:*?"<>|` en newlines vervangen door `_`, max 120 chars).
-                Browsers en Android-handlers gebruiken deze naam bij Save As
-                of in de Downloads-folder. `inline` (niet `attachment`) zodat
-                streamen via just_audio onverstoord blijft.
+
+                Modus is afhankelijk van de `?download` query-parameter:
+                - `download=true` → `attachment; filename="..."` triggert
+                  een echte download in browsers met de titel als filename.
+                - default (`download=false`) → `inline; filename="..."`
+                  laat de browser/audio-player de stream inline afspelen;
+                  de filename wordt alleen gebruikt bij Save As.
           content:
             audio/mpeg:
               schema:

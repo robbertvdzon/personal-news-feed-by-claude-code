@@ -45,22 +45,28 @@ class PodcastController(private val service: PodcastService) {
     fun audio(
         @PathVariable id: String,
         @RequestParam(required = false) token: String?,
-        @RequestParam(required = false) v: Int?
+        @RequestParam(required = false) v: Int?,
+        @RequestParam(required = false, defaultValue = "false") download: Boolean
     ): ResponseEntity<ByteArray> {
         val podcast = service.get(user(), id) ?: throw NotFoundException("podcast $id")
         val bytes = service.audioBytes(user(), id) ?: throw NotFoundException("audio $id")
         // Content-Disposition met de podcast-titel als filename: zo heet
         // het opgeslagen MP3-bestand bij download "DevTalk 12, 2026-05-08
-        // — Kotlin, Flutter.mp3" i.p.v. "audio?token=...". Browsers en
-        // Android-handlers honoreren deze hint bij Save As of in de
-        // Downloads-folder. inline (geen attachment) zodat just_audio
-        // streamen niet beïnvloed wordt.
+        // — Kotlin, Flutter.mp3" i.p.v. "audio?token=...".
+        //
+        // Twee modi:
+        //   ?download=1  → "attachment" — browser triggert echte download
+        //                  i.p.v. inline-player te openen.
+        //   default      → "inline" — geschikt voor just_audio streamen
+        //                  in de app; tab-open in een browser speelt af.
+        // De filename-hint geldt in beide modi.
         val filename = sanitizeFilename(podcast.title.ifBlank { "DevTalk-$id" }) + ".mp3"
+        val disposition = if (download) "attachment" else "inline"
         return ResponseEntity.ok()
             .contentType(MediaType.parseMediaType("audio/mpeg"))
             .header(HttpHeaders.ACCEPT_RANGES, "bytes")
             .header(HttpHeaders.CACHE_CONTROL, "no-store")
-            .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"$filename\"")
+            .header(HttpHeaders.CONTENT_DISPOSITION, "$disposition; filename=\"$filename\"")
             .body(bytes)
     }
 
