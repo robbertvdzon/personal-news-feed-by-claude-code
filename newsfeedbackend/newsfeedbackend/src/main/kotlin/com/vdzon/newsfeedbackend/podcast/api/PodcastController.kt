@@ -61,12 +61,24 @@ class PodcastController(private val service: PodcastService) {
         //                  in de app; tab-open in een browser speelt af.
         // De filename-hint geldt in beide modi.
         val filename = sanitizeFilename(podcast.title.ifBlank { "DevTalk-$id" }) + ".mp3"
-        val disposition = if (download) "attachment" else "inline"
+        // ContentDisposition.builder zorgt voor RFC 5987 encoding van
+        // non-ASCII tekens (em-dash, accenten) — anders stript Tomcat
+        // de hele header omdat HTTP-headers default ASCII-only zijn.
+        // Resultaat: filename="ascii-versie.mp3"; filename*=UTF-8''percent-encoded.mp3
+        val cd = if (download) {
+            org.springframework.http.ContentDisposition.attachment()
+                .filename(filename, java.nio.charset.StandardCharsets.UTF_8)
+                .build()
+        } else {
+            org.springframework.http.ContentDisposition.inline()
+                .filename(filename, java.nio.charset.StandardCharsets.UTF_8)
+                .build()
+        }
         return ResponseEntity.ok()
             .contentType(MediaType.parseMediaType("audio/mpeg"))
             .header(HttpHeaders.ACCEPT_RANGES, "bytes")
             .header(HttpHeaders.CACHE_CONTROL, "no-store")
-            .header(HttpHeaders.CONTENT_DISPOSITION, "$disposition; filename=\"$filename\"")
+            .header(HttpHeaders.CONTENT_DISPOSITION, cd.toString())
             .body(bytes)
     }
 
