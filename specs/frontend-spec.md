@@ -99,7 +99,7 @@ Toont de gecureerde persoonlijke feed: `GET /api/feed` (gesorteerd op `createdAt
 Toont per item:
 - **Titel:** de Nederlandse `titleNl` van het item (door Claude tegelijk met de samenvatting gegenereerd, ~70 tekens). Voor legacy items zonder `titleNl` valt de UI terug op het originele `title`-veld.
 - **Bron, categorie, datum** uit de bekende velden.
-- **Preview:** de `shortSummary` (2 regels Nederlandse plain-text, ~30-50 woorden, eveneens door Claude gegenereerd). Voor legacy items zonder `shortSummary` valt de kaart terug op een afgekapte versie van de lange `summary`. De preview wordt op 2 regels afgekapt door `maxLines: 2` op de Text widget.
+- **Preview:** de `shortSummary` (2 regels Nederlandse plain-text, ~30-50 woorden, eveneens door Claude gegenereerd). Voor legacy items zonder `shortSummary` valt de kaart terug op een afgekapte versie van de lange `summary`. De preview wordt **als Markdown** gerenderd via `MarkdownBody`, zodat `**vet**`, `*cursief*` en `` `code` `` netjes worden opgemaakt — vooral relevant voor de fallback uit de lange summary die volop markdown bevat. Lengte wordt begrensd door eerst de eerste paragraaf te pakken en die af te kappen rond 240 tekens (op woordgrens, met `…`); headers/lijst-bullets worden via een aangepaste `MarkdownStyleSheet` als gewone tekst gerenderd om kaart-overflow te voorkomen.
 
 **Acties per kaart:**
 - **Tik:** open FeedItemDetailScreen

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 
 class ItemCard extends StatelessWidget {
   final String title;
@@ -71,7 +72,23 @@ class ItemCard extends StatelessWidget {
                 if (trailing != null) trailing!,
               ]),
               const SizedBox(height: 4),
-              Text(snippet, maxLines: 2, overflow: TextOverflow.ellipsis),
+              // Render preview als markdown — een fallback op de lange
+              // `summary` (bij legacy items zonder `shortSummary`) bevat
+              // vaak **vet**, *cursief* of `code`. Beperken tot ongeveer
+              // 2 regels door de tekst eerst af te kappen op ~250 chars
+              // / eerste paragraaf, want MarkdownBody heeft geen maxLines.
+              MarkdownBody(
+                data: _truncateForPreview(snippet),
+                shrinkWrap: true,
+                styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+                  p: Theme.of(context).textTheme.bodyMedium,
+                  // Headers + lijsten zijn in een 2-regel preview niet
+                  // bruikbaar; render ze als gewone tekst.
+                  h1: Theme.of(context).textTheme.bodyMedium,
+                  h2: Theme.of(context).textTheme.bodyMedium,
+                  h3: Theme.of(context).textTheme.bodyMedium,
+                ),
+              ),
               Row(children: [
                 IconButton(
                   icon: Icon(liked == true ? Icons.thumb_up : Icons.thumb_up_outlined,
@@ -95,4 +112,17 @@ class ItemCard extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Trim de preview-tekst tot ongeveer 2 regels markdown. We pakken eerst
+/// de eerste paragraaf (split op blank line) en kappen daarna af op een
+/// grenswoord rond 240 chars, met een ellipsis. Voorkomt dat een lange
+/// markdown-summary de hele kaart laat groeien.
+String _truncateForPreview(String src) {
+  final firstPara = src.split(RegExp(r'\n\s*\n')).first.trim();
+  const maxLen = 240;
+  if (firstPara.length <= maxLen) return firstPara;
+  final cut = firstPara.lastIndexOf(' ', maxLen);
+  final at = cut > maxLen - 60 ? cut : maxLen;
+  return '${firstPara.substring(0, at).trimRight()}…';
 }
