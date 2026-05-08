@@ -137,7 +137,7 @@ Toont ruwe RSS-artikelen na AI-verwerking: `GET /api/rss` (gesorteerd op `timest
 Identiek aan Feed-tab: categoriechips, teller, show-read toggle. Extra chip **"Overig"** voor items zonder categorie of categorie "overig".
 
 ### RssItem-kaart
-Toont: titel, bron, categorie, datum, snippet. Een badge geeft aan of het item **in de feed** staat (`inFeed: true`) of niet, inclusief een tooltip met de `feedReason`.
+Toont: titel, bron, categorie, datum en een **preview-tekst van max 2 regels**. De preview toont bij voorkeur de Nederlandse AI-samenvatting (`summary`) — die geeft de gebruiker direct context in zijn eigen taal. Als `summary` leeg is (item nog niet door AI verwerkt) valt de kaart terug op de ruwe RSS-`snippet`. Een badge geeft aan of het item **in de feed** staat (`inFeed: true`) of niet, inclusief een tooltip met de `feedReason`.
 
 **Acties per kaart:** identiek aan Feed (swipe-delete, 👍/👎, ster).
 

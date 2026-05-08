@@ -104,7 +104,9 @@ class _RssScreenState extends ConsumerState<RssScreen> {
                             source: it.source,
                             category: it.category,
                             date: it.publishedDate,
-                            snippet: it.snippet,
+                            // Toon liever de Nederlandse AI-samenvatting; val terug op
+                            // de ruwe RSS-snippet als die nog niet beoordeeld is.
+                            snippet: it.summary.isNotEmpty ? it.summary : it.snippet,
                             isRead: it.isRead,
                             starred: it.starred,
                             liked: it.liked,
