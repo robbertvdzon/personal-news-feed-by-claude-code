@@ -263,6 +263,26 @@ paths:
               schema:
                 $ref: '#/components/schemas/RemovedCount'
 
+  /api/rss/markAllRead:
+    post:
+      tags: [RSS Items]
+      operationId: markAllRssRead
+      summary: Markeer alle RSS-items als gelezen
+      description: |
+        Eén call die in één keer alle RSS-items op `isRead: true` zet.
+        Returnt het aantal items dat veranderd is (was=ongelezen).
+      responses:
+        '200':
+          description: Aantal items dat is bijgewerkt
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  updated:
+                    type: integer
+                    example: 47
+
   /api/rss/{id}/read:
     put:
       tags: [RSS Items]
@@ -399,6 +419,26 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RemovedCount'
+
+  /api/feed/markAllRead:
+    post:
+      tags: [Feed Items]
+      operationId: markAllFeedRead
+      summary: Markeer alle feed-items als gelezen
+      description: |
+        Eén call die in één keer alle feed-items op `isRead: true` zet.
+        Returnt het aantal items dat veranderd is (was=ongelezen).
+      responses:
+        '200':
+          description: Aantal items dat is bijgewerkt
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  updated:
+                    type: integer
+                    example: 12
 
   /api/feed/{id}/read:
     put:

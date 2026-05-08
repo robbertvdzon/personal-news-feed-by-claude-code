@@ -49,6 +49,9 @@ class RssController(private val service: RssService) {
     @PutMapping("/{id}/unread")
     fun unread(@PathVariable id: String): Map<String, String> { service.setRead(user(), id, false); return mapOf("status" to "ok") }
 
+    @PostMapping("/markAllRead")
+    fun markAllRead(): Map<String, Int> = mapOf("updated" to service.markAllRead(user()))
+
     @PutMapping("/{id}/star")
     fun star(@PathVariable id: String): Map<String, String> { service.toggleStar(user(), id); return mapOf("status" to "ok") }
 

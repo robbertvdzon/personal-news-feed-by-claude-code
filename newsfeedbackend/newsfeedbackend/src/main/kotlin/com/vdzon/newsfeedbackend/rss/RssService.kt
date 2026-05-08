@@ -7,6 +7,8 @@ interface RssService {
     fun get(username: String, id: String): RssItem?
     fun delete(username: String, id: String): Boolean
     fun setRead(username: String, id: String, read: Boolean): Boolean
+    /** Markeer alle items als gelezen. Returnt het aantal items dat is bijgewerkt (was=ongelezen). */
+    fun markAllRead(username: String): Int
     fun toggleStar(username: String, id: String): Boolean
     fun setFeedback(username: String, id: String, liked: Boolean?): Boolean
     fun cleanup(username: String, olderThanDays: Int, keepStarred: Boolean, keepLiked: Boolean, keepUnread: Boolean): Int

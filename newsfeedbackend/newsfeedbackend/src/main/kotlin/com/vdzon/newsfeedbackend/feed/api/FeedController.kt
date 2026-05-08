@@ -7,6 +7,7 @@ import com.vdzon.newsfeedbackend.common.SecurityHelpers
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
+import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.PutMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
@@ -39,6 +40,9 @@ class FeedController(private val service: FeedService) {
     fun markUnread(@PathVariable id: String): Map<String, String> {
         service.setRead(user(), id, false); return mapOf("status" to "ok")
     }
+
+    @PostMapping("/markAllRead")
+    fun markAllRead(): Map<String, Int> = mapOf("updated" to service.markAllRead(user()))
 
     @PutMapping("/{id}/star")
     fun toggleStar(@PathVariable id: String): Map<String, String> {

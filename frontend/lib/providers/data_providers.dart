@@ -66,6 +66,13 @@ class FeedNotifier extends AsyncNotifier<List<FeedItem>> {
     try { await _api.put('/api/feed/$id/${read ? "read" : "unread"}'); } catch (_) {}
   }
 
+  /// Markeer alle feed-items als gelezen — eerst optimistisch in de
+  /// lokale state, daarna één API-call zodat de server volgt.
+  Future<void> markAllRead() async {
+    state = AsyncData(state.value!.map((it) => it.copyWith(isRead: true)).toList());
+    try { await _api.post('/api/feed/markAllRead'); } catch (_) {}
+  }
+
   Future<void> toggleStar(String id) async {
     state = AsyncData(state.value!.map((it) => it.id == id ? it.copyWith(starred: !it.starred) : it).toList());
     try { await _api.put('/api/feed/$id/star'); } catch (_) {}
@@ -113,6 +120,13 @@ class RssNotifier extends AsyncNotifier<List<RssItem>> {
   Future<void> setRead(String id, bool read) async {
     state = AsyncData(state.value!.map((it) => it.id == id ? it.copyWith(isRead: read) : it).toList());
     try { await _api.put('/api/rss/$id/${read ? "read" : "unread"}'); } catch (_) {}
+  }
+
+  /// Markeer alle RSS-items als gelezen — eerst optimistisch in de
+  /// lokale state, daarna één API-call zodat de server volgt.
+  Future<void> markAllRead() async {
+    state = AsyncData(state.value!.map((it) => it.copyWith(isRead: true)).toList());
+    try { await _api.post('/api/rss/markAllRead'); } catch (_) {}
   }
 
   Future<void> toggleStar(String id) async {

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/models.dart';
 import '../providers/data_providers.dart';
+import '../util/time_format.dart';
 import '../widgets/feed_card.dart';
 import 'rss_detail_screen.dart';
 
@@ -15,7 +16,7 @@ class RssScreen extends ConsumerStatefulWidget {
 class _RssScreenState extends ConsumerState<RssScreen> {
   String? _selectedCategory;
   bool _otherOnly = false;
-  bool _showRead = false;
+  bool _hideRead = true;
 
   @override
   Widget build(BuildContext context) {
@@ -30,8 +31,10 @@ class _RssScreenState extends ConsumerState<RssScreen> {
             icon: const Icon(Icons.cloud_download),
             onPressed: () async {
               await ref.read(rssProvider.notifier).refresh();
-              if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Verversing gestart')));
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Verversing gestart')));
+              }
             },
           ),
           IconButton(
@@ -39,9 +42,16 @@ class _RssScreenState extends ConsumerState<RssScreen> {
             icon: const Icon(Icons.auto_awesome),
             onPressed: () async {
               await ref.read(rssProvider.notifier).reselect();
-              if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('AI-selectie opnieuw gestart — check backend log')));
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('AI-selectie opnieuw gestart — check backend log')));
+              }
             },
+          ),
+          IconButton(
+            tooltip: 'Markeer alles als gelezen',
+            icon: const Icon(Icons.done_all),
+            onPressed: () => _confirmMarkAllRead(context),
           ),
           IconButton(
             tooltip: 'Lijst herladen',
@@ -51,6 +61,15 @@ class _RssScreenState extends ConsumerState<RssScreen> {
         ],
       ),
       body: Column(children: [
+        // Eigen, altijd-zichtbare 'Verberg gelezen' switch — los van de
+        // categorie-chips zodat het verschil tussen filter en weergave-
+        // optie duidelijk blijft.
+        SwitchListTile(
+          dense: true,
+          title: const Text('Verberg gelezen'),
+          value: _hideRead,
+          onChanged: (v) => setState(() => _hideRead = v),
+        ),
         settings.when(
           data: (cats) => SingleChildScrollView(
             scrollDirection: Axis.horizontal,
@@ -72,14 +91,6 @@ class _RssScreenState extends ConsumerState<RssScreen> {
                   label: const Text('Overig'),
                   selected: _otherOnly,
                   onSelected: (v) => setState(() => _otherOnly = v),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: FilterChip(
-                  label: Text(_showRead ? 'Verberg gelezen' : 'Toon gelezen'),
-                  selected: _showRead,
-                  onSelected: (v) => setState(() => _showRead = v),
                 ),
               ),
             ]),
@@ -104,6 +115,7 @@ class _RssScreenState extends ConsumerState<RssScreen> {
                             source: it.source,
                             category: it.category,
                             date: it.publishedDate,
+                            relativeTime: formatRelativeTime(it.timestamp),
                             // Toon liever de Nederlandse AI-samenvatting; val terug op
                             // de ruwe RSS-snippet als die nog niet beoordeeld is.
                             snippet: it.summary.isNotEmpty ? it.summary : it.snippet,
@@ -139,9 +151,29 @@ class _RssScreenState extends ConsumerState<RssScreen> {
     return items.where((it) {
       if (_otherOnly && it.category != 'overig') return false;
       if (_selectedCategory != null && it.category != _selectedCategory) return false;
-      if (!_showRead && it.isRead) return false;
+      if (_hideRead && it.isRead) return false;
       return true;
     }).toList();
+  }
+
+  Future<void> _confirmMarkAllRead(BuildContext context) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Markeer alles als gelezen?'),
+        content: const Text(
+          'Alle RSS-items worden als gelezen aangemerkt. Deze actie kan via '
+          'het detail-scherm per item ongedaan worden gemaakt.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuleren')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Alles als gelezen')),
+        ],
+      ),
+    );
+    if (ok == true) {
+      await ref.read(rssProvider.notifier).markAllRead();
+    }
   }
 
   void _open(List<RssItem> items, int idx) {

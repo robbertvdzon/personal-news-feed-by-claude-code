@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/models.dart';
 import '../providers/data_providers.dart';
+import '../util/time_format.dart';
 import '../widgets/feed_card.dart';
 import 'feed_detail_screen.dart';
 
@@ -16,7 +17,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
   String? _selectedCategory;
   bool _summaryOnly = false;
   bool _starredOnly = false;
-  bool _showRead = false;
+  bool _hideRead = true;
 
   @override
   Widget build(BuildContext context) {
@@ -26,11 +27,30 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
       appBar: AppBar(
         title: const Text('Feed'),
         actions: [
-          IconButton(icon: const Icon(Icons.refresh), onPressed: () => ref.read(feedProvider.notifier).reload()),
+          IconButton(
+            tooltip: 'Markeer alles als gelezen',
+            icon: const Icon(Icons.done_all),
+            onPressed: () => _confirmMarkAllRead(context),
+          ),
+          IconButton(
+            tooltip: 'Lijst herladen',
+            icon: const Icon(Icons.refresh),
+            onPressed: () => ref.read(feedProvider.notifier).reload(),
+          ),
         ],
       ),
       body: Column(
         children: [
+          // Eigen, altijd-zichtbare 'Verberg gelezen' switch — los van de
+          // categorie-chips zodat het verschil tussen filter (categorie/
+          // samenvatting/ster) en weergave-optie (gelezen wel/niet tonen)
+          // duidelijk blijft.
+          SwitchListTile(
+            dense: true,
+            title: const Text('Verberg gelezen'),
+            value: _hideRead,
+            onChanged: (v) => setState(() => _hideRead = v),
+          ),
           settings.when(
             data: (cats) => SingleChildScrollView(
               scrollDirection: Axis.horizontal,
@@ -63,14 +83,6 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
                     onSelected: (v) => setState(() => _starredOnly = v),
                   ),
                 ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  child: FilterChip(
-                    label: Text(_showRead ? 'Verberg gelezen' : 'Toon gelezen'),
-                    selected: _showRead,
-                    onSelected: (v) => setState(() => _showRead = v),
-                  ),
-                ),
               ]),
             ),
             loading: () => const SizedBox.shrink(),
@@ -93,6 +105,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
                               source: it.source,
                               category: it.category,
                               date: it.publishedDate,
+                              relativeTime: formatRelativeTime(it.createdAt),
                               snippet: it.listPreview,
                               isRead: it.isRead,
                               starred: it.starred,
@@ -121,9 +134,29 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
       if (_selectedCategory != null && it.category != _selectedCategory) return false;
       if (_summaryOnly && !it.isSummary) return false;
       if (_starredOnly && !it.starred) return false;
-      if (!_showRead && it.isRead) return false;
+      if (_hideRead && it.isRead) return false;
       return true;
     }).toList();
+  }
+
+  Future<void> _confirmMarkAllRead(BuildContext context) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Markeer alles als gelezen?'),
+        content: const Text(
+          'Alle feed-items worden als gelezen aangemerkt. Deze actie kan via '
+          'het detail-scherm per item ongedaan worden gemaakt.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuleren')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Alles als gelezen')),
+        ],
+      ),
+    );
+    if (ok == true) {
+      await ref.read(feedProvider.notifier).markAllRead();
+    }
   }
 
   void _open(List<FeedItem> items, int idx) {

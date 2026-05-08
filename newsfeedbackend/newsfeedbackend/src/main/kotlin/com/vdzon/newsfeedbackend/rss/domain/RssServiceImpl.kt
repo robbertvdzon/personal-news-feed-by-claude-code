@@ -29,6 +29,19 @@ class RssServiceImpl(
         it.copy(isRead = read)
     }
 
+    override fun markAllRead(username: String): Int {
+        val items = repo.load(username)
+        var changed = 0
+        for (i in items.indices) {
+            if (!items[i].isRead) {
+                items[i] = items[i].copy(isRead = true)
+                changed++
+            }
+        }
+        if (changed > 0) repo.save(username, items)
+        return changed
+    }
+
     override fun toggleStar(username: String, id: String): Boolean = mutate(username, id) {
         it.copy(starred = !it.starred)
     }

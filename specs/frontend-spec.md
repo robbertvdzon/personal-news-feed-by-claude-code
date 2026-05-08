@@ -90,15 +90,15 @@ Toont een formulier met gebruikersnaam en wachtwoord.
 Toont de gecureerde persoonlijke feed: `GET /api/feed` (gesorteerd op `createdAt` aflopend).
 
 ### Filteropties (altijd zichtbaar bovenaan)
-- **Categorietabs:** chips per ingeschakelde categorie uit Settings. Eén chip kan actief zijn; opnieuw tikken deselecteert.
-- **"Samenvatting"-tab:** filtert op items waarbij `isSummary: true`
-- **"Bewaard"-tab:** filtert op `starred: true`
-- **Teller gelezen items:** knop die ongelezen/gelezen items toggelt ("Gelezen (n)"). Standaard verborgen.
+- **"Verberg gelezen"-switch** (altijd-zichtbare `SwitchListTile` boven de chip-rij — niet vermengd met categorie-chips, want filter ≠ weergave-optie). Default `true`. Toggelt of items met `isRead: true` in de lijst verschijnen.
+- **Categorie-chips** (eronder, scrollend horizontaal): chips per ingeschakelde categorie uit Settings. Eén chip kan actief zijn; opnieuw tikken deselecteert.
+- **"Samenvatting"-chip:** filtert op items waarbij `isSummary: true`
+- **"Bewaard"-chip:** filtert op `starred: true`
 
 ### FeedItem-kaart (in de lijst)
 Toont per item:
 - **Titel:** de Nederlandse `titleNl` van het item (door Claude tegelijk met de samenvatting gegenereerd, ~70 tekens). Voor legacy items zonder `titleNl` valt de UI terug op het originele `title`-veld.
-- **Bron, categorie, datum** uit de bekende velden.
+- **Bron, relatieve tijd, categorie, datum** uit de bekende velden. De relatieve tijd toont hoe lang geleden het item bij ons binnenkwam (op basis van `createdAt`): "12 minuten geleden", "3 uur geleden", "2 dagen geleden", of een absolute datum (DD-MM-YYYY) na 3 dagen. Toont niets voor legacy items zonder timestamp. Helper: `lib/util/time_format.dart`.
 - **Preview:** de `shortSummary` (2 regels Nederlandse plain-text, ~30-50 woorden, eveneens door Claude gegenereerd). Voor legacy items zonder `shortSummary` valt de kaart terug op een afgekapte versie van de lange `summary`. De preview wordt **als Markdown** gerenderd via `MarkdownBody`, zodat `**vet**`, `*cursief*` en `` `code` `` netjes worden opgemaakt — vooral relevant voor de fallback uit de lange summary die volop markdown bevat. Lengte wordt begrensd door eerst de eerste paragraaf te pakken en die af te kappen rond 240 tekens (op woordgrens, met `…`); headers/lijst-bullets worden via een aangepaste `MarkdownStyleSheet` als gewone tekst gerenderd om kaart-overflow te voorkomen.
 
 **Acties per kaart:**
@@ -109,8 +109,9 @@ Toont per item:
 - **Ster-icoon:** toggle ster (PUT `/api/feed/{id}/star`)
 
 ### Toolbar-acties
-- **Vernieuwen:** herlaad feed van backend
-- **Pull-to-refresh:** zelfde als vernieuwen
+- **Markeer alles als gelezen** (`done_all`-icoon): bevestigingsdialog → `POST /api/feed/markAllRead`. Optimistische update vooraf zodat de UI direct alle items als gelezen toont.
+- **Vernieuwen** (`refresh`-icoon): herlaad feed van backend.
+- **Pull-to-refresh:** zelfde als vernieuwen.
 
 ### FeedItemDetailScreen
 PageView waarmee je door alle (gefilterde) items heen kunt bladeren.
@@ -139,10 +140,10 @@ PageView waarmee je door alle (gefilterde) items heen kunt bladeren.
 Toont ruwe RSS-artikelen na AI-verwerking: `GET /api/rss` (gesorteerd op `timestamp` aflopend).
 
 ### Filteropties
-Identiek aan Feed-tab: categoriechips, teller, show-read toggle. Extra chip **"Overig"** voor items zonder categorie of categorie "overig".
+Identiek aan Feed-tab: een aparte **"Verberg gelezen"-switch** boven de chip-rij, en daaronder categoriechips. Default `_hideRead = true`. Extra chip **"Overig"** voor items zonder categorie of categorie "overig". (De Feed-tab heeft "Samenvatting" + "Bewaard" extra chips i.p.v. "Overig".)
 
 ### RssItem-kaart
-Toont: titel, bron, categorie, datum en een **preview-tekst van max 2 regels**. De preview toont bij voorkeur de Nederlandse AI-samenvatting (`summary`) — die geeft de gebruiker direct context in zijn eigen taal. Als `summary` leeg is (item nog niet door AI verwerkt) valt de kaart terug op de ruwe RSS-`snippet`. Een badge geeft aan of het item **in de feed** staat (`inFeed: true`) of niet, inclusief een tooltip met de `feedReason`.
+Toont: titel, bron, **relatieve tijd** ("12 minuten geleden" / "3 uur geleden" / "2 dagen geleden" / DD-MM-YYYY na 3 dagen, op basis van `timestamp`), categorie, datum en een **preview-tekst van max 2 regels**. De preview toont bij voorkeur de Nederlandse AI-samenvatting (`summary`) — die geeft de gebruiker direct context in zijn eigen taal. Als `summary` leeg is (item nog niet door AI verwerkt) valt de kaart terug op de ruwe RSS-`snippet`. Een badge geeft aan of het item **in de feed** staat (`inFeed: true`) of niet, inclusief een tooltip met de `feedReason`.
 
 **Acties per kaart:** identiek aan Feed (swipe-delete, 👍/👎, ster).
 
@@ -161,6 +162,7 @@ Identiek qua PageView-navigatie en AppBar-acties als FeedItemDetailScreen.
 ### Toolbar-acties
 - **Vernieuwen (van bron) (`cloud_download`):** roept POST `/api/rss/refresh` aan, daarna periodiek (elke 4 seconden) opnieuw GET `/api/rss` tot verversing klaar is.
 - **AI-selectie opnieuw (`auto_awesome`):** roept POST `/api/rss/reselect` aan om alleen de AI-selectie-stap te draaien op de al-opgeslagen items, zonder fetch/summary opnieuw. Toont snackbar "AI-selectie opnieuw gestart — check backend log".
+- **Markeer alles als gelezen (`done_all`):** bevestigingsdialog → `POST /api/rss/markAllRead`. Optimistische update vooraf zodat de UI direct alle items als gelezen toont.
 - **Lijst herladen (`refresh`):** alleen de lokale lijst opnieuw ophalen (GET `/api/rss`).
 
 ---

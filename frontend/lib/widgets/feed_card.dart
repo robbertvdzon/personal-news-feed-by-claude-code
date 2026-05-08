@@ -5,7 +5,12 @@ class ItemCard extends StatelessWidget {
   final String title;
   final String source;
   final String category;
+  /// Originele publicatiedatum (`YYYY-MM-DD`), uit de RSS-feed.
   final String? date;
+  /// Relatieve tijd sinds het item bij ons binnenkwam ("12 minuten geleden",
+  /// "3 uur geleden", "2 dagen geleden", of een datum na 3 dagen).
+  /// Wordt naast de bron-naam getoond. Leeg = niet tonen.
+  final String relativeTime;
   final String snippet;
   final bool isRead;
   final bool starred;
@@ -23,6 +28,7 @@ class ItemCard extends StatelessWidget {
     required this.category,
     required this.snippet,
     this.date,
+    this.relativeTime = '',
     this.isRead = false,
     this.starred = false,
     this.liked,
@@ -61,8 +67,15 @@ class ItemCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const SizedBox(height: 4),
-              Wrap(spacing: 8, children: [
+              Wrap(spacing: 8, runSpacing: 2, crossAxisAlignment: WrapCrossAlignment.center, children: [
                 if (source.isNotEmpty) Text(source, style: Theme.of(context).textTheme.bodySmall),
+                if (relativeTime.isNotEmpty)
+                  Text(
+                    '· $relativeTime',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).hintColor,
+                    ),
+                  ),
                 Chip(
                   label: Text(category),
                   visualDensity: VisualDensity.compact,
