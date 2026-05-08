@@ -139,23 +139,31 @@ class RequestNotifier extends AsyncNotifier<List<NewsRequest>> {
     final updated = NewsRequest.fromJson(msg);
     final cur = state.value;
     if (cur == null) return;
-    // The WebSocket broadcasts to all clients (no auth). Filter out updates
-    // for other users: daily-* ids encode the username; ad-hoc UUIDs are
-    // only relevant if already present in our own list (loaded from
-    // /api/requests, which is JWT-scoped).
-    final username = ref.read(authProvider).username;
-    final isOurDaily = username != null &&
-        (updated.id == 'daily-update-$username' ||
-            updated.id == 'daily-summary-$username');
+    // Per spec (frontend-spec §7): the /ws/requests broadcast carries
+    // updates for ALL users. Known IDs in our local list are safe to
+    // patch in place (the list itself comes from JWT-scoped /api/requests
+    // so it only contains our own items). Unknown IDs trigger a quiet
+    // reload, which silently filters out other users' requests via the
+    // JWT-scoped fetch.
     final idx = cur.indexWhere((r) => r.id == updated.id);
     if (idx >= 0) {
       final list = [...cur];
       list[idx] = updated;
       state = AsyncData(list);
-    } else if (isOurDaily) {
-      state = AsyncData([updated, ...cur]);
+    } else {
+      _reloadFromServer();
     }
-    // else: belongs to another user, ignore.
+  }
+
+  Future<void> _reloadFromServer() async {
+    try {
+      final list = await _api.get('/api/requests') as List<dynamic>;
+      state = AsyncData(list
+          .map((e) => NewsRequest.fromJson(e as Map<String, dynamic>))
+          .toList());
+    } catch (_) {
+      // ignore — keep current state
+    }
   }
 
   Future<void> create({required String subject, String? sourceItemId, String? sourceItemTitle, int maxAgeDays = 3}) async {

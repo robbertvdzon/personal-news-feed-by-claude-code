@@ -160,7 +160,7 @@ Toont de lijst van verwerkingsverzoeken: `GET /api/requests`.
 
 ### Verzoektypen in de lijst
 
-**Dagelijkse update (vast, niet verwijderbaar):** item met ID `daily-update-{username}`. Toont status, voortgangs-indicator tijdens verwerking, kosten en itemtelling na voltooiing. Looptijd wordt live bijgehouden (elapsed timer).
+**Dagelijkse update (vast, niet verwijderbaar):** item met ID `daily-update-{username}`. Vertegenwoordigt de status van de **uurlijkse** RSS-verwerking — één vast record dat in-place wordt bijgewerkt bij elke run (niet één per uur). Toont status, voortgangs-indicator tijdens verwerking, kosten en itemtelling na voltooiing. Looptijd wordt live bijgehouden (elapsed timer).
 
 **Dagelijkse samenvatting (vast, niet verwijderbaar):** item met ID `daily-summary-{username}`. Zelfde weergave.
 
@@ -182,9 +182,10 @@ Toont de lijst van verwerkingsverzoeken: `GET /api/requests`.
 Verbinding met `ws(s)://{host}/ws/requests` zodra de verzoeken geladen zijn.
 
 - Inkomende berichten zijn JSON-objecten conform het `NewsRequest` schema uit `openapi.yaml` (zie ook de berichtspecificatie in `backend-functional-spec.md` sectie 5)
-- Het bijpassende item in de lijst wordt op `id` vervangen
+- **Belangrijk:** de WebSocket-broadcast bevat updates van **alle** gebruikers (server filtert niet per user). De frontend moet zelf filteren:
+  - Bij **bekend ID** in de lokale lijst: vervang het item — dit is veilig omdat de lokale lijst is geladen via `GET /api/requests` (JWT-gescoped, dus alleen eigen items).
+  - Bij **onbekend ID**: doe een stille herlaad van de volledige verzoeklijst via `GET /api/requests`. De backend filtert daar wel op JWT, dus updates van andere gebruikers verdwijnen automatisch en eigen nieuwe items komen binnen. Voeg het item níet rechtstreeks toe op basis van het WebSocket-bericht — dan zouden andere gebruikers' verzoeken in de queue verschijnen.
 - Bij status DONE of CANCELLED: automatisch RSS-items en feed-items herladen (nieuwe artikelen kunnen zijn binnengekomen)
-- Bij onbekend ID: stille herlaad van de volledige verzoeklijst
 - Bij verbrekingsfout: automatisch herverbinden na 5 seconden
 - Verbinding verbreken bij uitloggen
 

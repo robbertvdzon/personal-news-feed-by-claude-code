@@ -111,6 +111,7 @@ Daarin staan alle endpoints met paden, methoden, request/response bodies, query 
 - Geen authenticatie vereist
 - Alleen server → client (broadcast; berichten van de client worden genegeerd)
 - Kapotte verbindingen worden bij de volgende broadcast verwijderd
+- **Multi-user broadcast:** elk bericht wordt naar **alle** verbonden clients verstuurd, dus ook updates van andere gebruikers. De server filtert niet per gebruiker. Frontend-clients moeten zelf filteren (zie frontend-spec sectie 7 voor het matchregels-protocol).
 
 **Trigger:** bij elke statuswijziging van een `NewsRequest` stuurt de server één bericht naar alle verbonden clients.
 
@@ -139,9 +140,11 @@ De ontvanger (frontend) matcht het bericht op `id` en vervangt het bestaande ite
 
 ## 6. Gedrag & Achtergrondprocessen
 
-### 6.1 Dagelijkse RSS-verwerking (automatisch, elk uur)
+### 6.1 RSS-verwerking (automatisch, elk uur)
 
 Wordt elk uur automatisch uitgevoerd voor elke gebruiker. Handmatig te triggeren via `POST /api/rss/refresh`.
+
+> **Naamgeving:** het bijbehorende `NewsRequest`-record heeft id `daily-update-{username}` en subject `"Dagelijkse update"`. Dit is één vast record per gebruiker dat bij elke run (uurlijks of handmatig) **in-place** wordt bijgewerkt — er ontstaat dus geen nieuw record per uur. De `daily-` prefix is historisch; conceptueel is dit "de status van de laatste RSS-refresh".
 
 **Pipeline:**
 1. Haal alle RSS-feeds op die de gebruiker geconfigureerd heeft (parallel). Filter artikelen ouder dan 4 dagen.
