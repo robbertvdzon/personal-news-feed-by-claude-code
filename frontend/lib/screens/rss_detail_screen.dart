@@ -55,10 +55,62 @@ class _RssItemDetailScreenState extends ConsumerState<RssItemDetailScreen> {
         const SnackBar(content: Text('Verzoek gemaakt')));
   }
 
+  /// Pakt het meest actuele RssItem voor het huidige index uit de
+  /// provider-state. Zo reflecteren AppBar-knoppen direct de updates die
+  /// notifier-acties (like/star/unread) optimistisch doorvoeren.
+  RssItem _liveItem(int idx) {
+    final base = widget.items[idx];
+    final live = ref.watch(rssProvider).value;
+    if (live == null) return base;
+    for (final it in live) {
+      if (it.id == base.id) return it;
+    }
+    return base;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final current = _liveItem(_idx);
     return Scaffold(
-      appBar: AppBar(title: Text('${_idx + 1}/${widget.items.length}')),
+      appBar: AppBar(
+        title: Text('${_idx + 1}/${widget.items.length}'),
+        actions: [
+          IconButton(
+            tooltip: 'Vind ik leuk',
+            icon: Icon(
+              current.liked == true ? Icons.thumb_up : Icons.thumb_up_outlined,
+              color: current.liked == true ? Colors.green : null,
+            ),
+            onPressed: () => ref.read(rssProvider.notifier)
+                .setFeedback(current.id, current.liked == true ? null : true),
+          ),
+          IconButton(
+            tooltip: 'Niet relevant',
+            icon: Icon(
+              current.liked == false ? Icons.thumb_down : Icons.thumb_down_outlined,
+              color: current.liked == false ? Colors.red : null,
+            ),
+            onPressed: () => ref.read(rssProvider.notifier)
+                .setFeedback(current.id, current.liked == false ? null : false),
+          ),
+          IconButton(
+            tooltip: 'Bewaar',
+            icon: Icon(
+              current.starred ? Icons.star : Icons.star_outline,
+              color: current.starred ? Colors.amber : null,
+            ),
+            onPressed: () => ref.read(rssProvider.notifier).toggleStar(current.id),
+          ),
+          IconButton(
+            tooltip: current.isRead ? 'Markeer als ongelezen' : 'Markeer als gelezen',
+            icon: Icon(
+              current.isRead ? Icons.mark_email_unread_outlined : Icons.mark_email_read_outlined,
+            ),
+            onPressed: () => ref.read(rssProvider.notifier)
+                .setRead(current.id, !current.isRead),
+          ),
+        ],
+      ),
       body: PageView.builder(
         controller: _ctrl,
         itemCount: widget.items.length,
@@ -67,7 +119,7 @@ class _RssItemDetailScreenState extends ConsumerState<RssItemDetailScreen> {
           ref.read(rssProvider.notifier).setRead(widget.items[i].id, true);
         },
         itemBuilder: (ctx, i) {
-          final it = widget.items[i];
+          final it = _liveItem(i);
           return SingleChildScrollView(
             padding: const EdgeInsets.all(16),
             child: Column(

@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../api/api_client.dart';
+import '../api/local_cache.dart';
 
 final apiProvider = Provider<ApiClient>((ref) => ApiClient());
 
@@ -50,6 +51,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('token');
     await prefs.remove('username');
+    // Wis offline cache van álle users zodat een volgende user op
+    // hetzelfde toestel geen oude data ziet bij netwerkproblemen.
+    await LocalCache.clearAll();
     api.setToken(null);
     state = const AuthState();
   }

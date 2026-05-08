@@ -122,12 +122,13 @@ PageView waarmee je door alle (gefilterde) items heen kunt bladeren.
 - **Volledige samenvatting** = `summary` (uitgebreide Nederlandse 400-600 woord versie, 600-1000 voor daily summaries). Altijd via `MarkdownBody` + `selectable: true` zodat headers, vet/cursief, lijsten en paragrafen netjes worden gerenderd én de tekst gekopieerd kan worden met cmd/ctrl+c.
 - Bronlink(s) onderaan: tik om te openen in externe browser; lang indrukken om URL te kopiëren.
 
-**AppBar-acties:**
-- Gelezen/ongelezen toggle (PUT `/api/feed/{id}/read` of `/unread`)
-- 👍 / 👎 feedback
-- Ster toggle
+**AppBar-acties** (per huidig item, status reflecteert live de provider-state — dus toggles updaten de iconen direct):
+- 👍 **Vind ik leuk** (`thumb_up_outlined` / `thumb_up` in groen) — `setFeedback(id, true)`; opnieuw tikken zet hem op `null`.
+- 👎 **Niet relevant** (`thumb_down_outlined` / `thumb_down` in rood) — `setFeedback(id, false)`.
+- ⭐ **Bewaar** (`star_outline` / `star` in amber) — `toggleStar(id)`.
+- ✉️ **Markeer als (on)gelezen** (`mark_email_read_outlined` ↔ `mark_email_unread_outlined`) — `setRead(id, !isRead)`. Handig om een artikel terug op ongelezen te zetten als je 'm later wilt herlezen.
 
-**Navigatie:** swipe of knoppen "Vorige"/"Volgende" om door items te bladeren.
+**Navigatie:** swipe horizontaal of via PageController om door items te bladeren.
 
 **Auto-markeer-gelezen:** het item dat getoond wordt bij openen én elk item waarnaar geswiped wordt, wordt automatisch als gelezen gemarkeerd.
 
@@ -306,9 +307,10 @@ Knop "Artikelen opruimen" opent CleanupDialog:
 De app gebruikt Riverpod. Providers zijn globaal beschikbaar via `ProviderScope` aan de root.
 
 ### Sleutelprincipes
-- **Optimistische updates:** acties als verwijderen, like/unlike, ster-toggle en verzoek-annuleren worden direct in de lokale state doorgevoerd zonder te wachten op serverbevestiging
+- **Optimistische updates:** acties als verwijderen, like/unlike, ster-toggle en verzoek-annuleren worden direct in de lokale state doorgevoerd zonder te wachten op serverbevestiging. Falende API-calls (bv. offline) worden stil gelogd zodat de UI bruikbaar blijft.
 - **Gedeelde read/ster/feedback-state:** lees-, ster- en feedbackstatus worden bij het laden vanuit de server-response geïnitialiseerd en lokaal bijgehouden; API-calls synchroniseren de backend
 - **Provider-reset bij uitloggen:** alle data-providers worden gereset zodat geen data van de vorige gebruiker zichtbaar is na uitloggen
+- **Offline cache (zie sectie 14):** elke list-fetch (feed, rss, requests, podcasts, settings, rss-feeds) wordt na succes per gebruiker in `SharedPreferences` opgeslagen; bij netwerkfouten valt de notifier terug op die laatst-bekende waarde zodat de Android-app gewoon door blijft werken zonder verbinding.
 
 ### Providers (overzicht)
 
@@ -421,3 +423,32 @@ Intern zoiets als:
 flutter build apk --release \
   --dart-define=API_BASE_URL=http://217.120.100.76:19283
 ```
+
+---
+
+## 14. Offline cache
+
+De Android-app moet bruikbaar blijven als internet wegvalt of de backend (tijdelijk) niet bereikbaar is — de gebruiker wil de feed die hij eerder had opgehaald nog steeds kunnen lezen.
+
+### Mechanisme
+- Elke geslaagde list-fetch wordt direct naar `SharedPreferences` geserialiseerd onder een key `cache_v1_<username>_<name>`. De cache is **per gebruiker** zodat uitloggen + inloggen als andere user geen vorige cache pakt.
+- Bij elke nieuwe `build()` van een notifier (en bij `poll()` waar van toepassing) probeert de app eerst de live API. Faalt dat (DNS-fout, timeout, 5xx, geen verbinding), dan valt hij terug op de gecachete waarde.
+- Is er nog niets gecached, dan propageert de fout naar de UI (`AsyncValue.error`) zoals voorheen — de gebruiker ziet dan een foutmelding op het scherm.
+- Implementatie: `lib/api/local_cache.dart` met `LocalCache.saveList/loadList/saveObject/loadObject/clearAll`. Notifiers gebruiken de helpers `_fetchListWithCache` en `_fetchObjectWithCache` uit `data_providers.dart` zodat de cache-logica niet in elke notifier herhaald wordt.
+
+### Welke endpoints worden gecached
+| Notifier | Endpoint | Cache-naam |
+|---|---|---|
+| `feedProvider` | `GET /api/feed` | `feed` |
+| `rssProvider` | `GET /api/rss` | `rss` |
+| `requestProvider` | `GET /api/requests` | `requests` |
+| `podcastProvider` | `GET /api/podcasts` | `podcasts` |
+| `settingsProvider` | `GET /api/settings` | `settings` |
+| `rssFeedsProvider` | `GET /api/rss-feeds` | `rss-feeds` |
+
+Schrijfacties (PUT/POST/DELETE) cachen niet expliciet — ze updaten de in-memory state optimistisch en falen stil bij offline. Bij volgende online refresh komt de juiste server-state weer binnen.
+
+### Cache-leven
+- Wordt gewist bij `AuthNotifier.logout()` via `LocalCache.clearAll()` zodat een volgende user geen residue ziet.
+- Uninstall van de app verwijdert SharedPreferences automatisch.
+- Geen automatische TTL — de cache wordt altijd vervangen door verse server-data zodra die binnenkomt.

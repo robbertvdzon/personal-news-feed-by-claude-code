@@ -47,11 +47,26 @@ class PodcastController(private val service: PodcastService) {
         @RequestParam(required = false) token: String?,
         @RequestParam(required = false) v: Int?
     ): ResponseEntity<ByteArray> {
+        val podcast = service.get(user(), id) ?: throw NotFoundException("podcast $id")
         val bytes = service.audioBytes(user(), id) ?: throw NotFoundException("audio $id")
+        // Content-Disposition met de podcast-titel als filename: zo heet
+        // het opgeslagen MP3-bestand bij download "DevTalk 12, 2026-05-08
+        // — Kotlin, Flutter.mp3" i.p.v. "audio?token=...". Browsers en
+        // Android-handlers honoreren deze hint bij Save As of in de
+        // Downloads-folder. inline (geen attachment) zodat just_audio
+        // streamen niet beïnvloed wordt.
+        val filename = sanitizeFilename(podcast.title.ifBlank { "DevTalk-$id" }) + ".mp3"
         return ResponseEntity.ok()
             .contentType(MediaType.parseMediaType("audio/mpeg"))
             .header(HttpHeaders.ACCEPT_RANGES, "bytes")
             .header(HttpHeaders.CACHE_CONTROL, "no-store")
+            .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"$filename\"")
             .body(bytes)
     }
+
+    private fun sanitizeFilename(s: String): String =
+        s.replace(Regex("[\\\\/:*?\"<>|\\r\\n]"), "_")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+            .take(120)
 }

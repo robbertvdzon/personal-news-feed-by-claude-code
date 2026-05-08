@@ -658,6 +658,16 @@ paths:
               schema:
                 type: string
                 example: no-store
+            Content-Disposition:
+              schema:
+                type: string
+                example: 'inline; filename="DevTalk 12, 2026-05-08 — Kotlin, Flutter.mp3"'
+              description: |
+                Bevat de podcast-titel als bestandsnaam (gesaneerd: tekens
+                `\\/:*?"<>|` en newlines vervangen door `_`, max 120 chars).
+                Browsers en Android-handlers gebruiken deze naam bij Save As
+                of in de Downloads-folder. `inline` (niet `attachment`) zodat
+                streamen via just_audio onverstoord blijft.
           content:
             audio/mpeg:
               schema:
