@@ -1,0 +1,28 @@
+name: personal_news_feed
+description: "Persoonlijke AI-nieuwsfeed met podcast-generatie."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.9.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  flutter_riverpod: ^2.6.1
+  http: ^1.2.2
+  web_socket_channel: ^3.0.1
+  shared_preferences: ^2.3.3
+  just_audio: ^0.9.42
+  url_launcher: ^6.3.1
+  flutter_markdown: ^0.7.4
+  intl: ^0.19.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
