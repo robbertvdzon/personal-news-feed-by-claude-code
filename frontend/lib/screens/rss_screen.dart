@@ -9,6 +9,8 @@ import 'rss_detail_screen.dart';
 
 /// Speciale "tab"-id voor "alle items, geen categorie-filter".
 const _allTabId = '__all__';
+/// Speciale "tab"-id voor cross-cutting filter "alleen bewaarde items".
+const _starredTabId = '__starred__';
 /// Speciale "tab"-id voor de Overig-categorie (vangnet: items zonder
 /// of met systeem-categorie). Apart in de tab-rij zodat je 'm los
 /// kunt aanklikken.
@@ -33,6 +35,7 @@ class _RssScreenState extends ConsumerState<RssScreen> {
 
     final tabs = <_RssTab>[
       const _RssTab(id: _allTabId, name: 'Alles'),
+      const _RssTab(id: _starredTabId, name: 'Bewaard'),
       // Niet-systeem categorieën die ingeschakeld zijn
       ...cats.where((c) => c.enabled && !c.isSystem).map(
             (c) => _RssTab(id: c.id, name: c.name),
@@ -159,6 +162,7 @@ class _RssScreenState extends ConsumerState<RssScreen> {
 
   bool _matchesTab(RssItem it, String tabId) {
     if (tabId == _allTabId) return true;
+    if (tabId == _starredTabId) return it.starred;
     if (tabId == _otherTabId) {
       // Overig = items zonder of met de systeem-categorie 'overig'.
       return it.category.isEmpty || it.category == 'overig';
@@ -182,7 +186,19 @@ class _RssScreenState extends ConsumerState<RssScreen> {
       ),
     );
     if (ok == true) {
-      await ref.read(rssProvider.notifier).markAllRead();
+      final n = await ref.read(rssProvider.notifier).markAllRead();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(n == null
+              ? 'Server kon de actie niet uitvoeren — is je backend up-to-date '
+                  'met POST /api/rss/markAllRead? Lokaal staat alles wel op '
+                  'gelezen, maar bij een refresh komt de oude state terug.'
+              : '$n RSS-items als gelezen aangemerkt.'),
+          backgroundColor: n == null ? Colors.red : null,
+          duration: Duration(seconds: n == null ? 8 : 3),
+        ),
+      );
     }
   }
 

@@ -4,6 +4,7 @@ import com.vdzon.newsfeedbackend.feed.FeedItem
 import com.vdzon.newsfeedbackend.feed.FeedService
 import com.vdzon.newsfeedbackend.common.FeedbackBody
 import com.vdzon.newsfeedbackend.common.SecurityHelpers
+import org.slf4j.LoggerFactory
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
@@ -18,6 +19,7 @@ import org.springframework.web.bind.annotation.RestController
 @RequestMapping("/api/feed")
 class FeedController(private val service: FeedService) {
 
+    private val log = LoggerFactory.getLogger(javaClass)
     private fun user(): String = SecurityHelpers.currentUsername()
 
     @GetMapping
@@ -42,7 +44,12 @@ class FeedController(private val service: FeedService) {
     }
 
     @PostMapping("/markAllRead")
-    fun markAllRead(): Map<String, Int> = mapOf("updated" to service.markAllRead(user()))
+    fun markAllRead(): Map<String, Int> {
+        val u = user()
+        val n = service.markAllRead(u)
+        log.info("[Feed] markAllRead voor '{}': {} items als gelezen aangemerkt", u, n)
+        return mapOf("updated" to n)
+    }
 
     @PutMapping("/{id}/star")
     fun toggleStar(@PathVariable id: String): Map<String, String> {

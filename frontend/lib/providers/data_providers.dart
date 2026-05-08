@@ -66,11 +66,19 @@ class FeedNotifier extends AsyncNotifier<List<FeedItem>> {
     try { await _api.put('/api/feed/$id/${read ? "read" : "unread"}'); } catch (_) {}
   }
 
-  /// Markeer alle feed-items als gelezen — eerst optimistisch in de
-  /// lokale state, daarna één API-call zodat de server volgt.
-  Future<void> markAllRead() async {
+  /// Markeer alle feed-items als gelezen. Eerst optimistisch in de
+  /// lokale state, daarna één API-call. Returnt het aantal items dat
+  /// de server heeft bijgewerkt, of `null` als de call faalde (oude
+  /// backend zonder dit endpoint, of offline). De caller kan daarop
+  /// een snackbar tonen.
+  Future<int?> markAllRead() async {
     state = AsyncData(state.value!.map((it) => it.copyWith(isRead: true)).toList());
-    try { await _api.post('/api/feed/markAllRead'); } catch (_) {}
+    try {
+      final r = await _api.post('/api/feed/markAllRead') as Map<String, dynamic>?;
+      return (r?['updated'] as int?) ?? 0;
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<void> toggleStar(String id) async {
@@ -122,11 +130,17 @@ class RssNotifier extends AsyncNotifier<List<RssItem>> {
     try { await _api.put('/api/rss/$id/${read ? "read" : "unread"}'); } catch (_) {}
   }
 
-  /// Markeer alle RSS-items als gelezen — eerst optimistisch in de
-  /// lokale state, daarna één API-call zodat de server volgt.
-  Future<void> markAllRead() async {
+  /// Markeer alle RSS-items als gelezen. Returnt het aantal items dat
+  /// de server heeft bijgewerkt, of `null` bij een fout (oude backend
+  /// zonder endpoint, of offline).
+  Future<int?> markAllRead() async {
     state = AsyncData(state.value!.map((it) => it.copyWith(isRead: true)).toList());
-    try { await _api.post('/api/rss/markAllRead'); } catch (_) {}
+    try {
+      final r = await _api.post('/api/rss/markAllRead') as Map<String, dynamic>?;
+      return (r?['updated'] as int?) ?? 0;
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<void> toggleStar(String id) async {

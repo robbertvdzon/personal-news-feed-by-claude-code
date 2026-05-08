@@ -4,6 +4,7 @@ import com.vdzon.newsfeedbackend.common.FeedbackBody
 import com.vdzon.newsfeedbackend.rss.RssItem
 import com.vdzon.newsfeedbackend.rss.RssService
 import com.vdzon.newsfeedbackend.common.SecurityHelpers
+import org.slf4j.LoggerFactory
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
@@ -18,6 +19,7 @@ import org.springframework.web.bind.annotation.RestController
 @RequestMapping("/api/rss")
 class RssController(private val service: RssService) {
 
+    private val log = LoggerFactory.getLogger(javaClass)
     private fun user(): String = SecurityHelpers.currentUsername()
 
     @GetMapping
@@ -50,7 +52,12 @@ class RssController(private val service: RssService) {
     fun unread(@PathVariable id: String): Map<String, String> { service.setRead(user(), id, false); return mapOf("status" to "ok") }
 
     @PostMapping("/markAllRead")
-    fun markAllRead(): Map<String, Int> = mapOf("updated" to service.markAllRead(user()))
+    fun markAllRead(): Map<String, Int> {
+        val u = user()
+        val n = service.markAllRead(u)
+        log.info("[RSS] markAllRead voor '{}': {} items als gelezen aangemerkt", u, n)
+        return mapOf("updated" to n)
+    }
 
     @PutMapping("/{id}/star")
     fun star(@PathVariable id: String): Map<String, String> { service.toggleStar(user(), id); return mapOf("status" to "ok") }

@@ -91,8 +91,7 @@ Toont de gecureerde persoonlijke feed: `GET /api/feed` (gesorteerd op `createdAt
 
 ### Filteropties (altijd zichtbaar bovenaan)
 - **"Verberg gelezen"-switch** (altijd-zichtbare `SwitchListTile` boven de tab-rij — niet vermengd met categorieën, want filter ≠ weergave-optie). Default `true`. Toggelt of items met `isRead: true` in de lijst verschijnen.
-- **"Samenvatting"-chip / "Bewaard"-chip** (rij eronder): toggelen `isSummary: true` resp. `starred: true`.
-- **Categorie-tabs** (horizontaal-scrollende rij): één tab kan actief zijn (geen multi-select). De eerste tab heet altijd **"Alles"** en toont alle items zonder categorie-filter. Daarna één tab per ingeschakelde categorie uit Settings. Elke tab toont een **bolletje met het aantal items** dat ná de overige actieve filters in die tab valt — leeg ⇒ geen badge. De geselecteerde tab krijgt een onderstreping en kleurt naar `colorScheme.primary`.
+- **Tab-rij** (horizontaal-scrollend): één tab kan actief zijn (geen multi-select). De volgorde is **"Alles" → "Bewaard" → "Samenvatting" → categorieën uit Settings**. "Bewaard" toont alleen items met `starred: true`; "Samenvatting" toont alleen items met `isSummary: true`. Elke tab toont een **bolletje met het aantal items** dat ná verberg-gelezen in die tab valt — leeg ⇒ geen badge. De geselecteerde tab krijgt een onderstreping en kleurt naar `colorScheme.primary`.
 
 ### FeedItem-kaart (in de lijst)
 Toont per item:
@@ -139,7 +138,7 @@ PageView waarmee je door alle (gefilterde) items heen kunt bladeren.
 Toont ruwe RSS-artikelen na AI-verwerking: `GET /api/rss` (gesorteerd op `timestamp` aflopend).
 
 ### Filteropties
-Identiek aan Feed-tab in opbouw: een aparte **"Verberg gelezen"-switch** boven de tab-rij (default `_hideRead = true`), gevolgd door de categorie-tab-rij. Eerste tab heet "Alles", daarna één tab per ingeschakelde niet-systeem-categorie, en als laatste een **"Overig"-tab** die items met categorie `overig` of zonder categorie verzamelt. Elke tab toont een bolletje met het aantal items dat ná de andere filters in die tab valt. (De Feed-tab heeft "Samenvatting" + "Bewaard" filterchips boven de tab-rij; de RSS-tab heeft die niet.)
+Identiek aan Feed-tab in opbouw: een aparte **"Verberg gelezen"-switch** boven de tab-rij (default `_hideRead = true`), gevolgd door de tab-rij. Volgorde: **"Alles" → "Bewaard" → categorieën → "Overig"**. "Bewaard" filtert op `starred: true`. "Overig" verzamelt items met categorie `overig` of zonder. (Feed heeft een extra "Samenvatting"-tab die op `isSummary: true` filtert; RssItem heeft dat veld niet, dus deze tab ontbreekt op de RSS-tab.) Elke tab toont een bolletje met het aantal items dat ná verberg-gelezen in die tab valt.
 
 ### RssItem-kaart
 Toont: titel, bron, **relatieve tijd** ("12 minuten geleden" / "3 uur geleden" / "2 dagen geleden" / DD-MM-YYYY na 3 dagen, op basis van `timestamp`), categorie, datum en een **preview-tekst van max 2 regels**. De preview toont bij voorkeur de Nederlandse AI-samenvatting (`summary`) — die geeft de gebruiker direct context in zijn eigen taal. Als `summary` leeg is (item nog niet door AI verwerkt) valt de kaart terug op de ruwe RSS-`snippet`. Een badge geeft aan of het item **in de feed** staat (`inFeed: true`) of niet, inclusief een tooltip met de `feedReason`.

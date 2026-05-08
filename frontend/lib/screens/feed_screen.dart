@@ -7,8 +7,12 @@ import '../widgets/app_logo.dart';
 import '../widgets/feed_card.dart';
 import 'feed_detail_screen.dart';
 
-/// Speciale "tab"-id voor "alle items, geen categorie-filter".
+// Speciale tab-id's. We gebruiken dezelfde tab-rij voor "categorie"-tabs
+// en cross-cutting filters (Bewaard, Samenvatting). Tab-id's met dubbele
+// underscore botsen niet met categorie-id's (die zijn slug-achtig).
 const _allTabId = '__all__';
+const _starredTabId = '__starred__';
+const _summaryTabId = '__summary__';
 
 class FeedScreen extends ConsumerStatefulWidget {
   const FeedScreen({super.key});
@@ -18,10 +22,7 @@ class FeedScreen extends ConsumerStatefulWidget {
 }
 
 class _FeedScreenState extends ConsumerState<FeedScreen> {
-  /// Geselecteerde tab — `_allTabId` voor "Alles", anders categorie-id.
   String _selectedTab = _allTabId;
-  bool _summaryOnly = false;
-  bool _starredOnly = false;
   bool _hideRead = true;
 
   @override
@@ -30,12 +31,13 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     final settings = ref.watch(settingsProvider);
     final cats = settings.value ?? const <CategorySettings>[];
 
-    // Eén lijst van tabs: 'Alles' eerst, dan elke ingeschakelde categorie.
+    // Tab-volgorde: Alles → Bewaard → Samenvatting → categorieën.
     final tabs = <_FeedTab>[
       const _FeedTab(id: _allTabId, name: 'Alles'),
+      const _FeedTab(id: _starredTabId, name: 'Bewaard'),
+      const _FeedTab(id: _summaryTabId, name: 'Samenvatting'),
       ...cats.where((c) => c.enabled).map((c) => _FeedTab(id: c.id, name: c.name)),
     ];
-    // Als de huidige tab uit de settings is verwijderd, val terug op 'Alles'.
     if (!tabs.any((t) => t.id == _selectedTab)) _selectedTab = _allTabId;
 
     return Scaffold(
@@ -63,24 +65,6 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
             value: _hideRead,
             onChanged: (v) => setState(() => _hideRead = v),
           ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            child: Wrap(spacing: 8, runSpacing: 4, children: [
-              FilterChip(
-                label: const Text('Samenvatting'),
-                selected: _summaryOnly,
-                onSelected: (v) => setState(() => _summaryOnly = v),
-              ),
-              FilterChip(
-                label: const Text('Bewaard'),
-                selected: _starredOnly,
-                onSelected: (v) => setState(() => _starredOnly = v),
-              ),
-            ]),
-          ),
-          // Categorie-tabs als horizontale lijst; 'Alles' staat altijd
-          // links. Elke tab toont een tellertje met het aantal items
-          // dat ná de andere filters in die categorie zou vallen.
           _CategoryTabBar(
             tabs: tabs,
             selectedId: _selectedTab,
@@ -128,14 +112,24 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     );
   }
 
-  /// Telt items die zichtbaar zouden zijn voor `tabId` na alle andere
-  /// filters (verberg gelezen, samenvatting, bewaard). Zo is de teller
-  /// consistent met wat de gebruiker daadwerkelijk te zien krijgt.
+  /// Match een item tegen één tab (categorie-tab óf speciale tab).
+  bool _matchesTab(FeedItem it, String tabId) {
+    switch (tabId) {
+      case _allTabId:
+        return true;
+      case _starredTabId:
+        return it.starred;
+      case _summaryTabId:
+        return it.isSummary;
+      default:
+        return it.category == tabId;
+    }
+  }
+
+  /// Telt items die zichtbaar zouden zijn voor `tabId` na verberg-gelezen.
   int _countFor(List<FeedItem> items, String tabId) {
     return items.where((it) {
-      if (tabId != _allTabId && it.category != tabId) return false;
-      if (_summaryOnly && !it.isSummary) return false;
-      if (_starredOnly && !it.starred) return false;
+      if (!_matchesTab(it, tabId)) return false;
       if (_hideRead && it.isRead) return false;
       return true;
     }).length;
@@ -143,9 +137,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
 
   List<FeedItem> _filter(List<FeedItem> items) {
     return items.where((it) {
-      if (_selectedTab != _allTabId && it.category != _selectedTab) return false;
-      if (_summaryOnly && !it.isSummary) return false;
-      if (_starredOnly && !it.starred) return false;
+      if (!_matchesTab(it, _selectedTab)) return false;
       if (_hideRead && it.isRead) return false;
       return true;
     }).toList();
@@ -167,7 +159,19 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
       ),
     );
     if (ok == true) {
-      await ref.read(feedProvider.notifier).markAllRead();
+      final n = await ref.read(feedProvider.notifier).markAllRead();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(n == null
+              ? 'Server kon de actie niet uitvoeren — is je backend up-to-date '
+                  'met POST /api/feed/markAllRead? Lokaal staat alles wel op '
+                  'gelezen, maar bij een refresh komt de oude state terug.'
+              : '$n feed-items als gelezen aangemerkt.'),
+          backgroundColor: n == null ? Colors.red : null,
+          duration: Duration(seconds: n == null ? 8 : 3),
+        ),
+      );
     }
   }
 
@@ -184,10 +188,9 @@ class _FeedTab {
   const _FeedTab({required this.id, required this.name});
 }
 
-/// Horizontaal scrollende rij van categorie-tabs met tellers.
-/// Geen TabController — we beheren selectie zelf via callbacks zodat
-/// we de teller kunnen herberekenen op basis van de andere actieve
-/// filters (verberg gelezen / samenvatting / bewaard).
+/// Horizontaal scrollende rij van tabs met tellers. Geen TabController:
+/// selectie via callback zodat we de teller per tab kunnen herrekenen
+/// op basis van de andere actieve filters (verberg gelezen).
 class _CategoryTabBar extends StatelessWidget {
   final List<_FeedTab> tabs;
   final String selectedId;
@@ -230,7 +233,6 @@ class _CategoryTabBar extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(width: 6),
-                      // 0 → geen telbolletje om visuele ruis te beperken.
                       if (count > 0)
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
