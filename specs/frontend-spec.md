@@ -283,9 +283,14 @@ Lijst van geconfigureerde RSS-feed URLs uit `GET /api/rss-feeds`.
 
 ### Opruimen (cleanup)
 Knop "Artikelen opruimen" opent CleanupDialog:
-- Aantal dagen invoeren (standaard 30)
+- **Aantal dagen** numeriek tekstveld (standaard 30; geen slider — gebruiker tikt zelf het getal in)
 - Opties: "bewaar bewaard", "bewaar geliket", "bewaar ongelezen" (checkboxes)
-- **Bevestigen:** roept zowel DELETE `/api/rss/cleanup?...` als DELETE `/api/feed/cleanup?...` aan met de ingestelde parameters
+- **Speciaal: 0 dagen = alles wissen.** Wanneer het veld op 0 staat:
+  - de drie "bewaar"-checkboxes worden visueel uitgeschakeld en op `false` gezet
+  - het help-tekstje toont in foutkleur "0 dagen = alles wissen, ook bewaard/geliket/ongelezen"
+  - de "Opruimen"-knop wijzigt naar "Alles wissen" en krijgt een rode achtergrond
+  - bij bevestigen worden de keep-flags geforceerd op `false` in de query-string, ongeacht eerdere checkbox-stand
+- **Bevestigen:** roept zowel `DELETE /api/rss/cleanup?...` als `DELETE /api/feed/cleanup?...` aan met dezelfde parameters — beide verzamelingen worden altijd opgeruimd, RSS-items en gecureerde feed-items.
 - **Annuleren:** sluit dialog zonder actie
 
 ---

@@ -139,33 +139,82 @@ class SettingsScreen extends ConsumerWidget {
   }
 
   Future<void> _cleanup(BuildContext context, WidgetRef ref) async {
-    int days = 30;
+    final daysCtrl = TextEditingController(text: '30');
     bool keepStarred = true;
     bool keepLiked = true;
     bool keepUnread = false;
     final ok = await showDialog<bool>(
       context: context,
-      builder: (ctx) => StatefulBuilder(builder: (ctx, setS) => AlertDialog(
-        title: const Text('Artikelen opruimen'),
-        content: SizedBox(width: 400, child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Row(children: [
-            const Text('Aantal dagen:'),
-            Expanded(child: Slider(value: days.toDouble(), min: 7, max: 90, divisions: 11, label: '$days', onChanged: (v) => setS(() => days = v.round()))),
-            Text('$days'),
-          ]),
-          CheckboxListTile(value: keepStarred, onChanged: (v) => setS(() => keepStarred = v ?? true), title: const Text('Bewaar bewaard')),
-          CheckboxListTile(value: keepLiked, onChanged: (v) => setS(() => keepLiked = v ?? true), title: const Text('Bewaar geliket')),
-          CheckboxListTile(value: keepUnread, onChanged: (v) => setS(() => keepUnread = v ?? false), title: const Text('Bewaar ongelezen')),
-        ])),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuleren')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Opruimen')),
-        ],
-      )),
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setS) {
+        final days = int.tryParse(daysCtrl.text) ?? -1;
+        final wipeAll = days == 0;
+        return AlertDialog(
+          title: const Text('Artikelen opruimen'),
+          content: SizedBox(
+            width: 400,
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Text('Verwijdert zowel RSS-items als gecureerde feed-items.'),
+              const SizedBox(height: 12),
+              TextField(
+                controller: daysCtrl,
+                keyboardType: TextInputType.number,
+                onChanged: (_) => setS(() {}),
+                decoration: InputDecoration(
+                  labelText: 'Ouder dan (dagen)',
+                  helperText: wipeAll
+                      ? '0 dagen = alles wissen, ook bewaard/geliket/ongelezen'
+                      : 'Items ouder dan dit aantal dagen worden gewist',
+                  helperStyle: wipeAll
+                      ? TextStyle(color: Theme.of(ctx).colorScheme.error, fontWeight: FontWeight.bold)
+                      : null,
+                  border: const OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 8),
+              CheckboxListTile(
+                value: wipeAll ? false : keepStarred,
+                onChanged: wipeAll ? null : (v) => setS(() => keepStarred = v ?? true),
+                title: const Text('Bewaar bewaard (sterren)'),
+                dense: true,
+              ),
+              CheckboxListTile(
+                value: wipeAll ? false : keepLiked,
+                onChanged: wipeAll ? null : (v) => setS(() => keepLiked = v ?? true),
+                title: const Text('Bewaar geliket'),
+                dense: true,
+              ),
+              CheckboxListTile(
+                value: wipeAll ? false : keepUnread,
+                onChanged: wipeAll ? null : (v) => setS(() => keepUnread = v ?? false),
+                title: const Text('Bewaar ongelezen'),
+                dense: true,
+              ),
+            ]),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuleren')),
+            FilledButton(
+              onPressed: days < 0 ? null : () => Navigator.pop(ctx, true),
+              style: wipeAll
+                  ? FilledButton.styleFrom(backgroundColor: Theme.of(ctx).colorScheme.error)
+                  : null,
+              child: Text(wipeAll ? 'Alles wissen' : 'Opruimen'),
+            ),
+          ],
+        );
+      }),
     );
     if (ok != true) return;
+    final days = int.tryParse(daysCtrl.text) ?? -1;
+    if (days < 0) return;
+    // 0 dagen = alles wissen: forceer alle "keep"-vlaggen op false zodat de
+    // backend ook bewaard/geliket/ongelezen items meeneemt.
+    final wipeAll = days == 0;
+    final ks = wipeAll ? false : keepStarred;
+    final kl = wipeAll ? false : keepLiked;
+    final ku = wipeAll ? false : keepUnread;
     final api = ref.read(apiProvider);
-    final qs = '?olderThanDays=$days&keepStarred=$keepStarred&keepLiked=$keepLiked&keepUnread=$keepUnread';
+    final qs = '?olderThanDays=$days&keepStarred=$ks&keepLiked=$kl&keepUnread=$ku';
     await api.delete('/api/rss/cleanup$qs');
     await api.delete('/api/feed/cleanup$qs');
     ref.invalidate(rssProvider);
