@@ -139,14 +139,23 @@ class RequestNotifier extends AsyncNotifier<List<NewsRequest>> {
     final updated = NewsRequest.fromJson(msg);
     final cur = state.value;
     if (cur == null) return;
+    // The WebSocket broadcasts to all clients (no auth). Filter out updates
+    // for other users: daily-* ids encode the username; ad-hoc UUIDs are
+    // only relevant if already present in our own list (loaded from
+    // /api/requests, which is JWT-scoped).
+    final username = ref.read(authProvider).username;
+    final isOurDaily = username != null &&
+        (updated.id == 'daily-update-$username' ||
+            updated.id == 'daily-summary-$username');
     final idx = cur.indexWhere((r) => r.id == updated.id);
     if (idx >= 0) {
       final list = [...cur];
       list[idx] = updated;
       state = AsyncData(list);
-    } else {
+    } else if (isOurDaily) {
       state = AsyncData([updated, ...cur]);
     }
+    // else: belongs to another user, ignore.
   }
 
   Future<void> create({required String subject, String? sourceItemId, String? sourceItemTitle, int maxAgeDays = 3}) async {
