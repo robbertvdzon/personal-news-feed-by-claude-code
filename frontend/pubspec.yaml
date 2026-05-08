@@ -23,6 +23,23 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.14.1
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/app_icon.png
+
+# Genereer de Android/iOS-launcher-icons uit assets/app_icon.png:
+#   dart run flutter_launcher_icons
+flutter_launcher_icons:
+  android: "ic_launcher"
+  ios: true
+  image_path: "assets/app_icon.png"
+  # Adaptive icon (Android 8+): voorgrond dezelfde art op een vlakke
+  # achtergrond. We gebruiken het bron-PNG als voorgrond — de afgeronde
+  # rand wordt door Android zelf gemaskerd, dus dat valt buiten beeld
+  # maar voorkomt witte randen.
+  adaptive_icon_background: "#3F51B5"
+  adaptive_icon_foreground: "assets/app_icon.png"
+  remove_alpha_ios: true

@@ -90,10 +90,9 @@ Toont een formulier met gebruikersnaam en wachtwoord.
 Toont de gecureerde persoonlijke feed: `GET /api/feed` (gesorteerd op `createdAt` aflopend).
 
 ### Filteropties (altijd zichtbaar bovenaan)
-- **"Verberg gelezen"-switch** (altijd-zichtbare `SwitchListTile` boven de chip-rij — niet vermengd met categorie-chips, want filter ≠ weergave-optie). Default `true`. Toggelt of items met `isRead: true` in de lijst verschijnen.
-- **Categorie-chips** (eronder, scrollend horizontaal): chips per ingeschakelde categorie uit Settings. Eén chip kan actief zijn; opnieuw tikken deselecteert.
-- **"Samenvatting"-chip:** filtert op items waarbij `isSummary: true`
-- **"Bewaard"-chip:** filtert op `starred: true`
+- **"Verberg gelezen"-switch** (altijd-zichtbare `SwitchListTile` boven de tab-rij — niet vermengd met categorieën, want filter ≠ weergave-optie). Default `true`. Toggelt of items met `isRead: true` in de lijst verschijnen.
+- **"Samenvatting"-chip / "Bewaard"-chip** (rij eronder): toggelen `isSummary: true` resp. `starred: true`.
+- **Categorie-tabs** (horizontaal-scrollende rij): één tab kan actief zijn (geen multi-select). De eerste tab heet altijd **"Alles"** en toont alle items zonder categorie-filter. Daarna één tab per ingeschakelde categorie uit Settings. Elke tab toont een **bolletje met het aantal items** dat ná de overige actieve filters in die tab valt — leeg ⇒ geen badge. De geselecteerde tab krijgt een onderstreping en kleurt naar `colorScheme.primary`.
 
 ### FeedItem-kaart (in de lijst)
 Toont per item:
@@ -140,7 +139,7 @@ PageView waarmee je door alle (gefilterde) items heen kunt bladeren.
 Toont ruwe RSS-artikelen na AI-verwerking: `GET /api/rss` (gesorteerd op `timestamp` aflopend).
 
 ### Filteropties
-Identiek aan Feed-tab: een aparte **"Verberg gelezen"-switch** boven de chip-rij, en daaronder categoriechips. Default `_hideRead = true`. Extra chip **"Overig"** voor items zonder categorie of categorie "overig". (De Feed-tab heeft "Samenvatting" + "Bewaard" extra chips i.p.v. "Overig".)
+Identiek aan Feed-tab in opbouw: een aparte **"Verberg gelezen"-switch** boven de tab-rij (default `_hideRead = true`), gevolgd door de categorie-tab-rij. Eerste tab heet "Alles", daarna één tab per ingeschakelde niet-systeem-categorie, en als laatste een **"Overig"-tab** die items met categorie `overig` of zonder categorie verzamelt. Elke tab toont een bolletje met het aantal items dat ná de andere filters in die tab valt. (De Feed-tab heeft "Samenvatting" + "Bewaard" filterchips boven de tab-rij; de RSS-tab heeft die niet.)
 
 ### RssItem-kaart
 Toont: titel, bron, **relatieve tijd** ("12 minuten geleden" / "3 uur geleden" / "2 dagen geleden" / DD-MM-YYYY na 3 dagen, op basis van `timestamp`), categorie, datum en een **preview-tekst van max 2 regels**. De preview toont bij voorkeur de Nederlandse AI-samenvatting (`summary`) — die geeft de gebruiker direct context in zijn eigen taal. Als `summary` leeg is (item nog niet door AI verwerkt) valt de kaart terug op de ruwe RSS-`snippet`. Een badge geeft aan of het item **in de feed** staat (`inFeed: true`) of niet, inclusief een tooltip met de `feedReason`.
@@ -355,7 +354,20 @@ Detail-schermen zonder bottom navigation bar (FeedItemDetailScreen, RssItemDetai
 | Waarde | Hoe configureren | Standaard |
 |--------|-----------------|-----------|
 | Backend URL | `--dart-define=API_BASE_URL=https://...` bij build/run | `https://pnf.vdzon.com` |
-| App-icoon | `flutter_launcher_icons` in `pubspec.yaml` | — |
+| App-icoon | `flutter_launcher_icons` in `pubspec.yaml` (zie hieronder) | — |
+
+### App-icoon
+Het icoon is **`assets/app_icon.png`** (1024×1024, indigo achtergrond met witte feed-lijnen + RSS-arc, gegenereerd met `tools/make_icon.py` of vergelijkbaar). De `flutter_launcher_icons`-config in `pubspec.yaml` schaalt 'm naar alle Android- en iOS-formaten:
+- Android: alle `mipmap-*` resoluties + adaptive-icon (`mipmap-anydpi-v26`) met `#3F51B5` (indigo) als achtergrond
+- iOS: `Assets.xcassets/AppIcon.appiconset` (alpha verwijderd)
+
+Genereren na een wijziging in `assets/app_icon.png`:
+```
+flutter pub get
+flutter pub run flutter_launcher_icons
+```
+
+In de app zelf wordt hetzelfde icoon klein (32px, afgerond) als `leading` van elke `AppBar` getoond (Feed, RSS, Queue, Podcast, Settings) via de `AppLogo`-helper in `lib/widgets/app_logo.dart`.
 
 ---
 

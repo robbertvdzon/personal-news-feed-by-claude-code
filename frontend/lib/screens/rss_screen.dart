@@ -3,8 +3,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/models.dart';
 import '../providers/data_providers.dart';
 import '../util/time_format.dart';
+import '../widgets/app_logo.dart';
 import '../widgets/feed_card.dart';
 import 'rss_detail_screen.dart';
+
+/// Speciale "tab"-id voor "alle items, geen categorie-filter".
+const _allTabId = '__all__';
+/// Speciale "tab"-id voor de Overig-categorie (vangnet: items zonder
+/// of met systeem-categorie). Apart in de tab-rij zodat je 'm los
+/// kunt aanklikken.
+const _otherTabId = 'overig';
 
 class RssScreen extends ConsumerStatefulWidget {
   const RssScreen({super.key});
@@ -14,16 +22,29 @@ class RssScreen extends ConsumerStatefulWidget {
 }
 
 class _RssScreenState extends ConsumerState<RssScreen> {
-  String? _selectedCategory;
-  bool _otherOnly = false;
+  String _selectedTab = _allTabId;
   bool _hideRead = true;
 
   @override
   Widget build(BuildContext context) {
     final rss = ref.watch(rssProvider);
     final settings = ref.watch(settingsProvider);
+    final cats = settings.value ?? const <CategorySettings>[];
+
+    final tabs = <_RssTab>[
+      const _RssTab(id: _allTabId, name: 'Alles'),
+      // Niet-systeem categorieën die ingeschakeld zijn
+      ...cats.where((c) => c.enabled && !c.isSystem).map(
+            (c) => _RssTab(id: c.id, name: c.name),
+          ),
+      // Overig (systeem-categorie) altijd als laatste tab.
+      const _RssTab(id: _otherTabId, name: 'Overig'),
+    ];
+    if (!tabs.any((t) => t.id == _selectedTab)) _selectedTab = _allTabId;
+
     return Scaffold(
       appBar: AppBar(
+        leading: const AppLogo(),
         title: const Text('RSS'),
         actions: [
           IconButton(
@@ -61,42 +82,17 @@ class _RssScreenState extends ConsumerState<RssScreen> {
         ],
       ),
       body: Column(children: [
-        // Eigen, altijd-zichtbare 'Verberg gelezen' switch — los van de
-        // categorie-chips zodat het verschil tussen filter en weergave-
-        // optie duidelijk blijft.
         SwitchListTile(
           dense: true,
           title: const Text('Verberg gelezen'),
           value: _hideRead,
           onChanged: (v) => setState(() => _hideRead = v),
         ),
-        settings.when(
-          data: (cats) => SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            child: Row(children: [
-              ...cats.where((c) => c.enabled).map(
-                    (c) => Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      child: ChoiceChip(
-                        label: Text(c.name),
-                        selected: _selectedCategory == c.id,
-                        onSelected: (s) => setState(() => _selectedCategory = s ? c.id : null),
-                      ),
-                    ),
-                  ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: FilterChip(
-                  label: const Text('Overig'),
-                  selected: _otherOnly,
-                  onSelected: (v) => setState(() => _otherOnly = v),
-                ),
-              ),
-            ]),
-          ),
-          loading: () => const SizedBox.shrink(),
-          error: (e, _) => const SizedBox.shrink(),
+        _RssCategoryTabBar(
+          tabs: tabs,
+          selectedId: _selectedTab,
+          onSelected: (id) => setState(() => _selectedTab = id),
+          countFor: (id) => _countFor(rss.value ?? const [], id),
         ),
         Expanded(
           child: rss.when(
@@ -116,8 +112,6 @@ class _RssScreenState extends ConsumerState<RssScreen> {
                             category: it.category,
                             date: it.publishedDate,
                             relativeTime: formatRelativeTime(it.timestamp),
-                            // Toon liever de Nederlandse AI-samenvatting; val terug op
-                            // de ruwe RSS-snippet als die nog niet beoordeeld is.
                             snippet: it.summary.isNotEmpty ? it.summary : it.snippet,
                             isRead: it.isRead,
                             starred: it.starred,
@@ -147,13 +141,29 @@ class _RssScreenState extends ConsumerState<RssScreen> {
     );
   }
 
+  int _countFor(List<RssItem> items, String tabId) {
+    return items.where((it) {
+      if (!_matchesTab(it, tabId)) return false;
+      if (_hideRead && it.isRead) return false;
+      return true;
+    }).length;
+  }
+
   List<RssItem> _filter(List<RssItem> items) {
     return items.where((it) {
-      if (_otherOnly && it.category != 'overig') return false;
-      if (_selectedCategory != null && it.category != _selectedCategory) return false;
+      if (!_matchesTab(it, _selectedTab)) return false;
       if (_hideRead && it.isRead) return false;
       return true;
     }).toList();
+  }
+
+  bool _matchesTab(RssItem it, String tabId) {
+    if (tabId == _allTabId) return true;
+    if (tabId == _otherTabId) {
+      // Overig = items zonder of met de systeem-categorie 'overig'.
+      return it.category.isEmpty || it.category == 'overig';
+    }
+    return it.category == tabId;
   }
 
   Future<void> _confirmMarkAllRead(BuildContext context) async {
@@ -180,5 +190,97 @@ class _RssScreenState extends ConsumerState<RssScreen> {
     Navigator.of(context).push(MaterialPageRoute(
       builder: (_) => RssItemDetailScreen(items: items, initialIndex: idx),
     ));
+  }
+}
+
+class _RssTab {
+  final String id;
+  final String name;
+  const _RssTab({required this.id, required this.name});
+}
+
+/// Tab-bar voor RSS — bijna identiek aan de FeedScreen-versie, maar
+/// op `_RssTab` getypeerd. Niet uitgefactored omdat de typed lijst
+/// kort is en herhalen leesbaarder is dan een generiek-typed widget.
+class _RssCategoryTabBar extends StatelessWidget {
+  final List<_RssTab> tabs;
+  final String selectedId;
+  final ValueChanged<String> onSelected;
+  final int Function(String tabId) countFor;
+
+  const _RssCategoryTabBar({
+    required this.tabs,
+    required this.selectedId,
+    required this.onSelected,
+    required this.countFor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: theme.dividerColor)),
+      ),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: tabs.map((t) {
+            final selected = t.id == selectedId;
+            final count = countFor(t.id);
+            return InkWell(
+              onTap: () => onSelected(t.id),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(mainAxisSize: MainAxisSize.min, children: [
+                      Text(
+                        t.name,
+                        style: TextStyle(
+                          color: selected ? theme.colorScheme.primary : theme.textTheme.bodyMedium?.color,
+                          fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      if (count > 0)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: selected
+                                ? theme.colorScheme.primary
+                                : theme.colorScheme.surfaceContainerHighest,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            '$count',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: selected
+                                  ? theme.colorScheme.onPrimary
+                                  : theme.colorScheme.onSurfaceVariant,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                    ]),
+                    const SizedBox(height: 6),
+                    Container(
+                      height: 3,
+                      width: 32,
+                      decoration: BoxDecoration(
+                        color: selected ? theme.colorScheme.primary : Colors.transparent,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+      ),
+    );
   }
 }

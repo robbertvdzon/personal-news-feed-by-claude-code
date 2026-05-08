@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/models.dart';
 import '../providers/data_providers.dart';
+import '../widgets/app_logo.dart';
 import 'podcast_detail_screen.dart';
 
 class PodcastScreen extends ConsumerStatefulWidget {
@@ -66,6 +67,7 @@ class _PodcastScreenState extends ConsumerState<PodcastScreen> {
     final podcasts = ref.watch(podcastProvider);
     return Scaffold(
       appBar: AppBar(
+        leading: const AppLogo(),
         title: const Text('Podcast'),
         actions: [
           IconButton(icon: const Icon(Icons.refresh), onPressed: () => ref.read(podcastProvider.notifier).reload()),

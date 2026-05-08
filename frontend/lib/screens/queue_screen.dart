@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/models.dart';
 import '../providers/data_providers.dart';
+import '../widgets/app_logo.dart';
 
 String _statusLabel(String status) {
   switch (status) {
@@ -28,6 +29,7 @@ class QueueScreen extends ConsumerWidget {
     final reqs = ref.watch(requestProvider);
     return Scaffold(
       appBar: AppBar(
+        leading: const AppLogo(),
         title: const Text('Queue'),
         actions: [
           IconButton(icon: const Icon(Icons.refresh), onPressed: () => ref.invalidate(requestProvider)),
