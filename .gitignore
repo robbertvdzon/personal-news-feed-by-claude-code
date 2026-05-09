@@ -34,5 +34,9 @@ application-local.yaml
 # Logs
 *.log
 
+# E2E testruns — videos, reports, test data per run worden lokaal
+# gegenereerd door /e2e/readme.md procedure. Niet checken in.
+e2e/testruns/
+
 # Node (voor tooling)
 node_modules/

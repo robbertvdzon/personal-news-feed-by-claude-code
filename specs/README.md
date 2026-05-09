@@ -43,6 +43,7 @@ personal-news-feed/
 | [`backend-technical-spec.md`](./backend-technical-spec.md) | Hoe de backend gebouwd is: Spring Modulith modules, gelaagde architectuur, DTOs, logging, Grafana-monitoring, Cucumber integratie-tests, IntelliJ setup |
 | [`frontend-spec.md`](./frontend-spec.md) | Alle schermen, navigatie, gebruikersacties, state management, WebSocket-integratie, audio-afspelen |
 | [`openapi.yaml`](./openapi.yaml) | Alle REST-endpoints met paden, methoden, parameters, request/response-bodies en dataschema's. Dit is de **source of truth** voor de API-interface tussen backend en frontend. |
+| [`e2e.md`](./e2e.md) | Pointer naar `/e2e/readme.md` met de end-to-end-test scenario's, runner-procedure en testrun-administratie. |
 
 ---
 
