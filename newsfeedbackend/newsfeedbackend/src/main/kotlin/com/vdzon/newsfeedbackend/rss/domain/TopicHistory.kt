@@ -1,13 +1,11 @@
 package com.vdzon.newsfeedbackend.rss.domain
 
-import com.fasterxml.jackson.core.type.TypeReference
-import com.vdzon.newsfeedbackend.storage.JsonStore
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate
 import org.springframework.stereotype.Component
+import java.sql.ResultSet
+import java.sql.Timestamp
 import java.time.Instant
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.locks.ReentrantLock
-import kotlin.concurrent.withLock
 
 data class TopicEntry(
     val topic: String,
@@ -21,30 +19,71 @@ data class TopicEntry(
     val starredCount: Int = 0
 )
 
-interface TopicHistoryRepository {
-    fun load(username: String): MutableList<TopicEntry>
-    fun save(username: String, entries: List<TopicEntry>)
-    fun update(username: String, op: (MutableList<TopicEntry>) -> Unit)
-}
-
+/**
+ * Repository voor topic-history. JSON-data hield Instants als String
+ * (Instant.toString()) — wij houden die representatie aan voor
+ * compatibility met de bestaande [TopicEntry] data class.
+ */
 @Component
-@ConditionalOnProperty(name = ["app.storage.backend"], havingValue = "json", matchIfMissing = true)
-class JsonTopicHistoryRepository(private val store: JsonStore) : TopicHistoryRepository {
-    private val locks = ConcurrentHashMap<String, ReentrantLock>()
-    private fun lock(u: String) = locks.computeIfAbsent(u) { ReentrantLock() }
-    private fun file(u: String) = store.userFile(u, "topic_history.json")
+class TopicHistoryRepository(
+    private val jdbc: NamedParameterJdbcTemplate
+) {
 
-    override fun load(username: String): MutableList<TopicEntry> = lock(username).withLock {
-        store.readJsonRef(file(username), object : TypeReference<MutableList<TopicEntry>>() {}, mutableListOf())
+    private fun map(rs: ResultSet, @Suppress("UNUSED_PARAMETER") n: Int): TopicEntry = TopicEntry(
+        topic = rs.getString("topic"),
+        firstSeen = rs.getTimestamp("first_seen").toInstant().toString(),
+        lastSeenNews = rs.getTimestamp("last_seen_news")?.toInstant()?.toString(),
+        lastSeenPodcast = rs.getTimestamp("last_seen_podcast")?.toInstant()?.toString(),
+        newsCount = rs.getInt("news_count"),
+        podcastMentionCount = rs.getInt("podcast_mention_count"),
+        podcastDeepCount = rs.getInt("podcast_deep_count"),
+        likedCount = rs.getInt("liked_count"),
+        starredCount = rs.getInt("starred_count")
+    )
+
+    private fun parseTs(s: String?): Timestamp? =
+        if (s.isNullOrBlank()) null else try { Timestamp.from(Instant.parse(s)) } catch (_: Exception) { null }
+
+    fun load(username: String): MutableList<TopicEntry> =
+        jdbc.query(
+            "SELECT * FROM topic_history WHERE username = :u ORDER BY topic",
+            MapSqlParameterSource("u", username),
+            ::map
+        ).toMutableList()
+
+    fun save(username: String, entries: List<TopicEntry>) {
+        jdbc.update("DELETE FROM topic_history WHERE username = :u", MapSqlParameterSource("u", username))
+        entries.forEach { e ->
+            jdbc.update(
+                """
+                INSERT INTO topic_history (
+                    username, topic, first_seen, last_seen_news, last_seen_podcast,
+                    news_count, podcast_mention_count, podcast_deep_count,
+                    liked_count, starred_count
+                ) VALUES (
+                    :u, :topic, :first_seen, :last_seen_news, :last_seen_podcast,
+                    :news_count, :podcast_mention_count, :podcast_deep_count,
+                    :liked_count, :starred_count
+                )
+                """,
+                MapSqlParameterSource()
+                    .addValue("u", username)
+                    .addValue("topic", e.topic)
+                    .addValue("first_seen", parseTs(e.firstSeen) ?: Timestamp.from(Instant.now()))
+                    .addValue("last_seen_news", parseTs(e.lastSeenNews))
+                    .addValue("last_seen_podcast", parseTs(e.lastSeenPodcast))
+                    .addValue("news_count", e.newsCount)
+                    .addValue("podcast_mention_count", e.podcastMentionCount)
+                    .addValue("podcast_deep_count", e.podcastDeepCount)
+                    .addValue("liked_count", e.likedCount)
+                    .addValue("starred_count", e.starredCount)
+            )
+        }
     }
 
-    override fun save(username: String, entries: List<TopicEntry>) = lock(username).withLock {
-        store.writeJson(file(username), entries)
-    }
-
-    override fun update(username: String, op: (MutableList<TopicEntry>) -> Unit) = lock(username).withLock {
+    fun update(username: String, op: (MutableList<TopicEntry>) -> Unit) {
         val entries = load(username)
         op(entries)
-        store.writeJson(file(username), entries)
+        save(username, entries)
     }
 }

@@ -1,74 +1,82 @@
 package com.vdzon.newsfeedbackend.auth.infrastructure
 
-import com.fasterxml.jackson.core.type.TypeReference
 import com.vdzon.newsfeedbackend.auth.domain.User
-import com.vdzon.newsfeedbackend.storage.JsonStore
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate
 import org.springframework.stereotype.Component
-import java.util.concurrent.locks.ReentrantLock
-import kotlin.concurrent.withLock
 
 /**
- * Repository voor [User]-records. Twee implementaties:
- *   * [JsonUserRepository] — actief bij `app.storage.backend=json` (default).
- *   * [PostgresUserRepository] — actief bij `app.storage.backend=postgres`.
- *
- * Spring picks de juiste op basis van de property; services injecteren
- * deze interface en hoeven dus niet te weten welk backend draait.
+ * Repository voor [User]-records. Persistentie via Postgres
+ * (`users`-tabel; één globale tabel, geen partitionering per user).
  */
-interface UserRepository {
-    fun load(): MutableList<User>
-    fun findByUsername(username: String): User?
-    fun add(user: User)
-    fun update(user: User)
-    fun deleteByUsername(username: String): Boolean
-    fun usernames(): List<String>
-    fun all(): List<User>
-    fun hasAdmin(): Boolean
-}
-
 @Component
-@ConditionalOnProperty(name = ["app.storage.backend"], havingValue = "json", matchIfMissing = true)
-class JsonUserRepository(private val store: JsonStore) : UserRepository {
-    private val lock = ReentrantLock()
+class UserRepository(private val jdbc: NamedParameterJdbcTemplate) {
 
-    private fun file() = store.root().resolve("users.json")
-
-    override fun load(): MutableList<User> = lock.withLock {
-        store.readJsonRef(file(), object : TypeReference<MutableList<User>>() {}, mutableListOf())
+    private val rowMapper = { rs: java.sql.ResultSet, _: Int ->
+        User(
+            id = rs.getString("id"),
+            username = rs.getString("username"),
+            passwordHash = rs.getString("password_hash"),
+            role = rs.getString("role")
+        )
     }
 
-    private fun save(users: List<User>) {
-        store.writeJson(file(), users)
+    fun load(): MutableList<User> =
+        jdbc.query("SELECT id, username, password_hash, role FROM users ORDER BY username", rowMapper).toMutableList()
+
+    fun findByUsername(username: String): User? =
+        jdbc.query(
+            "SELECT id, username, password_hash, role FROM users WHERE username = :u",
+            MapSqlParameterSource("u", username),
+            rowMapper
+        ).firstOrNull()
+
+    fun add(user: User) {
+        jdbc.update(
+            """
+            INSERT INTO users (id, username, password_hash, role)
+            VALUES (:id, :username, :passwordHash, :role)
+            """,
+            MapSqlParameterSource()
+                .addValue("id", user.id)
+                .addValue("username", user.username)
+                .addValue("passwordHash", user.passwordHash)
+                .addValue("role", user.role)
+        )
     }
 
-    override fun findByUsername(username: String): User? = load().find { it.username == username }
-
-    override fun add(user: User) = lock.withLock {
-        val users = load()
-        users.add(user)
-        save(users)
+    fun update(user: User) {
+        jdbc.update(
+            """
+            UPDATE users
+            SET id = :id, password_hash = :passwordHash, role = :role
+            WHERE username = :username
+            """,
+            MapSqlParameterSource()
+                .addValue("id", user.id)
+                .addValue("username", user.username)
+                .addValue("passwordHash", user.passwordHash)
+                .addValue("role", user.role)
+        )
     }
 
-    override fun update(user: User) = lock.withLock {
-        val users = load()
-        val idx = users.indexOfFirst { it.username == user.username }
-        if (idx >= 0) {
-            users[idx] = user
-            save(users)
-        }
+    fun deleteByUsername(username: String): Boolean {
+        val n = jdbc.update(
+            "DELETE FROM users WHERE username = :u",
+            MapSqlParameterSource("u", username)
+        )
+        return n > 0
     }
 
-    override fun deleteByUsername(username: String): Boolean = lock.withLock {
-        val users = load()
-        val removed = users.removeAll { it.username == username }
-        if (removed) save(users)
-        removed
-    }
+    fun usernames(): List<String> =
+        jdbc.queryForList("SELECT username FROM users ORDER BY username", emptyMap<String, Any>(), String::class.java)
 
-    override fun usernames(): List<String> = load().map { it.username }
+    fun all(): List<User> = load()
 
-    override fun all(): List<User> = load()
-
-    override fun hasAdmin(): Boolean = load().any { it.role == User.ROLE_ADMIN }
+    fun hasAdmin(): Boolean =
+        (jdbc.queryForObject(
+            "SELECT COUNT(*) FROM users WHERE role = :r",
+            MapSqlParameterSource("r", User.ROLE_ADMIN),
+            Long::class.java
+        ) ?: 0L) > 0L
 }

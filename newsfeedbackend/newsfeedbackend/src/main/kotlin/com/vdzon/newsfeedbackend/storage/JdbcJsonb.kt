@@ -2,7 +2,6 @@ package com.vdzon.newsfeedbackend.storage
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import org.postgresql.util.PGobject
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.stereotype.Component
 import java.sql.ResultSet
 
@@ -15,7 +14,6 @@ import java.sql.ResultSet
  * niet als property — we roepen ze expliciet aan.
  */
 @Component
-@ConditionalOnProperty(name = ["app.storage.backend"], havingValue = "postgres")
 class JdbcJsonb(private val mapper: ObjectMapper) {
 
     /** Serialise naar een PGobject van type "jsonb". `null` → JSON null. */

@@ -1,60 +1,126 @@
 package com.vdzon.newsfeedbackend.podcast.infrastructure
 
-import com.fasterxml.jackson.core.type.TypeReference
 import com.vdzon.newsfeedbackend.podcast.Podcast
-import com.vdzon.newsfeedbackend.storage.JsonStore
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
+import com.vdzon.newsfeedbackend.podcast.PodcastStatus
+import com.vdzon.newsfeedbackend.podcast.TtsProvider
+import com.vdzon.newsfeedbackend.storage.JdbcJsonb
+import org.springframework.beans.factory.annotation.Value
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate
 import org.springframework.stereotype.Component
 import java.nio.file.Files
 import java.nio.file.Path
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.locks.ReentrantLock
-import kotlin.concurrent.withLock
+import java.sql.ResultSet
+import java.sql.Timestamp
 
-interface PodcastRepository {
-    fun load(username: String): MutableList<Podcast>
-    fun save(username: String, all: List<Podcast>)
-    fun upsert(username: String, podcast: Podcast): Podcast
-    fun delete(username: String, id: String): Boolean
-    fun audioPath(username: String, podcastId: String): Path
-}
-
+/**
+ * Repository voor podcasts. Metadata in Postgres; de daadwerkelijke
+ * audio (mp3) blijft op disk onder `${app.data-dir}/users/<u>/audio/`
+ * omdat MP3-bestanden te groot zijn voor een DB-blob.
+ */
 @Component
-@ConditionalOnProperty(name = ["app.storage.backend"], havingValue = "json", matchIfMissing = true)
-class JsonPodcastRepository(private val store: JsonStore) : PodcastRepository {
-    private val locks = ConcurrentHashMap<String, ReentrantLock>()
-    private fun lock(u: String) = locks.computeIfAbsent(u) { ReentrantLock() }
-    private fun file(u: String) = store.userFile(u, "podcasts.json")
+class PodcastRepository(
+    private val jdbc: NamedParameterJdbcTemplate,
+    private val json: JdbcJsonb,
+    @Value("\${app.data-dir:./data}") private val dataDir: String
+) {
 
-    override fun audioPath(username: String, podcastId: String): Path {
-        val dir = store.userDir(username).resolve("audio")
+    fun audioPath(username: String, podcastId: String): Path {
+        val dir = Path.of(dataDir, "users", username, "audio")
         Files.createDirectories(dir)
         return dir.resolve("$podcastId.mp3")
     }
 
-    override fun load(username: String): MutableList<Podcast> = lock(username).withLock {
-        store.readJsonRef(file(username), object : TypeReference<MutableList<Podcast>>() {}, mutableListOf())
+    private fun map(rs: ResultSet, @Suppress("UNUSED_PARAMETER") n: Int): Podcast = Podcast(
+        id = rs.getString("id"),
+        title = rs.getString("title"),
+        periodDescription = rs.getString("period_description"),
+        periodDays = rs.getInt("period_days"),
+        durationMinutes = rs.getInt("duration_minutes"),
+        status = PodcastStatus.valueOf(rs.getString("status")),
+        createdAt = rs.getTimestamp("created_at").toInstant(),
+        scriptText = rs.getString("script_text"),
+        topics = json.readList(rs, "topics", String::class.java),
+        audioPath = rs.getString("audio_path"),
+        durationSeconds = rs.getObject("duration_seconds") as? Int,
+        customTopics = json.readList(rs, "custom_topics", String::class.java),
+        ttsProvider = TtsProvider.valueOf(rs.getString("tts_provider")),
+        podcastNumber = rs.getInt("podcast_number"),
+        generationSeconds = rs.getObject("generation_seconds") as? Int
+    )
+
+    private fun params(username: String, p: Podcast) = MapSqlParameterSource()
+        .addValue("username", username)
+        .addValue("id", p.id)
+        .addValue("title", p.title)
+        .addValue("period_description", p.periodDescription)
+        .addValue("period_days", p.periodDays)
+        .addValue("duration_minutes", p.durationMinutes)
+        .addValue("status", p.status.name)
+        .addValue("created_at", Timestamp.from(p.createdAt))
+        .addValue("script_text", p.scriptText)
+        .addValue("topics", json.toJsonb(p.topics))
+        .addValue("audio_path", p.audioPath)
+        .addValue("duration_seconds", p.durationSeconds)
+        .addValue("custom_topics", json.toJsonb(p.customTopics))
+        .addValue("tts_provider", p.ttsProvider.name)
+        .addValue("podcast_number", p.podcastNumber)
+        .addValue("generation_seconds", p.generationSeconds)
+
+    fun load(username: String): MutableList<Podcast> =
+        jdbc.query(
+            "SELECT * FROM podcasts WHERE username = :u ORDER BY created_at DESC",
+            MapSqlParameterSource("u", username),
+            ::map
+        ).toMutableList()
+
+    fun save(username: String, all: List<Podcast>) {
+        jdbc.update("DELETE FROM podcasts WHERE username = :u", MapSqlParameterSource("u", username))
+        all.forEach { upsert(username, it) }
     }
 
-    override fun save(username: String, all: List<Podcast>) = lock(username).withLock {
-        store.writeJson(file(username), all)
+    fun upsert(username: String, podcast: Podcast): Podcast {
+        jdbc.update(UPSERT_SQL, params(username, podcast))
+        return podcast
     }
 
-    override fun upsert(username: String, podcast: Podcast): Podcast = lock(username).withLock {
-        val all = load(username)
-        val idx = all.indexOfFirst { it.id == podcast.id }
-        if (idx >= 0) all[idx] = podcast else all.add(podcast)
-        store.writeJson(file(username), all)
-        podcast
+    fun delete(username: String, id: String): Boolean {
+        val n = jdbc.update(
+            "DELETE FROM podcasts WHERE username = :u AND id = :id",
+            MapSqlParameterSource().addValue("u", username).addValue("id", id)
+        )
+        if (n > 0) Files.deleteIfExists(audioPath(username, id))
+        return n > 0
     }
 
-    override fun delete(username: String, id: String): Boolean = lock(username).withLock {
-        val all = load(username)
-        val removed = all.removeAll { it.id == id }
-        if (removed) {
-            store.writeJson(file(username), all)
-            Files.deleteIfExists(audioPath(username, id))
-        }
-        removed
+    companion object {
+        private val UPSERT_SQL = """
+            INSERT INTO podcasts (
+                username, id, title, period_description, period_days,
+                duration_minutes, status, created_at, script_text, topics,
+                audio_path, duration_seconds, custom_topics, tts_provider,
+                podcast_number, generation_seconds
+            ) VALUES (
+                :username, :id, :title, :period_description, :period_days,
+                :duration_minutes, :status, :created_at, :script_text, :topics,
+                :audio_path, :duration_seconds, :custom_topics, :tts_provider,
+                :podcast_number, :generation_seconds
+            )
+            ON CONFLICT (username, id) DO UPDATE SET
+                title              = EXCLUDED.title,
+                period_description = EXCLUDED.period_description,
+                period_days        = EXCLUDED.period_days,
+                duration_minutes   = EXCLUDED.duration_minutes,
+                status             = EXCLUDED.status,
+                created_at         = EXCLUDED.created_at,
+                script_text        = EXCLUDED.script_text,
+                topics             = EXCLUDED.topics,
+                audio_path         = EXCLUDED.audio_path,
+                duration_seconds   = EXCLUDED.duration_seconds,
+                custom_topics      = EXCLUDED.custom_topics,
+                tts_provider       = EXCLUDED.tts_provider,
+                podcast_number     = EXCLUDED.podcast_number,
+                generation_seconds = EXCLUDED.generation_seconds
+        """
     }
 }
