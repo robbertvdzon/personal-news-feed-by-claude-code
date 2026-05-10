@@ -2,9 +2,19 @@
   "name": "personal-news-feed-dev",
 
   // Eigen Dockerfile in dezelfde map.
+  //
+  // We forceren linux/amd64 omdat Flutter geen arm64 Linux-tarballs
+  // publiceert. Op Apple Silicon emuleert Docker Desktop dit via
+  // Rosetta — ~20-30% performance-overhead, maar alle tooling werkt.
+  // Op een echte amd64-host (Linux/Intel) is dit gewoon native.
   "build": {
-    "dockerfile": "Dockerfile"
+    "dockerfile": "Dockerfile",
+    "options": ["--platform=linux/amd64"]
   },
+  "runArgs": [
+    "--platform=linux/amd64",
+    "--add-host=host.docker.internal:host-gateway"
+  ],
 
   // Standaard non-root user uit de devcontainers base-image. UID wordt
   // automatisch gemapt op je host-UID, zodat files die de container
@@ -48,13 +58,8 @@
     "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind"
   ],
 
-  // host.docker.internal beschikbaar maken zodat Claude Code in de
-  // container je IntelliJ-backend op host:8080 kan bereiken via
-  // http://host.docker.internal:8080. Op Docker Desktop (Mac/Win) is
-  // dat default; op Linux moeten we 'm expliciet wijzen via host-gateway.
-  "runArgs": [
-    "--add-host=host.docker.internal:host-gateway"
-  ],
+  // host.docker.internal voor backend-bereikbaarheid: zit al hierboven
+  // in runArgs naast de platform-flag.
 
   // Environment-vars die in elke shell beschikbaar zijn.
   "containerEnv": {

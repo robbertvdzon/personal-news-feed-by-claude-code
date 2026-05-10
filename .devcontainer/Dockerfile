@@ -75,10 +75,17 @@ RUN npm install -g @anthropic-ai/claude-code
 # Op een gedeelde locatie zodat de "vscode" user (uit de base-image) er
 # bij kan; SDK-download cachen we via een named volume in devcontainer.json
 # zodat een rebuild niet opnieuw downloadt.
+#
+# Architectuur-detectie: TARGETARCH wordt automatisch door buildx gezet
+# ("amd64" of "arm64"). Flutter publiceert sinds 3.13 een aparte
+# arm64-tarball — zonder dat zou de x86_64-binary onder Rosetta proberen
+# te draaien en falen op arm64-glibc-only containers (Apple Silicon).
 ENV FLUTTER_HOME=/opt/flutter
-RUN mkdir -p ${FLUTTER_HOME} \
-    && curl -L -o /tmp/flutter.tar.xz \
-        https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${FLUTTER_VERSION}-stable.tar.xz \
+RUN if [ "${TARGETARCH}" = "arm64" ]; then ARCH_SUFFIX="_arm64"; else ARCH_SUFFIX=""; fi \
+    && echo "Downloading Flutter for ${TARGETARCH:-amd64}..." \
+    && mkdir -p ${FLUTTER_HOME} \
+    && curl -fL -o /tmp/flutter.tar.xz \
+        "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux${ARCH_SUFFIX}_${FLUTTER_VERSION}-stable.tar.xz" \
     && tar -xf /tmp/flutter.tar.xz -C /opt \
     && rm /tmp/flutter.tar.xz \
     && chown -R vscode:vscode ${FLUTTER_HOME}
