@@ -2,6 +2,7 @@ package com.vdzon.newsfeedbackend.rss.domain
 
 import com.fasterxml.jackson.core.type.TypeReference
 import com.vdzon.newsfeedbackend.storage.JsonStore
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.stereotype.Component
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
@@ -20,21 +21,28 @@ data class TopicEntry(
     val starredCount: Int = 0
 )
 
+interface TopicHistoryRepository {
+    fun load(username: String): MutableList<TopicEntry>
+    fun save(username: String, entries: List<TopicEntry>)
+    fun update(username: String, op: (MutableList<TopicEntry>) -> Unit)
+}
+
 @Component
-class TopicHistoryRepository(private val store: JsonStore) {
+@ConditionalOnProperty(name = ["app.storage.backend"], havingValue = "json", matchIfMissing = true)
+class JsonTopicHistoryRepository(private val store: JsonStore) : TopicHistoryRepository {
     private val locks = ConcurrentHashMap<String, ReentrantLock>()
     private fun lock(u: String) = locks.computeIfAbsent(u) { ReentrantLock() }
     private fun file(u: String) = store.userFile(u, "topic_history.json")
 
-    fun load(username: String): MutableList<TopicEntry> = lock(username).withLock {
+    override fun load(username: String): MutableList<TopicEntry> = lock(username).withLock {
         store.readJsonRef(file(username), object : TypeReference<MutableList<TopicEntry>>() {}, mutableListOf())
     }
 
-    fun save(username: String, entries: List<TopicEntry>) = lock(username).withLock {
+    override fun save(username: String, entries: List<TopicEntry>) = lock(username).withLock {
         store.writeJson(file(username), entries)
     }
 
-    fun update(username: String, op: (MutableList<TopicEntry>) -> Unit) = lock(username).withLock {
+    override fun update(username: String, op: (MutableList<TopicEntry>) -> Unit) = lock(username).withLock {
         val entries = load(username)
         op(entries)
         store.writeJson(file(username), entries)

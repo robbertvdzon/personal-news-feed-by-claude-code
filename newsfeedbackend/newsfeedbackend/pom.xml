@@ -53,6 +53,32 @@
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
 
+        <!-- Persistence: JDBC + PostgreSQL + Flyway. Alleen actief wanneer
+             STORAGE_BACKEND=postgres; bij STORAGE_BACKEND=json (default)
+             worden de DataSource- en Flyway-autoconfigs door
+             application-postgres.properties NIET geladen, dus deze libs
+             initialiseren niets en kosten niets. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+        </dependency>
+        <!-- Spring Boot 4.x verschilt van 3.x: FlywayAutoConfiguration zit
+             niet meer in spring-boot-autoconfigure maar in een aparte
+             spring-boot-flyway module die je via deze starter binnenhaalt.
+             De starter trekt flyway-core + autoconfig + sql-autoconfig mee. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-flyway</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+        </dependency>
+
         <!-- Spring Modulith -->
         <dependency>
             <groupId>org.springframework.modulith</groupId>

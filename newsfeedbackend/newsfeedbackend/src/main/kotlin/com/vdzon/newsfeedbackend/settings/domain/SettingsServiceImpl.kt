@@ -1,14 +1,17 @@
 package com.vdzon.newsfeedbackend.settings.domain
 
-import com.fasterxml.jackson.core.type.TypeReference
 import com.vdzon.newsfeedbackend.settings.CategorySettings
 import com.vdzon.newsfeedbackend.settings.RssFeedsSettings
 import com.vdzon.newsfeedbackend.settings.SettingsService
-import com.vdzon.newsfeedbackend.storage.JsonStore
+import com.vdzon.newsfeedbackend.settings.infrastructure.CategorySettingsRepository
+import com.vdzon.newsfeedbackend.settings.infrastructure.RssFeedsRepository
 import org.springframework.stereotype.Service
 
 @Service
-class SettingsServiceImpl(private val store: JsonStore) : SettingsService {
+class SettingsServiceImpl(
+    private val categoryRepo: CategorySettingsRepository,
+    private val rssFeedsRepo: RssFeedsRepository
+) : SettingsService {
 
     private val defaultCategories = listOf(
         CategorySettings("kotlin", "Kotlin"),
@@ -21,10 +24,9 @@ class SettingsServiceImpl(private val store: JsonStore) : SettingsService {
     )
 
     override fun getCategories(username: String): List<CategorySettings> {
-        val file = store.userFile(username, "settings.json")
-        val list = store.readJsonRef(file, object : TypeReference<List<CategorySettings>>() {}, emptyList())
+        val list = categoryRepo.load(username)
         if (list.isEmpty()) {
-            store.writeJson(file, defaultCategories)
+            categoryRepo.save(username, defaultCategories)
             return defaultCategories
         }
         return ensureSystemCategories(list)
@@ -32,17 +34,14 @@ class SettingsServiceImpl(private val store: JsonStore) : SettingsService {
 
     override fun saveCategories(username: String, categories: List<CategorySettings>): List<CategorySettings> {
         val withSystem = ensureSystemCategories(categories)
-        store.writeJson(store.userFile(username, "settings.json"), withSystem)
+        categoryRepo.save(username, withSystem)
         return withSystem
     }
 
-    override fun getRssFeeds(username: String): RssFeedsSettings {
-        val file = store.userFile(username, "rss_feeds.json")
-        return store.readJson(file, RssFeedsSettings::class.java, RssFeedsSettings())
-    }
+    override fun getRssFeeds(username: String): RssFeedsSettings = rssFeedsRepo.load(username)
 
     override fun saveRssFeeds(username: String, settings: RssFeedsSettings): RssFeedsSettings {
-        store.writeJson(store.userFile(username, "rss_feeds.json"), settings)
+        rssFeedsRepo.save(username, settings)
         return settings
     }
 
