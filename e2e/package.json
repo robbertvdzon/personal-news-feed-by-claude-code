@@ -1,0 +1,15 @@
+{
+  "name": "e2e",
+  "version": "1.0.0",
+  "description": "End-to-end scenario's die handmatig (of door een agent) worden afgespeeld in de Flutter web-app, met een **GIF-opname** van de browser zodat je het resultaat later terug kunt kijken. Geen test-framework — gewoon menselijk leesbare scripts en een procedurele runner.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "playwright": "^1.59.1"
+  }
+}
