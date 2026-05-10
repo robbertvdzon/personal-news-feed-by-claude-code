@@ -81,7 +81,7 @@ class RssRefreshPipeline(
 
             log.info("[RSS] stap 1/4: {} feeds parallel ophalen voor '{}'", feedUrls.size, username)
             val fetched = feedUrls.parallelStream()
-                .map { fetcher.fetch(it) }
+                .map { fetcher.fetch(it, username) }
                 .toList()
                 .flatten()
                 .filter { it.url !in existingUrls }
@@ -91,7 +91,7 @@ class RssRefreshPipeline(
             log.info("[RSS] stap 2/4: AI-samenvatting per artikel ({} stuks)", fetched.size)
             val processed = mutableListOf<RssItem>()
             fetched.forEachIndexed { idx, item ->
-                val summarized = summarize(item, cats)
+                val summarized = summarize(username, item, cats)
                 if (summarized != null) processed.add(summarized)
                 if ((idx + 1) % 5 == 0 || idx + 1 == fetched.size) {
                     log.info("[RSS]   samengevat {}/{}", idx + 1, fetched.size)
@@ -125,7 +125,7 @@ class RssRefreshPipeline(
             var feedCount = 0
             for ((idx, rss) in toFeed.withIndex()) {
                 log.info("[RSS]   feed-item {}/{}: {}", idx + 1, toFeed.size, rss.title.take(80))
-                val feedItem = generateFeedItem(rss, cats)
+                val feedItem = generateFeedItem(username, rss, cats)
                 feed.save(username, feedItem)
                 rssRepo.upsert(username, rss.copy(feedItemId = feedItem.id))
                 feedCount++
@@ -211,7 +211,7 @@ class RssRefreshPipeline(
                 val rss = all.find { it.id == id } ?: continue
                 if (rss.feedItemId != null) continue // already has one
                 log.info("[RSS] reselect feed-item {}/{}: {}", idx + 1, newlySelectedIds.size, rss.title.take(80))
-                val feedItem = generateFeedItem(rss, cats)
+                val feedItem = generateFeedItem(username, rss, cats)
                 feed.save(username, feedItem)
                 rssRepo.upsert(username, rss.copy(feedItemId = feedItem.id))
             }
@@ -223,13 +223,16 @@ class RssRefreshPipeline(
         }
     }
 
-    private fun summarize(rss: RssItem, categories: List<CategorySettings>): RssItem? {
+    private fun summarize(username: String, rss: RssItem, categories: List<CategorySettings>): RssItem? {
         val catList = categories.joinToString("\n") { c ->
             val instr = if (c.extraInstructions.isNotBlank()) " — ${c.extraInstructions.take(200)}" else ""
             "- ${c.id}: ${c.name}$instr"
         }
         val ai = anthropic.complete(
             operation = "summarizeRssItem",
+            action = com.vdzon.newsfeedbackend.external_call.ExternalCall.ACTION_RSS_SUMMARIZE,
+            username = username,
+            subject = rss.title.take(120),
             model = anthropic.summaryModel(),
             system = "Je vat artikelen kort samen (150-250 woorden) in het Nederlands. Wijs een categorie-id toe op basis van de gebruikersvoorkeuren en extraheer 2-3 onderwerpen.",
             user = """
@@ -289,6 +292,9 @@ class RssRefreshPipeline(
 
         val ai = anthropic.complete(
             operation = "selectFeedItems",
+            action = com.vdzon.newsfeedbackend.external_call.ExternalCall.ACTION_FEED_SCORE,
+            username = username,
+            subject = "${items.size} kandidaten",
             maxTokens = 16000,
             system = """
                 Je bent een nieuwsredacteur die voor een softwareontwikkelaar bepaalt welke artikelen interessant genoeg zijn voor zijn persoonlijke feed.
@@ -356,11 +362,14 @@ class RssRefreshPipeline(
         }
     }
 
-    private fun generateFeedItem(rss: RssItem, categories: List<CategorySettings>): FeedItem {
-        val fullText = articleFetcher.fetchPlainText(rss.url) ?: rss.snippet
+    private fun generateFeedItem(username: String, rss: RssItem, categories: List<CategorySettings>): FeedItem {
+        val fullText = articleFetcher.fetchPlainText(username, rss.url) ?: rss.snippet
         val catInstr = categories.find { it.id == rss.category }?.extraInstructions.orEmpty()
         val ai = anthropic.complete(
             operation = "generateFeedItemSummary",
+            action = com.vdzon.newsfeedbackend.external_call.ExternalCall.ACTION_FEED_SUMMARIZE,
+            username = username,
+            subject = rss.title.take(120),
             maxTokens = 4000,
             system = """
                 Je schrijft drie velden voor een persoonlijk nieuwsoverzicht in het Nederlands.

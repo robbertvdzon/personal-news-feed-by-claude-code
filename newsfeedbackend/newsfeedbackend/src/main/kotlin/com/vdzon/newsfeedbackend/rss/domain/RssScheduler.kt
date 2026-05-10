@@ -60,6 +60,9 @@ class RssScheduler(
         }
         val ai = anthropic.complete(
             operation = "generateDailySummaryFromRss",
+            action = com.vdzon.newsfeedbackend.external_call.ExternalCall.ACTION_DAILY_SUMMARY,
+            username = username,
+            subject = "Daily summary $today",
             system = "Je schrijft een dagelijkse Nederlandstalige nieuwsbriefing in Markdown (600-1000 woorden) met koppen, lijsten en duidingen.",
             user = context
         )
@@ -80,7 +83,6 @@ class RssScheduler(
             requests.get(username, reqId)?.copy(
                 status = RequestStatus.DONE,
                 completedAt = now,
-                costUsd = ai.costUsd,
                 newItemCount = 1
             ) ?: NewsRequest(
                 id = reqId,
@@ -88,7 +90,6 @@ class RssScheduler(
                 status = RequestStatus.DONE,
                 completedAt = now,
                 isDailySummary = true,
-                costUsd = ai.costUsd,
                 newItemCount = 1
             )
         )

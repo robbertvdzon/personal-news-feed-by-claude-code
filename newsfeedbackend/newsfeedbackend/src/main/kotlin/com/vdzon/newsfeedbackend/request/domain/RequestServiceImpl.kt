@@ -74,8 +74,7 @@ class RequestServiceImpl(
             processingStartedAt = null,
             durationSeconds = 0,
             categoryResults = emptyList(),
-            newItemCount = 0,
-            costUsd = 0.0
+            newItemCount = 0
         )
         val saved = upsert(username, reset)
         events.publishEvent(RequestRerunEvent(username, id))

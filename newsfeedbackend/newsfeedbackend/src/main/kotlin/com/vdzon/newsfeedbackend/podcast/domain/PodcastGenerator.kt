@@ -50,6 +50,9 @@ class PodcastGenerator(
             update(username, id) { it.copy(status = PodcastStatus.GENERATING_SCRIPT) }
             val scriptResp = anthropic.complete(
                 operation = "generatePodcastScript",
+                action = com.vdzon.newsfeedbackend.external_call.ExternalCall.ACTION_PODCAST_SCRIPT,
+                username = username,
+                subject = "Podcast id=$id",
                 system = "Je schrijft een Nederlandstalig interview-podcastscript met INTERVIEWER en GAST regels. Zorg voor een vloeiende dialoog van ongeveer $targetWords woorden.",
                 user = if (current.customTopics.isNotEmpty())
                     "Onderwerpen: ${current.customTopics.joinToString(", ")}\n\nFormat:\nINTERVIEWER: ...\nGAST: ..."
@@ -59,10 +62,12 @@ class PodcastGenerator(
             val script = scriptResp.text.ifBlank {
                 "INTERVIEWER: Welkom bij DevTalk!\nGAST: Hallo, leuk om hier te zijn."
             }
-            val cost = scriptResp.costUsd
 
             val topicsResp = anthropic.complete(
                 operation = "extractPodcastTopics",
+                action = com.vdzon.newsfeedbackend.external_call.ExternalCall.ACTION_PODCAST_TOPICS,
+                username = username,
+                subject = "Podcast id=$id",
                 system = "Extraheer 5 tot 10 korte onderwerpen uit het script in het Nederlands. Antwoord met een JSON-array van strings.",
                 user = script
             )
@@ -81,8 +86,7 @@ class PodcastGenerator(
                     status = PodcastStatus.GENERATING_AUDIO,
                     scriptText = script,
                     topics = topics,
-                    title = title,
-                    costUsd = cost + topicsResp.costUsd
+                    title = title
                 )
             }
 
@@ -119,7 +123,7 @@ class PodcastGenerator(
             }
             val text = trimmed.substringAfter(":").trim()
             if (text.isEmpty()) continue
-            val bytes = tts.generate(provider, role, text) ?: continue
+            val bytes = tts.generate(username, id, provider, role, text) ?: continue
             out.writeBytes(bytes)
         }
         if (out.size() == 0) return null

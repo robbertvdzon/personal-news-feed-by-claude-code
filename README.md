@@ -42,3 +42,7 @@ De specificaties in de `specs/` map zijn het vertrekpunt: alle functionaliteit, 
 **Frontend:** Flutter · Dart · Riverpod
 
 **AI:** Anthropic Claude (samenvatting, selectie, podcast) · Tavily (websearch) · OpenAI TTS / ElevenLabs (podcast audio)
+
+## Ontwikkelen
+
+Een gecontaineriseerde dev-omgeving met de complete toolchain (JDK 21, Maven, Flutter, Android SDK, Node, Claude Code) is voorbereid voor wie z'n laptop schoon wil houden of z'n setup tussen machines wil delen. Zie [`.devcontainer/README.md`](./.devcontainer/README.md) voor de bouw-, start- en gebruiks-instructies.

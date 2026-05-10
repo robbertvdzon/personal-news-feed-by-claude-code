@@ -48,11 +48,10 @@ class AdhocOrchestrator(
             val started = Instant.now()
             service.upsert(username, current.copy(status = RequestStatus.PROCESSING, processingStartedAt = started))
 
-            val results = tavily.search(current.subject, current.maxAgeDays, maxResults = current.maxCount * 3)
+            val results = tavily.search(username, current.subject, current.maxAgeDays, maxResults = current.maxCount * 3)
             val urls = results.take(current.maxCount).map { it.url }
-            val texts = tavily.extract(urls)
+            val texts = tavily.extract(username, urls)
 
-            var totalCost = 0.0
             var newItems = 0
 
             for (r in results.take(current.maxCount)) {
@@ -64,10 +63,12 @@ class AdhocOrchestrator(
                 val text = texts[r.url] ?: r.snippet
                 val ai = anthropic.complete(
                     operation = "summarizeArticle",
+                    action = com.vdzon.newsfeedbackend.external_call.ExternalCall.ACTION_ADHOC_SUMMARIZE,
+                    username = username,
+                    subject = "Adhoc: ${current.subject.take(80)} — ${r.title.take(40)}",
                     system = "Je bent een Nederlandstalige journalistieke samenvatter. Schrijf een heldere samenvatting van ~400 woorden in het Nederlands. Gebruik geen markdown headers maar wel paragrafen.",
                     user = "Onderwerp: ${current.subject}\n\nArtikel: ${r.title}\nURL: ${r.url}\n\nTekst:\n$text"
                 )
-                totalCost += ai.costUsd
                 val feedItem = FeedItem(
                     id = UUID.randomUUID().toString(),
                     title = r.title,
@@ -86,7 +87,6 @@ class AdhocOrchestrator(
                     username,
                     repo.load(username).find { it.id == requestId }!!.copy(
                         newItemCount = newItems,
-                        costUsd = totalCost,
                         durationSeconds = ChronoUnit.SECONDS.between(started, Instant.now()).toInt()
                     )
                 )
@@ -99,7 +99,7 @@ class AdhocOrchestrator(
             )
             service.upsert(username, finalReq)
             meters.counter("newsfeed.requests.processed", "type", "adhoc", "status", "DONE").increment()
-            log.info("[Request] done id={} items={} cost={}", requestId, newItems, totalCost)
+            log.info("[Request] done id={} items={}", requestId, newItems)
         } catch (e: Exception) {
             log.error("[Request] failed id=$requestId: ${e.message}", e)
             val current2 = repo.load(username).find { it.id == requestId } ?: return

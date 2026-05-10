@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../api/api_client.dart';
 import '../models/models.dart';
 import '../providers/auth_provider.dart';
 import '../providers/data_providers.dart';
@@ -41,6 +42,12 @@ class SettingsScreen extends ConsumerWidget {
               ref.invalidate(rssFeedsProvider);
             },
           ),
+        ),
+        ListTile(
+          leading: const Icon(Icons.lock_outline),
+          title: const Text('Wachtwoord wijzigen'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => _changePassword(context, ref),
         ),
         const Divider(),
         Text('Weergave', style: Theme.of(context).textTheme.titleLarge),
@@ -226,6 +233,113 @@ class SettingsScreen extends ConsumerWidget {
     await api.delete('/api/feed/cleanup$qs');
     ref.invalidate(rssProvider);
     ref.invalidate(feedProvider);
+  }
+
+  Future<void> _changePassword(BuildContext context, WidgetRef ref) async {
+    final currentCtrl = TextEditingController();
+    final newCtrl = TextEditingController();
+    final confirmCtrl = TextEditingController();
+    String? error;
+    bool busy = false;
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setS) {
+        Future<void> submit() async {
+          final cur = currentCtrl.text;
+          final nw = newCtrl.text;
+          final cf = confirmCtrl.text;
+          if (cur.isEmpty || nw.isEmpty) {
+            setS(() => error = 'Vul beide velden in');
+            return;
+          }
+          if (nw.length < 4) {
+            setS(() => error = 'Nieuw wachtwoord moet minimaal 4 tekens zijn');
+            return;
+          }
+          if (nw != cf) {
+            setS(() => error = 'Nieuwe wachtwoorden zijn niet gelijk');
+            return;
+          }
+          setS(() {
+            error = null;
+            busy = true;
+          });
+          try {
+            await ref.read(apiProvider).put('/api/account/password', {
+              'currentPassword': cur,
+              'newPassword': nw,
+            });
+            if (ctx.mounted) Navigator.pop(ctx, true);
+          } on ApiException catch (e) {
+            // 401 = huidig wachtwoord klopt niet; 400 = validatie van backend
+            setS(() {
+              busy = false;
+              error = e.statusCode == 401
+                  ? 'Huidig wachtwoord klopt niet'
+                  : 'Fout: ${e.statusCode}';
+            });
+          } catch (e) {
+            setS(() {
+              busy = false;
+              error = 'Fout: $e';
+            });
+          }
+        }
+
+        return AlertDialog(
+          title: const Text('Wachtwoord wijzigen'),
+          content: SizedBox(
+            width: 400,
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              TextField(
+                controller: currentCtrl,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: 'Huidig wachtwoord'),
+                autofocus: true,
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: newCtrl,
+                obscureText: true,
+                decoration: const InputDecoration(
+                  labelText: 'Nieuw wachtwoord',
+                  helperText: 'Min. 4 tekens',
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: confirmCtrl,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: 'Nieuw wachtwoord bevestigen'),
+                onSubmitted: (_) => submit(),
+              ),
+              if (error != null) ...[
+                const SizedBox(height: 12),
+                Text(error!, style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
+              ],
+            ]),
+          ),
+          actions: [
+            TextButton(
+              onPressed: busy ? null : () => Navigator.pop(ctx, false),
+              child: const Text('Annuleren'),
+            ),
+            FilledButton(
+              onPressed: busy ? null : submit,
+              child: busy
+                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Text('Wijzigen'),
+            ),
+          ],
+        );
+      }),
+    );
+    if (ok == true && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Wachtwoord gewijzigd')),
+      );
+    }
   }
 }
 

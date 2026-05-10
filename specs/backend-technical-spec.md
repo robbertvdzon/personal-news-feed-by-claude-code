@@ -169,7 +169,7 @@ Deze stap-voor-stap progress-logs zijn essentieel voor de gebruiker tijdens een 
 **Externe API-aanroepen (DEBUG):**
 ```
 [Anthropic] Aanroep '{operationNaam}' voor gebruiker '{username}' — {n} tokens
-[Tavily] Zoeken op '{query}' — {n} resultaten
+  [Tavily] Zoeken op '{query}' — {n} resultaten
 [TTS] Audio segment gegenereerd: {n} tekens → {m}ms
 ```
 

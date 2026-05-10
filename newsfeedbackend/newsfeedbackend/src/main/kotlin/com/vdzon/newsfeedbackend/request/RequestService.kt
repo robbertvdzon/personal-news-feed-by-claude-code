@@ -37,7 +37,6 @@ data class NewsRequest(
     val createdAt: Instant = Instant.now(),
     val completedAt: Instant? = null,
     val newItemCount: Int = 0,
-    val costUsd: Double = 0.0,
     @get:com.fasterxml.jackson.annotation.JsonProperty("isHourlyUpdate")
     @field:com.fasterxml.jackson.annotation.JsonProperty("isHourlyUpdate")
     @param:com.fasterxml.jackson.annotation.JsonProperty("isHourlyUpdate")
@@ -57,7 +56,6 @@ data class CategoryResult(
     val categoryId: String,
     val categoryName: String,
     val articleCount: Int = 0,
-    val costUsd: Double = 0.0,
     val searchResultCount: Int = 0,
     val filteredCount: Int = 0
 )

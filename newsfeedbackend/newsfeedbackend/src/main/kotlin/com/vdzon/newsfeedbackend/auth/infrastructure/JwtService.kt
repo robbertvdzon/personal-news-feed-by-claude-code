@@ -1,5 +1,7 @@
 package com.vdzon.newsfeedbackend.auth.infrastructure
 
+import com.vdzon.newsfeedbackend.auth.domain.User
+import io.jsonwebtoken.Claims
 import io.jsonwebtoken.Jwts
 import io.jsonwebtoken.security.Keys
 import org.springframework.beans.factory.annotation.Value
@@ -20,24 +22,32 @@ class JwtService(
         Keys.hmacShaKeyFor(bytes)
     }
 
-    fun create(username: String): String {
+    fun create(username: String, role: String): String {
         val now = System.currentTimeMillis()
         return Jwts.builder()
             .subject(username)
+            .claim(CLAIM_ROLE, role)
             .issuedAt(Date(now))
             .expiration(Date(now + ttlDays * 24 * 3600 * 1000))
             .signWith(key)
             .compact()
     }
 
-    fun validate(token: String): String? = try {
-        Jwts.parser()
+    /** Returns (username, role) of een geldige token, of null. */
+    fun validate(token: String): Pair<String, String>? = try {
+        val claims: Claims = Jwts.parser()
             .verifyWith(key)
             .build()
             .parseSignedClaims(token)
             .payload
-            .subject
+        val sub = claims.subject ?: return null
+        val role = claims[CLAIM_ROLE] as? String ?: User.ROLE_USER
+        sub to role
     } catch (e: Exception) {
         null
+    }
+
+    companion object {
+        private const val CLAIM_ROLE = "role"
     }
 }

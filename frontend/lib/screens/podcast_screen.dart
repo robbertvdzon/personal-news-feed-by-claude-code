@@ -109,7 +109,6 @@ class _PodcastScreenState extends ConsumerState<PodcastScreen> {
                               fontWeight: _isInProgress(p.status) ? FontWeight.bold : null,
                             )),
                             Text('Duur: ${p.durationMinutes}min · TTS: ${p.ttsProvider}'),
-                            if (p.costUsd > 0) Text('Kosten: \$${p.costUsd.toStringAsFixed(4)}'),
                           ]),
                           onTap: () => Navigator.of(context).push(
                             MaterialPageRoute(builder: (_) => PodcastDetailScreen(podcastId: p.id)),

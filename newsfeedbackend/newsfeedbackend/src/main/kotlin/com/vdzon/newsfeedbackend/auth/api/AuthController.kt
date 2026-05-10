@@ -17,12 +17,13 @@ class AuthController(private val authService: AuthService) {
     @PostMapping("/register")
     fun register(@RequestBody body: AuthRequest): ResponseEntity<AuthResponse> {
         val token = authService.register(body.username, body.password)
-        return ResponseEntity.status(HttpStatus.CREATED).body(AuthResponse(token.token, token.username))
+        return ResponseEntity.status(HttpStatus.CREATED)
+            .body(AuthResponse(token.token, token.username, token.role))
     }
 
     @PostMapping("/login")
     fun login(@RequestBody body: AuthRequest): ResponseEntity<AuthResponse> {
         val token = authService.login(body.username, body.password)
-        return ResponseEntity.ok(AuthResponse(token.token, token.username))
+        return ResponseEntity.ok(AuthResponse(token.token, token.username, token.role))
     }
 }

@@ -8,9 +8,11 @@ final apiProvider = Provider<ApiClient>((ref) => ApiClient());
 class AuthState {
   final String? token;
   final String? username;
+  final String? role; // 'user' of 'admin'
   final String? error;
-  const AuthState({this.token, this.username, this.error});
+  const AuthState({this.token, this.username, this.role, this.error});
   bool get isLoggedIn => token != null;
+  bool get isAdmin => role == 'admin';
 }
 
 class AuthNotifier extends StateNotifier<AuthState> {
@@ -21,9 +23,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
     final prefs = await SharedPreferences.getInstance();
     final t = prefs.getString('token');
     final u = prefs.getString('username');
+    final r = prefs.getString('role');
     if (t != null && u != null) {
       api.setToken(t);
-      state = AuthState(token: t, username: u);
+      state = AuthState(token: t, username: u, role: r ?? 'user');
     }
   }
 
@@ -35,11 +38,15 @@ class AuthNotifier extends StateNotifier<AuthState> {
       final resp = await api.post(path, {'username': u, 'password': p}) as Map<String, dynamic>;
       final token = resp['token'] as String;
       final username = resp['username'] as String;
+      // Backwards-compat: oudere backends sturen geen 'role'-veld; default
+      // dan op 'user' zodat de UI niet crasht.
+      final role = (resp['role'] as String?) ?? 'user';
       api.setToken(token);
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('token', token);
       await prefs.setString('username', username);
-      state = AuthState(token: token, username: username);
+      await prefs.setString('role', role);
+      state = AuthState(token: token, username: username, role: role);
     } on ApiException catch (e) {
       state = AuthState(error: 'Inloggen mislukt (${e.statusCode})');
     } catch (e) {
@@ -51,6 +58,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('token');
     await prefs.remove('username');
+    await prefs.remove('role');
     // Wis offline cache van álle users zodat een volgende user op
     // hetzelfde toestel geen oude data ziet bij netwerkproblemen.
     await LocalCache.clearAll();

@@ -225,7 +225,6 @@ class NewsRequest {
   final String? sourceItemId;
   final String? sourceItemTitle;
   final int newItemCount;
-  final double costUsd;
   final bool isHourlyUpdate;
   final bool isDailySummary;
   final String status;
@@ -240,7 +239,6 @@ class NewsRequest {
     this.sourceItemId,
     this.sourceItemTitle,
     this.newItemCount = 0,
-    this.costUsd = 0,
     this.isHourlyUpdate = false,
     this.isDailySummary = false,
     this.status = 'PENDING',
@@ -256,7 +254,6 @@ class NewsRequest {
         sourceItemId: j['sourceItemId'],
         sourceItemTitle: j['sourceItemTitle'],
         newItemCount: j['newItemCount'] ?? 0,
-        costUsd: (j['costUsd'] ?? 0).toDouble(),
         isHourlyUpdate: j['isHourlyUpdate'] ?? j['isDailyUpdate'] ?? false,
         isDailySummary: j['isDailySummary'] ?? false,
         status: j['status'] ?? 'PENDING',
@@ -272,7 +269,6 @@ class NewsRequest {
         sourceItemId: sourceItemId,
         sourceItemTitle: sourceItemTitle,
         newItemCount: newItemCount,
-        costUsd: costUsd,
         isHourlyUpdate: isHourlyUpdate,
         isDailySummary: isDailySummary,
         status: status ?? this.status,
@@ -295,7 +291,6 @@ class Podcast {
   final List<String> topics;
   final String? audioPath;
   final int? durationSeconds;
-  final double costUsd;
   final List<String> customTopics;
   final String ttsProvider;
   final int podcastNumber;
@@ -313,7 +308,6 @@ class Podcast {
     this.topics = const [],
     this.audioPath,
     this.durationSeconds,
-    this.costUsd = 0,
     this.customTopics = const [],
     this.ttsProvider = 'OPENAI',
     this.podcastNumber = 0,
@@ -332,7 +326,6 @@ class Podcast {
         topics: List<String>.from(j['topics'] ?? []),
         audioPath: j['audioPath'],
         durationSeconds: j['durationSeconds'],
-        costUsd: (j['costUsd'] ?? 0).toDouble(),
         customTopics: List<String>.from(j['customTopics'] ?? []),
         ttsProvider: j['ttsProvider'] ?? 'OPENAI',
         podcastNumber: j['podcastNumber'] ?? 0,

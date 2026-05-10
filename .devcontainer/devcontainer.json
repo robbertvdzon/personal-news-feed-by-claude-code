@@ -1,0 +1,79 @@
+{
+  "name": "personal-news-feed-dev",
+
+  // Eigen Dockerfile in dezelfde map.
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+
+  // Standaard non-root user uit de devcontainers base-image. UID wordt
+  // automatisch gemapt op je host-UID, zodat files die de container
+  // aanmaakt niet als root op je host verschijnen.
+  "remoteUser": "vscode",
+  "updateRemoteUserUID": true,
+
+  // Workspace komt automatisch op /workspaces/<reponame> terecht; we
+  // laten de default met "cached" voor iets snellere mounts op macOS.
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/personal-news-feed-by-claude-code,type=bind,consistency=cached",
+  "workspaceFolder": "/workspaces/personal-news-feed-by-claude-code",
+
+  // Named volumes voor caches/dependencies/build-output zodat ze NIET
+  // over de bind-mount syncen — dat scheelt op macOS factor 10× I/O.
+  // Belangrijk: frontend/build/ gaat WEL naar de host (anders verdwijnt
+  // de APK). Alleen interne caches komen op een volume.
+  "mounts": [
+    // Maven local repo
+    "source=newsfeed-m2,target=/home/vscode/.m2,type=volume",
+    // Gradle (Android-build gebruikt deze)
+    "source=newsfeed-gradle,target=/home/vscode/.gradle,type=volume",
+    // Flutter pub-cache (downloaded packages)
+    "source=newsfeed-pub-cache,target=/home/vscode/.pub-cache,type=volume",
+    // Flutter zelf cachet hier compile-output van engine/dart-tools
+    "source=newsfeed-flutter-cache,target=/home/vscode/.flutter,type=volume",
+    // Backend Maven target/ (anders trekt elke `mvn compile` honderden
+    // .class files door de bind-mount)
+    "source=newsfeed-mvn-target,target=/workspaces/personal-news-feed-by-claude-code/newsfeedbackend/newsfeedbackend/target,type=volume",
+    // Frontend .dart_tool — alleen interne tooling, build-output zit
+    // elders en blijft wel op de host zichtbaar.
+    "source=newsfeed-dart-tool,target=/workspaces/personal-news-feed-by-claude-code/frontend/.dart_tool,type=volume",
+
+    // Git-config en SSH-keys read-only forwarden zodat git push/pull
+    // werkt met je bestaande GitHub-credentials.
+    "source=${localEnv:HOME}/.gitconfig,target=/home/vscode/.gitconfig,type=bind,readonly",
+    "source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind,readonly",
+
+    // Claude Code config: deel je login-state met de host zodat je niet
+    // in de container opnieuw hoeft in te loggen. Dit is een directory,
+    // dus alleen mounten als hij bestaat — de Dockerfile maakt 'm anders.
+    "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind"
+  ],
+
+  // host.docker.internal beschikbaar maken zodat Claude Code in de
+  // container je IntelliJ-backend op host:8080 kan bereiken via
+  // http://host.docker.internal:8080. Op Docker Desktop (Mac/Win) is
+  // dat default; op Linux moeten we 'm expliciet wijzen via host-gateway.
+  "runArgs": [
+    "--add-host=host.docker.internal:host-gateway"
+  ],
+
+  // Environment-vars die in elke shell beschikbaar zijn.
+  "containerEnv": {
+    // Hint waar de host-backend draait (IntelliJ op je laptop).
+    // JAVA_HOME / ANDROID_HOME / FLUTTER_HOME zitten al in de Dockerfile.
+    "BACKEND_URL": "http://host.docker.internal:8080"
+  },
+
+  // Forward de poorten zodat je vanuit de browser op je host
+  // localhost:3000 kunt openen als je `make serve-ext` IN de container
+  // draait. (Niet nodig als je beide op de host draait.)
+  "forwardPorts": [3000, 8080],
+  "portsAttributes": {
+    "3000": { "label": "Flutter web", "onAutoForward": "silent" },
+    "8080": { "label": "Spring Boot backend", "onAutoForward": "silent" }
+  },
+
+  // Eenmalige setup ná de eerste container-create (niet bij elke start).
+  // Dump de toolchain-versies in de log zodat je in één blik ziet of
+  // alles werkt.
+  "postCreateCommand": "java -version && mvn -version && flutter --version && claude --version || true"
+}

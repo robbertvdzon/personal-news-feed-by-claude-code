@@ -106,7 +106,6 @@ class _PodcastDetailScreenState extends ConsumerState<PodcastDetailScreen> {
                     Chip(label: Text(p.status)),
                     Chip(label: Text('${p.durationMinutes} min')),
                     Chip(label: Text(p.ttsProvider)),
-                    if (p.costUsd > 0) Chip(label: Text('\$${p.costUsd.toStringAsFixed(4)}')),
                   ]),
                   const SizedBox(height: 16),
                   Wrap(spacing: 4, children: p.topics.map((t) => Chip(label: Text(t))).toList()),

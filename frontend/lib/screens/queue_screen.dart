@@ -77,7 +77,7 @@ class QueueScreen extends ConsumerWidget {
                               color: inProgress ? Theme.of(ctx).colorScheme.primary : null,
                               fontWeight: inProgress ? FontWeight.bold : null,
                             )),
-                            if (r.newItemCount > 0) Text('Items: ${r.newItemCount}, kosten: \$${r.costUsd.toStringAsFixed(4)}'),
+                            if (r.newItemCount > 0) Text('Items: ${r.newItemCount}'),
                             if (r.durationSeconds > 0) Text('Duur: ${r.durationSeconds}s'),
                           ]),
                           onTap: () => _detail(context, r),
@@ -152,7 +152,6 @@ class QueueScreen extends ConsumerWidget {
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text('Status: ${r.status}'),
           Text('Items: ${r.newItemCount}'),
-          Text('Kosten: \$${r.costUsd.toStringAsFixed(4)}'),
           Text('Duur: ${r.durationSeconds}s'),
           if (r.categoryResults.isNotEmpty) ...[
             const Divider(),

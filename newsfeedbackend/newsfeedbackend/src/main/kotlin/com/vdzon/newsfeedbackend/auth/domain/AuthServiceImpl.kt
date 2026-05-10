@@ -27,21 +27,34 @@ class AuthServiceImpl(
     override fun register(username: String, password: String): AuthToken {
         if (password.length < 4) throw BadRequestException("Password must be at least 4 characters")
         if (users.findByUsername(username) != null) throw ConflictException("Username already in use")
-        val user = User(UUID.randomUUID().toString(), username, encoder.encode(password)!!)
+        // Eerste user die zich registreert wanneer er nog geen admin bestaat,
+        // wordt automatisch admin. Daarna krijgen nieuwe registraties role=user.
+        val role = if (!users.hasAdmin()) User.ROLE_ADMIN else User.ROLE_USER
+        val user = User(UUID.randomUUID().toString(), username, encoder.encode(password)!!, role)
         users.add(user)
         events.publishEvent(UserRegisteredEvent(username))
-        log.info("Registered user '{}'", username)
-        return AuthToken(jwt.create(username), username)
+        log.info("Registered user '{}' with role '{}'", username, role)
+        return AuthToken(jwt.create(username, role), username, role)
     }
 
     override fun login(username: String, password: String): AuthToken {
         val user = users.findByUsername(username) ?: throw UnauthorizedException("Invalid credentials")
         if (!encoder.matches(password, user.passwordHash)) throw UnauthorizedException("Invalid credentials")
-        log.info("User '{}' logged in", username)
-        return AuthToken(jwt.create(username), username)
+        log.info("User '{}' logged in (role={})", username, user.role)
+        return AuthToken(jwt.create(username, user.role), username, user.role)
     }
 
     override fun userExists(username: String): Boolean = users.findByUsername(username) != null
 
     override fun listUsernames(): List<String> = users.usernames()
+
+    override fun changePassword(username: String, currentPassword: String, newPassword: String) {
+        if (newPassword.length < 4) throw BadRequestException("Password must be at least 4 characters")
+        val user = users.findByUsername(username) ?: throw UnauthorizedException("Invalid credentials")
+        if (!encoder.matches(currentPassword, user.passwordHash)) {
+            throw UnauthorizedException("Huidig wachtwoord klopt niet")
+        }
+        users.update(user.copy(passwordHash = encoder.encode(newPassword)!!))
+        log.info("User '{}' changed password", username)
+    }
 }

@@ -25,7 +25,6 @@ data class Podcast(
     val topics: List<String> = emptyList(),
     val audioPath: String? = null,
     val durationSeconds: Int? = null,
-    val costUsd: Double = 0.0,
     val customTopics: List<String> = emptyList(),
     val ttsProvider: TtsProvider = TtsProvider.OPENAI,
     val podcastNumber: Int = 0,
