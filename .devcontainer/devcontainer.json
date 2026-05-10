@@ -38,8 +38,10 @@
     "source=newsfeed-gradle,target=/home/vscode/.gradle,type=volume",
     // Flutter pub-cache (downloaded packages)
     "source=newsfeed-pub-cache,target=/home/vscode/.pub-cache,type=volume",
-    // Flutter zelf cachet hier compile-output van engine/dart-tools
-    "source=newsfeed-flutter-cache,target=/home/vscode/.flutter,type=volume",
+    // ~/.flutter is een config-FILE (geen directory), die mounten we
+    // niet — Flutter's daadwerkelijke artifact-cache zit in
+    // ${FLUTTER_HOME}/bin/cache/ binnen de image, en pub-packages in
+    // ~/.pub-cache hierboven, dus we missen niets.
     // Backend Maven target/ (anders trekt elke `mvn compile` honderden
     // .class files door de bind-mount)
     "source=newsfeed-mvn-target,target=/workspaces/personal-news-feed-by-claude-code/newsfeedbackend/newsfeedbackend/target,type=volume",
