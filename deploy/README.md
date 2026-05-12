@@ -29,18 +29,23 @@ de runtime-state staan in het cluster.
 
 ## Eenmalige cluster-setup
 
-### 1. Sealed Secrets controller installeren
+### 1. Bootstrap
+
+`deploy/bootstrap.sh` doet alle cluster-bootstrap in één keer (idempotent):
+
+1. Installeert de Sealed Secrets controller
+2. Haalt het public-cert op naar `deploy/cluster-cert.pem`
+3. Maakt namespace `personal-news-feed` met de `argocd.argoproj.io/managed-by`-label
+4. Apply't de ArgoCD `Application`
+
+Vereisten: `oc` ingelogd, `kubeseal` geïnstalleerd. ArgoCD wordt verwacht
+in namespace `argocd` (anders pas `ARGOCD_NS` aan in het script).
 
 ```bash
-oc apply -f https://github.com/bitnami-labs/sealed-secrets/releases/download/v0.27.0/controller.yaml
-oc rollout status -n kube-system deploy/sealed-secrets-controller
-```
-
-### 2. Public cert ophalen voor lokaal versleutelen
-
-```bash
-kubeseal --fetch-cert > deploy/cluster-cert.pem
-git add deploy/cluster-cert.pem && git commit -m "deploy: add cluster public cert"
+./deploy/bootstrap.sh
+git add deploy/cluster-cert.pem
+git commit -m "deploy: add cluster public cert"
+git push
 ```
 
 Het cert is **public**, mag in git. Het private keypaar blijft op het
@@ -49,16 +54,7 @@ backup van als je `oc get secret -n kube-system -l sealedsecrets.bitnami.com/sea
 exporteert — anders ben je bij cluster-reinstall alle sealed-secrets
 kwijt.
 
-### 3. ArgoCD Application aanmaken
-
-```bash
-oc apply -n openshift-gitops -f deploy/argocd-application.yaml
-```
-
-Pas `metadata.namespace` aan als jouw ArgoCD elders draait (kijk:
-`oc get applications.argoproj.io -A`).
-
-### 4. Cluster-secrets aanmaken en encrypten
+### 2. Cluster-secrets aanmaken en encrypten
 
 ```bash
 cp deploy/secrets-cluster.env.example deploy/secrets-cluster.env
