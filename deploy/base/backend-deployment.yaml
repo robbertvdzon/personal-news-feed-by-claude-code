@@ -30,38 +30,38 @@ spec:
             # Alle secrets uit de SealedSecret. Spring Boot accepteert
             # zowel `SPRING_DATASOURCE_URL` (env-style) als
             # `spring.datasource.url` (property-style) — env-style wint.
-            - name: DATABASE_URL
+            - name: PNF_DATABASE_URL
               valueFrom:
                 secretKeyRef:
                   name: newsfeed-api-keys
-                  key: DATABASE_URL
+                  key: PNF_DATABASE_URL
             - name: SPRING_DATASOURCE_URL
               valueFrom:
                 secretKeyRef:
                   name: newsfeed-api-keys
-                  key: DATABASE_URL
-            - name: ANTHROPIC_API_KEY
+                  key: PNF_DATABASE_URL
+            - name: PNF_ANTHROPIC_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: newsfeed-api-keys
-                  key: ANTHROPIC_API_KEY
-            - name: OPENAI_API_KEY
+                  key: PNF_ANTHROPIC_API_KEY
+            - name: PNF_OPENAI_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: newsfeed-api-keys
-                  key: OPENAI_API_KEY
+                  key: PNF_OPENAI_API_KEY
                   optional: true
-            - name: TAVILY_API_KEY
+            - name: PNF_TAVILY_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: newsfeed-api-keys
-                  key: TAVILY_API_KEY
+                  key: PNF_TAVILY_API_KEY
                   optional: true
-            - name: ELEVENLABS_API_KEY
+            - name: PNF_ELEVENLABS_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: newsfeed-api-keys
-                  key: ELEVENLABS_API_KEY
+                  key: PNF_ELEVENLABS_API_KEY
                   optional: true
             - name: APP_JWT_SECRET
               valueFrom:

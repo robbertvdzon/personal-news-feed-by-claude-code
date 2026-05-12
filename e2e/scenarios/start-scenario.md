@@ -4,7 +4,7 @@
 Bereid een verse omgeving voor zodat de andere scenario's tegen schone, voorspelbare data kunnen draaien. Maakt een nieuwe e2e-test-user aan, configureert één productieve RSS-feed en twee categorieën die zeker matches gaan opleveren, en triggert de uurlijkse RSS-pipeline.
 
 ## Voorwaarden
-- Backend draait op `http://localhost:8080` met `ANTHROPIC_API_KEY` gezet (zonder API-key zal stap 5 wel klaar lopen maar krijg je geen echte samenvattingen of feed-selectie).
+- Backend draait op `http://localhost:8080` met `PNF_ANTHROPIC_API_KEY` gezet (zonder API-key zal stap 5 wel klaar lopen maar krijg je geen echte samenvattingen of feed-selectie).
 - Flutter web-app draait op `http://localhost:3000`.
 
 ## Stappen

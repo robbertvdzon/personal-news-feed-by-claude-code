@@ -29,11 +29,11 @@ e2e/
 ## Een testrun draaien
 
 ### Vooraf
-1. **Backend draait** op `http://localhost:8080` met `ANTHROPIC_API_KEY` gezet (anders falen scenario's die echte AI-output verwachten):
+1. **Backend draait** op `http://localhost:8080` met `PNF_ANTHROPIC_API_KEY` gezet (anders falen scenario's die echte AI-output verwachten):
    ```bash
    cd newsfeedbackend/newsfeedbackend
-   ANTHROPIC_API_KEY=sk-ant-… mvn -DskipTests package
-   ANTHROPIC_API_KEY=sk-ant-… java -jar target/newsfeedbackend-1.0.0.jar &
+   PNF_ANTHROPIC_API_KEY=sk-ant-… mvn -DskipTests package
+   PNF_ANTHROPIC_API_KEY=sk-ant-… java -jar target/newsfeedbackend-1.0.0.jar &
    ```
 2. **Flutter web draait** op `http://localhost:3000`:
    ```bash

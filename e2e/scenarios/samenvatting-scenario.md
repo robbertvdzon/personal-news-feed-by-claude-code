@@ -5,7 +5,7 @@ De handmatige trigger van de dagelijkse samenvatting testen: via de play-knop op
 
 ## Voorwaarden
 - `start-scenario` is succesvol gedraaid: ingelogd als `e2e_…`, RSS-pipeline heeft items + summaries gegenereerd in de afgelopen 24 uur.
-- `ANTHROPIC_API_KEY` actief — anders genereert Claude een lege string en wordt het resultaat een placeholder.
+- `PNF_ANTHROPIC_API_KEY` actief — anders genereert Claude een lege string en wordt het resultaat een placeholder.
 
 ## Stappen
 

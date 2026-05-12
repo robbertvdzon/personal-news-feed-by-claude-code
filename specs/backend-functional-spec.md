@@ -170,7 +170,7 @@ Wordt elk uur automatisch uitgevoerd voor elke gebruiker. Handmatig te triggeren
 
 **Concurrency:** Per-gebruiker lock voorkomt overlappende runs.
 
-**Geen API-key:** Als `ANTHROPIC_API_KEY` ontbreekt logt de Claude-client een waarschuwing en retourneert hij een lege respons. De pipeline gaat door — items worden opgeslagen, maar zonder samenvatting/categorie/topics, en niets eindigt in de feed. Zet de env-var en trigger handmatig een refresh om dat goed te maken.
+**Geen API-key:** Als `PNF_ANTHROPIC_API_KEY` ontbreekt logt de Claude-client een waarschuwing en retourneert hij een lege respons. De pipeline gaat door — items worden opgeslagen, maar zonder samenvatting/categorie/topics, en niets eindigt in de feed. Zet de env-var en trigger handmatig een refresh om dat goed te maken.
 
 ---
 
@@ -255,7 +255,7 @@ Deze geschiedenis wordt als context meegegeven aan Claude bij:
 **Configuratie:**
 - Hoofd-model (podcastscripts, complexe selectie): configureerbaar, bijv. `claude-sonnet-4-5`
 - Samenvattingsmodel (per-artikel summaries): configureerbaar, bijv. `claude-haiku-4-5-20251001`
-- API-sleutel: omgevingsvariabele `ANTHROPIC_API_KEY`
+- API-sleutel: omgevingsvariabele `PNF_ANTHROPIC_API_KEY`
 
 **Betrouwbaarheid:**
 - Maximaal 3 gelijktijdige aanroepen
@@ -282,7 +282,7 @@ Deze geschiedenis wordt als context meegegeven aan Claude bij:
 
 **API:** `https://api.tavily.com`
 
-**API-sleutel:** omgevingsvariabele `TAVILY_API_KEY`
+**API-sleutel:** omgevingsvariabele `PNF_TAVILY_API_KEY`
 
 **Gebruikte endpoints:**
 
@@ -299,7 +299,7 @@ Tavily wordt **alleen** gebruikt voor ad-hoc verzoeken (`POST /api/requests`), n
 
 **API:** `https://api.openai.com/v1/audio/speech`
 
-**API-sleutel:** omgevingsvariabele `OPENAI_API_KEY`
+**API-sleutel:** omgevingsvariabele `PNF_OPENAI_API_KEY`
 
 **Gebruik:**
 - Model: `tts-1`
@@ -317,7 +317,7 @@ Tavily wordt **alleen** gebruikt voor ad-hoc verzoeken (`POST /api/requests`), n
 
 **API:** `https://api.elevenlabs.io/v1/text-to-speech/{voiceId}`
 
-**API-sleutel:** omgevingsvariabele `ELEVENLABS_API_KEY` (optioneel)
+**API-sleutel:** omgevingsvariabele `PNF_ELEVENLABS_API_KEY` (optioneel)
 
 **Gebruik:**
 - Model: `eleven_multilingual_v2`
@@ -353,14 +353,14 @@ Alle configuratie via `application.properties` of omgevingsvariabelen.
 | `server.port` | — | `8080` | Serverpoort |
 | `app.data-dir` | — | `./data` | Root voor JSON-opslag en audio |
 | `app.jwt.secret` | — | (hardcoded default) | JWT-signeringssleutel (wijzigen in productie!) |
-| `app.anthropic.api-key` | `ANTHROPIC_API_KEY` | — | Verplicht |
+| `app.anthropic.api-key` | `PNF_ANTHROPIC_API_KEY` | — | Verplicht |
 | `app.anthropic.model` | — | `claude-sonnet-4-5` | Hoofd Claude-model |
 | `app.anthropic.summary-model` | — | `claude-haiku-4-5-20251001` | Model voor samenvattingen |
 | `app.anthropic.base-url` | — | `https://api.anthropic.com` | — |
-| `app.tavily.api-key` | `TAVILY_API_KEY` | — | Verplicht voor ad-hoc verzoeken |
-| `app.openai.api-key` | `OPENAI_API_KEY` | — | Verplicht voor OpenAI TTS |
+| `app.tavily.api-key` | `PNF_TAVILY_API_KEY` | — | Verplicht voor ad-hoc verzoeken |
+| `app.openai.api-key` | `PNF_OPENAI_API_KEY` | — | Verplicht voor OpenAI TTS |
 | `app.openai.base-url` | — | `https://api.openai.com` | — |
-| `app.elevenlabs.api-key` | `ELEVENLABS_API_KEY` | — | Optioneel (alleen bij ElevenLabs TTS) |
+| `app.elevenlabs.api-key` | `PNF_ELEVENLABS_API_KEY` | — | Optioneel (alleen bij ElevenLabs TTS) |
 | `app.elevenlabs.base-url` | — | `https://api.elevenlabs.io` | — |
 | `app.elevenlabs.voice-interviewer` | — | `Jn7U4vF8ZkmjZIZRn4Uk` | ElevenLabs stem voor interviewer |
 | `app.elevenlabs.voice-guest` | — | `h6uBOiAjLKklte8hdYio` | ElevenLabs stem voor gast |
