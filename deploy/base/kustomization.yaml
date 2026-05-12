@@ -10,10 +10,10 @@ kind: Kustomization
 
 namespace: personal-news-feed
 
-resources:
 # namespace.yaml NIET via ArgoCD — onze ArgoCD draait in "namespaced mode"
 # en mag geen cluster-scoped resources beheren. De namespace wordt door
 # deploy/bootstrap.sh aangemaakt mét de argocd managed-by label.
+resources:
 - backend-pvc.yaml
 - backend-deployment.yaml
 - backend-service.yaml
@@ -30,7 +30,7 @@ commonLabels:
 images:
 - name: backend
   newName: ghcr.io/robbertvdzon/personal-news-feed-backend
-  newTag: sha-01fb323
+  newTag: sha-cd1a0fe
 - name: frontend
   newName: ghcr.io/robbertvdzon/personal-news-feed-frontend
-  newTag: sha-01fb323
+  newTag: sha-cd1a0fe
