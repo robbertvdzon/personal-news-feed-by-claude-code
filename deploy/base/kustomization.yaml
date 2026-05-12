@@ -21,6 +21,7 @@ resources:
 - frontend-deployment.yaml
 - frontend-service.yaml
 - frontend-route.yaml
+- cloudflared-deployment.yaml
 - sealed-secret-api-keys.yaml
 
 commonLabels:

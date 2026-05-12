@@ -115,18 +115,30 @@ oc logs -n personal-news-feed deploy/frontend -f
 oc get routes -n personal-news-feed
 ```
 
-## Cloudflare Tunnel (later)
+## Cloudflare Tunnel — externe toegang
 
-Wanneer je 't extern wilt blootleggen via `news.vdzon.com`:
+`cloudflared`-deployment is al in `deploy/base/cloudflared-deployment.yaml`.
+Wat je nog moet doen:
 
-1. Maak een Cloudflare Tunnel aan (Zero Trust → Tunnels → Create).
-2. Cloudflare geeft je een `cloudflared` config met een tunnel-token.
-3. Maak een Deployment in de namespace met de tunnel-image, env-var
-   `TUNNEL_TOKEN` uit een nieuwe SealedSecret.
-4. Configureer in Cloudflare: hostname `news.vdzon.com` → service
-   `http://frontend.personal-news-feed.svc.cluster.local:8080`.
-5. Optioneel: zet `host: news.vdzon.com` op de frontend Route en
-   verwijder de auto-route (of laat 'm staan voor cluster-intern).
+1. **Domein op Cloudflare** met status "Active" (jouw `vdzonsoftware.nl`).
+2. **Zero Trust → Networks → Tunnels → Create a tunnel** (Cloudflared type).
+   - Geef 'm een naam, b.v. `personal-news-feed`.
+   - Kopieer de **TUNNEL_TOKEN** uit het install-commando.
+3. **Public hostname** in de tunnel-config:
+   - Subdomain: `news`
+   - Domain: `vdzonsoftware.nl`
+   - Service: `HTTP` → `frontend.personal-news-feed.svc.cluster.local:8080`
+4. **Token in de SealedSecret** zetten:
+   ```bash
+   # Edit deploy/secrets-cluster.env, voeg TUNNEL_TOKEN=eyJ... toe
+   ./deploy/seal-secrets.sh
+   git add deploy/base/sealed-secret-api-keys.yaml
+   git commit -m "deploy: add cloudflare tunnel token"
+   git push
+   ```
+5. ArgoCD synct, `cloudflared`-pod start, tunnel opent → `https://news.vdzonsoftware.nl` werkt vanaf elke browser, met geldig Cloudflare-cert.
+
+Geen port-forwarding op je router nodig — alleen uitgaande connectie van het cluster naar Cloudflare.
 
 ## Bestanden in deze map
 

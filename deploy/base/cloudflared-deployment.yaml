@@ -1,0 +1,64 @@
+# Cloudflared tunnel-agent: uitgaande connectie naar Cloudflare die alle
+# traffic voor news.vdzonsoftware.nl naar de frontend-service routeert.
+#
+# Geen Service of Route nodig — tunnel is uitgaand-initieerd.
+#
+# De TUNNEL_TOKEN komt uit de SealedSecret `newsfeed-api-keys`.
+# Tunnel-routing (welk hostname naar welke interne service) configureer
+# je in Cloudflare's Zero Trust dashboard, niet hier.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared
+  labels:
+    app: cloudflared
+spec:
+  replicas: 1            # 2 voor HA — voor home-lab is 1 prima
+  selector:
+    matchLabels:
+      app: cloudflared
+  template:
+    metadata:
+      labels:
+        app: cloudflared
+    spec:
+      containers:
+        - name: cloudflared
+          image: cloudflare/cloudflared:2025.10.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - tunnel
+            - --no-autoupdate
+            - --metrics
+            - 0.0.0.0:2000
+            - run
+          env:
+            - name: TUNNEL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: newsfeed-api-keys
+                  key: TUNNEL_TOKEN
+          ports:
+            - name: metrics
+              containerPort: 2000
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          # cloudflared serveert een /ready endpoint via z'n metrics-poort.
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 2000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: 2000
+            initialDelaySeconds: 30
+            periodSeconds: 30
