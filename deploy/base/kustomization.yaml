@@ -19,8 +19,7 @@ resources:
 - frontend-deployment.yaml
 - frontend-service.yaml
 - frontend-route.yaml
-  # SealedSecret-bestanden komen hier zodra ze gegenereerd zijn:
-  # - sealed-secret-api-keys.yaml
+ - sealed-secret-api-keys.yaml
 
 commonLabels:
   app.kubernetes.io/managed-by: argocd
