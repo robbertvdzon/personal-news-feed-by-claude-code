@@ -1,0 +1,22 @@
+# OpenShift Route — verschaft externe HTTPS-toegang via de cluster-ingress.
+# `host` leeg → OpenShift genereert er zelf één (<route-name>-<ns>.apps.<base-domain>).
+# Later voor Cloudflare Tunnel: hostname `news.vdzon.com` invullen en in
+# Cloudflare een tunnel-config maken die naar deze Service routeert.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: frontend
+  labels:
+    app: frontend
+spec:
+  # host: news.vdzon.com   # ← invullen zodra Cloudflare Tunnel actief is
+  to:
+    kind: Service
+    name: frontend
+    weight: 100
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  wildcardPolicy: None

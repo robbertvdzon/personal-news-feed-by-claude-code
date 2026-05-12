@@ -1,0 +1,23 @@
+# Optionele directe Route naar de backend voor debugging. In de normale
+# flow gaat alle traffic via de frontend (die nginx-proxy't naar
+# `backend:8080` cluster-intern). Verwijder deze Route als je 'm niet
+# extern wilt blootleggen.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: backend-debug
+  labels:
+    app: backend
+  annotations:
+    haproxy.router.openshift.io/disable_cookies: "true"
+spec:
+  to:
+    kind: Service
+    name: backend
+    weight: 100
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  wildcardPolicy: None

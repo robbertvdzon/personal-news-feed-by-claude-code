@@ -1,0 +1,18 @@
+# PersistentVolumeClaim voor audio-files (podcast-MP3's). Andere data
+# leeft in Postgres (Neon); alleen audio blijft op disk omdat MP3's te
+# groot zijn voor DB-blobs.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: backend-data
+  labels:
+    app: backend
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  # StorageClass leeg: OpenShift gebruikt de cluster-default (meestal
+  # gp3-csi op AWS, ocs-storagecluster-ceph-rbd on-prem, etc.).
+  # Zet 'm hier expliciet als je een specifieke klasse wilt.

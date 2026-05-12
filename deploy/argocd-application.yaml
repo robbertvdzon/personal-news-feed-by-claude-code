@@ -1,0 +1,36 @@
+# ArgoCD Application — apply deze één keer in de namespace waar ArgoCD
+# draait (meestal `openshift-gitops` of `argocd`):
+#
+#   oc apply -n openshift-gitops -f deploy/argocd-application.yaml
+#
+# Vanaf dan synct ArgoCD automatisch elke commit op main.
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: personal-news-feed
+  namespace: openshift-gitops    # pas aan als jouw ArgoCD elders draait
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/robbertvdzon/personal-news-feed-by-claude-code.git
+    targetRevision: main
+    path: deploy/overlays/openshift
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: personal-news-feed
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true    # ArgoCD mag de namespace zelf aanmaken
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m

@@ -1,0 +1,26 @@
+# Overlay voor de eigen OpenShift-cluster. Voor nu identiek aan de base
+# — het bestaat zodat je later cluster-specifieke aanpassingen (host,
+# replicas, resource-overrides) kunt doen zonder de base te vervuilen.
+#
+# ArgoCD's Application wijst naar deze overlay.
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+# Voorbeelden van overlay-aanpassingen (commented):
+#
+# patches:
+#   - target:
+#       kind: Route
+#       name: frontend
+#     patch: |-
+#       - op: replace
+#         path: /spec/host
+#         value: news.vdzon.com
+#
+# replicas:
+#   - name: backend
+#     count: 2

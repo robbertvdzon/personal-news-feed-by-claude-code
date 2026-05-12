@@ -1,0 +1,157 @@
+# Deploy: OpenShift via ArgoCD
+
+Personal News Feed wordt op een OpenShift-cluster gedraaid via GitOps:
+ArgoCD watcht `main`, ziet wijzigingen in `deploy/overlays/openshift/`
+en synct ze naar de namespace `personal-news-feed`.
+
+## Architectuur
+
+```
+GitHub Actions ── builds ──► ghcr.io (public)
+        │                         ▲
+        ├── pusht nieuwe SHA naar │ pull
+        ▼                         │
+deploy/base/kustomization.yaml    │
+        │                         │
+        ▼                         │
+ArgoCD ◄── synct main ──── git ──┘
+        │
+        ▼
+OpenShift cluster (personal-news-feed)
+  ├── backend Pod + Service + Route (debug)
+  ├── frontend Pod + Service + Route ← gebruikers
+  ├── PVC (audio files, 5 Gi)
+  └── Secret (uit SealedSecret in git, ge-decrypt door cluster)
+```
+
+Data zelf staat in een externe Postgres (Neon); alleen audio-MP3's en
+de runtime-state staan in het cluster.
+
+## Eenmalige cluster-setup
+
+### 1. Sealed Secrets controller installeren
+
+```bash
+oc apply -f https://github.com/bitnami-labs/sealed-secrets/releases/download/v0.27.0/controller.yaml
+oc rollout status -n kube-system deploy/sealed-secrets-controller
+```
+
+### 2. Public cert ophalen voor lokaal versleutelen
+
+```bash
+kubeseal --fetch-cert > deploy/cluster-cert.pem
+git add deploy/cluster-cert.pem && git commit -m "deploy: add cluster public cert"
+```
+
+Het cert is **public**, mag in git. Het private keypaar blijft op het
+cluster (`kube-system/sealed-secrets-key…`). Maak daar een offsite
+backup van als je `oc get secret -n kube-system -l sealedsecrets.bitnami.com/sealed-secrets-key`
+exporteert — anders ben je bij cluster-reinstall alle sealed-secrets
+kwijt.
+
+### 3. ArgoCD Application aanmaken
+
+```bash
+oc apply -n openshift-gitops -f deploy/argocd-application.yaml
+```
+
+Pas `metadata.namespace` aan als jouw ArgoCD elders draait (kijk:
+`oc get applications.argoproj.io -A`).
+
+### 4. Cluster-secrets aanmaken en encrypten
+
+```bash
+cp deploy/secrets-cluster.env.example deploy/secrets-cluster.env
+# Edit deploy/secrets-cluster.env in je IDE — vul de echte cluster-waarden in.
+# Deze file is gitignored.
+
+./deploy/seal-secrets.sh
+# → produceert deploy/base/sealed-secret-api-keys.yaml
+
+# Voeg toe aan deploy/base/kustomization.yaml onder `resources:`:
+#   - sealed-secret-api-keys.yaml
+
+git add deploy/base/sealed-secret-api-keys.yaml deploy/base/kustomization.yaml
+git commit -m "deploy: add sealed api-keys"
+git push
+```
+
+ArgoCD synct → controller decrypteert → `Secret/newsfeed-api-keys`
+ontstaat in de namespace → backend pod start.
+
+## Dagelijks gebruik
+
+### Code-wijziging
+
+Push naar `main`:
+- GitHub Actions bouwt nieuwe images, pusht naar `ghcr.io/robbertvdzon/personal-news-feed-{backend,frontend}:sha-…`
+- Workflow committet de nieuwe SHA in `deploy/base/kustomization.yaml`
+- ArgoCD detecteert de manifest-wijziging, doet `kubectl apply`, pods rollen
+- Geen handmatige stap nodig
+
+### Secret wijzigen
+
+1. `deploy/secrets-cluster.env` op je laptop bijwerken
+2. `./deploy/seal-secrets.sh`
+3. `git commit deploy/base/sealed-secret-api-keys.yaml && git push`
+4. ArgoCD synct, controller updatet de Secret. **Pod ziet de nieuwe
+   waarde pas na een rollout** — restart triggeren met:
+   ```bash
+   oc rollout restart -n personal-news-feed deploy/backend
+   ```
+
+### Status checken
+
+```bash
+# ArgoCD-status
+oc get application personal-news-feed -n openshift-gitops
+
+# Pods
+oc get pods -n personal-news-feed
+
+# Logs
+oc logs -n personal-news-feed deploy/backend -f
+oc logs -n personal-news-feed deploy/frontend -f
+
+# Route URLs
+oc get routes -n personal-news-feed
+```
+
+## Cloudflare Tunnel (later)
+
+Wanneer je 't extern wilt blootleggen via `news.vdzon.com`:
+
+1. Maak een Cloudflare Tunnel aan (Zero Trust → Tunnels → Create).
+2. Cloudflare geeft je een `cloudflared` config met een tunnel-token.
+3. Maak een Deployment in de namespace met de tunnel-image, env-var
+   `TUNNEL_TOKEN` uit een nieuwe SealedSecret.
+4. Configureer in Cloudflare: hostname `news.vdzon.com` → service
+   `http://frontend.personal-news-feed.svc.cluster.local:8080`.
+5. Optioneel: zet `host: news.vdzon.com` op de frontend Route en
+   verwijder de auto-route (of laat 'm staan voor cluster-intern).
+
+## Bestanden in deze map
+
+```
+deploy/
+├── README.md                    ← deze file
+├── argocd-application.yaml      ← één keer apply'en
+├── cluster-cert.pem             ← public, voor lokaal `kubeseal`
+├── seal-secrets.sh              ← .env → SealedSecret YAML
+├── secrets-cluster.env.example  ← template
+├── secrets-cluster.env          ← (gitignored) jouw waarden
+├── base/
+│   ├── kustomization.yaml
+│   ├── namespace.yaml
+│   ├── backend-deployment.yaml
+│   ├── backend-service.yaml
+│   ├── backend-route.yaml      ← optioneel/debug
+│   ├── backend-pvc.yaml         ← audio storage
+│   ├── frontend-deployment.yaml
+│   ├── frontend-service.yaml
+│   ├── frontend-route.yaml
+│   └── sealed-secret-api-keys.yaml  ← na seal-secrets.sh
+└── overlays/
+    └── openshift/
+        └── kustomization.yaml  ← cluster-specifieke patches
+```

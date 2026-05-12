@@ -1,0 +1,35 @@
+# Base manifest set voor de personal-news-feed app. De /deploy/overlays/
+# kunnen 'm uitbreiden of overrulen.
+#
+# `images:` wordt door GitHub Actions automatisch geüpdate na elke
+# image-build (kustomize edit set image …). Lokaal/handmatig override'n
+# kan ook met `kustomize edit set image backend=...:sha-…`.
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: personal-news-feed
+
+resources:
+  - namespace.yaml
+  - backend-pvc.yaml
+  - backend-deployment.yaml
+  - backend-service.yaml
+  - backend-route.yaml
+  - frontend-deployment.yaml
+  - frontend-service.yaml
+  - frontend-route.yaml
+  # SealedSecret-bestanden komen hier zodra ze gegenereerd zijn:
+  # - sealed-secret-api-keys.yaml
+
+commonLabels:
+  app.kubernetes.io/part-of: personal-news-feed
+  app.kubernetes.io/managed-by: argocd
+
+images:
+  - name: backend
+    newName: ghcr.io/robbertvdzon/personal-news-feed-backend
+    newTag: main
+  - name: frontend
+    newName: ghcr.io/robbertvdzon/personal-news-feed-frontend
+    newTag: main

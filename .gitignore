@@ -40,3 +40,7 @@ e2e/testruns/
 
 # Node (voor tooling)
 node_modules/
+
+# Deploy / GitOps — alleen plain secrets-bron-file niet committen.
+# De gegenereerde sealed-secret-*.yaml mag (en moet) wél in git.
+deploy/secrets-cluster.env
