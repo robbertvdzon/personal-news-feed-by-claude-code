@@ -44,3 +44,7 @@ node_modules/
 # Deploy / GitOps — alleen plain secrets-bron-file niet committen.
 # De gegenereerde sealed-secret-*.yaml mag (en moet) wél in git.
 deploy/secrets-cluster.env
+
+# Lokale kubeconfig om vanuit devcontainer met cluster te praten.
+# Bevat cluster-admin token — NOOIT committen.
+.kubeconfig

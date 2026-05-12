@@ -13,29 +13,28 @@ RUN --mount=type=cache,target=/root/.pub-cache flutter pub get
 COPY . .
 
 # API_BASE_URL leeg: API-calls worden relatief (`/api/...`), nginx
-# proxy't ze door naar de backend-service in-cluster. Voordeel: geen
-# rebuild als het domein verandert.
+# proxy't ze door naar de backend-service in-cluster.
 RUN flutter build web --release --dart-define=API_BASE_URL=
 
 # ─── Runtime stage ───────────────────────────────────────────────────
-# nginx-alpine + de static build-output + onze proxy-config.
-FROM nginx:1.27-alpine AS runtime
+# nginxinc/nginx-unprivileged is een variant van het officiële nginx-image
+# die out-of-the-box als non-root user draait:
+#   * Listent op poort 8080 ipv 80
+#   * PID-file in /tmp ipv /run
+#   * Geen chown/chmod tricks meer nodig
+# Past perfect bij OpenShift's restricted-v2 SCC (random UID, gid=0).
+FROM nginxinc/nginx-unprivileged:1.27-alpine AS runtime
 
-# OpenShift mount /var/cache/nginx etc. read-only en draait als non-root.
-# Default nginx-image schrijft naar /var/cache, /var/run, /var/log; we
-# rewriten conf zodat alles in /tmp gaat en geven group write op de
-# nginx-config + html-dir.
-RUN sed -i 's,/var/run/nginx.pid,/tmp/nginx.pid,' /etc/nginx/nginx.conf \
- && chgrp -R 0 /var/cache/nginx /var/log/nginx /etc/nginx /usr/share/nginx/html \
- && chmod -R g+rwX /var/cache/nginx /var/log/nginx /etc/nginx /usr/share/nginx/html
+# nginx-unprivileged draait als UID 101, group 0. OpenShift override't de
+# user toch met een random UID maar houdt 'm in group 0 — onze configs +
+# html-dir moeten daarom group-writable zijn.
+USER 0
+RUN chgrp -R 0 /etc/nginx /usr/share/nginx/html /var/cache/nginx \
+ && chmod -R g+rwX /etc/nginx /usr/share/nginx/html /var/cache/nginx
 
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /src/build/web /usr/share/nginx/html
 
-# OpenShift's SCC overschrijft USER toch met random UID; we zetten 'm
-# expliciet op een non-root user voor lokale `docker run`.
 USER 101
 
 EXPOSE 8080
-
-# Foreground draaien (default cmd doet dat al).
