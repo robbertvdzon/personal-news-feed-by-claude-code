@@ -26,7 +26,8 @@ spec:
       prune: true
       selfHeal: true
     syncOptions:
-      - CreateNamespace=true    # ArgoCD mag de namespace zelf aanmaken
+      # CreateNamespace=true verwijderd: onze ArgoCD draait namespaced en
+      # mag geen Namespace-resources aanmaken. bootstrap.sh maakt 'm.
       - ServerSideApply=true
     retry:
       limit: 5

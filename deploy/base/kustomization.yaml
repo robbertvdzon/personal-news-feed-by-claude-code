@@ -11,7 +11,9 @@ kind: Kustomization
 namespace: personal-news-feed
 
 resources:
-- namespace.yaml
+# namespace.yaml NIET via ArgoCD — onze ArgoCD draait in "namespaced mode"
+# en mag geen cluster-scoped resources beheren. De namespace wordt door
+# deploy/bootstrap.sh aangemaakt mét de argocd managed-by label.
 - backend-pvc.yaml
 - backend-deployment.yaml
 - backend-service.yaml
