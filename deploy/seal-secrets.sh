@@ -10,8 +10,9 @@
 #   2. Run dit script. Vereist `kubeseal` (https://github.com/bitnami-labs/sealed-secrets).
 #   3. Commit de regenereerde deploy/base/sealed-secret-api-keys.yaml.
 #
-# Het ontsleutel-cert (cluster-cert.pem) wordt mee-ingezet vanaf disk —
-# zorg dat 't up-to-date is met `kubeseal --fetch-cert > deploy/cluster-cert.pem`.
+# Vereist GEEN kubectl/oc/kubeconfig — we bouwen de Secret-YAML direct
+# in bash en pipen 'm door kubeseal. Alleen het public cert
+# (deploy/cluster-cert.pem) heeft kubeseal nodig.
 
 set -euo pipefail
 
@@ -24,7 +25,7 @@ SECRET_NAME="newsfeed-api-keys"
 
 if ! command -v kubeseal >/dev/null 2>&1; then
   echo "Error: kubeseal niet gevonden in PATH." >&2
-  echo "Installeer: https://github.com/bitnami-labs/sealed-secrets/releases" >&2
+  echo "Installeer: brew install kubeseal  (of https://github.com/bitnami-labs/sealed-secrets/releases)" >&2
   exit 1
 fi
 
@@ -41,35 +42,55 @@ if [[ ! -f "$CERT" ]]; then
   exit 1
 fi
 
-# Bouw de --from-literal args uit de env-file. Negeer commentaar/lege regels.
-ARGS=()
-while IFS= read -r line; do
-  # strip leading/trailing whitespace
-  line="${line#"${line%%[![:space:]]*}"}"
-  line="${line%"${line##*[![:space:]]}"}"
-  [[ -z "$line" || "$line" =~ ^# ]] && continue
-  # quotes om de waarde verwijderen (mocht je ze in env hebben gezet voor &)
-  key="${line%%=*}"
-  val="${line#*=}"
-  val="${val%\"}"; val="${val#\"}"
-  ARGS+=(--from-literal="${key}=${val}")
-done < "$SRC"
+# Eerst de plain Secret-YAML opbouwen via stringData (geen base64
+# encoding hoeven doen). kubeseal accepteert dit en encrypt 't naar
+# een SealedSecret.
+tmp="$(mktemp)"
+trap 'rm -f "$tmp"' EXIT
 
-if (( ${#ARGS[@]} == 0 )); then
-  echo "Error: geen key=value regels in $SRC." >&2
-  exit 1
-fi
+{
+  cat <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ${SECRET_NAME}
+  namespace: ${NAMESPACE}
+type: Opaque
+stringData:
+EOF
 
-echo "[seal] $((${#ARGS[@]})) entries → $OUT"
+  count=0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    # Strip leading/trailing whitespace
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    [[ -z "$line" || "$line" =~ ^# ]] && continue
+    [[ "$line" != *=* ]] && continue
 
-# Plain Secret YAML → kubeseal pipe → encrypted SealedSecret
-oc create secret generic "$SECRET_NAME" \
-  --namespace "$NAMESPACE" \
-  --dry-run=client -o yaml \
-  "${ARGS[@]}" \
-| kubeseal --cert "$CERT" -o yaml \
-> "$OUT"
+    key="${line%%=*}"
+    val="${line#*=}"
+    # Verwijder omhullende quotes (mochten ze er voor shell-escapes in zaan)
+    val="${val%\"}"; val="${val#\"}"
+    val="${val%\'}"; val="${val#\'}"
 
-echo "[seal] klaar. Voeg deze regel toe aan deploy/base/kustomization.yaml als 'ie er nog niet staat:"
-echo "  - sealed-secret-api-keys.yaml"
-echo "[seal] daarna: git add $OUT && git commit"
+    # YAML block-scalar (|-) houdt de waarde letterlijk en accepteert
+    # &, %, etc. zonder verdere escaping. We indenteren met 4 spaces.
+    printf '  %s: |-\n' "$key"
+    printf '%s\n' "$val" | sed 's/^/    /'
+
+    count=$((count + 1))
+  done < "$SRC"
+
+  if (( count == 0 )); then
+    echo "Error: geen key=value regels in $SRC." >&2
+    exit 1
+  fi
+  echo "[seal] $count entries → $OUT" >&2
+} > "$tmp"
+
+kubeseal --cert "$CERT" -o yaml < "$tmp" > "$OUT"
+
+echo "[seal] klaar." >&2
+echo "[seal] zorg dat deploy/base/kustomization.yaml deze regel onder 'resources:' heeft staan:" >&2
+echo "  - sealed-secret-api-keys.yaml" >&2
+echo "[seal] daarna: git add $OUT && git commit" >&2
