@@ -18,8 +18,11 @@ spec:
     spec:
       containers:
         - name: backend
-          # Wordt door GitHub Actions geüpdate via `kustomize edit set image`.
-          image: ghcr.io/robbertvdzon/personal-news-feed-backend:main
+          # `image: backend` is een placeholder die door kustomize wordt
+          # vervangen via de `images:`-sectie in kustomization.yaml. De
+          # echte waarde wordt door GitHub Actions geüpdate via
+          # `kustomize edit set image backend=ghcr.io/...:sha-…`.
+          image: backend
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

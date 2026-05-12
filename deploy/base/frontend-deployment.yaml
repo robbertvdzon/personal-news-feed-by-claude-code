@@ -16,7 +16,9 @@ spec:
     spec:
       containers:
         - name: frontend
-          image: ghcr.io/robbertvdzon/personal-news-feed-frontend:main
+          # Placeholder; kustomize rewrite door images:-sectie in
+          # kustomization.yaml. GitHub Actions update't de tag.
+          image: frontend
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
