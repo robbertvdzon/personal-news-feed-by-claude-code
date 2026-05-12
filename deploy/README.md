@@ -35,8 +35,10 @@ de runtime-state staan in het cluster.
 
 1. Installeert de Sealed Secrets controller
 2. Haalt het public-cert op naar `deploy/cluster-cert.pem`
-3. Maakt namespace `personal-news-feed` met de `argocd.argoproj.io/managed-by`-label
-4. Apply't de ArgoCD `Application`
+3. Installeert + configureert local-path-provisioner (default StorageClass,
+   privileged helper-pod voor SELinux/RHCOS-compat, path naar `/var/lib`)
+4. Maakt namespace `personal-news-feed` met de `argocd.argoproj.io/managed-by`-label
+5. Apply't de ArgoCD `Application`
 
 Vereisten: `oc` ingelogd, `kubeseal` geïnstalleerd. ArgoCD wordt verwacht
 in namespace `argocd` (anders pas `ARGOCD_NS` aan in het script).
