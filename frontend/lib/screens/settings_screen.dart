@@ -6,6 +6,7 @@ import '../models/models.dart';
 import '../providers/auth_provider.dart';
 import '../providers/data_providers.dart';
 import '../widgets/app_logo.dart';
+import 'api_log_screen.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -95,6 +96,17 @@ class SettingsScreen extends ConsumerWidget {
           leading: const Icon(Icons.cleaning_services),
           title: const Text('Artikelen opruimen'),
           onTap: () => _cleanup(context, ref),
+        ),
+        const Divider(),
+        Text('Debug', style: Theme.of(context).textTheme.titleLarge),
+        ListTile(
+          leading: const Icon(Icons.bug_report_outlined),
+          title: const Text('API-log'),
+          subtitle: const Text('Laatste calls + status (voor debugging)'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => const ApiLogScreen()),
+          ),
         ),
       ]),
     );
