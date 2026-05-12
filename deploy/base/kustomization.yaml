@@ -19,7 +19,7 @@ resources:
 - frontend-deployment.yaml
 - frontend-service.yaml
 - frontend-route.yaml
- - sealed-secret-api-keys.yaml
+- sealed-secret-api-keys.yaml
 
 commonLabels:
   app.kubernetes.io/managed-by: argocd

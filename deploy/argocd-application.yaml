@@ -9,7 +9,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: personal-news-feed
-  namespace: openshift-gitops    # pas aan als jouw ArgoCD elders draait
+  namespace: argocd
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
