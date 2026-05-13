@@ -4,7 +4,7 @@ info:
   version: 1.0.0
   description: |
     REST API voor de Personal News Feed backend.
-    Alle endpoints (behalve /api/auth/** en /ws/**) vereisen een JWT Bearer token.
+    Alle endpoints (behalve /api/auth/**, /api/version en /ws/**) vereisen een JWT Bearer token.
 
     ## WebSocket
     Naast de REST API is er een WebSocket endpoint:
@@ -37,8 +37,29 @@ tags:
     description: Verwerkingsverzoeken (ad-hoc en dagelijkse updates)
   - name: Podcasts
     description: Gegenereerde podcasts
+  - name: System
+    description: Algemene systeem-informatie (geen authenticatie vereist)
 
 paths:
+
+  # ── System ─────────────────────────────────────────────────────────────────
+
+  /api/version:
+    get:
+      tags: [System]
+      operationId: getVersion
+      summary: Versie-informatie van de backend
+      description: |
+        Publiek endpoint (geen JWT vereist). Geeft het korte git-SHA van de huidige
+        build (uit env-var `BUILD_SHA`, fallback `"unknown"`) en de Spring Boot-versie.
+      security: []
+      responses:
+        '200':
+          description: Versie-informatie
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VersionInfo'
 
   # ── Auth ────────────────────────────────────────────────────────────────────
 
@@ -751,6 +772,21 @@ components:
       description: Uniek ID van het item
 
   schemas:
+
+    # System
+
+    VersionInfo:
+      type: object
+      required: [gitSha, springVersion]
+      properties:
+        gitSha:
+          type: string
+          description: Kort git-SHA van de huidige build (uit env-var `BUILD_SHA`, fallback `"unknown"`)
+          example: a1b2c3d
+        springVersion:
+          type: string
+          description: Spring Boot-versie waarmee de backend draait
+          example: 4.0.6
 
     # Auth
 
