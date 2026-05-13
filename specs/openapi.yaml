@@ -777,8 +777,12 @@ components:
 
     VersionInfo:
       type: object
-      required: [gitSha, springVersion]
+      required: [appName, gitSha, springVersion]
       properties:
+        appName:
+          type: string
+          description: Vaste naam van de applicatie
+          example: Personal News Feed
         gitSha:
           type: string
           description: Kort git-SHA van de huidige build (uit env-var `BUILD_SHA`, fallback `"unknown"`)

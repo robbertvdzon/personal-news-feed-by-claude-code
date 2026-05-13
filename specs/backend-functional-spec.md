@@ -107,7 +107,7 @@ De volledige REST API is gespecificeerd in **[`openapi.yaml`](./openapi.yaml)** 
 
 Daarin staan alle endpoints met paden, methoden, request/response bodies, query parameters, statuscodes en datamodellen.
 
-**Publiek endpoint — versie-informatie:** `GET /api/version` geeft zonder authenticatie een JSON terug met `gitSha` (kort git-SHA van de huidige build, gelezen uit env-var `BUILD_SHA`, fallback `"unknown"`) en `springVersion` (de Spring Boot-versie). Handig voor health-checks en het verifiëren welke build live staat.
+**Publiek endpoint — versie-informatie:** `GET /api/version` geeft zonder authenticatie een JSON terug met `appName` (vaste waarde `"Personal News Feed"`), `gitSha` (kort git-SHA van de huidige build, gelezen uit env-var `BUILD_SHA`, fallback `"unknown"`) en `springVersion` (de Spring Boot-versie). Handig voor health-checks en het verifiëren welke build live staat.
 
 **WebSocket:** `ws://{host}/ws/requests`
 - Geen authenticatie vereist

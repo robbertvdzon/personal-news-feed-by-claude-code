@@ -11,6 +11,7 @@ class VersionController {
 
     @GetMapping
     fun version(): Map<String, String> = mapOf(
+        "appName" to "Personal News Feed",
         "gitSha" to (System.getenv("BUILD_SHA")?.takeIf { it.isNotBlank() } ?: "unknown"),
         "springVersion" to SpringBootVersion.getVersion()
     )
