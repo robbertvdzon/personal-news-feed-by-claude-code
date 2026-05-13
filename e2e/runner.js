@@ -72,7 +72,7 @@ async function dumpDebug(app, label) {
   await app.shot(`debug-${label}`);
 }
 
-// Klik een bottom-nav tab (Feed/RSS/Queue/Podcast/Settings) — bottom-nav
+// Klik een bottom-nav tab (Feed/RSS/Podcast/Settings) — bottom-nav
 // items hebben role="tab" met aria-label.
 async function gotoTab(app, label) {
   await app.click(label, { role: 'tab' });
@@ -151,13 +151,10 @@ async function startScenario(app, api) {
     await app.page.waitForTimeout(2000);
     await app.enableSemantics();
 
-    // Settings-tab
+    // Settings-tab — bevat ook de "Achtergrond-taken"-sectie waar de hourly
+    // update handmatig getriggerd kan worden (er is geen Queue-tab meer).
     await gotoTab(app, 'Settings');
     await app.shot('start-05-settings');
-
-    // Queue-tab
-    await gotoTab(app, 'Queue');
-    await app.shot('start-06-queue');
 
     // Trigger uurlijkse update via REST: vind het hourly-request en rerun.
     const requests = await api.listNewsRequests();
@@ -258,8 +255,10 @@ async function feedScenario(app, api) {
 async function samenvattingScenario(app, api) {
   const start = elapsed();
   try {
-    await gotoTab(app, 'Queue');
-    await app.shot('summary-01-queue');
+    // De handmatige trigger zit nu onder Settings → Achtergrond-taken;
+    // de actie zelf gaat via REST, de tab-switch is alleen voor screenshot.
+    await gotoTab(app, 'Settings');
+    await app.shot('summary-01-settings');
 
     const requests = await api.listNewsRequests();
     const daily = (requests || []).find(r =>
