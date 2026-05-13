@@ -491,16 +491,6 @@ def gh_list_issue_comments(issue_num: int) -> list[dict]:
     return r.json()
 
 
-def gh_list_comment_reactions(comment_id: int) -> list[dict]:
-    r = gh_request(
-        "GET",
-        f"/repos/{GITHUB_OWNER}/{GITHUB_REPO}/issues/comments/{comment_id}/reactions",
-    )
-    if not r or r.status_code != 200:
-        return []
-    return r.json()
-
-
 def gh_add_comment_reaction(comment_id: int, content: str) -> bool:
     """Plaats een reactie. content: +1, -1, laugh, confused, heart, hooray, rocket, eyes."""
     r = gh_request(
@@ -511,12 +501,13 @@ def gh_add_comment_reaction(comment_id: int, content: str) -> bool:
     return r is not None and r.status_code in (200, 201)
 
 
-def has_reaction(comment_id: int, content: str) -> bool:
-    """Heeft dit comment al een reactie met de gegeven content?"""
-    for r in gh_list_comment_reactions(comment_id):
-        if r.get("content") == content:
-            return True
-    return False
+def comment_has_reaction(comment: dict, content: str) -> bool:
+    """
+    Check via de embedded `reactions`-rollup of een comment de gegeven
+    reactie heeft. GitHub geeft per comment een telling per emoji terug,
+    dus dit kost geen extra API-call.
+    """
+    return (comment.get("reactions") or {}).get(content, 0) > 0
 
 
 # ─── JIRA-comment helpers ─────────────────────────────────────────────────
@@ -601,29 +592,49 @@ def find_pending_comment_triggers() -> list[dict]:
             continue
 
         comments = gh_list_issue_comments(pr_num)
-        # Hoge waterlijn: laatste comment dat we ooit verwerkten (rocket).
-        watermark_idx = -1
-        for i, c in enumerate(comments):
-            if has_reaction(c["id"], "rocket"):
-                watermark_idx = i
 
-        # Eerste comment na de waterlijn die de trigger bevat zonder eyes.
+        # Waterlijn voor context-bouw: index van het laatste comment met een
+        # 'rocket'-reactie (= laatste iteratie die succesvol gepushed heeft).
+        # Comments daarvoor zijn al verwerkt; context begint daarna.
+        last_rocket_idx = -1
+        for i, c in enumerate(comments):
+            if comment_has_reaction(c, "rocket"):
+                last_rocket_idx = i
+
+        # Eerste bruikbare trigger zoeken na last_rocket.
+        #
+        # Drie soorten triggers onderweg:
+        #   • alive  — heeft eyes maar nog geen rocket/confused → loopt nu;
+        #              wacht met latere triggers tot deze klaar is.
+        #   • dead   — heeft eyes + confused → gefaald; sla over.
+        #   • fresh  — geen eyes → pak op (claim + spawn).
         trigger_idx = -1
-        for i in range(watermark_idx + 1, len(comments)):
-            body = (comments[i].get("body") or "").lower()
+        i = last_rocket_idx + 1
+        while i < len(comments):
+            c = comments[i]
+            body = (c.get("body") or "").lower()
             if COMMENT_TRIGGER not in body:
+                i += 1
                 continue
-            if has_reaction(comments[i]["id"], "eyes"):
-                # Al opgepakt (loopt nog of is gefaald). Geen nieuwe trigger.
+            has_eyes = comment_has_reaction(c, "eyes")
+            has_confused = comment_has_reaction(c, "confused")
+            has_rocket = comment_has_reaction(c, "rocket")
+            if has_eyes and not (has_confused or has_rocket):
+                # Alive — blokkeer; wacht volgende poll.
                 trigger_idx = -1
                 break
+            if has_eyes:
+                # Dead (eyes+confused) of al-rocket'd-maar-nog-niet-watermark
+                # → sla over en kijk verder.
+                i += 1
+                continue
             trigger_idx = i
             break
 
         if trigger_idx < 0:
             continue
 
-        context_comments = comments[watermark_idx + 1 : trigger_idx + 1]
+        context_comments = comments[last_rocket_idx + 1 : trigger_idx + 1]
         triggers.append({
             "pr_number": pr_num,
             "pr_title": pr.get("title", ""),
