@@ -140,6 +140,50 @@ Wat je nog moet doen:
 
 Geen port-forwarding op je router nodig — alleen uitgaande connectie van het cluster naar Cloudflare.
 
+## Preview-deploys per PR (S-06)
+
+Elke open PR met branch-prefix `ai/` krijgt automatisch een eigen
+preview op `https://pnf-pr-<N>.vdzonsoftware.nl` (waar `<N>` het
+PR-nummer is). Bij merge/close wordt de preview opgeruimd.
+
+**Hoe het werkt:**
+
+1. **GitHub Actions** bouwt op elke `pull_request` event een image en
+   tagt 'm met `sha-<short-sha>` van de PR's HEAD.
+2. **ApplicationSet** (`deploy/applicationset.yaml`) pollt elke 3 min
+   GitHub voor open PR's matching `^ai/.+$` en spawnt per PR een
+   ArgoCD Application.
+3. **Preview-ns-labeller** (`deploy/preview-ns-labeller/`) zorgt dat
+   de bijbehorende namespace `pnf-pr-<N>` bestaat met de
+   `argocd.argoproj.io/managed-by`-label (anders blokkeert de
+   argocd-operator).
+4. **Reflector** mirror't de `newsfeed-api-keys` Secret automatisch
+   naar elke nieuwe `pnf-*`-namespace.
+5. **Preview-router** (nginx in personal-news-feed) ontvangt
+   `*.vdzonsoftware.nl` traffic via Cloudflare en route't host-based
+   naar de juiste preview-namespace.
+
+**Beperkingen:**
+
+- **Alleen code-changes triggeren een preview.** PR's die alleen
+  `specs/**` of `deploy/**` aanraken matchen niet de paths-filter
+  van `build-images.yml` → er wordt geen image gebouwd → de preview
+  blijft hangen op "Pending". Niet kritiek (geen runtime-impact
+  om te previewen) maar wel verwarrend. Workaround: tijdelijk een
+  trivial commit in `newsfeedbackend/**` of `frontend/**` toevoegen
+  om de build te forceren.
+
+- **Gedeelde database.** Alle previews praten met dezelfde Postgres
+  als prod. In de ontwikkelfase OK; voor schema-migraties echter
+  oppassen — een PR die migrations toevoegt past die direct op prod-
+  data toe. Toekomstige verbetering: Neon-branches per preview.
+
+- **Geen automatic preview cleanup van orphan namespaces.** Bij merge
+  ruimt ArgoCD de Application + resources op (`prune: true`), de
+  namespace zelf blijft achter als 'er nog ander state in zit. Voor
+  een schone start: handmatig `oc delete ns pnf-pr-<N>` als de PR
+  echt afgesloten is.
+
 ## Bestanden in deze map
 
 ```

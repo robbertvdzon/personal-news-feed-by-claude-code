@@ -7,8 +7,13 @@
 #   2. Cluster public-cert ophalen → deploy/cluster-cert.pem (commit naar git)
 #   3. Local-path-provisioner installeren + configureren voor OpenShift
 #      (privileged helper-pod, path naar /var/lib, default StorageClass)
+#   3b. Reflector (Secret-mirror naar pnf-* preview-namespaces)
 #   4. Namespace personal-news-feed aanmaken met argocd managed-by label
-#   5. ArgoCD Application apply'en zodat sync start
+#   5. ArgoCD ApplicationSet-controller enablen (voor preview-deploys)
+#   6. github-pr-token secret in argocd-namespace (voor PullRequest-generator)
+#   7. Preview-ns-labeller deployen (auto-label van pnf-pr-* namespaces)
+#   8. ArgoCD Application apply'en zodat sync start
+#   9. ApplicationSet apply'en voor automatische preview-deploys per PR
 #
 # Aannames:
 #   - `oc` is geïnstalleerd en ingelogd op het juiste cluster (`oc whoami`).
@@ -149,14 +154,64 @@ oc rollout status -n kube-system deploy/reflector --timeout=120s
 
 # ─── 4. Namespace met argocd managed-by label ─────────────────────────
 echo
-echo "[4/5] Namespace $NAMESPACE met argocd-label"
+echo "[4/9] Namespace $NAMESPACE met argocd-label"
 oc create namespace "$NAMESPACE" --dry-run=client -o yaml | oc apply -f -
 oc label namespace "$NAMESPACE" "argocd.argoproj.io/managed-by=$ARGOCD_NS" --overwrite
 
-# ─── 5. ArgoCD Application ────────────────────────────────────────────
+# ─── 5. ApplicationSet-controller enable (operator-managed ArgoCD) ────
+# De argocd-operator (Red Hat GitOps) deploy't standaard alleen
+# server + redis + repo-server + application-controller — de
+# ApplicationSet-controller komt pas zodra `spec.applicationSet` in de
+# ArgoCD CR staat (lege object is genoeg om 'm te enablen).
 echo
-echo "[5/5] ArgoCD Application apply"
+echo "[5/9] Enable ApplicationSet-controller"
+if oc get argocd -n "$ARGOCD_NS" >/dev/null 2>&1; then
+  oc patch argocd argocd -n "$ARGOCD_NS" --type merge -p '{"spec":{"applicationSet":{}}}'
+  oc rollout status -n "$ARGOCD_NS" deploy/argocd-applicationset-controller --timeout=120s 2>/dev/null || true
+else
+  echo "       (geen ArgoCD CR gevonden — wordt ervan uitgegaan dat ApplicationSet al draait)"
+fi
+
+# ─── 6. GitHub PR-token in argocd-namespace ──────────────────────────
+# De ApplicationSet's PullRequest-generator heeft een GitHub-token nodig
+# om open PR's te lezen. We hergebruiken de GITHUB_TOKEN uit de sealed
+# secret in personal-news-feed (zelfde token als de claude-runner).
+echo
+echo "[6/9] github-pr-token secret in $ARGOCD_NS"
+if oc get secret -n "$NAMESPACE" newsfeed-api-keys >/dev/null 2>&1; then
+  GH_TOKEN="$(oc get secret -n "$NAMESPACE" newsfeed-api-keys -o jsonpath='{.data.GITHUB_TOKEN}' | base64 -d)"
+  if [[ -n "$GH_TOKEN" ]]; then
+    oc create secret generic github-pr-token \
+      --from-literal=token="$GH_TOKEN" \
+      -n "$ARGOCD_NS" \
+      --dry-run=client -o yaml | oc apply -f -
+    echo "       github-pr-token gekopieerd uit newsfeed-api-keys"
+  else
+    echo "       (GITHUB_TOKEN ontbreekt in newsfeed-api-keys — preview-PR-deploys werken niet)"
+  fi
+else
+  echo "       (newsfeed-api-keys nog niet aanwezig — voer ./deploy/seal-secrets.sh"
+  echo "        en ArgoCD-sync uit, run dan bootstrap opnieuw)"
+fi
+
+# ─── 7. Preview-ns-labeller ───────────────────────────────────────────
+# Watcht Application-objecten en labelt pnf-pr-* namespaces zodat de
+# argocd-operator ze accepteert ("namespace not managed"-fout omzeilen).
+echo
+echo "[7/9] Preview-ns-labeller (RBAC + deployment)"
+oc apply -f "$DEPLOY_DIR/preview-ns-labeller/rbac.yaml"
+oc apply -f "$DEPLOY_DIR/preview-ns-labeller/deployment.yaml"
+oc rollout status -n "$ARGOCD_NS" deploy/preview-ns-labeller --timeout=60s 2>/dev/null || true
+
+# ─── 8. ArgoCD Application (prod) ─────────────────────────────────────
+echo
+echo "[8/9] ArgoCD Application apply"
 oc apply -n "$ARGOCD_NS" -f "$DEPLOY_DIR/argocd-application.yaml"
+
+# ─── 9. ApplicationSet (preview-deploys per PR) ───────────────────────
+echo
+echo "[9/9] ApplicationSet voor preview-deploys"
+oc apply -n "$ARGOCD_NS" -f "$DEPLOY_DIR/applicationset.yaml"
 
 echo
 echo "[bootstrap] klaar."
