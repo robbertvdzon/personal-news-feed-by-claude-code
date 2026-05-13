@@ -54,10 +54,10 @@ TechCrunch publiceert dagelijks tientallen artikelen, vooral over AI en startups
 Verwacht: drie categorieën in totaal (AI, Startups, Overig — die laatste is systeem-categorie).
 
 ### 6. Trigger uurlijkse update
-- Tab **"Queue"**.
-- Op de rij **"Uurlijkse RSS-update"** (status `DONE`): klik op de **▶**-knop (`play_arrow`).
-- Verwacht: status verandert direct naar `Bezig…` (PROCESSING) met een progress-indicator.
-- **Wacht** tot de status weer `Klaar` (DONE) wordt. Dit duurt 1-3 minuten met API-keys actief (afhankelijk van het aantal nieuwe artikelen) en seconden zonder.
+- Tab **"Settings"** → scroll naar de sectie **"Achtergrond-taken"**.
+- Op de rij **"RSS-feeds nu vernieuwen"**: klik op **▶ Start**. (Onder water stuurt dat een rerun naar het vaste `hourly-update-{username}` request.)
+- Verwacht: knop wordt disabled met tooltip "Loopt al…" en toont een kleine progress-indicator.
+- **Wacht** tot de knop weer enabled is en — als Settings open blijft — een snackbar **"Klaar — N items verwerkt"** verschijnt. Dit duurt 1-3 minuten met API-keys actief (afhankelijk van het aantal nieuwe artikelen) en seconden zonder.
 
 In de backend log zie je tijdens deze stap:
 ```
@@ -72,7 +72,7 @@ In de backend log zie je tijdens deze stap:
 
 ## Verwacht resultaat
 
-- Queue: `Uurlijkse RSS-update` op status DONE met `newItemCount ≥ 5` (TechCrunch postet meerdere keren per dag, ondergrens is conservatief).
+- Het `hourly-update-{username}` request staat op status DONE met `newItemCount ≥ 5` (TechCrunch postet meerdere keren per dag, ondergrens is conservatief). Zichtbaar via `GET /api/requests` of de "RSS-feeds nu vernieuwen"-rij in Settings (knop weer enabled).
 - RSS-tab: ten minste 5 items zichtbaar, sommige met categorie `AI` of `Startups`.
 - Feed-tab: één of meer items met `inFeed: true` (mits Claude er minstens één relevant vond) — kan 0 zijn bij strenge prompt of API-budget op; dat is niet fataal voor `start-scenario`, wel een bevinding voor `report.md`.
 - Settings: 1 RSS-feed-URL, 3 categorieën (AI, Startups, Overig).

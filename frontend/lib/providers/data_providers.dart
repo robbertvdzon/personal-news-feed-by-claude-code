@@ -285,11 +285,6 @@ class RequestNotifier extends AsyncNotifier<List<NewsRequest>> {
   }
 }
 
-final activeRequestCountProvider = Provider<int>((ref) {
-  final r = ref.watch(requestProvider).value ?? const [];
-  return r.where((it) => it.status == 'PENDING' || it.status == 'PROCESSING').length;
-});
-
 final podcastProvider = AsyncNotifierProvider<PodcastNotifier, List<Podcast>>(PodcastNotifier.new);
 
 class PodcastNotifier extends AsyncNotifier<List<Podcast>> {

@@ -182,7 +182,7 @@ Wordt elk uur automatisch uitgevoerd voor elke gebruiker. Handmatig te triggeren
 
 ### 6.2 Dagelijkse samenvatting (automatisch 06:00 + handmatig)
 
-Wordt elke dag om 06:00 automatisch uitgevoerd voor elke gebruiker. **Daarnaast handmatig te triggeren**: de gebruiker kan het bijbehorende vaste verzoek-record `daily-summary-{username}` herstarten via `POST /api/requests/{id}/rerun` (in de Flutter-app de play-knop op de "Dagelijkse samenvatting"-rij in de Queue-tab). Het rerun-event wordt door de rss-module afgehandeld zodat dezelfde pipeline draait als bij de scheduled job.
+Wordt elke dag om 06:00 automatisch uitgevoerd voor elke gebruiker. **Daarnaast handmatig te triggeren**: de gebruiker kan het bijbehorende vaste verzoek-record `daily-summary-{username}` herstarten via `POST /api/requests/{id}/rerun` (in de Flutter-app de "Genereer dagelijkse samenvatting nu"-knop onder *Achtergrond-taken* in de Settings-tab). Het rerun-event wordt door de rss-module afgehandeld zodat dezelfde pipeline draait als bij de scheduled job.
 
 **Pipeline:**
 1. Verzamel alle FeedItems van de afgelopen 24 uur + alle RssItems van de afgelopen 7 dagen.
@@ -417,4 +417,4 @@ Wanneer je items helemaal opnieuw wilt laten samenvatten en categoriseren (bv. o
 2. **Via de API** — `DELETE /api/rss/cleanup?olderThanDays=0&keepStarred=false&keepLiked=false&keepUnread=false` ruimt alles op (combineer met `DELETE /api/feed/cleanup?...`). Dezelfde knop zit in de Flutter-app onder Settings → "Artikelen opruimen" (bij 0 dagen worden ook bewaard/geliket/ongelezen meegenomen).
 3. **JSON handmatig editen** — selectief entries verwijderen met een editor; sla op als geldige JSON. Goed voor het terugbrengen van specifieke artikelen.
 
-Na een van bovenstaande acties: `POST /api/rss/refresh` of de play-knop op het `hourly-update-{username}` record in de queue.
+Na een van bovenstaande acties: `POST /api/rss/refresh` of de "RSS-feeds nu vernieuwen"-knop onder *Achtergrond-taken* in de Settings-tab (triggert de rerun van het `hourly-update-{username}` record).
