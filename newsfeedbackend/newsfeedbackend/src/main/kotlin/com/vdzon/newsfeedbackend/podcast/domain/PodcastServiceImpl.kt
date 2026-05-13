@@ -50,6 +50,18 @@ class PodcastServiceImpl(
 
     override fun audioBytes(username: String, id: String): ByteArray? {
         val path = repo.audioPath(username, id)
-        return if (Files.exists(path)) Files.readAllBytes(path) else null
+        val absolute = path.toAbsolutePath()
+        // Pad expliciet loggen aan de read-kant zodat een 404
+        // 'mp3-bestand niet gevonden' direct te correleren is met het
+        // pad dat de generator gebruikt heeft (zie
+        // PodcastGenerator.renderAudio "audio written" log).
+        return if (Files.exists(path)) {
+            val bytes = Files.readAllBytes(path)
+            log.info("[Podcast] audio read id={} user='{}' path={} bytes={}", id, username, absolute, bytes.size)
+            bytes
+        } else {
+            log.warn("[Podcast] audio missing on disk id={} user='{}' path={}", id, username, absolute)
+            null
+        }
     }
 }
