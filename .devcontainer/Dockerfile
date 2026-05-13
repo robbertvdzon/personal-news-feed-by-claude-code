@@ -8,6 +8,7 @@
 # - Android SDK + cmdline-tools + build-tools (voor APK-builds)
 # - Node.js 20 (voor Claude Code zelf)
 # - Claude Code CLI globaal geïnstalleerd
+# - oc + kubectl + kubeseal (cluster-admin vanuit dev)
 # - git, gh, curl, jq — handige tooling die Claude regelmatig nodig heeft
 #
 # Image is bewust "fat": je betaalt de download éénmalig en daarna heb
@@ -70,6 +71,23 @@ ENV PATH=${JAVA_HOME}/bin:${PATH}
 
 # --- Claude Code CLI ---
 RUN npm install -g @anthropic-ai/claude-code
+
+# --- OpenShift CLI + kubeseal ---
+# `oc` is de OpenShift-variant van kubectl; de tarball levert beide binaries
+# in één. kubeseal is de client voor Bitnami sealed-secrets — gebruikt door
+# deploy/seal-secrets.sh om secrets te encrypten voor commit.
+#
+# Versies expliciet vastpinnen — een rebuild over een jaar moet dezelfde
+# tooling opleveren.
+ARG OC_VERSION=4.18.6
+ARG KUBESEAL_VERSION=0.27.0
+RUN if [ "${TARGETARCH}" = "arm64" ]; then OC_ARCH="-arm64"; KS_ARCH="arm64"; else OC_ARCH=""; KS_ARCH="amd64"; fi \
+    && curl -fL "https://mirror.openshift.com/pub/openshift-v4/clients/ocp/${OC_VERSION}/openshift-client-linux${OC_ARCH}.tar.gz" \
+        | tar -xz -C /usr/local/bin oc kubectl \
+    && chmod +x /usr/local/bin/oc /usr/local/bin/kubectl \
+    && curl -fL "https://github.com/bitnami-labs/sealed-secrets/releases/download/v${KUBESEAL_VERSION}/kubeseal-${KUBESEAL_VERSION}-linux-${KS_ARCH}.tar.gz" \
+        | tar -xz -C /usr/local/bin kubeseal \
+    && chmod +x /usr/local/bin/kubeseal
 
 # --- Flutter SDK ---
 # Op een gedeelde locatie zodat de "vscode" user (uit de base-image) er
