@@ -389,20 +389,28 @@ def github_pr_for_branch(branch: str) -> Optional[dict]:
 # ─── JIRA-comment helpers ─────────────────────────────────────────────────
 
 
-def jira_post_comment(issue_key: str, text: str) -> bool:
-    """Post een eenvoudige plain-text comment (ADF-paragraph). Idempotent? Nee."""
-    body = {
-        "body": {
-            "type": "doc",
-            "version": 1,
-            "content": [
-                {
-                    "type": "paragraph",
-                    "content": [{"type": "text", "text": text}],
-                }
-            ],
-        }
+def adf_text(text: str) -> dict:
+    """Plain-text ADF text-node."""
+    return {"type": "text", "text": text}
+
+
+def adf_link(text: str, href: str) -> dict:
+    """Klikbare-link ADF text-node."""
+    return {
+        "type": "text",
+        "text": text,
+        "marks": [{"type": "link", "attrs": {"href": href}}],
     }
+
+
+def adf_paragraph(*nodes) -> dict:
+    """Paragraaf met de gegeven inline-nodes."""
+    return {"type": "paragraph", "content": list(nodes)}
+
+
+def jira_post_adf_comment(issue_key: str, paragraphs: list[dict]) -> bool:
+    """Post een ADF-comment met een lijst paragrafen. Niet idempotent."""
+    body = {"body": {"type": "doc", "version": 1, "content": paragraphs}}
     r = jira(
         "POST",
         f"/rest/api/3/issue/{issue_key}/comment",
@@ -410,6 +418,11 @@ def jira_post_comment(issue_key: str, text: str) -> bool:
         headers={"Content-Type": "application/json"},
     )
     return r.status_code in (200, 201)
+
+
+def jira_post_comment(issue_key: str, text: str) -> bool:
+    """Legacy helper voor eenvoudige plain-text comments."""
+    return jira_post_adf_comment(issue_key, [adf_paragraph(adf_text(text))])
 
 
 def jira_has_comment_containing(issue_key: str, needle: str) -> bool:
@@ -469,9 +482,17 @@ def check_review_for_merges() -> None:
 
         log.info("%s: PR #%d is gemerged → %s", key, pr["number"], JIRA_DONE_STATUS)
         if transition_issue(key, JIRA_DONE_STATUS):
-            jira_post_comment(
+            pr_url = pr.get("html_url", "")
+            jira_post_adf_comment(
                 key,
-                f"✅ Gemerged via PR #{pr['number']} ({pr.get('html_url', '')}). [{marker}]",
+                [
+                    adf_paragraph(
+                        adf_text("✅ Gemerged via "),
+                        adf_link(f"PR #{pr['number']}", pr_url),
+                        adf_text(" naar main."),
+                    ),
+                    adf_paragraph(adf_text(f"[{marker}]")),
+                ],
             )
         else:
             log.warning("transition naar %s faalde voor %s", JIRA_DONE_STATUS, key)

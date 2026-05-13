@@ -230,30 +230,47 @@ jira_update() {
     return 0
   fi
 
+  # Resultaten = lijst commit-messages (= door Claude geschreven samenvattingen)
+  # plus de wijzigde files. Compact en informatief.
+  local commits_json files_json
+  commits_json=$(git log --format='%s' "origin/${BASE_BRANCH}..HEAD" 2>/dev/null \
+    | jq -R . | jq -s . 2>/dev/null || echo '[]')
+  files_json=$(git diff --name-only "origin/${BASE_BRANCH}..HEAD" 2>/dev/null \
+    | jq -R . | jq -s . 2>/dev/null || echo '[]')
+
   local comment_json
   comment_json=$(jq -n \
     --arg pr "$PR_URL" \
     --arg preview "$PREVIEW_URL" \
-    '{
+    --argjson commits "$commits_json" \
+    --argjson files "$files_json" \
+    '
+    def link($text; $href):
+      { type: "text", text: $text, marks: [{ type: "link", attrs: { href: $href }}] };
+    def txt($s): { type: "text", text: $s };
+    def par(ns): { type: "paragraph", content: ns };
+    def bullet(items): { type: "bulletList", content: (items | map({ type: "listItem", content: [ par([ txt(.) ]) ] })) };
+
+    ([
+      par([ txt("🤖 Claude heeft de story uitgewerkt.") ]),
+      par([ txt("Pull request: "), link($pr; $pr) ]),
+      par([ txt("Test-pagina (preview-deploy, klaar na ~2 min): "), link($preview; $preview) ])
+    ] +
+    (if ($commits | length) > 0
+      then [ par([ txt("Wijzigingen:") ]), bullet($commits) ]
+      else [] end) +
+    (if ($files | length) > 0
+      then [ par([ txt("Bestanden gewijzigd: \($files | length)") ]), bullet($files) ]
+      else [] end) +
+    [
+      par([ txt("Reviewen en mergen via GitHub. Bij merge gaat de story automatisch naar Klaar.") ])
+    ]) as $blocks
+    |
+    {
       body: {
         type: "doc",
         version: 1,
-        content: [
-          { type: "paragraph", content: [
-              { type: "text", text: "🤖 Claude heeft de story uitgewerkt." }
-          ]},
-          { type: "paragraph", content: [
-              { type: "text", text: "Pull request: " },
-              { type: "text", text: $pr, marks: [{ type: "link", attrs: { href: $pr }}] }
-          ]},
-          { type: "paragraph", content: [
-              { type: "text", text: "Preview-deploy: " },
-              { type: "text", text: $preview, marks: [{ type: "link", attrs: { href: $preview }}] }
-          ]},
-          { type: "paragraph", content: [
-              { type: "text", text: "Reviewen en mergen via GitHub. Bij merge gaat de story automatisch naar Klaar." }
-          ]}
-        ]
+        content: $blocks
       }
     }')
   curl -s -m 10 -o /dev/null -w "  comment HTTP %{http_code}\n" \
