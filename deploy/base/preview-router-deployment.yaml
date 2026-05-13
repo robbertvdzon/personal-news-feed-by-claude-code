@@ -22,10 +22,15 @@ spec:
           ports:
             - name: http
               containerPort: 8080
-          # Voorkom dat envsubst onze $-vars in nginx.conf (zoals $host,
-          # $upstream, etc.) probeert te vervangen. Alleen $NGINX_LOCAL_RESOLVERS
-          # moeten we vervangen — die staat expliciet in deze whitelist.
+          # nginx-image's `15-local-resolvers.envsh` zet alleen
+          # NGINX_LOCAL_RESOLVERS als deze env-var aan staat — anders
+          # wordt 'ie expliciet overgeslagen.
+          # NGINX_ENVSUBST_FILTER zorgt dat envsubst alleen
+          # NGINX_LOCAL_RESOLVERS substituteert (en niet de nginx-eigen
+          # variabelen als $host, $upstream, $preview_ns).
           env:
+            - name: NGINX_ENTRYPOINT_LOCAL_RESOLVERS
+              value: "1"
             - name: NGINX_ENVSUBST_FILTER
               value: "NGINX_LOCAL_RESOLVERS"
           volumeMounts:
