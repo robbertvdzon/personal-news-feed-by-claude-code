@@ -38,6 +38,9 @@ from typing import Optional
 
 import requests
 
+# Module-level placeholder for `re.match` is used in config section below;
+# the import must come first.
+
 # ─── config ───────────────────────────────────────────────────────────────
 
 JIRA_BASE_URL = os.environ["JIRA_BASE_URL"].rstrip("/")
@@ -46,6 +49,8 @@ JIRA_API_KEY = os.environ["JIRA_API_KEY"]
 JIRA_PROJECT = os.environ["JIRA_PROJECT"]
 JIRA_SOURCE_STATUS = os.environ.get("JIRA_SOURCE_STATUS", "AI Ready")
 JIRA_TARGET_STATUS = os.environ.get("JIRA_TARGET_STATUS", "AI IN PROGRESS")
+JIRA_REVIEW_STATUS = os.environ.get("JIRA_REVIEW_STATUS", "AI IN REVIEW")
+JIRA_DONE_STATUS = os.environ.get("JIRA_DONE_STATUS", "Klaar")
 POLL_INTERVAL_SEC = int(os.environ.get("POLL_INTERVAL_SEC", "30"))
 MAX_CONCURRENT_JOBS = int(os.environ.get("MAX_CONCURRENT_JOBS", "2"))
 CLAUDE_RUNNER_IMAGE = os.environ.get(
@@ -56,6 +61,11 @@ REPO_URL = os.environ.get(
     "REPO_URL",
     "https://github.com/robbertvdzon/personal-news-feed-by-claude-code.git",
 )
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
+# Owner + repo afleiden uit REPO_URL voor de PR-API.
+_m = re.match(r"https?://github\.com/([^/]+)/([^/.]+)", REPO_URL)
+GITHUB_OWNER = _m.group(1) if _m else ""
+GITHUB_REPO = _m.group(2) if _m else ""
 
 logging.basicConfig(
     level=logging.INFO,
@@ -287,6 +297,14 @@ def spawn_runner_job(issue_key: str, task_md: str) -> bool:
                                 {"name": "REPO_URL", "value": REPO_URL},
                                 {"name": "BASE_BRANCH", "value": "main"},
                                 {"name": "BRANCH_PREFIX", "value": "ai/"},
+                                # JIRA-info zodat runner z'n eigen status-
+                                # transition + comments kan plaatsen (S-07).
+                                {"name": "JIRA_BASE_URL", "value": JIRA_BASE_URL},
+                                {"name": "JIRA_EMAIL", "value": JIRA_EMAIL},
+                                {
+                                    "name": "JIRA_REVIEW_STATUS",
+                                    "value": JIRA_REVIEW_STATUS,
+                                },
                                 {
                                     "name": "ANTHROPIC_API_KEY",
                                     "valueFrom": {
@@ -302,6 +320,15 @@ def spawn_runner_job(issue_key: str, task_md: str) -> bool:
                                         "secretKeyRef": {
                                             "name": "newsfeed-api-keys",
                                             "key": "GITHUB_TOKEN",
+                                        }
+                                    },
+                                },
+                                {
+                                    "name": "JIRA_API_KEY",
+                                    "valueFrom": {
+                                        "secretKeyRef": {
+                                            "name": "newsfeed-api-keys",
+                                            "key": "ATLASSIAN_API_KEY",
                                         }
                                     },
                                 },
@@ -334,10 +361,132 @@ def spawn_runner_job(issue_key: str, task_md: str) -> bool:
     return True
 
 
+# ─── GitHub helpers (voor merge-check) ────────────────────────────────────
+
+
+def github_pr_for_branch(branch: str) -> Optional[dict]:
+    """Vind een PR (open of closed) waarvan de head-branch overeenkomt."""
+    if not (GITHUB_TOKEN and GITHUB_OWNER and GITHUB_REPO):
+        return None
+    url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/pulls"
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {GITHUB_TOKEN}",
+    }
+    params = {"state": "all", "head": f"{GITHUB_OWNER}:{branch}", "per_page": "1"}
+    try:
+        r = requests.get(url, headers=headers, params=params, timeout=10)
+        if r.status_code != 200:
+            log.warning("GH PR-lookup %s -> %s", branch, r.status_code)
+            return None
+        prs = r.json()
+        return prs[0] if prs else None
+    except requests.RequestException as e:
+        log.warning("GH PR-lookup error: %s", e)
+        return None
+
+
+# ─── JIRA-comment helpers ─────────────────────────────────────────────────
+
+
+def jira_post_comment(issue_key: str, text: str) -> bool:
+    """Post een eenvoudige plain-text comment (ADF-paragraph). Idempotent? Nee."""
+    body = {
+        "body": {
+            "type": "doc",
+            "version": 1,
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [{"type": "text", "text": text}],
+                }
+            ],
+        }
+    }
+    r = jira(
+        "POST",
+        f"/rest/api/3/issue/{issue_key}/comment",
+        json=body,
+        headers={"Content-Type": "application/json"},
+    )
+    return r.status_code in (200, 201)
+
+
+def jira_has_comment_containing(issue_key: str, needle: str) -> bool:
+    """Check of een issue al een comment heeft met `needle` in de body."""
+    r = jira(
+        "GET",
+        f"/rest/api/3/issue/{issue_key}/comment",
+        params={"maxResults": "100"},
+    )
+    if r.status_code != 200:
+        return False
+    for c in r.json().get("comments", []):
+        # ADF naar string flatten
+        if needle in adf_to_markdown(c.get("body")):
+            return True
+    return False
+
+
+# ─── Merge-check (AI IN REVIEW → Klaar) ───────────────────────────────────
+
+
+def check_review_for_merges() -> None:
+    """
+    Loop over alle issues in `JIRA_REVIEW_STATUS`. Voor elk:
+      - Zoek de bijbehorende PR (branch ai/<key>).
+      - Als gemerged: transition naar `JIRA_DONE_STATUS` + comment.
+    """
+    if not GITHUB_TOKEN:
+        return  # geen GH-toegang → kan merge niet detecteren
+
+    jql = (
+        f'project={JIRA_PROJECT} AND status="{JIRA_REVIEW_STATUS}" '
+        f"ORDER BY updated DESC"
+    )
+    r = jira(
+        "GET",
+        "/rest/api/3/search/jql",
+        params={"jql": jql, "fields": "summary,status"},
+    )
+    if r.status_code != 200:
+        log.warning("review-search faalde: %s %s", r.status_code, r.text[:200])
+        return
+
+    for issue in r.json().get("issues", []):
+        key = issue["key"]
+        branch = f"ai/{key}"
+        pr = github_pr_for_branch(branch)
+        if not pr:
+            continue
+        if not pr.get("merged_at"):
+            # PR bestaat, maar niet gemerged. Wacht.
+            continue
+        # Gemerged — markeer als Klaar (alleen als dat nog niet is gebeurd)
+        marker = f"merge-marker-PR-{pr['number']}"
+        if jira_has_comment_containing(key, marker):
+            continue
+
+        log.info("%s: PR #%d is gemerged → %s", key, pr["number"], JIRA_DONE_STATUS)
+        if transition_issue(key, JIRA_DONE_STATUS):
+            jira_post_comment(
+                key,
+                f"✅ Gemerged via PR #{pr['number']} ({pr.get('html_url', '')}). [{marker}]",
+            )
+        else:
+            log.warning("transition naar %s faalde voor %s", JIRA_DONE_STATUS, key)
+
+
 # ─── main loop ────────────────────────────────────────────────────────────
 
 
 def process_one_pass() -> None:
+    # Eerst: AI IN REVIEW → kijken of er gemergede PR's zijn (cheap call).
+    try:
+        check_review_for_merges()
+    except Exception as e:
+        log.exception("merge-check faalde: %s", e)
+
     issues = fetch_ai_ready_issues()
     if not issues:
         return

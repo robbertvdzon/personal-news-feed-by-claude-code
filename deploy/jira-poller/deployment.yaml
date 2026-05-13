@@ -38,6 +38,17 @@ spec:
               value: "AI Ready"
             - name: JIRA_TARGET_STATUS
               value: "AI IN PROGRESS"
+            - name: JIRA_REVIEW_STATUS
+              value: "AI IN REVIEW"
+            - name: JIRA_DONE_STATUS
+              value: "Klaar"
+            # GITHUB_TOKEN nodig voor merge-detectie (S-07): zoekt PR's
+            # bij issues in AI IN REVIEW en checkt of ze gemerged zijn.
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: newsfeed-api-keys
+                  key: GITHUB_TOKEN
             - name: POLL_INTERVAL_SEC
               value: "30"
             - name: MAX_CONCURRENT_JOBS

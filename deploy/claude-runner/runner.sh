@@ -169,7 +169,10 @@ fi
 # https://pnf-pr-<num>.vdzonsoftware.nl. We posten 'm direct
 # als PR-comment zodat de URL meteen klikbaar is.
 PR_NUMBER=$(gh pr view "$BRANCH" --json number --jq .number 2>/dev/null || echo "")
+PR_URL=""
+PREVIEW_URL=""
 if [[ -n "$PR_NUMBER" ]]; then
+  PR_URL=$(gh pr view "$PR_NUMBER" --json url --jq .url 2>/dev/null || echo "")
   PREVIEW_URL="https://pnf-pr-${PR_NUMBER}.vdzonsoftware.nl"
   echo "[runner] preview-URL: $PREVIEW_URL"
   # Alleen comment posten als 'm er niet al staat (idempotent)
@@ -178,5 +181,89 @@ if [[ -n "$PR_NUMBER" ]]; then
     gh pr comment "$PR_NUMBER" --body "$COMMENT_BODY" 2>&1 || echo "[runner] (PR-comment kon niet geplaatst worden; niet kritiek)"
   fi
 fi
+
+# ---------- JIRA transition + comments (S-07) ----------
+# Alleen actief als JIRA-env-vars zijn gezet (poller injecteert ze) én
+# de story-id het JIRA-format heeft (b.v. KAN-42). Manual runs zonder
+# JIRA blijven werken zoals voorheen.
+jira_update() {
+  if [[ -z "${JIRA_BASE_URL:-}" || -z "${JIRA_EMAIL:-}" || -z "${JIRA_API_KEY:-}" ]]; then
+    echo "[runner] (JIRA env-vars ontbreken — skip JIRA-update)"
+    return 0
+  fi
+  if ! [[ "$STORY_ID" =~ ^[A-Z][A-Z0-9]+-[0-9]+$ ]]; then
+    echo "[runner] (STORY_ID '$STORY_ID' geen JIRA-format — skip JIRA-update)"
+    return 0
+  fi
+  local target_status="${JIRA_REVIEW_STATUS:-AI IN REVIEW}"
+
+  # Helper: zoek transition-id naar een specifieke status-naam
+  local transitions tr_id
+  transitions=$(curl -s -m 10 -u "${JIRA_EMAIL}:${JIRA_API_KEY}" \
+    -H "Accept: application/json" \
+    "${JIRA_BASE_URL}/rest/api/3/issue/${STORY_ID}/transitions" 2>/dev/null)
+  tr_id=$(echo "$transitions" | jq -r --arg name "$target_status" \
+    '.transitions[] | select(.to.name == $name) | .id' 2>/dev/null | head -1)
+
+  if [[ -z "$tr_id" ]]; then
+    echo "[runner] geen transition naar '$target_status' beschikbaar voor $STORY_ID — skip"
+    return 0
+  fi
+
+  # Transition uitvoeren
+  echo "[runner] JIRA: $STORY_ID → '$target_status'"
+  curl -s -m 10 -o /dev/null -w "  transition HTTP %{http_code}\n" \
+    -u "${JIRA_EMAIL}:${JIRA_API_KEY}" \
+    -H "Content-Type: application/json" \
+    -X POST \
+    -d "{\"transition\":{\"id\":\"${tr_id}\"}}" \
+    "${JIRA_BASE_URL}/rest/api/3/issue/${STORY_ID}/transitions"
+
+  # Comment posten met PR-link + preview-URL. ADF-format vereist in v3.
+  # Idempotent: check eerst of er al een comment met de PR-URL is.
+  local existing
+  existing=$(curl -s -m 10 -u "${JIRA_EMAIL}:${JIRA_API_KEY}" \
+    -H "Accept: application/json" \
+    "${JIRA_BASE_URL}/rest/api/3/issue/${STORY_ID}/comment?maxResults=100" 2>/dev/null)
+  if echo "$existing" | grep -q "$PR_URL"; then
+    echo "[runner] JIRA-comment bestaat al; skip"
+    return 0
+  fi
+
+  local comment_json
+  comment_json=$(jq -n \
+    --arg pr "$PR_URL" \
+    --arg preview "$PREVIEW_URL" \
+    '{
+      body: {
+        type: "doc",
+        version: 1,
+        content: [
+          { type: "paragraph", content: [
+              { type: "text", text: "🤖 Claude heeft de story uitgewerkt." }
+          ]},
+          { type: "paragraph", content: [
+              { type: "text", text: "Pull request: " },
+              { type: "text", text: $pr, marks: [{ type: "link", attrs: { href: $pr }}] }
+          ]},
+          { type: "paragraph", content: [
+              { type: "text", text: "Preview-deploy: " },
+              { type: "text", text: $preview, marks: [{ type: "link", attrs: { href: $preview }}] }
+          ]},
+          { type: "paragraph", content: [
+              { type: "text", text: "Reviewen en mergen via GitHub. Bij merge gaat de story automatisch naar Klaar." }
+          ]}
+        ]
+      }
+    }')
+  curl -s -m 10 -o /dev/null -w "  comment HTTP %{http_code}\n" \
+    -u "${JIRA_EMAIL}:${JIRA_API_KEY}" \
+    -H "Content-Type: application/json" \
+    -X POST \
+    -d "$comment_json" \
+    "${JIRA_BASE_URL}/rest/api/3/issue/${STORY_ID}/comment"
+}
+
+jira_update || echo "[runner] (JIRA-update faalde — niet kritiek, PR werkt)"
 
 echo "[runner] klaar."
