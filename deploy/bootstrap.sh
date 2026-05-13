@@ -14,6 +14,7 @@
 #   7. Preview-ns-labeller deployen (auto-label van pnf-pr-* namespaces)
 #   8. ArgoCD Application apply'en zodat sync start
 #   9. ApplicationSet apply'en voor automatische preview-deploys per PR
+#  10. JIRA-poller deployen (S-03/S-04: AI Ready → claude-runner)
 #
 # Aannames:
 #   - `oc` is geïnstalleerd en ingelogd op het juiste cluster (`oc whoami`).
@@ -210,8 +211,16 @@ oc apply -n "$ARGOCD_NS" -f "$DEPLOY_DIR/argocd-application.yaml"
 
 # ─── 9. ApplicationSet (preview-deploys per PR) ───────────────────────
 echo
-echo "[9/9] ApplicationSet voor preview-deploys"
+echo "[9/10] ApplicationSet voor preview-deploys"
 oc apply -n "$ARGOCD_NS" -f "$DEPLOY_DIR/applicationset.yaml"
+
+# ─── 10. JIRA-poller (S-03/S-04) ──────────────────────────────────────
+# Pollt JIRA op "AI Ready"-issues en spawnt claude-runner Jobs.
+echo
+echo "[10/10] JIRA-poller (RBAC + deployment)"
+oc apply -f "$DEPLOY_DIR/jira-poller/rbac.yaml"
+oc apply -f "$DEPLOY_DIR/jira-poller/deployment.yaml"
+oc rollout status -n "$NAMESPACE" deploy/jira-poller --timeout=60s 2>/dev/null || true
 
 echo
 echo "[bootstrap] klaar."

@@ -1,0 +1,40 @@
+# RBAC voor de JIRA-poller.
+#
+# Heeft toegang tot:
+#   * Jobs + ConfigMaps in de personal-news-feed namespace (read + create)
+#   * (Geen cluster-scope nodig — leeft binnen z'n eigen namespace)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: jira-poller
+  namespace: personal-news-feed
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: jira-poller
+  namespace: personal-news-feed
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "create"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "create", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: jira-poller
+  namespace: personal-news-feed
+subjects:
+  - kind: ServiceAccount
+    name: jira-poller
+    namespace: personal-news-feed
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: jira-poller

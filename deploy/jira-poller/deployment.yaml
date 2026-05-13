@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jira-poller
+  namespace: personal-news-feed
+  labels:
+    app: jira-poller
+spec:
+  replicas: 1            # geen multi-replica — anders dubbele transitions
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: jira-poller
+  template:
+    metadata:
+      labels:
+        app: jira-poller
+    spec:
+      serviceAccountName: jira-poller
+      containers:
+        - name: poller
+          image: ghcr.io/robbertvdzon/jira-poller:main
+          imagePullPolicy: Always
+          env:
+            - name: JIRA_BASE_URL
+              value: "https://vdzon.atlassian.net"
+            - name: JIRA_EMAIL
+              value: "robbert@vdzon.com"
+            - name: JIRA_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: newsfeed-api-keys
+                  key: ATLASSIAN_API_KEY
+            - name: JIRA_PROJECT
+              value: "KAN"
+            - name: JIRA_SOURCE_STATUS
+              value: "AI Ready"
+            - name: JIRA_TARGET_STATUS
+              value: "AI IN PROGRESS"
+            - name: POLL_INTERVAL_SEC
+              value: "30"
+            - name: MAX_CONCURRENT_JOBS
+              value: "2"
+            - name: CLAUDE_RUNNER_IMAGE
+              value: "ghcr.io/robbertvdzon/claude-runner:main"
+            - name: RUNNER_NAMESPACE
+              value: "personal-news-feed"
+            - name: REPO_URL
+              value: "https://github.com/robbertvdzon/personal-news-feed-by-claude-code.git"
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi

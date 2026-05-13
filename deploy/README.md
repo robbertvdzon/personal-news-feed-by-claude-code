@@ -140,6 +140,40 @@ Wat je nog moet doen:
 
 Geen port-forwarding op je router nodig — alleen uitgaande connectie van het cluster naar Cloudflare.
 
+## JIRA-integratie (S-03 + S-04)
+
+`jira-poller` (in `deploy/jira-poller/`) draait permanent in de
+`personal-news-feed`-namespace en pollt elke 30s je JIRA-bord op nieuwe
+stories:
+
+1. Issue komt in status **`AI Ready`** → poller pakt 'm op
+2. Status wordt automatisch verzet naar **`AI IN PROGRESS`** (atomic claim)
+3. `claude-runner` Job spawnt met de issue-description als `task.md`
+4. Vanaf hier: zelfde flow als S-01 — branch `ai/<JIRA-KEY>`, PR, preview-deploy
+
+**Concurrency-cap**: standaard max 2 parallelle stories (configureerbaar
+via `MAX_CONCURRENT_JOBS` env-var). Overschot wacht in JIRA tot er
+capaciteit is.
+
+**Configuratie**: alles via env-vars op het `jira-poller` Deployment,
+inclusief workspace-URL, project-key en status-namen. Aanpassen kost
+één commit:
+
+```yaml
+# deploy/jira-poller/deployment.yaml
+env:
+  - name: JIRA_PROJECT
+    value: "KAN"
+  - name: JIRA_SOURCE_STATUS
+    value: "AI Ready"        # exacte JIRA-naam, case-sensitive!
+  - name: JIRA_TARGET_STATUS
+    value: "AI IN PROGRESS"
+```
+
+**Wat gaat naar Claude**: de JIRA-issue's `description` (Atlassian
+Document Format) wordt omgezet naar markdown en aangeboden als `task.md`.
+Headings, lists, bold/italic, code-blocks blijven behouden.
+
 ## Preview-deploys per PR (S-06)
 
 Elke open PR met branch-prefix `ai/` krijgt automatisch een eigen
