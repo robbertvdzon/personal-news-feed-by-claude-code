@@ -55,6 +55,14 @@ kind: Secret
 metadata:
   name: ${SECRET_NAME}
   namespace: ${NAMESPACE}
+  annotations:
+    # Reflector mirror't deze Secret naar elke preview-namespace pnf-*
+    # zodra die wordt aangemaakt. Zonder deze annotaties hebben preview-
+    # backends geen credentials en falen ze met "secret not found".
+    reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+    reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "pnf-.*"
+    reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+    reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "pnf-.*"
 type: Opaque
 stringData:
 EOF
