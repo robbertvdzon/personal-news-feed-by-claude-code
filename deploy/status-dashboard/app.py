@@ -56,13 +56,18 @@ JIRA_EMAIL = os.environ.get("JIRA_EMAIL", "")
 JIRA_API_KEY = os.environ.get("JIRA_API_KEY", "")
 JIRA_PROJECT = os.environ.get("JIRA_PROJECT", "KAN")
 # Statussen die in de "AI bezig"-sectie verschijnen. Comma-separated.
-# AI IN REVIEW wordt bewust NIET getoond — die stories hebben al een PR
-# en staan dus in "Open PR's".
 JIRA_ACTIVE_STATUSES = [
     s.strip()
     for s in os.environ.get(
         "JIRA_ACTIVE_STATUSES", "AI Ready,AI IN PROGRESS"
     ).split(",")
+    if s.strip()
+]
+# Statussen die op PR-kaartjes als badge verschijnen (typisch AI IN REVIEW).
+# Worden gecombineerd met JIRA_ACTIVE_STATUSES in één zoekopdracht.
+JIRA_PR_STATUSES = [
+    s.strip()
+    for s in os.environ.get("JIRA_PR_STATUSES", "AI IN REVIEW").split(",")
     if s.strip()
 ]
 
@@ -162,6 +167,13 @@ def gh_main_head_commit() -> Optional[dict]:
     return data
 
 
+def gh_latest_release() -> Optional[dict]:
+    """Meest recente non-draft, non-prerelease release. None als er nog
+    geen release is."""
+    data = gh(f"/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest")
+    return data
+
+
 # ─── kubectl helpers ──────────────────────────────────────────────────────
 
 
@@ -222,14 +234,18 @@ if JIRA_EMAIL and JIRA_API_KEY:
     _jira_session.headers.update({"Accept": "application/json"})
 
 
-def jira_search_active() -> list[dict]:
+def jira_search_tracked() -> list[dict]:
     """
-    Issues in een van de actieve statussen (AI Ready, AI IN PROGRESS).
-    Returnt [] als JIRA niet geconfigureerd is of de call faalt.
+    Issues in een van de tracked statussen (AI Ready + AI IN PROGRESS
+    voor de "AI bezig"-sectie, plus AI IN REVIEW voor PR-badges). Eén
+    call dekt beide gebruiken.
     """
-    if not (JIRA_BASE_URL and JIRA_EMAIL and JIRA_API_KEY and JIRA_ACTIVE_STATUSES):
+    if not (JIRA_BASE_URL and JIRA_EMAIL and JIRA_API_KEY):
         return []
-    quoted = ",".join(f'"{s}"' for s in JIRA_ACTIVE_STATUSES)
+    tracked = JIRA_ACTIVE_STATUSES + JIRA_PR_STATUSES
+    if not tracked:
+        return []
+    quoted = ",".join(f'"{s}"' for s in tracked)
     jql = (
         f"project={JIRA_PROJECT} AND status in ({quoted}) "
         f"ORDER BY updated DESC"
@@ -237,7 +253,7 @@ def jira_search_active() -> list[dict]:
     try:
         r = _jira_session.get(
             f"{JIRA_BASE_URL}/rest/api/3/search/jql",
-            params={"jql": jql, "fields": "summary,status,updated"},
+            params={"jql": jql, "fields": "summary,status,updated", "maxResults": "50"},
             timeout=10,
         )
     except requests.RequestException as e:
@@ -271,6 +287,10 @@ class PRCard:
     updated_age: str
     phases: list[Phase] = field(default_factory=list)
     preview_url: str = ""
+    # Status-badges (afgeleid uit fases + JIRA):
+    pr_state: str = ""          # 'ready' / 'building' / 'failed' / 'pending'
+    pr_state_label: str = ""    # mensleesbare label
+    jira_status: str = ""       # 'AI IN REVIEW' etc., leeg als geen JIRA-issue
 
 
 @dataclass
@@ -281,6 +301,9 @@ class MainCard:
     age: str
     phases: list[Phase] = field(default_factory=list)
     recent_merges: list[dict] = field(default_factory=list)
+    apk_url: str = ""           # directe download-URL van de APK-asset
+    apk_filename: str = ""
+    apk_age: str = ""           # leeftijd van de release
 
 
 @dataclass
@@ -359,6 +382,17 @@ def _app_phase(app: Optional[dict]) -> Phase:
         status="running" if status else "pending",
         detail=f"{status or '—'}/{health or '—'}",
     )
+
+
+def _derive_pr_state(phases: list[Phase]) -> tuple[str, str]:
+    """Aggregeer fase-statussen tot één PR-state-badge (en bijbehorend label)."""
+    if any(p.status == "fail" for p in phases):
+        return ("failed", "Build failed")
+    if any(p.status == "running" for p in phases):
+        return ("building", "Building / deploying")
+    if all(p.status == "pass" for p in phases):
+        return ("ready", "Ready to merge")
+    return ("pending", "Pending")
 
 
 def _pods_phase(pods: list[dict], part: str) -> Phase:
@@ -445,11 +479,26 @@ def build_state() -> dict:
     # Production
     main_commit = gh_main_head_commit() or {}
     main_sha = main_commit.get("sha", "")
+    # APK uit de meest recente Release halen.
+    apk_url = ""
+    apk_filename = ""
+    apk_age = ""
+    rel = gh_latest_release()
+    if rel:
+        for asset in rel.get("assets") or []:
+            if asset.get("name", "").endswith(".apk"):
+                apk_url = asset.get("browser_download_url", "")
+                apk_filename = asset.get("name", "")
+                apk_age = _ago(asset.get("updated_at", "") or rel.get("published_at", ""))
+                break
     main_card = MainCard(
         sha=main_sha,
         sha_short=main_sha[:7] if main_sha else "?",
         message=(main_commit.get("commit", {}).get("message", "").splitlines() or ["—"])[0],
         age=_ago(main_commit.get("commit", {}).get("committer", {}).get("date", "")),
+        apk_url=apk_url,
+        apk_filename=apk_filename,
+        apk_age=apk_age,
         recent_merges=[
             {
                 "number": pr["number"],
@@ -520,13 +569,33 @@ def build_state() -> dict:
 
         pr_cards.append(card)
 
-    # AI bezig: stories in AI Ready / AI IN PROGRESS (geen open PR yet).
+    # JIRA: één call die alle tracked statussen ophaalt.
+    all_tracked = jira_search_tracked()
+    issues_by_key = {i.get("key", ""): i for i in all_tracked}
+
+    # Verrijk PR-kaartjes met PR-state-badge + JIRA-status per key.
+    _branch_key_re = re.compile(r"^ai/([A-Z]+-\d+)$")
+    for card in pr_cards:
+        st, label = _derive_pr_state(card.phases)
+        card.pr_state = st
+        card.pr_state_label = label
+        m = _branch_key_re.match(card.branch)
+        if m:
+            issue = issues_by_key.get(m.group(1))
+            if issue:
+                card.jira_status = (
+                    ((issue.get("fields") or {}).get("status") or {}).get("name", "")
+                )
+
+    # AI bezig: filter op de active subset.
     jira_cards: list[JIRACard] = []
     active_jobs = k8s_jobs(PROD_NS, label_selector="app=claude-runner")
-    for issue in jira_search_active():
+    for issue in all_tracked:
         key = issue.get("key", "")
         fields = issue.get("fields", {}) or {}
         status_name = (fields.get("status") or {}).get("name", "")
+        if status_name not in JIRA_ACTIVE_STATUSES:
+            continue
         card = JIRACard(
             key=key,
             title=fields.get("summary", ""),
@@ -648,12 +717,24 @@ h1 { font-size: 18px; margin: 0 0 4px 0; }
 .phase .detail { color: #8b96a8; font-size: 12px; }
 .phase.fail .detail { color: #fca5a5; }
 .phase a { color: #93c5fd; text-decoration: none; }
-.preview {
+.preview, .apk {
   display: inline-block; margin-top: 8px; padding: 6px 10px;
   background: #1e3a5f; border-radius: 6px;
   font-size: 12px; color: #bfdbfe; text-decoration: none;
 }
-.preview:hover { background: #2c4d7a; }
+.preview:hover, .apk:hover { background: #2c4d7a; }
+.apk { background: #1e4d3a; color: #bbf7d0; margin-right: 8px; }
+.apk:hover { background: #2c6a4d; }
+.badges { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px 0; font-size: 11px; }
+.badge {
+  display: inline-block; padding: 2px 8px; border-radius: 10px;
+  background: #2c3340; color: #cbd5e1;
+}
+.badge.ready    { background: #14532d; color: #bbf7d0; }
+.badge.building { background: #713f12; color: #fde68a; }
+.badge.failed   { background: #7f1d1d; color: #fecaca; }
+.badge.pending  { background: #1e3a5f; color: #bfdbfe; }
+.badge.jira     { background: #4c1d95; color: #ddd6fe; }
 .merges { font-size: 12px; color: #8b96a8; margin-top: 10px; padding-top: 10px; border-top: 1px solid #2c3340; }
 .merges a { color: #93c5fd; text-decoration: none; padding-right: 8px; }
 .closed { font-size: 12px; padding: 4px 0; }
@@ -687,12 +768,20 @@ def render_main(card: MainCard) -> str:
     merges_block = (
         f'<div class="merges">Recente merges: {merges_html}</div>' if merges_html else ""
     )
+    apk_block = ""
+    if card.apk_url:
+        apk_block = (
+            f'<a class="apk" href="{escape(card.apk_url)}" target="_blank">'
+            f"📱 APK · {escape(card.apk_filename)} ({escape(card.apk_age)} geleden)"
+            "</a>"
+        )
     return (
         '<div class="card prod">'
         f'<div class="title"><a href="https://github.com/{escape(GITHUB_OWNER)}/{escape(GITHUB_REPO)}/tree/main" target="_blank">'
         f"🟢 Production</a> — {escape(APP_BASE_URL)}</div>"
         f'<div class="meta">main @ <code>{escape(card.sha_short)}</code> — {escape(card.message)} ({escape(card.age)} geleden)</div>'
         f"{phases_html}"
+        f"{apk_block}"
         f"{merges_block}"
         "</div>"
     )
@@ -704,10 +793,22 @@ def render_pr(card: PRCard) -> str:
         f'<a class="preview" href="{escape(card.preview_url)}" target="_blank">'
         f"🌐 {escape(card.preview_url.replace('https://', ''))}</a>"
     )
+    # Badges-regel: PR-state (afgeleid uit fases) + JIRA-status (apart).
+    badges: list[str] = []
+    if card.pr_state and card.pr_state_label:
+        badges.append(
+            f'<span class="badge {escape(card.pr_state)}">{escape(card.pr_state_label)}</span>'
+        )
+    if card.jira_status:
+        badges.append(
+            f'<span class="badge jira">JIRA: {escape(card.jira_status)}</span>'
+        )
+    badges_html = f'<div class="badges">{"".join(badges)}</div>' if badges else ""
     return (
         '<div class="card pr">'
         f'<div class="title"><a href="{escape(card.html_url)}" target="_blank">'
         f"🟡 PR #{card.number} — {escape(card.title)}</a></div>"
+        f"{badges_html}"
         f'<div class="meta">branch <code>{escape(card.branch)}</code> @ <code>{escape(card.head_sha)}</code> · '
         f"door {escape(card.author)} · {escape(card.updated_age)} geleden</div>"
         f"{phases_html}"

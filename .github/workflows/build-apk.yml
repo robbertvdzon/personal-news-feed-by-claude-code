@@ -1,0 +1,93 @@
+name: Build Android APK
+
+# Bouwt een release-APK op main-pushes en attached 'm aan een nieuwe
+# GitHub Release. Filename heeft timestamp + short-SHA voor traceability;
+# de "latest"-release vinden gaat via GitHub's /releases/latest API.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/build-apk.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write  # nodig om Releases aan te maken
+
+env:
+  FLUTTER_VERSION: '3.35.0'
+  JDK_VERSION: '17'
+  # Backend-hostname die in de APK gebakken wordt. Override via
+  # workflow_dispatch input zou kunnen, voor nu gewoon vast.
+  PROD_API: https://news.vdzonsoftware.nl
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: ${{ env.JDK_VERSION }}
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Show toolchain
+        run: |
+          flutter --version
+          java -version
+          flutter doctor -v || true
+
+      - name: Build APK
+        working-directory: frontend
+        env:
+          BUILD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # Zelfde defines als frontend/Makefile build-apk-ext zodat de
+          # APK weet welke backend te gebruiken + welke build-info te
+          # tonen in "Over deze app".
+          flutter pub get
+          flutter build apk --release \
+            --dart-define=API_BASE_URL="${PROD_API}" \
+            --dart-define=BUILD_SHA="${BUILD_SHA}" \
+            --dart-define=BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+      - name: Stage release-asset met timestamp + SHA
+        id: stage
+        run: |
+          set -euo pipefail
+          ts=$(date -u +"%Y%m%d-%H%M%S")
+          sha=$(echo "${{ github.sha }}" | head -c 7)
+          filename="personal-news-feed-${ts}-${sha}.apk"
+          tag="apk-${ts}-${sha}"
+          mkdir -p artifacts
+          cp frontend/build/app/outputs/flutter-apk/app-release.apk "artifacts/${filename}"
+          ls -la artifacts/
+          echo "filename=${filename}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "ts=${ts}" >> "$GITHUB_OUTPUT"
+
+      - name: GitHub Release met APK
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.stage.outputs.tag }}
+          name: "Android APK · ${{ steps.stage.outputs.ts }}"
+          body: |
+            Android release-APK gebouwd uit `main` @ `${{ github.sha }}`.
+
+            Backend: `${{ env.PROD_API }}`
+            Build-time: `${{ steps.stage.outputs.ts }}` UTC
+
+            Download het `.apk`-bestand hieronder en sideload op je Android.
+          files: artifacts/${{ steps.stage.outputs.filename }}
+          make_latest: true
+          generate_release_notes: false
