@@ -143,6 +143,8 @@ Identiek aan Feed-tab in opbouw: een aparte **"Verberg gelezen"-switch** boven d
 ### RssItem-kaart
 Toont: titel, bron, **relatieve tijd** ("12 minuten geleden" / "3 uur geleden" / "2 dagen geleden" / DD-MM-YYYY na 3 dagen, op basis van `timestamp`), categorie, datum en een **preview-tekst van max 2 regels**. De preview toont bij voorkeur de Nederlandse AI-samenvatting (`summary`) — die geeft de gebruiker direct context in zijn eigen taal. Als `summary` leeg is (item nog niet door AI verwerkt) valt de kaart terug op de ruwe RSS-`snippet`. Een badge geeft aan of het item **in de feed** staat (`inFeed: true`) of niet, inclusief een tooltip met de `feedReason`.
 
+**Achtergrondkleur:** de kaart heeft een **lichtgroene** achtergrond (`Colors.green.shade100`) wanneer het item in de persoonlijke feed staat (`inFeed: true`), en een **lichtrode** achtergrond (`Colors.red.shade100`) wanneer dat niet zo is. Op die manier is direct visueel zichtbaar of een ruw RSS-item door de AI-selectie is gekozen voor de feed.
+
 **Acties per kaart:** identiek aan Feed (swipe-delete, 👍/👎, ster).
 
 ### RssItemDetailScreen

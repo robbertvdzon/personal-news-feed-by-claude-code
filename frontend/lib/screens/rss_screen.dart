@@ -119,6 +119,9 @@ class _RssScreenState extends ConsumerState<RssScreen> {
                             isRead: it.isRead,
                             starred: it.starred,
                             liked: it.liked,
+                            backgroundColor: it.inFeed
+                                ? Colors.green.shade100
+                                : Colors.red.shade100,
                             trailing: Tooltip(
                               message: it.feedReason,
                               child: Chip(

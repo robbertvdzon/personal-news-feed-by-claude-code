@@ -16,6 +16,8 @@ class ItemCard extends StatelessWidget {
   final bool starred;
   final bool? liked;
   final Widget? trailing;
+  /// Achtergrondkleur van de kaart. Null = thema-default.
+  final Color? backgroundColor;
   final VoidCallback? onTap;
   final VoidCallback? onStar;
   final ValueChanged<bool?>? onFeedback;
@@ -33,6 +35,7 @@ class ItemCard extends StatelessWidget {
     this.starred = false,
     this.liked,
     this.trailing,
+    this.backgroundColor,
     this.onTap,
     this.onStar,
     this.onFeedback,
@@ -52,6 +55,7 @@ class ItemCard extends StatelessWidget {
         child: const Icon(Icons.delete, color: Colors.white),
       ),
       child: Card(
+        color: backgroundColor,
         child: ListTile(
           onTap: onTap,
           title: Text(
