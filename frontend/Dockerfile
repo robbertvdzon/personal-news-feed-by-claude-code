@@ -12,9 +12,18 @@ RUN --mount=type=cache,target=/root/.pub-cache flutter pub get
 
 COPY . .
 
+# Build-metadata wordt door CI als build-arg meegegeven (zie
+# .github/workflows/build-images.yml). Bij lokale builds vallen ze terug
+# op een placeholder. Worden via String.fromEnvironment in Dart gelezen.
+ARG BUILD_SHA=unknown
+ARG BUILD_TIME=unknown
+
 # API_BASE_URL leeg: API-calls worden relatief (`/api/...`), nginx
 # proxy't ze door naar de backend-service in-cluster.
-RUN flutter build web --release --dart-define=API_BASE_URL=
+RUN flutter build web --release \
+      --dart-define=API_BASE_URL= \
+      --dart-define=BUILD_SHA=${BUILD_SHA} \
+      --dart-define=BUILD_TIME=${BUILD_TIME}
 
 # ─── Runtime stage ───────────────────────────────────────────────────
 # nginxinc/nginx-unprivileged is een variant van het officiële nginx-image

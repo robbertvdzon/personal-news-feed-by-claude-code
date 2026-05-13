@@ -57,7 +57,10 @@ jobs:
 
       - name: Set short SHA tag
         id: meta
-        run: echo "tag=sha-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "tag=sha-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          echo "buildTime=$(date -u +%FT%TZ)" >> "$GITHUB_OUTPUT"
 
       - name: Login to ghcr.io
         uses: docker/login-action@v3
@@ -79,6 +82,9 @@ jobs:
           tags: |
             ${{ env.BACKEND_IMAGE }}:${{ steps.meta.outputs.tag }}
             ${{ github.event_name == 'push' && format('{0}:main', env.BACKEND_IMAGE) || '' }}
+          build-args: |
+            BUILD_SHA=${{ steps.meta.outputs.sha }}
+            BUILD_TIME=${{ steps.meta.outputs.buildTime }}
           cache-from: type=gha,scope=backend
           cache-to: type=gha,mode=max,scope=backend
 
@@ -93,7 +99,10 @@ jobs:
 
       - name: Set short SHA tag
         id: meta
-        run: echo "tag=sha-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "tag=sha-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          echo "buildTime=$(date -u +%FT%TZ)" >> "$GITHUB_OUTPUT"
 
       - name: Login to ghcr.io
         uses: docker/login-action@v3
@@ -113,6 +122,9 @@ jobs:
           tags: |
             ${{ env.FRONTEND_IMAGE }}:${{ steps.meta.outputs.tag }}
             ${{ github.event_name == 'push' && format('{0}:main', env.FRONTEND_IMAGE) || '' }}
+          build-args: |
+            BUILD_SHA=${{ steps.meta.outputs.sha }}
+            BUILD_TIME=${{ steps.meta.outputs.buildTime }}
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
 
