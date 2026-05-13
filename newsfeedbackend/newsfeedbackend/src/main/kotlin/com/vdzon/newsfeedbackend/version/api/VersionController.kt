@@ -13,6 +13,7 @@ class VersionController {
     fun version(): Map<String, String> = mapOf(
         "appName" to "Personal News Feed",
         "gitSha" to (System.getenv("BUILD_SHA")?.takeIf { it.isNotBlank() } ?: "unknown"),
-        "springVersion" to SpringBootVersion.getVersion()
+        "springVersion" to SpringBootVersion.getVersion(),
+        "environment" to (System.getenv("APP_ENVIRONMENT")?.takeIf { it.isNotBlank() } ?: "prod")
     )
 }

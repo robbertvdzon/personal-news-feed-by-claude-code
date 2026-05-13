@@ -777,7 +777,7 @@ components:
 
     VersionInfo:
       type: object
-      required: [appName, gitSha, springVersion]
+      required: [appName, gitSha, springVersion, environment]
       properties:
         appName:
           type: string
@@ -791,6 +791,10 @@ components:
           type: string
           description: Spring Boot-versie waarmee de backend draait
           example: 4.0.6
+        environment:
+          type: string
+          description: Naam van de omgeving waarin de backend draait (uit env-var `APP_ENVIRONMENT`, fallback `"prod"`)
+          example: prod
 
     # Auth
 
