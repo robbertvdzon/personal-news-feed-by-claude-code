@@ -54,6 +54,20 @@ spec:
               value: "15"
             - name: REFRESH_SEC
               value: "15"
+            # JIRA-config voor de "AI bezig"-sectie (stories tussen
+            # 'AI Ready' → eerste PR). Hergebruikt dezelfde credentials
+            # als de jira-poller.
+            - name: JIRA_BASE_URL
+              value: "https://vdzon.atlassian.net"
+            - name: JIRA_EMAIL
+              value: "robbert@vdzon.com"
+            - name: JIRA_PROJECT
+              value: "KAN"
+            - name: JIRA_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: newsfeed-api-keys
+                  key: ATLASSIAN_API_KEY
           readinessProbe:
             httpGet:
               path: /healthz

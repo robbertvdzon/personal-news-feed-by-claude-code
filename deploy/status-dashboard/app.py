@@ -49,6 +49,23 @@ PREVIEW_URL_FORMAT = os.environ.get(
 CACHE_TTL_SEC = int(os.environ.get("CACHE_TTL_SEC", "10"))
 REFRESH_SEC = int(os.environ.get("REFRESH_SEC", "10"))
 
+# JIRA-config voor de "AI bezig"-sectie. Als JIRA_API_KEY leeg is wordt
+# de sectie netjes overgeslagen — niets gebroken.
+JIRA_BASE_URL = os.environ.get("JIRA_BASE_URL", "").rstrip("/")
+JIRA_EMAIL = os.environ.get("JIRA_EMAIL", "")
+JIRA_API_KEY = os.environ.get("JIRA_API_KEY", "")
+JIRA_PROJECT = os.environ.get("JIRA_PROJECT", "KAN")
+# Statussen die in de "AI bezig"-sectie verschijnen. Comma-separated.
+# AI IN REVIEW wordt bewust NIET getoond — die stories hebben al een PR
+# en staan dus in "Open PR's".
+JIRA_ACTIVE_STATUSES = [
+    s.strip()
+    for s in os.environ.get(
+        "JIRA_ACTIVE_STATUSES", "AI Ready,AI IN PROGRESS"
+    ).split(",")
+    if s.strip()
+]
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [status] %(message)s",
@@ -188,6 +205,50 @@ def k8s_pnf_namespaces() -> list[str]:
     ]
 
 
+def k8s_jobs(namespace: str, label_selector: str = "") -> list[dict]:
+    """Lijst van Jobs in een namespace, optioneel gefilterd op label."""
+    args = ["get", "jobs", "-n", namespace]
+    if label_selector:
+        args.extend(["-l", label_selector])
+    return kubectl_json(*args).get("items", [])
+
+
+# ─── JIRA helpers ─────────────────────────────────────────────────────────
+
+
+_jira_session = requests.Session()
+if JIRA_EMAIL and JIRA_API_KEY:
+    _jira_session.auth = (JIRA_EMAIL, JIRA_API_KEY)
+    _jira_session.headers.update({"Accept": "application/json"})
+
+
+def jira_search_active() -> list[dict]:
+    """
+    Issues in een van de actieve statussen (AI Ready, AI IN PROGRESS).
+    Returnt [] als JIRA niet geconfigureerd is of de call faalt.
+    """
+    if not (JIRA_BASE_URL and JIRA_EMAIL and JIRA_API_KEY and JIRA_ACTIVE_STATUSES):
+        return []
+    quoted = ",".join(f'"{s}"' for s in JIRA_ACTIVE_STATUSES)
+    jql = (
+        f"project={JIRA_PROJECT} AND status in ({quoted}) "
+        f"ORDER BY updated DESC"
+    )
+    try:
+        r = _jira_session.get(
+            f"{JIRA_BASE_URL}/rest/api/3/search/jql",
+            params={"jql": jql, "fields": "summary,status,updated"},
+            timeout=10,
+        )
+    except requests.RequestException as e:
+        log.warning("JIRA search faalde: %s", e)
+        return []
+    if r.status_code != 200:
+        log.warning("JIRA search -> %s %s", r.status_code, r.text[:120])
+        return []
+    return r.json().get("issues", [])
+
+
 # ─── data-modellen ────────────────────────────────────────────────────────
 
 
@@ -228,6 +289,19 @@ class ClosedCard:
     title: str
     html_url: str
     merged_age: str
+
+
+@dataclass
+class JIRACard:
+    key: str
+    title: str
+    status: str           # 'AI Ready' / 'AI IN PROGRESS' / etc.
+    jira_url: str
+    age: str
+    # Job-info (alleen bij IN PROGRESS): "Running 3m", "Pending", "Failed", ""
+    job_state: str = ""
+    job_status: str = ""  # 'running' / 'pass' / 'fail' / 'pending'
+    job_name: str = ""
 
 
 # ─── helpers voor fase-status afleiden ────────────────────────────────────
@@ -446,6 +520,66 @@ def build_state() -> dict:
 
         pr_cards.append(card)
 
+    # AI bezig: stories in AI Ready / AI IN PROGRESS (geen open PR yet).
+    jira_cards: list[JIRACard] = []
+    active_jobs = k8s_jobs(PROD_NS, label_selector="app=claude-runner")
+    for issue in jira_search_active():
+        key = issue.get("key", "")
+        fields = issue.get("fields", {}) or {}
+        status_name = (fields.get("status") or {}).get("name", "")
+        card = JIRACard(
+            key=key,
+            title=fields.get("summary", ""),
+            status=status_name,
+            jira_url=f"{JIRA_BASE_URL}/browse/{key}" if JIRA_BASE_URL else "",
+            age=_ago(fields.get("updated", "")),
+        )
+        # Job-lookup: label story-id is de lowercase-kebab key (kan-12).
+        story_label = re.sub(r"[^a-z0-9-]+", "-", key.lower()).strip("-")[:30]
+        matching = [
+            j for j in active_jobs
+            if j.get("metadata", {}).get("labels", {}).get("story-id") == story_label
+        ]
+        # Laatste (jongste) Job pakken op creationTimestamp.
+        matching.sort(
+            key=lambda j: j.get("metadata", {}).get("creationTimestamp", ""),
+            reverse=True,
+        )
+        if matching:
+            j = matching[0]
+            card.job_name = j.get("metadata", {}).get("name", "")
+            conds = j.get("status", {}).get("conditions", []) or []
+            complete = any(
+                c.get("type") == "Complete" and c.get("status") == "True" for c in conds
+            )
+            failed = any(
+                c.get("type") == "Failed" and c.get("status") == "True" for c in conds
+            )
+            active = int(j.get("status", {}).get("active", 0) or 0)
+            start_ts = j.get("status", {}).get("startTime", "")
+            job_age = _ago(start_ts) if start_ts else "—"
+            if complete:
+                card.job_status = "pass"
+                card.job_state = f"Completed ({job_age} geleden)"
+            elif failed:
+                card.job_status = "fail"
+                card.job_state = f"Failed ({job_age} geleden)"
+            elif active > 0:
+                card.job_status = "running"
+                card.job_state = f"Running ({job_age})"
+            else:
+                card.job_status = "pending"
+                card.job_state = f"Pending"
+        elif status_name == "AI IN PROGRESS":
+            # IN PROGRESS zonder Job — race-window of pod-cleanup; toon kort.
+            card.job_status = "pending"
+            card.job_state = "starting…"
+        jira_cards.append(card)
+
+    # Sorteer: IN PROGRESS bovenaan, daarna AI Ready, beide op leeftijd.
+    status_rank = {s: i for i, s in enumerate(JIRA_ACTIVE_STATUSES[::-1])}
+    jira_cards.sort(key=lambda c: (-status_rank.get(c.status, -1), c.age))
+
     # Recent gemerged (laatste 24u)
     closed_cards: list[ClosedCard] = []
     for pr in gh_list_recent_closed_prs(10):
@@ -460,6 +594,7 @@ def build_state() -> dict:
 
     state = {
         "main": main_card,
+        "ai_active": jira_cards,
         "open_prs": pr_cards,
         "closed_prs": closed_cards[:10],
         "fetched_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -498,6 +633,7 @@ h1 { font-size: 18px; margin: 0 0 4px 0; }
 }
 .card.prod { border-left: 4px solid #4ade80; }
 .card.pr   { border-left: 4px solid #fbbf24; }
+.card.jira { border-left: 4px solid #a78bfa; padding: 10px 14px; }
 .title { font-weight: 600; font-size: 15px; margin-bottom: 4px; }
 .title a { color: #93c5fd; text-decoration: none; }
 .title a:hover { text-decoration: underline; }
@@ -580,6 +716,28 @@ def render_pr(card: PRCard) -> str:
     )
 
 
+def render_jira(card: JIRACard) -> str:
+    title_inner = f"🤖 {escape(card.key)} — {escape(card.title)}"
+    title = (
+        f'<a href="{escape(card.jira_url)}" target="_blank">{title_inner}</a>'
+        if card.jira_url else title_inner
+    )
+    # Bouw de meta-regel: status · age · job-info (indien aanwezig).
+    parts = [escape(card.status), f"{escape(card.age)} geleden"]
+    if card.job_state:
+        icon = STATUS_ICONS.get(card.job_status, "?")
+        parts.append(f"{icon} Job {escape(card.job_state)}")
+    elif card.status == "AI Ready":
+        parts.append("wacht op poller (≤ 30s)")
+    meta = " · ".join(parts)
+    return (
+        f'<div class="card jira">'
+        f'<div class="title">{title}</div>'
+        f'<div class="meta">{meta}</div>'
+        f"</div>"
+    )
+
+
 def render_closed(cards: list[ClosedCard]) -> str:
     if not cards:
         return ""
@@ -594,6 +752,12 @@ def render_closed(cards: list[ClosedCard]) -> str:
 
 def render_page(state: dict) -> str:
     main_html = render_main(state["main"])
+    ai_cards = state.get("ai_active", [])
+    ai_html = "".join(render_jira(c) for c in ai_cards)
+    ai_section = (
+        f'<h1 style="margin-top: 24px;">🤖 AI bezig ({len(ai_cards)})</h1>{ai_html}'
+        if ai_cards else ""
+    )
     prs_html = (
         "".join(render_pr(p) for p in state["open_prs"])
         if state["open_prs"]
@@ -614,6 +778,8 @@ def render_page(state: dict) -> str:
   <div class="sub">Auto-refresh elke {REFRESH_SEC}s · cache {CACHE_TTL_SEC}s · fetched at {escape(state['fetched_at'])}</div>
 
   {main_html}
+
+  {ai_section}
 
   <h1 style="margin-top: 24px;">Open PR's ({len(state['open_prs'])})</h1>
   {prs_html}
