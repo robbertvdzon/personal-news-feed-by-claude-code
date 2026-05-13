@@ -120,14 +120,14 @@ class _RssScreenState extends ConsumerState<RssScreen> {
                             starred: it.starred,
                             liked: it.liked,
                             backgroundColor: it.inFeed
-                                ? Colors.purple.shade100
+                                ? Colors.purpleAccent.shade100
                                 : Colors.yellow.shade100,
                             trailing: Tooltip(
                               message: it.feedReason,
                               child: Chip(
                                 visualDensity: VisualDensity.compact,
                                 label: Text(it.inFeed ? 'in feed' : 'niet in feed'),
-                                backgroundColor: it.inFeed ? Colors.purple.shade100 : null,
+                                backgroundColor: it.inFeed ? Colors.purpleAccent.shade100 : null,
                               ),
                             ),
                             onTap: () => _open(filtered, i),
