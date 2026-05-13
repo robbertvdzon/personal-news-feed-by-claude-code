@@ -19,6 +19,20 @@ class RequestWebSocketHandler(private val mapper: ObjectMapper) : TextWebSocketH
 
     override fun afterConnectionEstablished(session: WebSocketSession) {
         sessions.add(session)
+        // Stuur de backend-versie meteen na connect zodat clients een
+        // mismatch met hun bundel-versie kunnen detecteren zonder polling.
+        try {
+            val sha = System.getenv("BUILD_SHA")?.takeIf { it.isNotBlank() } ?: "unknown"
+            val buildTime = System.getenv("BUILD_TIME")?.takeIf { it.isNotBlank() } ?: "unknown"
+            val payload = mapOf(
+                "type" to "serverVersion",
+                "sha" to sha,
+                "buildTime" to buildTime
+            )
+            session.sendMessage(TextMessage(mapper.writeValueAsString(payload)))
+        } catch (_: Exception) {
+            // best-effort; nooit de connect laten falen op het versiebericht.
+        }
     }
 
     override fun afterConnectionClosed(session: WebSocketSession, status: CloseStatus) {

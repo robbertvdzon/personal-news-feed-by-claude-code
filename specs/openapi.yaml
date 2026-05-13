@@ -11,8 +11,13 @@ info:
     - **ws://{host}/ws/requests**
     - Geen authenticatie vereist
     - Alleen server → client (broadcast)
+    - Direct na (re)connect stuurt de server een `serverVersion`-bericht met de
+      backend-versie zodat clients tijdens lange sessies een nieuwe deploy
+      kunnen detecteren zonder polling: `{ "type": "serverVersion", "sha": "...",
+      "buildTime": "..." }`.
     - Bij elke statuswijziging van een NewsRequest stuurt de server het volledige
-      NewsRequest object als JSON naar alle verbonden clients
+      NewsRequest object als JSON naar alle verbonden clients (geen `type`-veld;
+      clients herkennen het op het `id`-veld).
     - Clients hoeven niets te sturen
 
 servers:
@@ -51,11 +56,20 @@ paths:
       summary: Versie-informatie van de backend
       description: |
         Publiek endpoint (geen JWT vereist). Geeft het korte git-SHA van de huidige
-        build (uit env-var `BUILD_SHA`, fallback `"unknown"`) en de Spring Boot-versie.
+        build (uit env-var `BUILD_SHA`, fallback `"unknown"`), de build-timestamp
+        (ISO-8601 UTC, uit env-var `BUILD_TIME`, fallback `"unknown"`) en de Spring
+        Boot-versie. De response is `Cache-Control: no-cache, must-revalidate` zodat
+        clients altijd de actuele versie zien (anders is detectie van nieuwe deploys
+        op mobiel Chrome onbetrouwbaar).
       security: []
       responses:
         '200':
           description: Versie-informatie
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                example: no-cache, must-revalidate
           content:
             application/json:
               schema:
@@ -777,16 +791,26 @@ components:
 
     VersionInfo:
       type: object
-      required: [appName, gitSha, springVersion, environment]
+      required: [appName, sha, buildTime, gitSha, springVersion, environment]
       properties:
         appName:
           type: string
           description: Vaste naam van de applicatie
           example: Personal News Feed
-        gitSha:
+        sha:
           type: string
           description: Kort git-SHA van de huidige build (uit env-var `BUILD_SHA`, fallback `"unknown"`)
-          example: a1b2c3d
+          example: da6ca15
+        buildTime:
+          type: string
+          description: Build-timestamp in ISO-8601 UTC (uit env-var `BUILD_TIME`, fallback `"unknown"`)
+          example: '2026-05-13T14:32:00Z'
+        gitSha:
+          type: string
+          description: |
+            Alias voor `sha`. Behouden voor backwards-compatibility met clients
+            die nog de oude veldnaam lezen.
+          example: da6ca15
         springVersion:
           type: string
           description: Spring Boot-versie waarmee de backend draait
