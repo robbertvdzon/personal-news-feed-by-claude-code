@@ -6,12 +6,13 @@ intentie, niet het technische "hoe". Pak ze één voor één op.
 ---
 
 ## S-01 · Claude-runner pod (PoC, handmatig getriggerd)
-Een pod in de cluster die we starten met één JIRA-ticket-ID als argument.
+Een pod in de cluster die we starten met een story-beschrijving als input
+(plain tekstbestand, géén JIRA-koppeling nodig in deze stap).
 De pod cloned de repo, draait Claude tegen de story, commit + pusht naar
-een feature-branch, en opent een PR met de ticket-ID in de titel.
+een feature-branch, en opent een PR.
 Doel is bewijzen dat de autonome flow werkt op deze codebase — JIRA, mobile,
 preview-deploys volgen later.
-**Klaar als**: handmatig commando levert een PR die we als mens kunnen reviewen.
+**Klaar als**: handmatig commando met `task.md` levert een PR die we als mens kunnen reviewen.
 
 ## S-02 · Branch- + commit-msg-conventie
 Vaste naamgeving: branch `ai/<JIRA-ID>`, commits altijd `<JIRA-ID>: <bericht>`.
