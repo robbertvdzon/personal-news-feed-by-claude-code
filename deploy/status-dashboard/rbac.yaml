@@ -1,0 +1,42 @@
+# ServiceAccount + ClusterRole + Binding voor de status-dashboard.
+# Het dashboard moet:
+#   - Applications lezen in argocd namespace (deploy-status)
+#   - Pods + namespaces lezen across alle relevante namespaces:
+#       personal-news-feed  (production)
+#       pnf-pr-*            (preview-deploys, dynamisch)
+#   - Namespaces listen om de pnf-pr-* set te ontdekken
+#
+# We gebruiken een ClusterRole met read-only verbs. Geen patch/delete,
+# geen secret-access. Risico-arm: alleen wat al sowieso op het cluster
+# zichtbaar is voor wie naar de console kijkt.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: status-dashboard
+  namespace: personal-news-feed
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: status-dashboard-reader
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "namespaces"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["argoproj.io"]
+    resources: ["applications"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: status-dashboard-reader
+subjects:
+  - kind: ServiceAccount
+    name: status-dashboard
+    namespace: personal-news-feed
+roleRef:
+  kind: ClusterRole
+  name: status-dashboard-reader
+  apiGroup: rbac.authorization.k8s.io

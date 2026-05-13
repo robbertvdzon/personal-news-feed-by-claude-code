@@ -1,0 +1,90 @@
+# Status-dashboard: een kleine Flask-service die GitHub + ArgoCD + pod-
+# status bij elkaar harkt en op één HTML-pagina toont.
+#
+# Toegankelijk maken vanaf buiten: voeg in Cloudflare Zero Trust een
+# public hostname toe (b.v. status.vdzonsoftware.nl) die wijst naar
+#   http://status-dashboard.personal-news-feed.svc.cluster.local:80
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: status-dashboard
+  namespace: personal-news-feed
+  labels:
+    app: status-dashboard
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: status-dashboard
+  template:
+    metadata:
+      labels:
+        app: status-dashboard
+    spec:
+      serviceAccountName: status-dashboard
+      containers:
+        - name: dashboard
+          image: ghcr.io/robbertvdzon/status-dashboard:main
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: newsfeed-api-keys
+                  key: GITHUB_TOKEN
+            - name: GITHUB_OWNER
+              value: "robbertvdzon"
+            - name: GITHUB_REPO
+              value: "personal-news-feed-by-claude-code"
+            - name: ARGOCD_NS
+              value: "argocd"
+            - name: PROD_NS
+              value: "personal-news-feed"
+            - name: APP_BASE_URL
+              value: "https://vdzonsoftware.nl"
+            - name: PREVIEW_URL_FORMAT
+              value: "https://pnf-pr-{pr}.vdzonsoftware.nl"
+            - name: CACHE_TTL_SEC
+              value: "15"
+            - name: REFRESH_SEC
+              value: "15"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 20m
+              memory: 96Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: status-dashboard
+  namespace: personal-news-feed
+  labels:
+    app: status-dashboard
+spec:
+  selector:
+    app: status-dashboard
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+  type: ClusterIP

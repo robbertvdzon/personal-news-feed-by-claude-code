@@ -17,6 +17,7 @@
 #   11. ArgoCD Application apply'en zodat sync start
 #   12. ApplicationSet apply'en voor automatische preview-deploys per PR
 #   13. JIRA-poller deployen (S-03/S-04: AI Ready → claude-runner)
+#   14. Status-dashboard deployen (Flask-pagina met PR + deploy-overzicht)
 #
 # Aannames:
 #   - `oc` is geïnstalleerd en ingelogd op het juiste cluster (`oc whoami`).
@@ -68,7 +69,7 @@ echo "[bootstrap] user:    $(oc whoami)"
 # laat 'm zichzelf upgraden binnen het channel. Op fresh clusters duurt
 # de eerste install ~2 min (catalog-resolve + image-pull).
 echo
-echo "[1/13] argocd-operator subscription"
+echo "[1/14] argocd-operator subscription"
 oc apply -f "$DEPLOY_DIR/argocd-operator-subscription.yaml"
 
 echo "       wachten op argocd CRD (signal dat de operator klaar is)..."
@@ -89,7 +90,7 @@ echo "       operator ready"
 # vervolgens argocd-server, repo-server, redis, application-controller en
 # applicationset-controller.
 echo
-echo "[2/13] ArgoCD instance ($ARGOCD_NS)"
+echo "[2/14] ArgoCD instance ($ARGOCD_NS)"
 oc create namespace "$ARGOCD_NS" --dry-run=client -o yaml | oc apply -f -
 oc apply -f "$DEPLOY_DIR/argocd-cr.yaml"
 echo "       wachten op argocd-server..."
@@ -99,7 +100,7 @@ oc rollout status -n "$ARGOCD_NS" deploy/argocd-applicationset-controller --time
 
 # ─── 3. Sealed Secrets controller ─────────────────────────────────────
 echo
-echo "[3/13] Sealed Secrets controller ($SEALED_SECRETS_VERSION)"
+echo "[3/14] Sealed Secrets controller ($SEALED_SECRETS_VERSION)"
 oc apply -f "https://github.com/bitnami-labs/sealed-secrets/releases/download/${SEALED_SECRETS_VERSION}/controller.yaml"
 oc rollout status -n kube-system deploy/sealed-secrets-controller --timeout=180s
 
@@ -117,7 +118,7 @@ oc rollout status -n kube-system deploy/sealed-secrets-controller --timeout=180s
 #       ./deploy/seal-secrets.sh
 #       git add deploy/base/sealed-secret-api-keys.yaml && git commit && git push
 echo
-echo "[4/13] Cluster public-cert ophalen → $CERT_FILE"
+echo "[4/14] Cluster public-cert ophalen → $CERT_FILE"
 if [[ -f "$CERT_FILE" ]]; then
   tmp="$(mktemp)"
   trap 'rm -f "$tmp"' EXIT
@@ -139,7 +140,7 @@ fi
 # enforcing — daarom moet de helper-pod privileged draaien. Daarnaast
 # is /opt read-only op RHCOS, dus we routeren naar /var/lib.
 echo
-echo "[5/13] Local-path-provisioner ($LOCAL_PATH_VERSION)"
+echo "[5/14] Local-path-provisioner ($LOCAL_PATH_VERSION)"
 
 # Install
 oc apply -f "https://raw.githubusercontent.com/rancher/local-path-provisioner/${LOCAL_PATH_VERSION}/deploy/local-path-storage.yaml"
@@ -205,13 +206,13 @@ oc rollout status  -n "$LOCAL_PATH_NS" deploy/local-path-provisioner --timeout=6
 # (gestuurd via annotations op de Secret). Zonder reflector zou elke
 # preview-namespace een eigen SealedSecret nodig hebben.
 echo
-echo "[6/13] Reflector ($REFLECTOR_VERSION)"
+echo "[6/14] Reflector ($REFLECTOR_VERSION)"
 oc apply -f "https://github.com/emberstack/kubernetes-reflector/releases/download/${REFLECTOR_VERSION}/reflector.yaml"
 oc rollout status -n kube-system deploy/reflector --timeout=120s
 
 # ─── 7. Namespace met argocd managed-by label ─────────────────────────
 echo
-echo "[7/13] Namespace $NAMESPACE met argocd-label"
+echo "[7/14] Namespace $NAMESPACE met argocd-label"
 oc create namespace "$NAMESPACE" --dry-run=client -o yaml | oc apply -f -
 oc label namespace "$NAMESPACE" "argocd.argoproj.io/managed-by=$ARGOCD_NS" --overwrite
 
@@ -219,7 +220,7 @@ oc label namespace "$NAMESPACE" "argocd.argoproj.io/managed-by=$ARGOCD_NS" --ove
 # De ArgoCD CR (stap 2) zet `applicationSet: {}` al; deze patch is een
 # safety net voor het geval iemand de CR handmatig gewijzigd heeft.
 echo
-echo "[8/13] Verify ApplicationSet-controller"
+echo "[8/14] Verify ApplicationSet-controller"
 oc patch argocd argocd -n "$ARGOCD_NS" --type merge -p '{"spec":{"applicationSet":{}}}' >/dev/null
 oc rollout status -n "$ARGOCD_NS" deploy/argocd-applicationset-controller --timeout=120s 2>/dev/null || true
 
@@ -228,7 +229,7 @@ oc rollout status -n "$ARGOCD_NS" deploy/argocd-applicationset-controller --time
 # om open PR's te lezen. We hergebruiken de GITHUB_TOKEN uit de sealed
 # secret in personal-news-feed (zelfde token als de claude-runner).
 echo
-echo "[9/13] github-pr-token secret in $ARGOCD_NS"
+echo "[9/14] github-pr-token secret in $ARGOCD_NS"
 if oc get secret -n "$NAMESPACE" newsfeed-api-keys >/dev/null 2>&1; then
   GH_TOKEN="$(oc get secret -n "$NAMESPACE" newsfeed-api-keys -o jsonpath='{.data.GITHUB_TOKEN}' | base64 -d)"
   if [[ -n "$GH_TOKEN" ]]; then
@@ -249,28 +250,39 @@ fi
 # Watcht Application-objecten en labelt pnf-pr-* namespaces zodat de
 # argocd-operator ze accepteert ("namespace not managed"-fout omzeilen).
 echo
-echo "[10/13] Preview-ns-labeller (RBAC + deployment)"
+echo "[10/14] Preview-ns-labeller (RBAC + deployment)"
 oc apply -f "$DEPLOY_DIR/preview-ns-labeller/rbac.yaml"
 oc apply -f "$DEPLOY_DIR/preview-ns-labeller/deployment.yaml"
 oc rollout status -n "$ARGOCD_NS" deploy/preview-ns-labeller --timeout=60s 2>/dev/null || true
 
 # ─── 11. ArgoCD Application (prod) ────────────────────────────────────
 echo
-echo "[11/13] ArgoCD Application apply"
+echo "[11/14] ArgoCD Application apply"
 oc apply -n "$ARGOCD_NS" -f "$DEPLOY_DIR/argocd-application.yaml"
 
 # ─── 12. ApplicationSet (preview-deploys per PR) ──────────────────────
 echo
-echo "[12/13] ApplicationSet voor preview-deploys"
+echo "[12/14] ApplicationSet voor preview-deploys"
 oc apply -n "$ARGOCD_NS" -f "$DEPLOY_DIR/applicationset.yaml"
 
 # ─── 13. JIRA-poller (S-03/S-04) ──────────────────────────────────────
 # Pollt JIRA op "AI Ready"-issues en spawnt claude-runner Jobs.
 echo
-echo "[13/13] JIRA-poller (RBAC + deployment)"
+echo "[13/14] JIRA-poller (RBAC + deployment)"
 oc apply -f "$DEPLOY_DIR/jira-poller/rbac.yaml"
 oc apply -f "$DEPLOY_DIR/jira-poller/deployment.yaml"
 oc rollout status -n "$NAMESPACE" deploy/jira-poller --timeout=60s 2>/dev/null || true
+
+# ─── 14. Status-dashboard ─────────────────────────────────────────────
+# Read-only dashboard met PR + deploy-status. Voor publieke toegang
+# moet je in Cloudflare Zero Trust een public hostname toevoegen die
+# naar http://status-dashboard.personal-news-feed.svc.cluster.local:80
+# wijst.
+echo
+echo "[14/14] Status-dashboard (RBAC + deployment)"
+oc apply -f "$DEPLOY_DIR/status-dashboard/rbac.yaml"
+oc apply -f "$DEPLOY_DIR/status-dashboard/deployment.yaml"
+oc rollout status -n "$NAMESPACE" deploy/status-dashboard --timeout=60s 2>/dev/null || true
 
 echo
 echo "[bootstrap] klaar."
