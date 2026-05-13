@@ -1,0 +1,17 @@
+# Minimale ArgoCD instance. De community-operator interpreteert
+# 'applicationSet: {}' als "deploy de ApplicationSet-controller" (anders
+# komt 'ie niet mee). Route enable't de OpenShift-route op argocd-server.
+#
+# De rest van argocd-features (ha, grafana, prometheus, …) blijft uit
+# tot we 'm écht nodig hebben; default-instellingen worden door de
+# operator zelf ingevuld.
+apiVersion: argoproj.io/v1beta1
+kind: ArgoCD
+metadata:
+  name: argocd
+  namespace: argocd
+spec:
+  applicationSet: {}
+  server:
+    route:
+      enabled: true

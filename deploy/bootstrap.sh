@@ -1,25 +1,34 @@
 #!/usr/bin/env bash
 #
-# Bootstrap voor een vers OpenShift-cluster met ArgoCD.
+# Bootstrap voor een vers OpenShift-cluster.
 #
 # Doet alles idempotent (mag je opnieuw runnen):
-#   1. Sealed Secrets controller installeren
-#   2. Cluster public-cert ophalen → deploy/cluster-cert.pem (commit naar git)
-#   3. Local-path-provisioner installeren + configureren voor OpenShift
-#      (privileged helper-pod, path naar /var/lib, default StorageClass)
-#   3b. Reflector (Secret-mirror naar pnf-* preview-namespaces)
-#   4. Namespace personal-news-feed aanmaken met argocd managed-by label
-#   5. ArgoCD ApplicationSet-controller enablen (voor preview-deploys)
-#   6. github-pr-token secret in argocd-namespace (voor PullRequest-generator)
-#   7. Preview-ns-labeller deployen (auto-label van pnf-pr-* namespaces)
-#   8. ArgoCD Application apply'en zodat sync start
-#   9. ApplicationSet apply'en voor automatische preview-deploys per PR
-#  10. JIRA-poller deployen (S-03/S-04: AI Ready → claude-runner)
+#    1. argocd-operator subscriben via OperatorHub
+#    2. ArgoCD CR apply'en (applicationSet enabled, server-route)
+#    3. Sealed Secrets controller installeren
+#    4. Cluster public-cert ophalen → deploy/cluster-cert.pem
+#    5. Local-path-provisioner installeren + configureren voor OpenShift
+#       (privileged helper-pod, path naar /var/lib, default StorageClass)
+#    6. Reflector (Secret-mirror naar pnf-* preview-namespaces)
+#    7. Namespace personal-news-feed aanmaken met argocd managed-by label
+#    8. ApplicationSet-controller verifiëren (idempotency-patch)
+#    9. github-pr-token secret in argocd-namespace (voor PullRequest-generator)
+#   10. Preview-ns-labeller deployen (auto-label van pnf-pr-* namespaces)
+#   11. ArgoCD Application apply'en zodat sync start
+#   12. ApplicationSet apply'en voor automatische preview-deploys per PR
+#   13. JIRA-poller deployen (S-03/S-04: AI Ready → claude-runner)
 #
 # Aannames:
 #   - `oc` is geïnstalleerd en ingelogd op het juiste cluster (`oc whoami`).
 #   - `kubeseal` is geïnstalleerd (brew install kubeseal).
-#   - ArgoCD draait in namespace `argocd` (pas ARGOCD_NS aan als anders).
+#   - OperatorHub draait (standaard op OpenShift; op vanilla Kubernetes
+#     moet je eerst OLM installeren).
+#
+# Externe state die NIET door dit script wordt aangeraakt en die je apart
+# moet onderhouden (typisch in 1Password):
+#   - deploy/secrets-cluster.env  — bron voor seal-secrets.sh
+#   - Cloudflare tunnel + DNS-records voor *.vdzonsoftware.nl
+#   - JIRA-project + custom statuses (AI Ready / AI IN PROGRESS / …)
 #
 # Run vanuit de repo-root:
 #   ./deploy/bootstrap.sh
@@ -54,15 +63,61 @@ fi
 echo "[bootstrap] cluster: $(oc whoami --show-server)"
 echo "[bootstrap] user:    $(oc whoami)"
 
-# ─── 1. Sealed Secrets controller ─────────────────────────────────────
+# ─── 1. argocd-operator (OperatorHub subscription) ────────────────────
+# Community-operator uit channel 'alpha'. installPlanApproval=Automatic
+# laat 'm zichzelf upgraden binnen het channel. Op fresh clusters duurt
+# de eerste install ~2 min (catalog-resolve + image-pull).
 echo
-echo "[1/5] Sealed Secrets controller ($SEALED_SECRETS_VERSION)"
+echo "[1/13] argocd-operator subscription"
+oc apply -f "$DEPLOY_DIR/argocd-operator-subscription.yaml"
+
+echo "       wachten op argocd CRD (signal dat de operator klaar is)..."
+elapsed=0
+until oc get crd argocds.argoproj.io >/dev/null 2>&1; do
+  sleep 5
+  elapsed=$((elapsed + 5))
+  if (( elapsed >= 300 )); then
+    echo "Error: argocd CRD niet beschikbaar na 5 min." >&2
+    echo "       Check: oc get csv -n openshift-operators | grep argocd" >&2
+    exit 1
+  fi
+done
+echo "       operator ready"
+
+# ─── 2. ArgoCD CR ─────────────────────────────────────────────────────
+# Minimale CR met ApplicationSet enabled en route. De operator creëert
+# vervolgens argocd-server, repo-server, redis, application-controller en
+# applicationset-controller.
+echo
+echo "[2/13] ArgoCD instance ($ARGOCD_NS)"
+oc create namespace "$ARGOCD_NS" --dry-run=client -o yaml | oc apply -f -
+oc apply -f "$DEPLOY_DIR/argocd-cr.yaml"
+echo "       wachten op argocd-server..."
+oc rollout status -n "$ARGOCD_NS" deploy/argocd-server --timeout=300s 2>/dev/null || \
+  echo "       (warning: argocd-server niet ready binnen 5 min)"
+oc rollout status -n "$ARGOCD_NS" deploy/argocd-applicationset-controller --timeout=180s 2>/dev/null || true
+
+# ─── 3. Sealed Secrets controller ─────────────────────────────────────
+echo
+echo "[3/13] Sealed Secrets controller ($SEALED_SECRETS_VERSION)"
 oc apply -f "https://github.com/bitnami-labs/sealed-secrets/releases/download/${SEALED_SECRETS_VERSION}/controller.yaml"
 oc rollout status -n kube-system deploy/sealed-secrets-controller --timeout=180s
 
-# ─── 2. Cluster cert ophalen ──────────────────────────────────────────
+# ─── 4. Cluster cert ophalen ──────────────────────────────────────────
+# Op een vers cluster heeft de sealed-secrets controller een NIEUWE
+# keypair. De bestaande deploy/base/sealed-secret-api-keys.yaml in git
+# is versleuteld met de OUDE keypair en kan niet ontsleuteld worden door
+# dit nieuwe cluster.
+#
+# DR-opties als het cert wijzigt:
+#   (a) Restore de oude master-key uit je backup:
+#       oc apply -f <backup>/sealed-secrets-key-*.yaml
+#       oc delete pod -n kube-system -l name=sealed-secrets-controller
+#   (b) Re-encrypt (vereist deploy/secrets-cluster.env uit 1Password):
+#       ./deploy/seal-secrets.sh
+#       git add deploy/base/sealed-secret-api-keys.yaml && git commit && git push
 echo
-echo "[2/5] Cluster public-cert ophalen → $CERT_FILE"
+echo "[4/13] Cluster public-cert ophalen → $CERT_FILE"
 if [[ -f "$CERT_FILE" ]]; then
   tmp="$(mktemp)"
   trap 'rm -f "$tmp"' EXIT
@@ -71,19 +126,20 @@ if [[ -f "$CERT_FILE" ]]; then
     echo "       cert is ongewijzigd."
   else
     mv "$tmp" "$CERT_FILE"
-    echo "       cert is bijgewerkt — commit deploy/cluster-cert.pem!"
+    echo "       ⚠️  cert is GEWIJZIGD — bestaande sealed secrets werken niet meer."
+    echo "       Restore een oude master-key OF run ./deploy/seal-secrets.sh + commit."
   fi
 else
   kubeseal --fetch-cert > "$CERT_FILE"
   echo "       cert opgehaald — commit deploy/cluster-cert.pem!"
 fi
 
-# ─── 3. Local-path-provisioner (storage) ──────────────────────────────
+# ─── 5. Local-path-provisioner (storage) ──────────────────────────────
 # OpenShift's restricted SCC blokkeert hostPath, en RHCOS heeft SELinux
 # enforcing — daarom moet de helper-pod privileged draaien. Daarnaast
 # is /opt read-only op RHCOS, dus we routeren naar /var/lib.
 echo
-echo "[3/5] Local-path-provisioner ($LOCAL_PATH_VERSION)"
+echo "[5/13] Local-path-provisioner ($LOCAL_PATH_VERSION)"
 
 # Install
 oc apply -f "https://raw.githubusercontent.com/rancher/local-path-provisioner/${LOCAL_PATH_VERSION}/deploy/local-path-storage.yaml"
@@ -144,41 +200,35 @@ echo "       local-path StorageClass is nu default"
 oc rollout restart -n "$LOCAL_PATH_NS" deploy/local-path-provisioner >/dev/null
 oc rollout status  -n "$LOCAL_PATH_NS" deploy/local-path-provisioner --timeout=60s
 
-# ─── 3b. Reflector (Secret-mirror voor preview-namespaces) ────────────
+# ─── 6. Reflector (Secret-mirror voor preview-namespaces) ─────────────
 # Mirror't `newsfeed-api-keys`-Secret naar elke nieuwe `pnf-*`-namespace
 # (gestuurd via annotations op de Secret). Zonder reflector zou elke
 # preview-namespace een eigen SealedSecret nodig hebben.
 echo
-echo "[3b/5] Reflector ($REFLECTOR_VERSION)"
+echo "[6/13] Reflector ($REFLECTOR_VERSION)"
 oc apply -f "https://github.com/emberstack/kubernetes-reflector/releases/download/${REFLECTOR_VERSION}/reflector.yaml"
 oc rollout status -n kube-system deploy/reflector --timeout=120s
 
-# ─── 4. Namespace met argocd managed-by label ─────────────────────────
+# ─── 7. Namespace met argocd managed-by label ─────────────────────────
 echo
-echo "[4/9] Namespace $NAMESPACE met argocd-label"
+echo "[7/13] Namespace $NAMESPACE met argocd-label"
 oc create namespace "$NAMESPACE" --dry-run=client -o yaml | oc apply -f -
 oc label namespace "$NAMESPACE" "argocd.argoproj.io/managed-by=$ARGOCD_NS" --overwrite
 
-# ─── 5. ApplicationSet-controller enable (operator-managed ArgoCD) ────
-# De argocd-operator (Red Hat GitOps) deploy't standaard alleen
-# server + redis + repo-server + application-controller — de
-# ApplicationSet-controller komt pas zodra `spec.applicationSet` in de
-# ArgoCD CR staat (lege object is genoeg om 'm te enablen).
+# ─── 8. ApplicationSet-controller idempotency-check ───────────────────
+# De ArgoCD CR (stap 2) zet `applicationSet: {}` al; deze patch is een
+# safety net voor het geval iemand de CR handmatig gewijzigd heeft.
 echo
-echo "[5/9] Enable ApplicationSet-controller"
-if oc get argocd -n "$ARGOCD_NS" >/dev/null 2>&1; then
-  oc patch argocd argocd -n "$ARGOCD_NS" --type merge -p '{"spec":{"applicationSet":{}}}'
-  oc rollout status -n "$ARGOCD_NS" deploy/argocd-applicationset-controller --timeout=120s 2>/dev/null || true
-else
-  echo "       (geen ArgoCD CR gevonden — wordt ervan uitgegaan dat ApplicationSet al draait)"
-fi
+echo "[8/13] Verify ApplicationSet-controller"
+oc patch argocd argocd -n "$ARGOCD_NS" --type merge -p '{"spec":{"applicationSet":{}}}' >/dev/null
+oc rollout status -n "$ARGOCD_NS" deploy/argocd-applicationset-controller --timeout=120s 2>/dev/null || true
 
-# ─── 6. GitHub PR-token in argocd-namespace ──────────────────────────
+# ─── 9. GitHub PR-token in argocd-namespace ──────────────────────────
 # De ApplicationSet's PullRequest-generator heeft een GitHub-token nodig
 # om open PR's te lezen. We hergebruiken de GITHUB_TOKEN uit de sealed
 # secret in personal-news-feed (zelfde token als de claude-runner).
 echo
-echo "[6/9] github-pr-token secret in $ARGOCD_NS"
+echo "[9/13] github-pr-token secret in $ARGOCD_NS"
 if oc get secret -n "$NAMESPACE" newsfeed-api-keys >/dev/null 2>&1; then
   GH_TOKEN="$(oc get secret -n "$NAMESPACE" newsfeed-api-keys -o jsonpath='{.data.GITHUB_TOKEN}' | base64 -d)"
   if [[ -n "$GH_TOKEN" ]]; then
@@ -195,29 +245,29 @@ else
   echo "        en ArgoCD-sync uit, run dan bootstrap opnieuw)"
 fi
 
-# ─── 7. Preview-ns-labeller ───────────────────────────────────────────
+# ─── 10. Preview-ns-labeller ──────────────────────────────────────────
 # Watcht Application-objecten en labelt pnf-pr-* namespaces zodat de
 # argocd-operator ze accepteert ("namespace not managed"-fout omzeilen).
 echo
-echo "[7/9] Preview-ns-labeller (RBAC + deployment)"
+echo "[10/13] Preview-ns-labeller (RBAC + deployment)"
 oc apply -f "$DEPLOY_DIR/preview-ns-labeller/rbac.yaml"
 oc apply -f "$DEPLOY_DIR/preview-ns-labeller/deployment.yaml"
 oc rollout status -n "$ARGOCD_NS" deploy/preview-ns-labeller --timeout=60s 2>/dev/null || true
 
-# ─── 8. ArgoCD Application (prod) ─────────────────────────────────────
+# ─── 11. ArgoCD Application (prod) ────────────────────────────────────
 echo
-echo "[8/9] ArgoCD Application apply"
+echo "[11/13] ArgoCD Application apply"
 oc apply -n "$ARGOCD_NS" -f "$DEPLOY_DIR/argocd-application.yaml"
 
-# ─── 9. ApplicationSet (preview-deploys per PR) ───────────────────────
+# ─── 12. ApplicationSet (preview-deploys per PR) ──────────────────────
 echo
-echo "[9/10] ApplicationSet voor preview-deploys"
+echo "[12/13] ApplicationSet voor preview-deploys"
 oc apply -n "$ARGOCD_NS" -f "$DEPLOY_DIR/applicationset.yaml"
 
-# ─── 10. JIRA-poller (S-03/S-04) ──────────────────────────────────────
+# ─── 13. JIRA-poller (S-03/S-04) ──────────────────────────────────────
 # Pollt JIRA op "AI Ready"-issues en spawnt claude-runner Jobs.
 echo
-echo "[10/10] JIRA-poller (RBAC + deployment)"
+echo "[13/13] JIRA-poller (RBAC + deployment)"
 oc apply -f "$DEPLOY_DIR/jira-poller/rbac.yaml"
 oc apply -f "$DEPLOY_DIR/jira-poller/deployment.yaml"
 oc rollout status -n "$NAMESPACE" deploy/jira-poller --timeout=60s 2>/dev/null || true
