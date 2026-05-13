@@ -1,8 +1,8 @@
 # nginx-config voor de preview-router. Ontvangt traffic voor
-# `*.preview.vdzonsoftware.nl` via de Cloudflare-tunnel en route't naar
+# `*.vdzonsoftware.nl` via de Cloudflare-tunnel en route't naar
 # de juiste preview-namespace op basis van de hostname.
 #
-# Hostname-format: pnf-pr-<num>.preview.vdzonsoftware.nl
+# Hostname-format: pnf-pr-<num>.vdzonsoftware.nl
 # → namespace: pnf-pr-<num>
 # → upstream:  frontend.pnf-pr-<num>.svc.cluster.local:8080
 #
@@ -22,13 +22,13 @@ data:
   # Geen $-tekens hier — nginx vars worden door envsubst pas vervangen
   # waar we ze expliciet vermelden (zie spec.containers[].env).
   default.conf.template: |
-    # Match-and-extract namespace uit `<ns>.preview.vdzonsoftware.nl`.
+    # Match-and-extract namespace uit `<ns>.vdzonsoftware.nl`.
     # Veiligheidsklep: alleen patroon dat met `pnf-` start mag matchen,
     # zo voorkomen we dat iemand via een eigen DNS-CNAME willekeurige
     # cluster-services kan aanspreken.
     map $host $preview_ns {
         default "";
-        "~^(pnf-[a-z0-9-]+)\.preview\.vdzonsoftware\.nl$" $1;
+        "~^(pnf-[a-z0-9-]+)\.vdzonsoftware\.nl$" $1;
     }
 
     map $http_upgrade $connection_upgrade {

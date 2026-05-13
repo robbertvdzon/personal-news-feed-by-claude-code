@@ -166,11 +166,11 @@ fi
 
 # ---------- preview-URL als PR-comment ----------
 # Zodra de ApplicationSet de PR detecteert, spawnt 'ie een preview op
-# https://pnf-pr-<num>.preview.vdzonsoftware.nl. We posten 'm direct
+# https://pnf-pr-<num>.vdzonsoftware.nl. We posten 'm direct
 # als PR-comment zodat de URL meteen klikbaar is.
 PR_NUMBER=$(gh pr view "$BRANCH" --json number --jq .number 2>/dev/null || echo "")
 if [[ -n "$PR_NUMBER" ]]; then
-  PREVIEW_URL="https://pnf-pr-${PR_NUMBER}.preview.vdzonsoftware.nl"
+  PREVIEW_URL="https://pnf-pr-${PR_NUMBER}.vdzonsoftware.nl"
   echo "[runner] preview-URL: $PREVIEW_URL"
   # Alleen comment posten als 'm er niet al staat (idempotent)
   if ! gh pr view "$PR_NUMBER" --json comments --jq '.comments[].body' 2>/dev/null | grep -q "$PREVIEW_URL"; then

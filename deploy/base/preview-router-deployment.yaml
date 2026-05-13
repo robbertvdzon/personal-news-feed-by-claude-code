@@ -1,4 +1,4 @@
-# Preview-router: nginx-pod die *.preview.vdzonsoftware.nl traffic
+# Preview-router: nginx-pod die *.vdzonsoftware.nl traffic
 # host-based route't naar de juiste preview-namespace.
 apiVersion: apps/v1
 kind: Deployment
