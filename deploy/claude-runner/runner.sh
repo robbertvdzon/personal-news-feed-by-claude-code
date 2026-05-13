@@ -96,11 +96,13 @@ git clone --depth 50 --branch "$BASE_BRANCH" "$AUTH_REPO_URL" /work/repo
 cd /work/repo
 
 # Bestaat de branch al remote? Dan checkout'en (iteratie-loop, S-09).
+# Shallow clone heeft alleen main; we moeten de branch expliciet als
+# remote-tracking ref ophalen, anders heeft 'git checkout <branch>' geen
+# ref om naar te resolven en valt 'ie om met "pathspec did not match".
 if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
-  echo "[runner] branch bestaat al remote — checkout en pull"
-  git fetch origin "$BRANCH"
-  git checkout "$BRANCH"
-  git pull --ff-only origin "$BRANCH"
+  echo "[runner] branch bestaat al remote — fetch + checkout"
+  git fetch origin "+refs/heads/${BRANCH}:refs/remotes/origin/${BRANCH}"
+  git checkout -B "$BRANCH" "origin/${BRANCH}"
 else
   echo "[runner] nieuwe branch $BRANCH"
   git checkout -b "$BRANCH"
