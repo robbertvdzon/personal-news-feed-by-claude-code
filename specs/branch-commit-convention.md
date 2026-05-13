@@ -14,9 +14,10 @@ Standaardisatie voor branches en commit-messages, zodat de AI-flow
 | `docs/` | Alleen documentatie | `docs/update-readme` |
 
 **Regels:**
-- Alleen kleine letters, cijfers en `-`
+- Letters (hoofd + klein), cijfers en `-`
 - Geen spaties of underscores
-- Format: `^(ai|feat|fix|chore|docs)/[a-z0-9][a-z0-9-]*$`
+- Format: `^(ai|feat|fix|chore|docs)/[A-Za-z0-9][A-Za-z0-9-]*$`
+- JIRA-keys (b.v. `KAN-8`) mogen hoofdletters bevatten en blijven onveranderd
 
 ## Commit-messages
 

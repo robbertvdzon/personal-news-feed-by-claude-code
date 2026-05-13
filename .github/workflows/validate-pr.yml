@@ -29,12 +29,13 @@ jobs:
         run: |
           set -euo pipefail
           echo "Branch: $BRANCH"
-          # Regex: prefix/lowercase-alphanum-hyphens
-          if ! [[ "$BRANCH" =~ ^(ai|feat|fix|chore|docs)/[a-z0-9][a-z0-9-]*$ ]]; then
+          # Hoofdletters toegestaan na de prefix omdat JIRA-keys
+          # (KAN-8, PNF-42, etc.) hoofdletters hebben.
+          if ! [[ "$BRANCH" =~ ^(ai|feat|fix|chore|docs)/[A-Za-z0-9][A-Za-z0-9-]*$ ]]; then
             echo "::error::Branch name '$BRANCH' voldoet niet aan de conventie."
             echo "Geldige prefixes: ai/, feat/, fix/, chore/, docs/"
-            echo "Format: <prefix>/<kebab-case>"
-            echo "Voorbeelden: ai/PNF-42, feat/add-export, fix/login-crash"
+            echo "Format: <prefix>/<id-of-naam>"
+            echo "Voorbeelden: ai/PNF-42, ai/KAN-8, feat/add-export, fix/login-crash"
             exit 1
           fi
           echo "::notice::Branch naam OK"
