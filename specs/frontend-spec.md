@@ -199,7 +199,9 @@ Toont de lijst van verwerkingsverzoeken: `GET /api/requests`.
 ### WebSocket-integratie
 Verbinding met `ws(s)://{host}/ws/requests` zodra de verzoeken geladen zijn.
 
-- Inkomende berichten zijn JSON-objecten conform het `NewsRequest` schema uit `openapi.yaml` (zie ook de berichtspecificatie in `backend-functional-spec.md` sectie 5)
+- Inkomende berichten zijn JSON-objecten. De handler onderscheidt twee types:
+  - **`{"type": "serverVersion", "sha": "...", "buildTime": "..."}`** — wordt direct na (re)connect verstuurd. De `RequestNotifier` filtert dit bericht eruit en geeft het door aan `versionProvider` (zie sectie 9 — *Versie-check & snackbar*).
+  - **`NewsRequest`-objecten** (geen `type`-veld) conform het schema uit `openapi.yaml` (zie ook de berichtspecificatie in `backend-functional-spec.md` sectie 5).
 - **Belangrijk:** de WebSocket-broadcast bevat updates van **alle** gebruikers (server filtert niet per user). De frontend moet zelf filteren:
   - Bij **bekend ID** in de lokale lijst: vervang het item — dit is veilig omdat de lokale lijst is geladen via `GET /api/requests` (JWT-gescoped, dus alleen eigen items).
   - Bij **onbekend ID**: doe een stille herlaad van de volledige verzoeklijst via `GET /api/requests`. De backend filtert daar wel op JWT, dus updates van andere gebruikers verdwijnen automatisch en eigen nieuwe items komen binnen. Voeg het item níet rechtstreeks toe op basis van het WebSocket-bericht — dan zouden andere gebruikers' verzoeken in de queue verschijnen.
@@ -290,6 +292,31 @@ Lijst van geconfigureerde RSS-feed URLs uit `GET /api/rss-feeds`.
 - **Verwijder-icoon (×):** verwijder feed-URL, PUT `/api/rss-feeds`
 - **Invoerveld + toevoegen-knop:** nieuwe URL toevoegen, PUT `/api/rss-feeds`
 
+### Over deze app
+Onderaan het Settings-scherm staat een blok **Over deze app** met twee regels:
+
+- **Frontend:** `<short-git-sha>` · `<build-timestamp in lokale tijd>` — beide compile-time geïnjecteerd via `--dart-define=BUILD_SHA=...` en `--dart-define=BUILD_TIME=...` en uitgelezen met `String.fromEnvironment`. Altijd beschikbaar uit de bundel zelf.
+- **Backend:** `<short-git-sha>` · `<build-timestamp in lokale tijd>` — komt uit het `versionProvider` (gevuld door `GET /api/version` of het WebSocket `serverVersion`-bericht). Bij een fout (`/api/version` offline of 5xx) toont de regel **`onbekend`** tot de volgende geslaagde check.
+
+Buildnummer = de korte git-SHA (zoals `da6ca15`), zelfde waarde als op de container-images. De build-timestamp komt binnen als ISO-8601 UTC (`2026-05-13T14:32:00Z`) en wordt weergegeven in lokale tijd (`13 mei 2026 14:32`).
+
+### Versie-check & snackbar "Er is een nieuwe versie beschikbaar"
+Naast het Settings-blok detecteert de app actief of er een nieuwe versie live staat zodat een mobiel-Chrome-gebruiker niet eindeloos in een gecachete bundel blijft hangen.
+
+- **Trigger-momenten** (geen periodieke polling):
+  - Bij app-start, direct na het ophalen van de auth-state.
+  - Bij `AppLifecycleState.resumed` — op web triggert dat bij window-focus, op mobiel bij terugkeer uit de achtergrond.
+  - Bij elke (re)connect van `/ws/requests` — de backend stuurt direct een `serverVersion`-bericht.
+- **Vergelijking:** de eerste binnenkomende backend-SHA wordt vastgelegd als "de versie waarmee deze tab geladen is". Een latere check die een afwijkende `sha` rapporteert, zet `updateAvailable=true`.
+- **Snackbar:** zolang `updateAvailable=true` toont een permanente banner onderin (binnen `MaterialApp.builder` als Stack-overlay, dus zichtbaar op elke tab) met tekst *"Er is een nieuwe versie beschikbaar."* en knop **Nu vernieuwen**. De banner heeft **geen timeout** — hij blijft staan tot de gebruiker tikt of de pagina handmatig vernieuwt. Bij gelijke versies is er geen UI-indicatie.
+- **"Nu vernieuwen" doet een harde reload** (alleen op web, `kIsWeb`):
+  1. Deregistreer alle service-workers (`navigator.serviceWorker.getRegistrations().unregister()`).
+  2. Wis Cache Storage (`caches.keys()` + `caches.delete(key)`).
+  3. `window.location.reload()`.
+  
+  Beide cleanup-stappen zijn best-effort; faalt iets, dan reloaden we sowieso. Op mobiel (Android/iOS native) is dit een no-op — daar gaat updaten via Play/App Store of nieuwe APK.
+- **Backend-only deploy:** als alleen de backend wordt geredeployd en de frontend-bundel onveranderd blijft, ziet de gebruiker geen snackbar — alleen de Backend-regel in Settings verandert (live bij WS-reconnect).
+
 ### Opruimen (cleanup)
 Knop "Artikelen opruimen" opent CleanupDialog:
 - **Aantal dagen** numeriek tekstveld (standaard 30; geen slider — gebruiker tikt zelf het getal in)
@@ -329,6 +356,7 @@ De app gebruikt Riverpod. Providers zijn globaal beschikbaar via `ProviderScope`
 | `podcastProvider` | Podcasts + polling tijdens generatie |
 | `audioPlayerProvider` | Audiospelerstatus (`just_audio`) |
 | `appearanceProvider` | Lettergrootte-instelling (persistentie) |
+| `versionProvider` | Frontend- en backend-versie + mismatch-detectie (snackbar trigger) |
 
 ---
 

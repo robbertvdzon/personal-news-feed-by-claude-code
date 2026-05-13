@@ -107,7 +107,7 @@ De volledige REST API is gespecificeerd in **[`openapi.yaml`](./openapi.yaml)** 
 
 Daarin staan alle endpoints met paden, methoden, request/response bodies, query parameters, statuscodes en datamodellen.
 
-**Publiek endpoint — versie-informatie:** `GET /api/version` geeft zonder authenticatie een JSON terug met `appName` (vaste waarde `"Personal News Feed"`), `gitSha` (kort git-SHA van de huidige build, gelezen uit env-var `BUILD_SHA`, fallback `"unknown"`), `springVersion` (de Spring Boot-versie) en `environment` (naam van de omgeving, gelezen uit env-var `APP_ENVIRONMENT`, fallback `"prod"`). Handig voor health-checks en het verifiëren welke build live staat.
+**Publiek endpoint — versie-informatie:** `GET /api/version` geeft zonder authenticatie een JSON terug met `appName` (vaste waarde `"Personal News Feed"`), `sha` (kort git-SHA van de huidige build, gelezen uit env-var `BUILD_SHA`, fallback `"unknown"`), `buildTime` (ISO-8601 UTC build-timestamp, gelezen uit env-var `BUILD_TIME`, fallback `"unknown"`), `springVersion` (de Spring Boot-versie) en `environment` (naam van de omgeving, gelezen uit env-var `APP_ENVIRONMENT`, fallback `"prod"`). Voor backwards-compatibility blijft `gitSha` als alias van `sha` in de response staan. De response-header is `Cache-Control: no-cache, must-revalidate` zodat de frontend bij window-focus altijd de actuele waarde ziet. Handig voor health-checks, het verifiëren welke build live staat en — in combinatie met het WebSocket `serverVersion`-bericht — voor de frontend om nieuwe deploys te detecteren en de gebruiker een snackbar met "Nu vernieuwen" aan te bieden.
 
 **WebSocket:** `ws://{host}/ws/requests`
 - Geen authenticatie vereist
@@ -115,9 +115,13 @@ Daarin staan alle endpoints met paden, methoden, request/response bodies, query 
 - Kapotte verbindingen worden bij de volgende broadcast verwijderd
 - **Multi-user broadcast:** elk bericht wordt naar **alle** verbonden clients verstuurd, dus ook updates van andere gebruikers. De server filtert niet per gebruiker. Frontend-clients moeten zelf filteren (zie frontend-spec sectie 7 voor het matchregels-protocol).
 
-**Trigger:** bij elke statuswijziging van een `NewsRequest` stuurt de server één bericht naar alle verbonden clients.
+**Berichttypes:**
 
-**Berichtformaat:** een enkel JSON-object, identiek aan het `NewsRequest` schema uit `openapi.yaml`. Voorbeeld:
+1. **`serverVersion`** — wordt **direct na (re)connect** alleen naar de verbindende client gestuurd (geen broadcast). Bevat de actuele backend-build zodat de frontend tijdens lange sessies een nieuwe deploy kan detecteren zonder periodieke polling. Formaat: `{"type": "serverVersion", "sha": "<short-git-sha>", "buildTime": "<ISO-8601 UTC>"}`.
+
+2. **`NewsRequest`-updates** — bij elke statuswijziging van een `NewsRequest` stuurt de server het volledige `NewsRequest`-object naar **alle** verbonden clients. Deze berichten hebben **geen `type`-veld**; clients herkennen ze aan het `id`-veld en kunnen `serverVersion`-berichten daarvan onderscheiden via de aanwezigheid van `type`.
+
+**`NewsRequest`-berichtformaat:** een enkel JSON-object, identiek aan het `NewsRequest` schema uit `openapi.yaml`. Voorbeeld:
 ```json
 {
   "id": "hourly-update-robbert",
