@@ -32,9 +32,50 @@ BRANCH_PREFIX="${BRANCH_PREFIX:-ai/}"
 BASE_BRANCH="${BASE_BRANCH:-main}"
 BRANCH="${BRANCH_PREFIX}${STORY_ID}"
 
+# S-09 comment-mode: als de poller ons spawn't via een PR-comment, krijgen
+# we PR_NUMBER + TRIGGER_COMMENT_ID. Na een succesvolle push reageren we
+# 🚀 op het trigger-comment; bij elke andere afloop 😕. De gebruiker ziet
+# zo direct dat z'n feedback opgepakt + (al dan niet) verwerkt is.
+TRIGGER_COMMENT_ID="${TRIGGER_COMMENT_ID:-}"
+PR_NUMBER_FROM_ENV="${PR_NUMBER:-}"
+RUNNER_REACTED=0
+
 echo "[runner] story:  $STORY_ID"
 echo "[runner] branch: $BRANCH (from $BASE_BRANCH)"
 echo "[runner] repo:   $REPO_URL"
+if [[ -n "$TRIGGER_COMMENT_ID" ]]; then
+  echo "[runner] mode:   comment-iteratie (PR #${PR_NUMBER_FROM_ENV}, trigger=${TRIGGER_COMMENT_ID})"
+fi
+
+# Owner/repo afleiden uit REPO_URL, gebruikt voor reaction-API calls.
+REPO_SLUG="$(echo "$REPO_URL" | sed -E 's|^https?://github\.com/||; s|\.git$||')"
+
+react_to_trigger() {
+  # $1: reactie-content (rocket, confused, +1, eyes, heart, hooray, laugh, -1)
+  if [[ -z "$TRIGGER_COMMENT_ID" ]]; then
+    return 0
+  fi
+  echo "[runner] react '$1' on comment $TRIGGER_COMMENT_ID"
+  if gh api -X POST \
+       "repos/${REPO_SLUG}/issues/comments/${TRIGGER_COMMENT_ID}/reactions" \
+       -f "content=$1" >/dev/null 2>&1; then
+    RUNNER_REACTED=1
+  else
+    echo "[runner] (react '$1' faalde — niet kritiek)"
+  fi
+}
+
+on_exit() {
+  local rc=$?
+  # Als we in comment-mode zijn en nog niets gereageerd hebben, dan is dit
+  # een faal-pad (commit-msg-check, geen commits, push-error, etc.). Plaats
+  # een 'confused'-reactie zodat de gebruiker weet dat de iteratie vastliep.
+  if [[ -n "$TRIGGER_COMMENT_ID" && $RUNNER_REACTED -eq 0 ]]; then
+    # Subshell zodat een gefaalde curl/gh niet de exit-code overschrijft.
+    (react_to_trigger "confused") || true
+  fi
+}
+trap on_exit EXIT
 
 # ---------- git config ----------
 git config --global user.name  "claude-runner"
@@ -89,6 +130,16 @@ gegeven story op de bestaande codebase. Regels:
 6. Stop nadat alle wijzigingen lokaal gecommit zijn. Push doet het script.
 
 Story staat in /work/repo/.task.md."
+
+# Extra context als dit een iteratie op een bestaande PR is (S-09).
+if [[ -n "$TRIGGER_COMMENT_ID" ]]; then
+  SYSTEM_PROMPT+="
+
+LET OP: dit is een iteratie op een al bestaande PR. /work/repo/.task.md
+bevat reviewer-feedback in plaats van een nieuwe story. Verwerk elke
+opmerking concreet, maar wijzig niets dat niet expliciet gevraagd wordt.
+De vorige implementatie staat al op deze branch — bouw daarop voort."
+fi
 
 # Story-bestand inkopiëren zodat Claude 'm met Read kan lezen
 cp /task/task.md /work/repo/.task.md
@@ -148,6 +199,12 @@ echo "[runner] commit-messages OK"
 # ---------- push ----------
 echo "[runner] push naar origin/$BRANCH"
 git push -u origin "$BRANCH"
+
+# S-09: meteen na een succesvolle push reageren we 🚀 op de trigger-comment
+# (no-op buiten comment-mode). Daarna kan validate-pr nog falen, maar de
+# 'gepushed'-status is sowieso correct — de gebruiker ziet de CI-status
+# zelf in GitHub.
+react_to_trigger "rocket"
 
 # ---------- PR open of update ----------
 # Bestaat 'er al een PR voor deze branch? Dan slaan we creëren over.

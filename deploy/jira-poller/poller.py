@@ -72,6 +72,12 @@ GITHUB_REPO = _m.group(2) if _m else ""
 # thuis-netwerk tenzij de console-route extern bereikbaar is.
 OPENSHIFT_CONSOLE_HOST = os.environ.get("OPENSHIFT_CONSOLE_HOST", "")
 
+# S-09: trigger-pattern in PR-comments. Een comment met deze substring
+# (case-insensitive) op een open ai/-PR start een runner-iteratie. De
+# poller markeert verwerkte triggers met een 'eyes'-reactie zodat dezelfde
+# comment niet twee keer wordt opgepakt.
+COMMENT_TRIGGER = os.environ.get("COMMENT_TRIGGER_PATTERN", "@claude").lower()
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [poller] %(message)s",
@@ -260,8 +266,17 @@ def sanitize_id(issue_key: str) -> str:
     return s[:30] or "job"
 
 
-def spawn_runner_job(issue_key: str, task_md: str) -> Optional[str]:
-    """Maak ConfigMap + Job voor één issue. Returns job-name of None bij failure."""
+def spawn_runner_job(
+    issue_key: str,
+    task_md: str,
+    pr_number: Optional[int] = None,
+    trigger_comment_id: Optional[int] = None,
+) -> Optional[str]:
+    """Maak ConfigMap + Job voor één issue. Returns job-name of None bij failure.
+
+    Comment-mode (S-09): als pr_number én trigger_comment_id meegegeven worden,
+    krijgt het Job die env-vars zodat de runner na z'n push een 'rocket'-reactie
+    plaatst op het trigger-comment (op faal: 'confused')."""
     short = sanitize_id(issue_key)
     stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
     job_name = f"claude-run-{short}-{stamp}"
@@ -276,20 +291,71 @@ def spawn_runner_job(issue_key: str, task_md: str) -> Optional[str]:
         "binaryData": {"task.md": task_b64},
     }
 
-    # Job-spec (analoog aan deploy/claude-runner/job-template.yaml)
+    is_comment_mode = pr_number is not None
+    labels = {
+        "app": "claude-runner",
+        "story-id": short,
+        "mode": "comment" if is_comment_mode else "story",
+    }
+    if is_comment_mode:
+        labels["pr-num"] = str(pr_number)
+
+    env = [
+        {"name": "STORY_ID", "value": issue_key},
+        {"name": "REPO_URL", "value": REPO_URL},
+        {"name": "BASE_BRANCH", "value": "main"},
+        {"name": "BRANCH_PREFIX", "value": "ai/"},
+        # JIRA-info zodat runner z'n eigen status-transition + comments kan
+        # plaatsen (S-07). In comment-mode is de issue al in REVIEW, dus de
+        # transition no-op't; comments zijn idempotent.
+        {"name": "JIRA_BASE_URL", "value": JIRA_BASE_URL},
+        {"name": "JIRA_EMAIL", "value": JIRA_EMAIL},
+        {"name": "JIRA_REVIEW_STATUS", "value": JIRA_REVIEW_STATUS},
+        {
+            "name": "ANTHROPIC_API_KEY",
+            "valueFrom": {
+                "secretKeyRef": {
+                    "name": "newsfeed-api-keys",
+                    "key": "PNF_ANTHROPIC_API_KEY",
+                }
+            },
+        },
+        {
+            "name": "GITHUB_TOKEN",
+            "valueFrom": {
+                "secretKeyRef": {
+                    "name": "newsfeed-api-keys",
+                    "key": "GITHUB_TOKEN",
+                }
+            },
+        },
+        {
+            "name": "JIRA_API_KEY",
+            "valueFrom": {
+                "secretKeyRef": {
+                    "name": "newsfeed-api-keys",
+                    "key": "ATLASSIAN_API_KEY",
+                }
+            },
+        },
+    ]
+    if is_comment_mode:
+        env.append({"name": "PR_NUMBER", "value": str(pr_number)})
+        env.append({"name": "TRIGGER_COMMENT_ID", "value": str(trigger_comment_id)})
+
     job = {
         "apiVersion": "batch/v1",
         "kind": "Job",
         "metadata": {
             "name": job_name,
             "namespace": RUNNER_NAMESPACE,
-            "labels": {"app": "claude-runner", "story-id": short},
+            "labels": labels,
         },
         "spec": {
             "ttlSecondsAfterFinished": 86400,
             "backoffLimit": 0,
             "template": {
-                "metadata": {"labels": {"app": "claude-runner", "story-id": short}},
+                "metadata": {"labels": labels},
                 "spec": {
                     "restartPolicy": "Never",
                     "containers": [
@@ -297,47 +363,7 @@ def spawn_runner_job(issue_key: str, task_md: str) -> Optional[str]:
                             "name": "runner",
                             "image": CLAUDE_RUNNER_IMAGE,
                             "imagePullPolicy": "Always",
-                            "env": [
-                                {"name": "STORY_ID", "value": issue_key},
-                                {"name": "REPO_URL", "value": REPO_URL},
-                                {"name": "BASE_BRANCH", "value": "main"},
-                                {"name": "BRANCH_PREFIX", "value": "ai/"},
-                                # JIRA-info zodat runner z'n eigen status-
-                                # transition + comments kan plaatsen (S-07).
-                                {"name": "JIRA_BASE_URL", "value": JIRA_BASE_URL},
-                                {"name": "JIRA_EMAIL", "value": JIRA_EMAIL},
-                                {
-                                    "name": "JIRA_REVIEW_STATUS",
-                                    "value": JIRA_REVIEW_STATUS,
-                                },
-                                {
-                                    "name": "ANTHROPIC_API_KEY",
-                                    "valueFrom": {
-                                        "secretKeyRef": {
-                                            "name": "newsfeed-api-keys",
-                                            "key": "PNF_ANTHROPIC_API_KEY",
-                                        }
-                                    },
-                                },
-                                {
-                                    "name": "GITHUB_TOKEN",
-                                    "valueFrom": {
-                                        "secretKeyRef": {
-                                            "name": "newsfeed-api-keys",
-                                            "key": "GITHUB_TOKEN",
-                                        }
-                                    },
-                                },
-                                {
-                                    "name": "JIRA_API_KEY",
-                                    "valueFrom": {
-                                        "secretKeyRef": {
-                                            "name": "newsfeed-api-keys",
-                                            "key": "ATLASSIAN_API_KEY",
-                                        }
-                                    },
-                                },
-                            ],
+                            "env": env,
                             "volumeMounts": [
                                 {"name": "task", "mountPath": "/task", "readOnly": True}
                             ],
@@ -362,33 +388,135 @@ def spawn_runner_job(issue_key: str, task_md: str) -> Optional[str]:
             log.error("kubectl apply faalde voor %s: %s", obj["kind"], out.stderr[:200])
             return None
 
-    log.info("spawned Job %s voor %s", job_name, issue_key)
+    log.info(
+        "spawned Job %s voor %s (mode=%s)",
+        job_name,
+        issue_key,
+        "comment" if is_comment_mode else "story",
+    )
     return job_name
 
 
-# ─── GitHub helpers (voor merge-check) ────────────────────────────────────
+def count_active_jobs_for_pr(pr_num: int) -> int:
+    """Tel actieve runner-jobs gekoppeld aan een specifieke PR."""
+    try:
+        out = kubectl(
+            "get", "jobs",
+            "-n", RUNNER_NAMESPACE,
+            "-l", f"app=claude-runner,pr-num={pr_num}",
+            "-o", "json",
+            check=False,
+        )
+        if out.returncode != 0:
+            return 0
+        data = json.loads(out.stdout or "{}")
+    except Exception:
+        return 0
+    active = 0
+    for j in data.get("items", []):
+        conds = j.get("status", {}).get("conditions", [])
+        done = any(
+            c.get("type") in ("Complete", "Failed") and c.get("status") == "True"
+            for c in conds
+        )
+        if not done:
+            active += 1
+    return active
+
+
+# ─── GitHub helpers (voor merge-check + S-09 comment-loop) ────────────────
+
+
+def gh_request(
+    method: str,
+    path: str,
+    json_body: Optional[dict] = None,
+    params: Optional[dict] = None,
+    timeout: int = 15,
+) -> Optional[requests.Response]:
+    """Wrap een GitHub REST API call met auth + base URL."""
+    if not (GITHUB_TOKEN and GITHUB_OWNER and GITHUB_REPO):
+        return None
+    url = f"https://api.github.com{path}"
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {GITHUB_TOKEN}",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    try:
+        return requests.request(
+            method, url, headers=headers, json=json_body, params=params, timeout=timeout
+        )
+    except requests.RequestException as e:
+        log.warning("GH API %s %s faalde: %s", method, path, e)
+        return None
 
 
 def github_pr_for_branch(branch: str) -> Optional[dict]:
     """Vind een PR (open of closed) waarvan de head-branch overeenkomt."""
-    if not (GITHUB_TOKEN and GITHUB_OWNER and GITHUB_REPO):
-        return None
-    url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/pulls"
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "Authorization": f"Bearer {GITHUB_TOKEN}",
-    }
-    params = {"state": "all", "head": f"{GITHUB_OWNER}:{branch}", "per_page": "1"}
-    try:
-        r = requests.get(url, headers=headers, params=params, timeout=10)
-        if r.status_code != 200:
+    r = gh_request(
+        "GET",
+        f"/repos/{GITHUB_OWNER}/{GITHUB_REPO}/pulls",
+        params={"state": "all", "head": f"{GITHUB_OWNER}:{branch}", "per_page": "1"},
+    )
+    if not r or r.status_code != 200:
+        if r is not None:
             log.warning("GH PR-lookup %s -> %s", branch, r.status_code)
-            return None
-        prs = r.json()
-        return prs[0] if prs else None
-    except requests.RequestException as e:
-        log.warning("GH PR-lookup error: %s", e)
         return None
+    prs = r.json()
+    return prs[0] if prs else None
+
+
+def gh_list_open_prs() -> list[dict]:
+    """Open PR's in de repo."""
+    r = gh_request(
+        "GET",
+        f"/repos/{GITHUB_OWNER}/{GITHUB_REPO}/pulls",
+        params={"state": "open", "per_page": "30"},
+    )
+    if not r or r.status_code != 200:
+        return []
+    return r.json()
+
+
+def gh_list_issue_comments(issue_num: int) -> list[dict]:
+    """Issue/PR-comments (niet review-comments). Ascending op created_at."""
+    r = gh_request(
+        "GET",
+        f"/repos/{GITHUB_OWNER}/{GITHUB_REPO}/issues/{issue_num}/comments",
+        params={"per_page": "100"},
+    )
+    if not r or r.status_code != 200:
+        return []
+    return r.json()
+
+
+def gh_list_comment_reactions(comment_id: int) -> list[dict]:
+    r = gh_request(
+        "GET",
+        f"/repos/{GITHUB_OWNER}/{GITHUB_REPO}/issues/comments/{comment_id}/reactions",
+    )
+    if not r or r.status_code != 200:
+        return []
+    return r.json()
+
+
+def gh_add_comment_reaction(comment_id: int, content: str) -> bool:
+    """Plaats een reactie. content: +1, -1, laugh, confused, heart, hooray, rocket, eyes."""
+    r = gh_request(
+        "POST",
+        f"/repos/{GITHUB_OWNER}/{GITHUB_REPO}/issues/comments/{comment_id}/reactions",
+        json_body={"content": content},
+    )
+    return r is not None and r.status_code in (200, 201)
+
+
+def has_reaction(comment_id: int, content: str) -> bool:
+    """Heeft dit comment al een reactie met de gegeven content?"""
+    for r in gh_list_comment_reactions(comment_id):
+        if r.get("content") == content:
+            return True
+    return False
 
 
 # ─── JIRA-comment helpers ─────────────────────────────────────────────────
@@ -444,6 +572,149 @@ def jira_has_comment_containing(issue_key: str, needle: str) -> bool:
         if needle in adf_to_markdown(c.get("body")):
             return True
     return False
+
+
+# ─── PR-comment iteratieloop (S-09) ───────────────────────────────────────
+
+
+def find_pending_comment_triggers() -> list[dict]:
+    """
+    Voor elke open ai/-PR: zoek nieuwe @claude-trigger-comments.
+
+    Een trigger is een comment dat de trigger-substring bevat én nog GEEN
+    'eyes'-reactie heeft. We bouwen een context-pakket op van alle comments
+    sinds de laatste 'rocket'-gemarkeerde trigger (= laatste verwerkte
+    iteratie) tot en met de nieuwe trigger; dat wordt Claude's task.
+    """
+    triggers: list[dict] = []
+    for pr in gh_list_open_prs():
+        pr_num = pr.get("number")
+        branch = pr.get("head", {}).get("ref", "")
+        # Alleen ai/-branches doen mee aan de comment-loop. Mens-branches
+        # (feat/, fix/, …) blijven onaangeroerd.
+        if not branch.startswith("ai/"):
+            continue
+        story_id = branch[len("ai/"):]
+        # Story-id moet JIRA-format hebben (b.v. KAN-8) — anders kunnen we
+        # downstream niet correct met JIRA praten en is iteratie zinloos.
+        if not re.match(r"^[A-Z][A-Z0-9]+-[0-9]+$", story_id):
+            continue
+
+        comments = gh_list_issue_comments(pr_num)
+        # Hoge waterlijn: laatste comment dat we ooit verwerkten (rocket).
+        watermark_idx = -1
+        for i, c in enumerate(comments):
+            if has_reaction(c["id"], "rocket"):
+                watermark_idx = i
+
+        # Eerste comment na de waterlijn die de trigger bevat zonder eyes.
+        trigger_idx = -1
+        for i in range(watermark_idx + 1, len(comments)):
+            body = (comments[i].get("body") or "").lower()
+            if COMMENT_TRIGGER not in body:
+                continue
+            if has_reaction(comments[i]["id"], "eyes"):
+                # Al opgepakt (loopt nog of is gefaald). Geen nieuwe trigger.
+                trigger_idx = -1
+                break
+            trigger_idx = i
+            break
+
+        if trigger_idx < 0:
+            continue
+
+        context_comments = comments[watermark_idx + 1 : trigger_idx + 1]
+        triggers.append({
+            "pr_number": pr_num,
+            "pr_title": pr.get("title", ""),
+            "pr_body": pr.get("body") or "",
+            "branch": branch,
+            "story_id": story_id,
+            "trigger_comment_id": comments[trigger_idx]["id"],
+            "context_comments": context_comments,
+        })
+    return triggers
+
+
+def build_comment_task_md(trigger: dict) -> str:
+    """Bouw een task.md voor de runner uit de feedback-comments op een PR."""
+    out: list[str] = []
+    out.append(
+        f"# Feedback op PR #{trigger['pr_number']} — branch `{trigger['branch']}`\n\n"
+    )
+    out.append(
+        "Je hebt eerder een implementatie gemaakt op deze branch. De "
+        "reviewer heeft commentaar geplaatst op de PR; verwerk dat "
+        "commentaar in nieuwe commits op dezelfde branch. Verander niets "
+        "dat niet expliciet gevraagd wordt.\n\n"
+    )
+
+    if trigger.get("pr_body"):
+        out.append("## Originele PR-beschrijving\n\n")
+        out.append(trigger["pr_body"].strip() + "\n\n")
+
+    out.append("## Commentaar van de reviewer (chronologisch)\n\n")
+    for c in trigger["context_comments"]:
+        author = c.get("user", {}).get("login", "unknown")
+        ts = c.get("created_at", "")
+        body = (c.get("body") or "").strip()
+        out.append(f"### {author} — {ts}\n\n{body}\n\n")
+
+    out.append(
+        "De laatste comment hierboven is de trigger-comment (bevat "
+        f"`{COMMENT_TRIGGER}`). Behandel alle bovenstaande comments als "
+        "één geheel aan feedback. Commit elke logische verandering apart, "
+        f"met commit-msg-format `{trigger['story_id']}: <korte beschrijving>`.\n"
+    )
+    return "".join(out)
+
+
+def process_pr_comments() -> None:
+    """Pak nieuwe @claude-comments op ai/-PR's op (S-09)."""
+    if not (GITHUB_TOKEN and GITHUB_OWNER and GITHUB_REPO):
+        return
+    triggers = find_pending_comment_triggers()
+    if not triggers:
+        return
+    log.info("found %d pending PR-comment trigger(s)", len(triggers))
+
+    active = count_active_runner_jobs()
+    for t in triggers:
+        if active >= MAX_CONCURRENT_JOBS:
+            log.info("capacity bereikt — comment-trigger(s) wachten op volgende poll")
+            return
+        # Geen twee runners tegelijk op dezelfde PR.
+        if count_active_jobs_for_pr(t["pr_number"]) > 0:
+            log.info(
+                "PR #%d heeft al een actieve runner — skip deze trigger",
+                t["pr_number"],
+            )
+            continue
+        # Claim de trigger met een 'eyes'-reactie — dit zorgt ook voor
+        # idempotentie als de volgende poll start vóór de Job klaar is.
+        if not gh_add_comment_reaction(t["trigger_comment_id"], "eyes"):
+            log.warning(
+                "kon 'eyes'-reactie niet plaatsen op comment %d — skip",
+                t["trigger_comment_id"],
+            )
+            continue
+        log.info(
+            "opgepakt: PR #%d branch=%s trigger=%d",
+            t["pr_number"],
+            t["branch"],
+            t["trigger_comment_id"],
+        )
+        task_md = build_comment_task_md(t)
+        job_name = spawn_runner_job(
+            issue_key=t["story_id"],
+            task_md=task_md,
+            pr_number=t["pr_number"],
+            trigger_comment_id=t["trigger_comment_id"],
+        )
+        if not job_name:
+            log.error("spawn faalde voor PR #%d", t["pr_number"])
+            continue
+        active += 1
 
 
 # ─── Merge-check (AI IN REVIEW → Klaar) ───────────────────────────────────
@@ -512,6 +783,12 @@ def process_one_pass() -> None:
         check_review_for_merges()
     except Exception as e:
         log.exception("merge-check faalde: %s", e)
+
+    # S-09: PR-comment iteratieloop — @claude-triggers oppakken.
+    try:
+        process_pr_comments()
+    except Exception as e:
+        log.exception("pr-comment loop faalde: %s", e)
 
     issues = fetch_ai_ready_issues()
     if not issues:

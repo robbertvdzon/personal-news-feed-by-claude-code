@@ -56,9 +56,26 @@ Auth via Cloudflare Access of een simpele token-link.
 **Klaar als**: op je telefoon zie je openstaande PR's en kunt 1-tap approven.
 
 ## S-09 · Comment-iteratieloop
-Comment vanaf de mobile-UI of in JIRA → Claude-runner pakt 't op,
-blijft op dezelfde branch, doet de aanpassing, redeploy't preview.
-Loop herhaalt tot je approve't.
+PR-comment op een open `ai/`-PR met de trigger-substring (`@claude`,
+configurable via `COMMENT_TRIGGER_PATTERN`) → poller spawn't een nieuwe
+runner-Job die op dezelfde branch verder werkt, de feedback verwerkt en
+pusht. ArgoCD's preview-deploy refresht automatisch.
+
+Status-signalen via GitHub-reacties op de trigger-comment:
+- 👀 (`eyes`)    — poller heeft 'm opgepakt
+- 🚀 (`rocket`)  — runner heeft commits gepusht
+- 😕 (`confused`) — iteratie liep vast (geen commits, push-fail, CI-fix mislukt)
+
+Context dat de runner meekrijgt: alle PR-comments sinds de vorige 🚀
+(of vanaf PR-opening) tot en met de trigger. Idempotent op trigger-niveau
+via 👀-reactie, en concurrency-safe per PR via Job-label `pr-num=<N>`.
+Werkt alleen op `ai/`-branches met een JIRA-key (b.v. `ai/KAN-8`).
+
+**Gebruik**: laat normale review-comments staan ("die knop staat verkeerd",
+"vergeet de test niet", …). Plak tot slot één comment met `@claude pak
+alles hierboven op` — die triggert de runner met alle voorgaande
+opmerkingen als context.
+
 **Klaar als**: 3 iteraties op één ticket leiden tot één gemergede PR.
 
 ## S-10 · Approve → merge → prod-deploy
