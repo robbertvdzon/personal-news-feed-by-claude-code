@@ -48,8 +48,13 @@ class PodcastController(private val service: PodcastService) {
         @RequestParam(required = false) v: Int?,
         @RequestParam(required = false, defaultValue = "false") download: Boolean
     ): ResponseEntity<ByteArray> {
-        val podcast = service.get(user(), id) ?: throw NotFoundException("podcast $id")
-        val bytes = service.audioBytes(user(), id) ?: throw NotFoundException("audio $id")
+        val u = user()
+        // Username in de NotFoundException-boodschap zodat in de backend-log
+        // (zie GlobalExceptionHandler.handleNotFound) zichtbaar is wélke user
+        // een 404 kreeg én of het de podcast-row of het mp3-bestand is dat
+        // ontbreekt — anders zijn deze 404's blind te debuggen.
+        val podcast = service.get(u, id) ?: throw NotFoundException("podcast id=$id user=$u")
+        val bytes = service.audioBytes(u, id) ?: throw NotFoundException("audio id=$id user=$u (mp3-bestand niet gevonden)")
         // Content-Disposition met de podcast-titel als filename: zo heet
         // het opgeslagen MP3-bestand bij download "DevTalk 12, 2026-05-08
         // — Kotlin, Flutter.mp3" i.p.v. "audio?token=...".
