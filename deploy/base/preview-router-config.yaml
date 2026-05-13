@@ -2,9 +2,16 @@
 # `*.preview.vdzonsoftware.nl` via de Cloudflare-tunnel en route't naar
 # de juiste preview-namespace op basis van de hostname.
 #
-# Hostname-format: pnf-<id>.preview.vdzonsoftware.nl
-# → namespace: pnf-<id>
-# → backend service: frontend.pnf-<id>.svc.cluster.local:8080
+# Hostname-format: pnf-pr-<num>.preview.vdzonsoftware.nl
+# → namespace: pnf-pr-<num>
+# → upstream:  frontend.pnf-pr-<num>.svc.cluster.local:8080
+#
+# We gebruiken de templating-feature van de officiële nginx image:
+# bestanden in /etc/nginx/templates/*.template worden bij startup door
+# envsubst gehaald. De variabele $NGINX_LOCAL_RESOLVERS wordt automatisch
+# gevuld met de DNS-servers uit /etc/resolv.conf van de pod — zo werkt
+# de resolver-directive zonder een hostname (die nginx anders bij startup
+# probeert te resolven en faalt op OpenShift).
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -12,78 +19,55 @@ metadata:
   labels:
     app: preview-router
 data:
-  nginx.conf: |
-    worker_processes 1;
-    pid /tmp/nginx.pid;
-    error_log /dev/stderr warn;
-
-    events {
-        worker_connections 1024;
+  # Geen $-tekens hier — nginx vars worden door envsubst pas vervangen
+  # waar we ze expliciet vermelden (zie spec.containers[].env).
+  default.conf.template: |
+    # Match-and-extract namespace uit `<ns>.preview.vdzonsoftware.nl`.
+    # Veiligheidsklep: alleen patroon dat met `pnf-` start mag matchen,
+    # zo voorkomen we dat iemand via een eigen DNS-CNAME willekeurige
+    # cluster-services kan aanspreken.
+    map $host $preview_ns {
+        default "";
+        "~^(pnf-[a-z0-9-]+)\.preview\.vdzonsoftware\.nl$" $1;
     }
 
-    http {
-        access_log /dev/stdout combined;
-        client_body_temp_path /tmp/client_body;
-        proxy_temp_path       /tmp/proxy;
-        fastcgi_temp_path     /tmp/fastcgi;
-        uwsgi_temp_path       /tmp/uwsgi;
-        scgi_temp_path        /tmp/scgi;
+    map $http_upgrade $connection_upgrade {
+        default upgrade;
+        ''      close;
+    }
 
-        # Match-and-extract namespace uit `<ns>.preview.vdzonsoftware.nl`.
-        # Capture group 1 = <ns> (alleen [a-z0-9-]). Veiligheidsklep: alleen
-        # patroon dat met `pnf-` start mag matchen → voorkomt dat iemand
-        # via een DNS-cname naar willekeurige cluster-services kan routeren.
-        map $host $preview_ns {
-            default "";
-            "~^(pnf-[a-z0-9-]+)\.preview\.vdzonsoftware\.nl$" $1;
+    # Gebruik de pod's eigen nameserver(s) — wordt door
+    # 15-local-resolvers.envsh in de nginx-image gezet.
+    resolver ${NGINX_LOCAL_RESOLVERS} valid=5s;
+
+    server {
+        listen       8080 default_server;
+        server_name  _;
+
+        if ($preview_ns = "") {
+            return 404 "Onbekende preview-hostname\n";
         }
 
-        # WebSocket-upgrade-helper
-        map $http_upgrade $connection_upgrade {
-            default upgrade;
-            ''      close;
+        location / {
+            # Variabele in proxy_pass dwingt runtime-resolve via resolver.
+            set $upstream "frontend.${preview_ns}.svc.cluster.local";
+            proxy_pass http://$upstream:8080;
+
+            proxy_http_version 1.1;
+            proxy_set_header Host              $host;
+            proxy_set_header X-Real-IP         $remote_addr;
+            proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header Upgrade           $http_upgrade;
+            proxy_set_header Connection        $connection_upgrade;
+            proxy_read_timeout 600s;
+
+            proxy_intercept_errors on;
+            error_page 502 503 504 = @upstream_down;
         }
 
-        # In-cluster DNS resolver (CoreDNS). 5s TTL — als een preview-
-        # namespace verschijnt/verdwijnt pakt nginx 't snel op zonder
-        # zelf te restarten.
-        resolver kube-dns.kube-system.svc.cluster.local valid=5s;
-
-        server {
-            listen       8080 default_server;
-            server_name  _;
-
-            # Geen preview-ns? Match-fout → 404, niet doorrouteren.
-            if ($preview_ns = "") {
-                return 404 "Onbekende preview-hostname\n";
-            }
-
-            location / {
-                # Variabele in proxy_pass forceert runtime-resolve via
-                # bovenstaande resolver. Zonder variabele zou nginx
-                # bij startup een statische lookup proberen (faalt).
-                set $upstream "frontend.${preview_ns}.svc.cluster.local";
-                proxy_pass http://$upstream:8080;
-
-                proxy_http_version 1.1;
-                proxy_set_header Host              $host;
-                proxy_set_header X-Real-IP         $remote_addr;
-                proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-                proxy_set_header X-Forwarded-Proto $scheme;
-                proxy_set_header Upgrade           $http_upgrade;
-                proxy_set_header Connection        $connection_upgrade;
-
-                proxy_read_timeout 600s;
-
-                # Als de preview-namespace niet bestaat: 502 → user-vriendelijk
-                # foutbericht.
-                proxy_intercept_errors on;
-                error_page 502 503 504 = @upstream_down;
-            }
-
-            location @upstream_down {
-                add_header Content-Type text/plain always;
-                return 503 "Preview '${preview_ns}' bestaat niet of is nog niet klaar.\nProbeer opnieuw over 1-2 minuten.\n";
-            }
+        location @upstream_down {
+            add_header Content-Type text/plain always;
+            return 503 "Preview '${preview_ns}' bestaat niet of is nog niet klaar.\nProbeer opnieuw over 1-2 minuten.\n";
         }
     }

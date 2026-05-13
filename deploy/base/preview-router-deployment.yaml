@@ -22,10 +22,18 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+          # Voorkom dat envsubst onze $-vars in nginx.conf (zoals $host,
+          # $upstream, etc.) probeert te vervangen. Alleen $NGINX_LOCAL_RESOLVERS
+          # moeten we vervangen — die staat expliciet in deze whitelist.
+          env:
+            - name: NGINX_ENVSUBST_FILTER
+              value: "NGINX_LOCAL_RESOLVERS"
           volumeMounts:
+            # `templates`-pad wordt door de nginx-entrypoint via envsubst
+            # gehaald en het resultaat in /etc/nginx/conf.d/ gezet.
             - name: config
-              mountPath: /etc/nginx/nginx.conf
-              subPath: nginx.conf
+              mountPath: /etc/nginx/templates/default.conf.template
+              subPath: default.conf.template
               readOnly: true
           resources:
             requests:
@@ -35,20 +43,15 @@ spec:
               cpu: 200m
               memory: 64Mi
           readinessProbe:
-            httpGet:
-              path: /
+            tcpSocket:
               port: 8080
-              httpHeaders:
-                - name: Host
-                  value: invalid.example.com
-            # Verwacht 404 (geen preview-match) — voor readiness telt
-            # alleen dat nginx reageert; failureThreshold via successCodes
-            # niet beschikbaar, dus we accepteren 404 als succes via
-            # custom check. nginx default geeft echter 200 op /, dus dit
-            # werkt out-of-the-box voor liveness; voor readiness checken
-            # we via een tcpSocket-style benadering:
             initialDelaySeconds: 2
             periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
       volumes:
         - name: config
           configMap:
