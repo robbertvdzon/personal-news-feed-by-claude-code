@@ -141,6 +141,10 @@ class PodcastGenerator(
         val path = repo.audioPath(username, id)
         Files.createDirectories(path.parent)
         Files.write(path, out.toByteArray())
+        // Pad + size in de log zodat we bij een 404-'mp3-bestand niet
+        // gevonden' achteraf kunnen verifiëren of het bestand ooit op
+        // disk stond (bv. om een verloren PVC-mount uit te sluiten).
+        log.info("[Podcast] audio written id={} path={} bytes={}", id, path.toAbsolutePath(), out.size())
         return path
     }
 
