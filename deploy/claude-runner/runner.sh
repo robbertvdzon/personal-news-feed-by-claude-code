@@ -174,8 +174,11 @@ wait_validate() {
   local timeout=300       # 5 min
   local elapsed=0
   while (( elapsed < timeout )); do
+    # `gh pr checks` toont alle historische runs voor deze PR — we pakken
+    # de LAATSTE (chronologisch onderaan) want oudere fails uit eerdere
+    # close+reopen cycli zijn niet relevant.
     local row
-    row=$(gh pr checks "$pr_num" 2>/dev/null | grep -E "^validate(\s|$)" | head -1)
+    row=$(gh pr checks "$pr_num" 2>/dev/null | grep -E "^validate(\s|$)" | tail -1)
     if [[ -n "$row" ]]; then
       if echo "$row" | grep -qiE "\bpass\b"; then return 0; fi
       if echo "$row" | grep -qiE "\bfail\b"; then return 1; fi
