@@ -715,6 +715,15 @@ def process_pr_comments() -> None:
             t["branch"],
             t["trigger_comment_id"],
         )
+        # JIRA: flip terug naar AI IN PROGRESS zodat de "AI bezig"-sectie
+        # op het dashboard de iteratie laat zien. De runner's end-transition
+        # zet 'm bij succes weer naar AI IN REVIEW; bij faal blijft 'ie op
+        # AI IN PROGRESS staan (= zichtbaar als vastlopend werk).
+        if not transition_issue(t["story_id"], JIRA_TARGET_STATUS):
+            log.warning(
+                "kon %s niet naar %s flippen — runner draait wel door",
+                t["story_id"], JIRA_TARGET_STATUS,
+            )
         task_md = build_comment_task_md(t)
         job_name = spawn_runner_job(
             issue_key=t["story_id"],
