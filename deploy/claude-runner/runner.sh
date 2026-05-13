@@ -123,6 +123,28 @@ fi
 echo "[runner] $NEW_COMMITS nieuwe commit(s):"
 git log --oneline "origin/${BASE_BRANCH}..HEAD"
 
+# ---------- valideer commit-msg-conventie ----------
+# Zie specs/branch-commit-convention.md: commits op ai/<id> moeten
+# beginnen met "<id>: ". Voorkomt dat we naar GitHub pushen waar de
+# CI 'm toch zou afkeuren.
+echo "[runner] check commit-message-conventie"
+bad=0
+while IFS= read -r line; do
+  [[ -z "$line" ]] && continue
+  sha="${line%% *}"
+  msg="${line#* }"
+  if ! [[ "$msg" =~ ^${STORY_ID}:\ .+ ]]; then
+    echo "[runner]   FAIL commit $sha: '$msg'"
+    bad=1
+  fi
+done < <(git log --format='%H %s' "origin/${BASE_BRANCH}..HEAD")
+if [[ $bad -ne 0 ]]; then
+  echo "[runner] commit-message-conventie geschonden — niet pushen."
+  echo "[runner] Verwacht format: '${STORY_ID}: <beschrijving>'"
+  exit 3
+fi
+echo "[runner] commit-messages OK"
+
 # ---------- push ----------
 echo "[runner] push naar origin/$BRANCH"
 git push -u origin "$BRANCH"

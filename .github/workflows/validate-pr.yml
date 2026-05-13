@@ -1,0 +1,96 @@
+name: Validate PR
+
+# Controleert branch-naam en commit-messages tegen
+# specs/branch-commit-convention.md. Faalt als een ai/-branch
+# commits heeft die niet beginnen met de story-id.
+
+on:
+  pull_request:
+    types: [opened, synchronize, edited, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Volledige history nodig om commits tussen base en head te
+          # kunnen zien.
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Validate branch naming
+        env:
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          echo "Branch: $BRANCH"
+          # Regex: prefix/lowercase-alphanum-hyphens
+          if ! [[ "$BRANCH" =~ ^(ai|feat|fix|chore|docs)/[a-z0-9][a-z0-9-]*$ ]]; then
+            echo "::error::Branch name '$BRANCH' voldoet niet aan de conventie."
+            echo "Geldige prefixes: ai/, feat/, fix/, chore/, docs/"
+            echo "Format: <prefix>/<kebab-case>"
+            echo "Voorbeelden: ai/PNF-42, feat/add-export, fix/login-crash"
+            exit 1
+          fi
+          echo "::notice::Branch naam OK"
+
+      - name: Validate commit messages (only ai/ branches)
+        env:
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$BRANCH" =~ ^ai/(.+)$ ]]; then
+            echo "Niet-ai-branch — commit-message-validatie wordt overgeslagen."
+            exit 0
+          fi
+          STORY_ID="${BASH_REMATCH[1]}"
+          echo "Branch story-id: $STORY_ID"
+          echo "Commits in deze PR:"
+          git log --format='%H %s' "${BASE_SHA}..${HEAD_SHA}"
+          echo
+
+          bad=0
+          while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            sha="${line%% *}"
+            msg="${line#* }"
+            # Commit-msg moet beginnen met "<story-id>: "
+            if ! [[ "$msg" =~ ^${STORY_ID}:\ .+ ]]; then
+              echo "::error::Commit $sha begint niet met '${STORY_ID}: '"
+              echo "  message: $msg"
+              bad=1
+            fi
+          done < <(git log --format='%H %s' "${BASE_SHA}..${HEAD_SHA}")
+
+          if [[ $bad -ne 0 ]]; then
+            echo
+            echo "Alle commits op ai/$STORY_ID moeten beginnen met '$STORY_ID: '"
+            echo "Fix lokaal met: git commit --amend (voor laatste) of git rebase -i"
+            exit 1
+          fi
+          echo "::notice::Alle commits OK"
+
+      - name: Validate PR-title
+        env:
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$BRANCH" =~ ^ai/(.+)$ ]]; then
+            echo "Niet-ai-branch — PR-title-validatie wordt overgeslagen."
+            exit 0
+          fi
+          STORY_ID="${BASH_REMATCH[1]}"
+          if ! [[ "$PR_TITLE" =~ ^${STORY_ID}:\ .+ ]]; then
+            echo "::error::PR-titel '$PR_TITLE' begint niet met '${STORY_ID}: '"
+            echo "Pas 'm aan in de GitHub-UI of via 'gh pr edit'."
+            exit 1
+          fi
+          echo "::notice::PR-titel OK"
