@@ -365,6 +365,40 @@ def _find_job(jobs: list[dict], name_substr: str) -> Optional[dict]:
     return None
 
 
+def _find_app_by_ns(apps: list[dict], namespace: str) -> Optional[dict]:
+    """
+    Zoek de ArgoCD Application die naar `namespace` deploy't. De
+    ApplicationSet genereert namen als `preview-{number}-{branch_slug}`
+    (geen voorspelbaar patroon), maar de destination.namespace is
+    deterministisch — die gebruiken we als sleutel.
+    """
+    for app in apps:
+        dest = (app.get("spec") or {}).get("destination") or {}
+        if dest.get("namespace") == namespace:
+            return app
+    return None
+
+
+_IMAGE_SHA_RE = re.compile(r":sha-([0-9a-f]{7,40})$")
+
+
+def _pod_image_sha7(pod: dict, part: str) -> str:
+    """Extract de 7-char SHA uit het image-tag van de container die bij
+    `part` (b.v. backend/frontend) hoort. Lege string als geen match."""
+    containers = (pod.get("spec") or {}).get("containers") or []
+    for c in containers:
+        # Container-name matcht meestal het deel-name; anders pak we 'm
+        # gewoon als 't de eerste is.
+        name = c.get("name", "")
+        if part in name or len(containers) == 1:
+            img = c.get("image", "") or ""
+            m = _IMAGE_SHA_RE.search(img)
+            if m:
+                return m.group(1)[:7]
+            return ""
+    return ""
+
+
 def _app_phase(app: Optional[dict]) -> Phase:
     """ArgoCD Application status → Phase."""
     if not app:
@@ -395,8 +429,15 @@ def _derive_pr_state(phases: list[Phase]) -> tuple[str, str]:
     return ("pending", "Pending")
 
 
-def _pods_phase(pods: list[dict], part: str) -> Phase:
-    """Eén pod-fase per app-onderdeel (backend/frontend)."""
+def _pods_phase(pods: list[dict], part: str, expected_sha7: str = "") -> Phase:
+    """
+    Eén pod-fase per app-onderdeel (backend/frontend).
+
+    Als `expected_sha7` gezet is, wordt de pod's container-image-tag
+    (`sha-<7chars>`) vergeleken. Mismatch → fase is `running` met de
+    detail "Running (oude image sha-...)" — pod draait nog, maar niet
+    de versie waar de PR/main op zit.
+    """
     matches = [
         p for p in pods
         if (p.get("metadata", {}).get("labels", {}).get("app") == part)
@@ -413,15 +454,24 @@ def _pods_phase(pods: list[dict], part: str) -> Phase:
     ]
     if ready_running:
         p = ready_running[0]
+        pod_sha = _pod_image_sha7(p, part)
         restarts = sum(
             c.get("restartCount", 0)
             for c in p.get("status", {}).get("containerStatuses", []) or []
         )
-        return Phase(
-            label=f"{part} pod",
-            status="pass",
-            detail=f"Running" + (f" (restarts: {restarts})" if restarts else ""),
-        )
+        # Mismatch met verwachte SHA = oude image, wacht op redeploy.
+        if expected_sha7 and pod_sha and pod_sha != expected_sha7:
+            return Phase(
+                label=f"{part} pod",
+                status="running",
+                detail=f"Running (oude image sha-{pod_sha})",
+            )
+        detail = "Running"
+        if pod_sha:
+            detail += f" (sha-{pod_sha})"
+        if restarts:
+            detail += f" · restarts: {restarts}"
+        return Phase(label=f"{part} pod", status="pass", detail=detail)
     p = matches[0]
     phase = p.get("status", {}).get("phase", "Unknown")
     reason = ""
@@ -524,8 +574,13 @@ def build_state() -> dict:
         s, d, l = _job_to_status(bump_job)
         main_card.phases.append(Phase("bump manifests", s, d, l))
     main_card.phases.append(_app_phase(apps_by_name.get(PROD_NS)))
-    main_card.phases.append(_pods_phase(pods_by_ns.get(PROD_NS, []), "backend"))
-    main_card.phases.append(_pods_phase(pods_by_ns.get(PROD_NS, []), "frontend"))
+    main_sha7 = main_sha[:7] if main_sha else ""
+    main_card.phases.append(
+        _pods_phase(pods_by_ns.get(PROD_NS, []), "backend", expected_sha7=main_sha7)
+    )
+    main_card.phases.append(
+        _pods_phase(pods_by_ns.get(PROD_NS, []), "frontend", expected_sha7=main_sha7)
+    )
 
     # PR-cards
     pr_cards: list[PRCard] = []
@@ -544,28 +599,36 @@ def build_state() -> dict:
             preview_url=PREVIEW_URL_FORMAT.format(pr=pr_num),
         )
 
+        # Fasen per HEAD-SHA fetchen: zo reflecteert elke vinkje de
+        # status van DEZE commit. Geen run voor deze SHA = pending (—).
+        # Nieuwe commit op de branch reset dus automatisch alle vinkjes
+        # tot z'n eigen run start.
+        head_sha7 = head_sha[:7] if head_sha else ""
+
         # validate-pr
-        val_run = gh_latest_run_for_branch("validate-pr.yml", branch)
+        val_run = gh_latest_run_for_sha("validate-pr.yml", head_sha) if head_sha else None
         s, d, l = _run_to_status(val_run)
         card.phases.append(Phase("validate-pr", s, d, l))
 
         # build-images jobs (backend + frontend)
-        b_run = gh_latest_run_for_branch("build-images.yml", branch)
+        b_run = gh_latest_run_for_sha("build-images.yml", head_sha) if head_sha else None
         b_jobs = gh_jobs_for_run(b_run["id"]) if b_run else []
         s, d, l = _job_to_status(_find_job(b_jobs, "build-backend"))
         card.phases.append(Phase("build backend", s, d, l))
         s, d, l = _job_to_status(_find_job(b_jobs, "build-frontend"))
         card.phases.append(Phase("build frontend", s, d, l))
 
-        # ArgoCD-app voor deze PR heet typisch pnf-pr-<N>
-        app_name = f"pnf-pr-{pr_num}"
-        card.phases.append(_app_phase(apps_by_name.get(app_name)))
-
-        # Pods in pnf-pr-<N>-namespace
+        # ArgoCD-Application zoeken op destination.namespace (de
+        # gegenereerde naam bevat een branch_slug en is niet
+        # voorspelbaar; de namespace daarentegen is altijd pnf-pr-<N>).
         preview_ns = f"{PREVIEW_NS_PREFIX}{pr_num}"
+        card.phases.append(_app_phase(_find_app_by_ns(apps, preview_ns)))
+
+        # Pods in pnf-pr-<N>-namespace; expected_sha7 zorgt dat we de
+        # "draait al op nieuwe SHA?"-check kunnen doen.
         preview_pods = pods_by_ns.get(preview_ns, [])
-        card.phases.append(_pods_phase(preview_pods, "backend"))
-        card.phases.append(_pods_phase(preview_pods, "frontend"))
+        card.phases.append(_pods_phase(preview_pods, "backend", expected_sha7=head_sha7))
+        card.phases.append(_pods_phase(preview_pods, "frontend", expected_sha7=head_sha7))
 
         pr_cards.append(card)
 
