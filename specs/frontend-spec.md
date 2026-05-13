@@ -205,7 +205,9 @@ Toont: podcastnummer, titel, datum, duur, status, kosten, TTS-provider.
 
 ### NieuwePodcastDialog
 - Optioneel: onderwerpen (vrije tekst, één per regel)
-- Periodevelden: aantal dagen en gewenste duur in minuten
+- **Periode (dagen):** numeriek tekstveld (standaard `7`; geen slider — gebruiker tikt zelf het getal in, zodat ook waarden als `1` of `13` mogelijk zijn).
+- **Duur (minuten):** numeriek tekstveld (standaard `15`; geen slider — vrije keuze, bv. `1` of `13` minuten).
+- "Maak"-knop is disabled tot beide velden een geheel getal ≥ 1 bevatten.
 - Keuze TTS-provider: ElevenLabs of OpenAI
 - Indienen: POST `/api/podcasts`
 

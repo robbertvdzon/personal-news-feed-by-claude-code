@@ -127,44 +127,69 @@ class _PodcastScreenState extends ConsumerState<PodcastScreen> {
 
   Future<void> _create() async {
     final topicsCtrl = TextEditingController();
-    int days = 7;
-    int duration = 15;
+    final daysCtrl = TextEditingController(text: '7');
+    final durationCtrl = TextEditingController(text: '15');
     String provider = 'OPENAI';
     final ok = await showDialog<bool>(
       context: context,
-      builder: (ctx) => StatefulBuilder(builder: (ctx, setS) => AlertDialog(
-        title: const Text('Nieuwe podcast'),
-        content: SizedBox(width: 400, child: Column(mainAxisSize: MainAxisSize.min, children: [
-          TextField(
-            controller: topicsCtrl,
-            maxLines: 3,
-            decoration: const InputDecoration(labelText: 'Onderwerpen (één per regel, optioneel)'),
-          ),
-          const SizedBox(height: 12),
-          Row(children: [
-            Expanded(child: Slider(value: days.toDouble(), min: 1, max: 30, divisions: 29, label: '$days dagen', onChanged: (v) => setS(() => days = v.round()))),
-            Text('$days d'),
-          ]),
-          Row(children: [
-            Expanded(child: Slider(value: duration.toDouble(), min: 5, max: 60, divisions: 11, label: '$duration min', onChanged: (v) => setS(() => duration = v.round()))),
-            Text('$duration min'),
-          ]),
-          DropdownButton<String>(
-            value: provider,
-            items: const [
-              DropdownMenuItem(value: 'OPENAI', child: Text('OpenAI TTS')),
-              DropdownMenuItem(value: 'ELEVENLABS', child: Text('ElevenLabs')),
-            ],
-            onChanged: (v) => setS(() => provider = v ?? 'OPENAI'),
-          ),
-        ])),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuleren')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Maak')),
-        ],
-      )),
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setS) {
+        final days = int.tryParse(daysCtrl.text) ?? 0;
+        final duration = int.tryParse(durationCtrl.text) ?? 0;
+        final valid = days >= 1 && duration >= 1;
+        return AlertDialog(
+          title: const Text('Nieuwe podcast'),
+          content: SizedBox(width: 400, child: Column(mainAxisSize: MainAxisSize.min, children: [
+            TextField(
+              controller: topicsCtrl,
+              maxLines: 3,
+              decoration: const InputDecoration(labelText: 'Onderwerpen (één per regel, optioneel)'),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: daysCtrl,
+              keyboardType: TextInputType.number,
+              onChanged: (_) => setS(() {}),
+              decoration: const InputDecoration(
+                labelText: 'Periode (dagen)',
+                helperText: 'Aantal dagen aan nieuws dat wordt meegenomen',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: durationCtrl,
+              keyboardType: TextInputType.number,
+              onChanged: (_) => setS(() {}),
+              decoration: const InputDecoration(
+                labelText: 'Duur (minuten)',
+                helperText: 'Gewenste lengte van de podcast in minuten',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            DropdownButton<String>(
+              value: provider,
+              items: const [
+                DropdownMenuItem(value: 'OPENAI', child: Text('OpenAI TTS')),
+                DropdownMenuItem(value: 'ELEVENLABS', child: Text('ElevenLabs')),
+              ],
+              onChanged: (v) => setS(() => provider = v ?? 'OPENAI'),
+            ),
+          ])),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuleren')),
+            FilledButton(
+              onPressed: valid ? () => Navigator.pop(ctx, true) : null,
+              child: const Text('Maak'),
+            ),
+          ],
+        );
+      }),
     );
     if (ok != true) return;
+    final days = int.tryParse(daysCtrl.text) ?? 0;
+    final duration = int.tryParse(durationCtrl.text) ?? 0;
+    if (days < 1 || duration < 1) return;
     final topics = topicsCtrl.text.split('\n').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
     await ref.read(podcastProvider.notifier).create(
           periodDays: days,
