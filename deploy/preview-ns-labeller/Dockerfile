@@ -4,7 +4,7 @@
 # en zorgt dat preview-namespaces (pnf-pr-*) bestaan met de
 # `argocd.argoproj.io/managed-by=argocd` label.
 
-FROM bitnami/kubectl:1.34
+FROM bitnami/kubectl:latest
 
 USER 0
 RUN install -d -m 0775 -o 1001 -g 0 /scripts
