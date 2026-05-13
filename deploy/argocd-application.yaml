@@ -25,10 +25,11 @@ spec:
     automated:
       prune: true
       selfHeal: true
-    syncOptions:
-      # CreateNamespace=true verwijderd: onze ArgoCD draait namespaced en
-      # mag geen Namespace-resources aanmaken. bootstrap.sh maakt 'm.
-      - ServerSideApply=true
+    syncOptions: []
+    # CreateNamespace=true verwijderd: onze ArgoCD draait namespaced en
+    # mag geen Namespace-resources aanmaken. bootstrap.sh maakt 'm.
+    # ServerSideApply=true verwijderd: triggerde ComparisonError op
+    # OpenShift Route-CRD ("unable to resolve parseableType").
     retry:
       limit: 5
       backoff:
