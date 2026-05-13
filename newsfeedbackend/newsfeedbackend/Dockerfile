@@ -39,9 +39,17 @@ USER 1001
 
 EXPOSE 8080
 
+# Build-metadata: CI geeft deze via --build-arg mee. VersionController
+# leest ze als env-var en exposeert ze via GET /api/version, zodat de
+# frontend kan detecteren dat er een nieuwe versie live staat.
+ARG BUILD_SHA=unknown
+ARG BUILD_TIME=unknown
+
 # Spring's BUILD_RUN-tijd: actuator-health-probe gebruikt deze poort.
 ENV SERVER_PORT=8080 \
     SPRING_PROFILES_ACTIVE= \
-    APP_DATA_DIR=/data
+    APP_DATA_DIR=/data \
+    BUILD_SHA=${BUILD_SHA} \
+    BUILD_TIME=${BUILD_TIME}
 
 ENTRYPOINT ["java", "-jar", "/opt/app/app.jar"]
