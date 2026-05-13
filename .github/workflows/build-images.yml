@@ -1,11 +1,15 @@
 name: Build container images
 
 # Bouwt backend- en frontend-images en pusht naar ghcr.io.
-# Daarna update 't de image-tags in deploy/base/kustomization.yaml en
-# committet die terug — ArgoCD ziet de nieuwe SHA en synct.
 #
-# Trigger: alleen op pushes naar main waar app-code wijzigt (niet op
-# wijzigingen in /deploy zelf, anders krijgen we een commit-loop).
+# Triggers:
+#   * Push naar main         → bouw, push, en update kustomization.yaml
+#                              (ArgoCD synct prod naar nieuwe SHA)
+#   * Pull-request van ai/*  → bouw + push met de PR's HEAD-SHA als tag.
+#                              ApplicationSet (S-06) zet die SHA in de
+#                              preview-deploy, dus zonder dit zou de
+#                              preview een non-existing image proberen
+#                              te pullen.
 
 on:
   push:
@@ -14,14 +18,24 @@ on:
       - 'newsfeedbackend/**'
       - 'frontend/**'
       - '.github/workflows/build-images.yml'
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'newsfeedbackend/**'
+      - 'frontend/**'
+      - '.github/workflows/build-images.yml'
   workflow_dispatch:
 
 permissions:
-  contents: write    # nodig voor de auto-commit van kustomization.yaml
+  contents: write    # nodig voor de auto-commit van kustomization.yaml (alleen op main)
   packages: write    # push naar ghcr.io
+  pull-requests: write   # zodat we eventueel PR-status kunnen updaten
 
+# Per branch een aparte concurrency-group zodat een PR niet een main-build
+# kan blokkeren (en vice versa).
 concurrency:
-  group: build-images
+  group: build-images-${{ github.ref }}
   cancel-in-progress: false
 
 env:
@@ -36,6 +50,10 @@ jobs:
       tag: ${{ steps.meta.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Voor PR's: checkout de PR's HEAD (niet de merge-commit) zodat
+          # `git rev-parse HEAD` overeenkomt met github.event.pull_request.head.sha.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Set short SHA tag
         id: meta
@@ -56,9 +74,11 @@ jobs:
         with:
           context: newsfeedbackend/newsfeedbackend
           push: true
+          # Op main: extra `:main` tag voor handige fallback.
+          # Op PR's: alleen de sha-tag (geen `:main` overschrijven!).
           tags: |
             ${{ env.BACKEND_IMAGE }}:${{ steps.meta.outputs.tag }}
-            ${{ env.BACKEND_IMAGE }}:main
+            ${{ github.event_name == 'push' && format('{0}:main', env.BACKEND_IMAGE) || '' }}
           cache-from: type=gha,scope=backend
           cache-to: type=gha,mode=max,scope=backend
 
@@ -68,6 +88,8 @@ jobs:
       tag: ${{ steps.meta.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Set short SHA tag
         id: meta
@@ -90,18 +112,20 @@ jobs:
           push: true
           tags: |
             ${{ env.FRONTEND_IMAGE }}:${{ steps.meta.outputs.tag }}
-            ${{ env.FRONTEND_IMAGE }}:main
+            ${{ github.event_name == 'push' && format('{0}:main', env.FRONTEND_IMAGE) || '' }}
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
 
+  # Bumpt kustomization.yaml alleen voor main-builds. Voor PR's pakt de
+  # ApplicationSet de PR's HEAD-SHA op via z'n template — geen commit
+  # nodig in de PR-branch.
   bump-manifests:
+    if: github.event_name == 'push'
     needs: [build-backend, build-frontend]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          # Standaard auto-token werkt; voor een protected-branch-flow
-          # zou je hier een PAT/Deploy-key gebruiken.
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install kustomize

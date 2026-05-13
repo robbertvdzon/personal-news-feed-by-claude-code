@@ -1,0 +1,59 @@
+# RBAC voor de preview-ns-labeller.
+#
+# Heeft toegang tot:
+#   * Applications in de argocd-namespace (read-only) — om destinations te lezen
+#   * Namespaces (cluster-scope, create + label) — om preview-namespaces aan te maken
+#
+# Deze wordt in de argocd-namespace gedeployd, dus de SA leeft daar.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: preview-ns-labeller
+  namespace: argocd
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: preview-ns-labeller
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch", "create", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: preview-ns-labeller
+subjects:
+  - kind: ServiceAccount
+    name: preview-ns-labeller
+    namespace: argocd
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: preview-ns-labeller
+---
+# Read-only Applications in argocd-namespace (geen cluster-scope nodig).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: preview-ns-labeller-app-reader
+  namespace: argocd
+rules:
+  - apiGroups: ["argoproj.io"]
+    resources: ["applications"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: preview-ns-labeller-app-reader
+  namespace: argocd
+subjects:
+  - kind: ServiceAccount
+    name: preview-ns-labeller
+    namespace: argocd
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: preview-ns-labeller-app-reader

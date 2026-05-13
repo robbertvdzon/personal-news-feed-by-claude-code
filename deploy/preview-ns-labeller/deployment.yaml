@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: preview-ns-labeller
+  namespace: argocd
+  labels:
+    app: preview-ns-labeller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: preview-ns-labeller
+  template:
+    metadata:
+      labels:
+        app: preview-ns-labeller
+    spec:
+      serviceAccountName: preview-ns-labeller
+      containers:
+        - name: labeller
+          image: ghcr.io/robbertvdzon/preview-ns-labeller:main
+          imagePullPolicy: Always
+          env:
+            - name: ARGOCD_NS
+              value: "argocd"
+            - name: NS_PREFIX
+              value: "pnf-pr-"
+            - name: INTERVAL
+              value: "30"
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi

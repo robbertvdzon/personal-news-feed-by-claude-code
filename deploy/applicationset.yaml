@@ -62,10 +62,11 @@ spec:
           #     de juiste build draait)
           namespace: 'pnf-pr-{{.number}}'
           images:
-            # TODO: per-PR image-build (S-06 follow-up) — voor nu het
-            # main-image, zodat previews tenminste opspinnen.
-            - 'backend=ghcr.io/robbertvdzon/personal-news-feed-backend:main'
-            - 'frontend=ghcr.io/robbertvdzon/personal-news-feed-frontend:main'
+            # PR-specifieke image-tags. De build-workflow tagt elke
+            # PR-commit met sha-<short>. `head_short_sha_7` is een ingebouwde
+            # variabele uit de PullRequest-generator (7-karakter prefix).
+            - 'backend=ghcr.io/robbertvdzon/personal-news-feed-backend:sha-{{.head_short_sha_7}}'
+            - 'frontend=ghcr.io/robbertvdzon/personal-news-feed-frontend:sha-{{.head_short_sha_7}}'
       destination:
         server: https://kubernetes.default.svc
         namespace: 'pnf-pr-{{.number}}'
