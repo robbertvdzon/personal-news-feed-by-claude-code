@@ -128,6 +128,7 @@ class PodcastGenerator(
         }
         if (out.size() == 0) return null
         val path = repo.audioPath(username, id)
+        Files.createDirectories(path.parent)
         Files.write(path, out.toByteArray())
         return path
     }
