@@ -1,0 +1,115 @@
+# Preview-overlay: deploy't een feature-branch in een eigen namespace
+# `pnf-<id>`. De ArgoCD ApplicationSet (deploy/applicationset.yaml) vult
+# de placeholders in (namespace, image-tag) per open PR.
+#
+# Verschillen met de productie-overlay:
+#   * Geen Routes (preview-router handelt ingress af via Cloudflare tunnel)
+#   * Geen PVC voor audio (emptyDir; previews zijn throwaway)
+#   * Geen cloudflared (shared via main tunnel + wildcard hostname)
+#   * Geen SealedSecret (reflector mirror't 'm automatisch vanuit
+#     personal-news-feed naar pnf-*)
+#   * Geen preview-router (loopt al in personal-news-feed)
+#
+# De ApplicationSet patcht namespace + image-tag in.
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Namespace wordt door de ApplicationSet via patch op {0} gezet — niet
+# hier hardcoden, want elke PR krijgt een eigen namespace.
+
+resources:
+  - ../../base
+
+# Resources die niet in een preview thuishoren — gewist via JSON-merge-patch
+# met `$patch: delete`. Deze patches verwijderen ze uit de gerenderde
+# manifest-set.
+patches:
+  - target:
+      kind: SealedSecret
+      name: newsfeed-api-keys
+    patch: |-
+      $patch: delete
+      apiVersion: bitnami.com/v1alpha1
+      kind: SealedSecret
+      metadata:
+        name: newsfeed-api-keys
+  - target:
+      kind: Route
+      name: frontend
+    patch: |-
+      $patch: delete
+      apiVersion: route.openshift.io/v1
+      kind: Route
+      metadata:
+        name: frontend
+  - target:
+      kind: Route
+      name: backend-debug
+    patch: |-
+      $patch: delete
+      apiVersion: route.openshift.io/v1
+      kind: Route
+      metadata:
+        name: backend-debug
+  - target:
+      kind: PersistentVolumeClaim
+      name: backend-data
+    patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: backend-data
+  - target:
+      kind: Deployment
+      name: cloudflared
+    patch: |-
+      $patch: delete
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: cloudflared
+  - target:
+      kind: Deployment
+      name: preview-router
+    patch: |-
+      $patch: delete
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: preview-router
+  - target:
+      kind: Service
+      name: preview-router
+    patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: preview-router
+  - target:
+      kind: ConfigMap
+      name: preview-router-config
+    patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: preview-router-config
+
+  # Backend: vervang PVC-mount door emptyDir (audio is throwaway in previews)
+  - target:
+      kind: Deployment
+      name: backend
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/volumes/0
+        value:
+          name: data
+          emptyDir: {}
+      # Minder strikt rollout-gedrag — preview spawn moet snel zijn
+      - op: replace
+        path: /spec/strategy
+        value:
+          type: RollingUpdate

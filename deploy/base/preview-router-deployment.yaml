@@ -1,0 +1,70 @@
+# Preview-router: nginx-pod die *.preview.vdzonsoftware.nl traffic
+# host-based route't naar de juiste preview-namespace.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: preview-router
+  labels:
+    app: preview-router
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: preview-router
+  template:
+    metadata:
+      labels:
+        app: preview-router
+    spec:
+      containers:
+        - name: nginx
+          image: nginxinc/nginx-unprivileged:1.27-alpine
+          ports:
+            - name: http
+              containerPort: 8080
+          volumeMounts:
+            - name: config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+              readOnly: true
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 64Mi
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+              httpHeaders:
+                - name: Host
+                  value: invalid.example.com
+            # Verwacht 404 (geen preview-match) — voor readiness telt
+            # alleen dat nginx reageert; failureThreshold via successCodes
+            # niet beschikbaar, dus we accepteren 404 als succes via
+            # custom check. nginx default geeft echter 200 op /, dus dit
+            # werkt out-of-the-box voor liveness; voor readiness checken
+            # we via een tcpSocket-style benadering:
+            initialDelaySeconds: 2
+            periodSeconds: 5
+      volumes:
+        - name: config
+          configMap:
+            name: preview-router-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: preview-router
+  labels:
+    app: preview-router
+spec:
+  selector:
+    app: preview-router
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+  type: ClusterIP

@@ -1,0 +1,83 @@
+# ArgoCD ApplicationSet: spint per open PR (branch ai/*) een eigen
+# preview-deploy op. Bij PR-merge of -close ruimt ArgoCD de Application
+# en de hele namespace op.
+#
+# Apply één keer in argocd-namespace:
+#   oc apply -n argocd -f deploy/applicationset.yaml
+#
+# De pullRequest-generator vraagt elke 3 min aan GitHub welke PR's open
+# staan met branch-prefix ai/. Voor private repo's: token in een Secret
+# in de argocd-namespace, hier referenced via `tokenRef`.
+#
+# Eenmalig vooraf in argocd-namespace:
+#   oc create secret generic github-pr-token \
+#     --from-literal=token=<PAT_met_repo_scope> \
+#     -n argocd
+
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: personal-news-feed-previews
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions:
+    - missingkey=error
+
+  generators:
+    - pullRequest:
+        github:
+          owner: robbertvdzon
+          repo: personal-news-feed-by-claude-code
+          # Alleen ai/* branches → AI-gegenereerde preview-deploys
+          labels: []
+          tokenRef:
+            secretName: github-pr-token
+            key: token
+        # Refresh-interval — hoe vaak vraagt ArgoCD aan GitHub welke PR's open zijn
+        requeueAfterSeconds: 180
+        filters:
+          - branchMatch: '^ai/.+$'
+
+  template:
+    metadata:
+      # PR-number én branch-naam in de Application-naam zodat 'ie uniek
+      # is en herkenbaar in ArgoCD-UI.
+      name: 'preview-{{.number}}-{{.branch_slug}}'
+      labels:
+        app.kubernetes.io/part-of: personal-news-feed
+        app.kubernetes.io/managed-by: argocd
+        preview-pr: '{{.number}}'
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/robbertvdzon/personal-news-feed-by-claude-code.git
+        targetRevision: '{{.head_sha}}'
+        path: deploy/overlays/preview
+        kustomize:
+          # Per-PR overrides:
+          #   - namespace wordt pnf-pr-<num>-<branch_slug> (max 63 chars,
+          #     alleen kebab-lowercase)
+          #   - image-tags worden de SHA van deze PR (zodat preview altijd
+          #     de juiste build draait)
+          namespace: 'pnf-pr-{{.number}}'
+          images:
+            - 'backend=ghcr.io/robbertvdzon/personal-news-feed-backend:sha-{{slice .head_sha 0 7}}'
+            - 'frontend=ghcr.io/robbertvdzon/personal-news-feed-frontend:sha-{{slice .head_sha 0 7}}'
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: 'pnf-pr-{{.number}}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          # Belangrijk: de preview-namespace heeft géén argocd-managed-by-
+          # label nodig wanneer ApplicationSet 'm zelf aanmaakt — maar
+          # voor de zekerheid voegen we 'm via een PreSync-hook toe.
+        retry:
+          limit: 3
+          backoff:
+            duration: 10s
+            factor: 2

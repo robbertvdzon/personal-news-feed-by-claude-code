@@ -156,13 +156,27 @@ if gh pr view "$BRANCH" --json number >/dev/null 2>&1; then
   gh pr view "$BRANCH" --json url --jq .url
 else
   echo "[runner] open nieuwe PR"
-  # Body: eerste 200 chars van task + link naar log
   PR_BODY=$(printf '## Story\n\n%s\n\n---\n\n_Geopend door claude-runner._\n' "$(cat /task/task.md)")
   gh pr create \
     --base "$BASE_BRANCH" \
     --head "$BRANCH" \
     --title "$STORY_ID: $(head -1 /task/task.md | sed 's/^# //;s/^[0-9]*\. //')" \
     --body "$PR_BODY"
+fi
+
+# ---------- preview-URL als PR-comment ----------
+# Zodra de ApplicationSet de PR detecteert, spawnt 'ie een preview op
+# https://pnf-pr-<num>.preview.vdzonsoftware.nl. We posten 'm direct
+# als PR-comment zodat de URL meteen klikbaar is.
+PR_NUMBER=$(gh pr view "$BRANCH" --json number --jq .number 2>/dev/null || echo "")
+if [[ -n "$PR_NUMBER" ]]; then
+  PREVIEW_URL="https://pnf-pr-${PR_NUMBER}.preview.vdzonsoftware.nl"
+  echo "[runner] preview-URL: $PREVIEW_URL"
+  # Alleen comment posten als 'm er niet al staat (idempotent)
+  if ! gh pr view "$PR_NUMBER" --json comments --jq '.comments[].body' 2>/dev/null | grep -q "$PREVIEW_URL"; then
+    COMMENT_BODY=$(printf '🚀 **Preview-deploy** — spint over ~2 min op:\n\n%s\n\n_Klik na de deploy om de branch live te bekijken. Bij merge wordt de preview automatisch opgeruimd._' "$PREVIEW_URL")
+    gh pr comment "$PR_NUMBER" --body "$COMMENT_BODY" 2>&1 || echo "[runner] (PR-comment kon niet geplaatst worden; niet kritiek)"
+  fi
 fi
 
 echo "[runner] klaar."

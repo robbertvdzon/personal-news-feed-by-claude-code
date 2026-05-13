@@ -29,6 +29,7 @@ LOCAL_PATH_NS="local-path-storage"
 LOCAL_PATH_SA="local-path-provisioner-service-account"
 SEALED_SECRETS_VERSION="v0.27.0"
 LOCAL_PATH_VERSION="v0.0.30"
+REFLECTOR_VERSION="v10.0.42"
 CERT_FILE="$DEPLOY_DIR/cluster-cert.pem"
 
 # ─── pre-flight ───────────────────────────────────────────────────────
@@ -136,6 +137,15 @@ echo "       local-path StorageClass is nu default"
 # Restart provisioner om de ConfigMap-patches op te pakken
 oc rollout restart -n "$LOCAL_PATH_NS" deploy/local-path-provisioner >/dev/null
 oc rollout status  -n "$LOCAL_PATH_NS" deploy/local-path-provisioner --timeout=60s
+
+# ─── 3b. Reflector (Secret-mirror voor preview-namespaces) ────────────
+# Mirror't `newsfeed-api-keys`-Secret naar elke nieuwe `pnf-*`-namespace
+# (gestuurd via annotations op de Secret). Zonder reflector zou elke
+# preview-namespace een eigen SealedSecret nodig hebben.
+echo
+echo "[3b/5] Reflector ($REFLECTOR_VERSION)"
+oc apply -f "https://github.com/emberstack/kubernetes-reflector/releases/download/${REFLECTOR_VERSION}/reflector.yaml"
+oc rollout status -n kube-system deploy/reflector --timeout=120s
 
 # ─── 4. Namespace met argocd managed-by label ─────────────────────────
 echo
