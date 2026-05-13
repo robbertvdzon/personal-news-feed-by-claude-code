@@ -196,7 +196,7 @@ class _FeedReasonBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final inFeed = item.inFeed;
-    final color = inFeed ? Colors.purpleAccent : Colors.orange;
+    final color = inFeed ? Colors.orange : Colors.orange;
     final icon = inFeed ? Icons.check_circle : Icons.info_outline;
     final headline = inFeed ? 'In persoonlijke feed' : 'Niet in persoonlijke feed';
     final reason = item.feedReason.isNotEmpty
