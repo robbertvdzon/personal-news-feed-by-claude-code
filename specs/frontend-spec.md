@@ -143,14 +143,12 @@ Identiek aan Feed-tab in opbouw: een aparte **"Verberg gelezen"-switch** boven d
 ### RssItem-kaart
 Toont: titel, bron, **relatieve tijd** ("12 minuten geleden" / "3 uur geleden" / "2 dagen geleden" / DD-MM-YYYY na 3 dagen, op basis van `timestamp`), categorie, datum en een **preview-tekst van max 2 regels**. De preview toont bij voorkeur de Nederlandse AI-samenvatting (`summary`) — die geeft de gebruiker direct context in zijn eigen taal. Als `summary` leeg is (item nog niet door AI verwerkt) valt de kaart terug op de ruwe RSS-`snippet`. Een badge geeft aan of het item **in de feed** staat (`inFeed: true`) of niet, inclusief een tooltip met de `feedReason`.
 
-**Achtergrondkleur:** de kaart heeft een **lichtoranje** achtergrond (`Colors.orange.shade100`) wanneer het item in de persoonlijke feed staat (`inFeed: true`), en een **lichtgele** achtergrond (`Colors.yellow.shade100`) wanneer dat niet zo is. Op die manier is direct visueel zichtbaar of een ruw RSS-item door de AI-selectie is gekozen voor de feed.
-
 **Acties per kaart:** identiek aan Feed (swipe-delete, 👍/👎, ster).
 
 ### RssItemDetailScreen
 Identiek qua PageView-navigatie en AppBar-acties als FeedItemDetailScreen.
 
-**Feed-status banner:** prominent zichtbaar onder de chips, met oranje tint (`Colors.orange`) + check-icon als `inFeed: true` ("In persoonlijke feed") of oranje tint + info-icon als `inFeed: false` ("Niet in persoonlijke feed"). Onder de kop staat het volledige `feedReason`-veld met de motivatie van Claude. Als `feedReason` leeg is wordt een fallback-tekst getoond ("Geen reden door AI gegeven (mogelijk nog niet beoordeeld of API-key ontbreekt)") zodat de gebruiker altijd ziet of het item is beoordeeld.
+**Feed-status banner:** prominent zichtbaar onder de chips, met groene tint + check-icon als `inFeed: true` ("In persoonlijke feed") of oranje tint + info-icon als `inFeed: false` ("Niet in persoonlijke feed"). Onder de kop staat het volledige `feedReason`-veld met de motivatie van Claude. Als `feedReason` leeg is wordt een fallback-tekst getoond ("Geen reden door AI gegeven (mogelijk nog niet beoordeeld of API-key ontbreekt)") zodat de gebruiker altijd ziet of het item is beoordeeld.
 
 **Topics:** als `topics` niet leeg is worden ze als compacte chips onder de banner getoond.
 
