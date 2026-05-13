@@ -62,8 +62,10 @@ spec:
           #     de juiste build draait)
           namespace: 'pnf-pr-{{.number}}'
           images:
-            - 'backend=ghcr.io/robbertvdzon/personal-news-feed-backend:sha-{{slice .head_sha 0 7}}'
-            - 'frontend=ghcr.io/robbertvdzon/personal-news-feed-frontend:sha-{{slice .head_sha 0 7}}'
+            # TODO: per-PR image-build (S-06 follow-up) — voor nu het
+            # main-image, zodat previews tenminste opspinnen.
+            - 'backend=ghcr.io/robbertvdzon/personal-news-feed-backend:main'
+            - 'frontend=ghcr.io/robbertvdzon/personal-news-feed-frontend:main'
       destination:
         server: https://kubernetes.default.svc
         namespace: 'pnf-pr-{{.number}}'
@@ -71,11 +73,14 @@ spec:
         automated:
           prune: true
           selfHeal: true
+        # managedNamespaceMetadata zet de label bij namespace-creatie.
+        # Zonder deze label weigert argocd-operator de namespace te managen
+        # (preflight ComparisonError: "namespace … is not managed").
+        managedNamespaceMetadata:
+          labels:
+            argocd.argoproj.io/managed-by: argocd
         syncOptions:
           - CreateNamespace=true
-          # Belangrijk: de preview-namespace heeft géén argocd-managed-by-
-          # label nodig wanneer ApplicationSet 'm zelf aanmaakt — maar
-          # voor de zekerheid voegen we 'm via een PreSync-hook toe.
         retry:
           limit: 3
           backoff:
