@@ -164,6 +164,105 @@ else
     --body "$PR_BODY"
 fi
 
+# ---------- wait_for_validate_pr (Fase 1 selfheal) ----------
+# Wacht max 5 min op de `validate-pr` CI-check. Bij fail: 1× fix-poging
+# door Claude met de error-output als context.
+PR_NUMBER_FOR_CI=$(gh pr view "$BRANCH" --json number --jq .number 2>/dev/null || echo "")
+
+wait_validate() {
+  local pr_num="$1"
+  local timeout=300       # 5 min
+  local elapsed=0
+  while (( elapsed < timeout )); do
+    local row
+    row=$(gh pr checks "$pr_num" 2>/dev/null | grep -E "^validate(\s|$)" | head -1)
+    if [[ -n "$row" ]]; then
+      if echo "$row" | grep -qiE "\bpass\b"; then return 0; fi
+      if echo "$row" | grep -qiE "\bfail\b"; then return 1; fi
+    fi
+    sleep 10
+    elapsed=$((elapsed + 10))
+  done
+  echo "[runner] validate-pr timeout na ${timeout}s — geef het op"
+  return 2
+}
+
+fetch_validate_log() {
+  # Laatste run-id voor deze branch op validate-pr workflow
+  local run_id
+  run_id=$(gh run list --workflow=validate-pr.yml --limit 10 \
+    --json databaseId,headBranch --jq ".[] | select(.headBranch == \"$BRANCH\") | .databaseId" \
+    | head -1)
+  if [[ -n "$run_id" ]]; then
+    gh run view "$run_id" --log-failed 2>&1 | tail -40
+  fi
+}
+
+attempt_fix() {
+  local err="$1"
+  echo "[runner] validate-pr faalt — Claude probeert te fixen (max 1 retry)"
+
+  # Schrijf de fout in een fix-task.md die Claude kan lezen
+  cat > /work/repo/.fix-task.md <<EOF
+# Fix: CI-check 'validate-pr' is gefaald
+
+Je vorige commits hebben de validate-pr CI-check laten falen.
+Hier is de relevante log-output:
+
+\`\`\`
+$err
+\`\`\`
+
+Maak één commit op deze branch ($BRANCH) die het probleem oplost.
+Commit message format: $STORY_ID: <korte beschrijving van de fix>.
+EOF
+
+  set +e
+  claude \
+    --append-system-prompt "$SYSTEM_PROMPT" \
+    --permission-mode bypassPermissions \
+    --print \
+    "Fix de CI-fout zoals beschreven in /work/repo/.fix-task.md." \
+    2>&1 | tee -a /tmp/claude.log
+  set -e
+  rm -f /work/repo/.fix-task.md
+
+  # Verifieer dat er een nieuwe commit is + push
+  local before after
+  before=$(git rev-parse HEAD)
+  after=$(git rev-parse HEAD)   # zelfde — als Claude commit, wijzigt HEAD
+  # Re-check: count commits since base
+  local new_total
+  new_total=$(git log --oneline "origin/${BASE_BRANCH}..HEAD" 2>/dev/null | wc -l | tr -d ' ')
+  if (( new_total <= NEW_COMMITS )); then
+    echo "[runner] Claude maakte geen extra commit voor de fix — geef op."
+    return 1
+  fi
+  echo "[runner] Claude maakte extra commit(s); push + wacht opnieuw"
+  git push origin "$BRANCH"
+  return 0
+}
+
+if [[ -n "$PR_NUMBER_FOR_CI" ]]; then
+  echo "[runner] wacht op validate-pr (max 5 min)…"
+  if wait_validate "$PR_NUMBER_FOR_CI"; then
+    echo "[runner] validate-pr: OK ✓"
+  else
+    rc=$?
+    if (( rc == 1 )); then
+      ERR_LOG=$(fetch_validate_log)
+      if attempt_fix "$ERR_LOG"; then
+        echo "[runner] wacht na fix-attempt op validate-pr (max 5 min)…"
+        if wait_validate "$PR_NUMBER_FOR_CI"; then
+          echo "[runner] validate-pr: OK na fix ✓"
+        else
+          echo "[runner] validate-pr blijft falen — handmatig nodig."
+        fi
+      fi
+    fi
+  fi
+fi
+
 # ---------- preview-URL als PR-comment ----------
 # Zodra de ApplicationSet de PR detecteert, spawnt 'ie een preview op
 # https://pnf-pr-<num>.vdzonsoftware.nl. We posten 'm direct
