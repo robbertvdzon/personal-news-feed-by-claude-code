@@ -1,0 +1,77 @@
+# Kubernetes Job-template voor één Claude-runner-run.
+# Niet rechtstreeks `oc apply -f` doen — gebruik `run-story.sh`, dat de
+# placeholders invult en `oc apply` doet.
+#
+# Placeholders worden vervangen met `envsubst`:
+#   ${JOB_NAME}     unieke jobnaam, bv. claude-run-poc-001-20260513
+#   ${STORY_ID}     logische story-id, bv. poc-001
+#   ${TASK_MD_B64}  base64-encoded inhoud van task.md
+#
+# Het ANTHROPIC_API_KEY en GITHUB_TOKEN komen uit de bestaande sealed
+# secret `newsfeed-api-keys` (we voegen daar een extra key GITHUB_TOKEN
+# aan toe via secrets-cluster.env).
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${JOB_NAME}-task
+  namespace: personal-news-feed
+binaryData:
+  task.md: ${TASK_MD_B64}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${JOB_NAME}
+  namespace: personal-news-feed
+  labels:
+    app: claude-runner
+    story-id: "${STORY_ID}"
+spec:
+  ttlSecondsAfterFinished: 86400    # auto-clean na 24u
+  backoffLimit: 0                   # geen retry — handmatig opnieuw triggeren
+  template:
+    metadata:
+      labels:
+        app: claude-runner
+        story-id: "${STORY_ID}"
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: runner
+          image: ghcr.io/robbertvdzon/claude-runner:main
+          imagePullPolicy: Always
+          env:
+            - name: STORY_ID
+              value: "${STORY_ID}"
+            - name: REPO_URL
+              value: "https://github.com/robbertvdzon/personal-news-feed-by-claude-code.git"
+            - name: BASE_BRANCH
+              value: "main"
+            - name: BRANCH_PREFIX
+              value: "ai/"
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: newsfeed-api-keys
+                  key: PNF_ANTHROPIC_API_KEY
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: newsfeed-api-keys
+                  key: GITHUB_TOKEN
+          volumeMounts:
+            - name: task
+              mountPath: /task
+              readOnly: true
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 2000m
+              memory: 2Gi
+      volumes:
+        - name: task
+          configMap:
+            name: ${JOB_NAME}-task
