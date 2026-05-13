@@ -91,17 +91,28 @@ class PodcastGenerator(
             }
 
             val audio = renderAudio(username, id, script, current.ttsProvider)
+            // Als renderAudio() null teruggeeft staat er géén mp3 op disk
+            // (alle TTS-calls faalden, of het script bevatte geen
+            // INTERVIEWER/GAST-regels). De podcast eindigde dan eerder
+            // tóch op DONE met audioPath=null, waarna de frontend
+            // /audio aanriep en een 404 'mp3-bestand niet gevonden' kreeg.
+            // Markeer in dat geval expliciet FAILED zodat de UI niet
+            // probeert af te spelen.
+            val finalStatus = if (audio != null) PodcastStatus.DONE else PodcastStatus.FAILED
+            if (audio == null) {
+                log.warn("[Podcast] no audio produced id={} user='{}' — marking FAILED", id, username)
+            }
             update(username, id) {
                 it.copy(
-                    status = PodcastStatus.DONE,
+                    status = finalStatus,
                     audioPath = audio?.toAbsolutePath()?.toString(),
                     durationSeconds = current.durationMinutes * 60,
                     generationSeconds = Duration.between(started, Instant.now()).seconds.toInt()
                 )
             }
-            meters.counter("newsfeed.podcast.generated", "ttsProvider", current.ttsProvider.name, "status", "DONE").increment()
+            meters.counter("newsfeed.podcast.generated", "ttsProvider", current.ttsProvider.name, "status", finalStatus.name).increment()
             meters.timer("newsfeed.podcast.duration").record(Duration.between(started, Instant.now()))
-            log.info("[Podcast] generation done id={} title={}", id, title)
+            log.info("[Podcast] generation done id={} status={} title={}", id, finalStatus, title)
         } catch (e: Exception) {
             log.error("[Podcast] generation failed id={}: {}", id, e.message, e)
             update(username, id) { it.copy(status = PodcastStatus.FAILED) }
@@ -128,7 +139,12 @@ class PodcastGenerator(
         }
         if (out.size() == 0) return null
         val path = repo.audioPath(username, id)
+        Files.createDirectories(path.parent)
         Files.write(path, out.toByteArray())
+        // Pad + size in de log zodat we bij een 404-'mp3-bestand niet
+        // gevonden' achteraf kunnen verifiëren of het bestand ooit op
+        // disk stond (bv. om een verloren PVC-mount uit te sluiten).
+        log.info("[Podcast] audio written id={} path={} bytes={}", id, path.toAbsolutePath(), out.size())
         return path
     }
 

@@ -25,11 +25,12 @@ class PodcastRepository(
     @Value("\${app.data-dir:./data}") private val dataDir: String
 ) {
 
-    fun audioPath(username: String, podcastId: String): Path {
-        val dir = Path.of(dataDir, "users", username, "audio")
-        Files.createDirectories(dir)
-        return dir.resolve("$podcastId.mp3")
-    }
+    // Pure path-berekening, geen side effects. Dir-creatie hoort bij
+    // schrijven (PodcastGenerator.renderAudio) — niet bij lezen, want
+    // op de OpenShift PVC kan de pod-user `/data/users` soms niet
+    // aanmaken en die IOException bubbled dan door naar de audio-call.
+    fun audioPath(username: String, podcastId: String): Path =
+        Path.of(dataDir, "users", username, "audio", "$podcastId.mp3")
 
     private fun map(rs: ResultSet, @Suppress("UNUSED_PARAMETER") n: Int): Podcast = Podcast(
         id = rs.getString("id"),
