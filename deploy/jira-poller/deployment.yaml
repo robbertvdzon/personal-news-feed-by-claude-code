@@ -49,6 +49,11 @@ spec:
                 secretKeyRef:
                   name: newsfeed-api-keys
                   key: GITHUB_TOKEN
+            # OpenShift Console-host voor klikbare log-links in JIRA.
+            # Werkt alleen op het thuis-netwerk (geen Cloudflare-tunnel
+            # voor de console). Laat leeg om de log-link weg te laten.
+            - name: OPENSHIFT_CONSOLE_HOST
+              value: "console-openshift-console.apps.sno.lab.vdzon.com"
             - name: POLL_INTERVAL_SEC
               value: "30"
             - name: MAX_CONCURRENT_JOBS

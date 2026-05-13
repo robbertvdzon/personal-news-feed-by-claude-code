@@ -67,6 +67,11 @@ _m = re.match(r"https?://github\.com/([^/]+)/([^/.]+)", REPO_URL)
 GITHUB_OWNER = _m.group(1) if _m else ""
 GITHUB_REPO = _m.group(2) if _m else ""
 
+# OpenShift Console — hostname (zonder https://). Wordt gebruikt om
+# klikbare links naar Job-logs te plaatsen in JIRA. Werkt alleen op het
+# thuis-netwerk tenzij de console-route extern bereikbaar is.
+OPENSHIFT_CONSOLE_HOST = os.environ.get("OPENSHIFT_CONSOLE_HOST", "")
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [poller] %(message)s",
@@ -255,8 +260,8 @@ def sanitize_id(issue_key: str) -> str:
     return s[:30] or "job"
 
 
-def spawn_runner_job(issue_key: str, task_md: str) -> bool:
-    """Maak ConfigMap + Job voor één issue. Returns success."""
+def spawn_runner_job(issue_key: str, task_md: str) -> Optional[str]:
+    """Maak ConfigMap + Job voor één issue. Returns job-name of None bij failure."""
     short = sanitize_id(issue_key)
     stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
     job_name = f"claude-run-{short}-{stamp}"
@@ -355,10 +360,10 @@ def spawn_runner_job(issue_key: str, task_md: str) -> bool:
         )
         if out.returncode != 0:
             log.error("kubectl apply faalde voor %s: %s", obj["kind"], out.stderr[:200])
-            return False
+            return None
 
     log.info("spawned Job %s voor %s", job_name, issue_key)
-    return True
+    return job_name
 
 
 # ─── GitHub helpers (voor merge-check) ────────────────────────────────────
@@ -534,13 +539,47 @@ def process_one_pass() -> None:
             continue
 
         task_md = issue_to_task_md(issue)
-        if not spawn_runner_job(key, task_md):
+        job_name = spawn_runner_job(key, task_md)
+        if not job_name:
             log.error(
                 "  spawn faalde voor %s — issue staat nu in %s; manueel terugzetten",
                 key,
                 JIRA_TARGET_STATUS,
             )
             continue
+
+        # JIRA-comment: "in progress" met klikbare links naar branch + logs
+        branch_url = (
+            f"https://github.com/{GITHUB_OWNER}/{GITHUB_REPO}/tree/ai/{key}"
+            if (GITHUB_OWNER and GITHUB_REPO) else ""
+        )
+        console_url = (
+            f"https://{OPENSHIFT_CONSOLE_HOST}/k8s/ns/{RUNNER_NAMESPACE}/jobs/{job_name}/logs"
+            if OPENSHIFT_CONSOLE_HOST else ""
+        )
+
+        paragraphs = [
+            adf_paragraph(adf_text("🤖 Claude is begonnen aan de implementatie.")),
+        ]
+        if branch_url:
+            paragraphs.append(adf_paragraph(
+                adf_text("Branch (zichtbaar zodra Claude de eerste commit pusht): "),
+                adf_link(f"ai/{key}", branch_url),
+            ))
+        paragraphs.append(adf_paragraph(adf_text(f"K8s Job: {job_name}")))
+        if console_url:
+            paragraphs.append(adf_paragraph(
+                adf_text("Live logs (alleen op thuisnetwerk): "),
+                adf_link("OpenShift Console", console_url),
+            ))
+        paragraphs.append(adf_paragraph(
+            adf_text("Klaar over ~3-5 min — dan komt er een nieuwe comment met de PR-link."),
+        ))
+        try:
+            jira_post_adf_comment(key, paragraphs)
+        except Exception as e:
+            log.warning("kon AI-IN-PROGRESS-comment niet plaatsen voor %s: %s", key, e)
+
         active += 1
 
 
