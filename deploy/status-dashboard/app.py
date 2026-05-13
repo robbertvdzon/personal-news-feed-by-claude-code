@@ -167,6 +167,13 @@ def gh_main_head_commit() -> Optional[dict]:
     return data
 
 
+def gh_commit(sha: str) -> Optional[dict]:
+    """Een specifieke commit ophalen (voor committer.date per PR-head)."""
+    if not sha:
+        return None
+    return gh(f"/repos/{GITHUB_OWNER}/{GITHUB_REPO}/commits/{sha}")
+
+
 def gh_latest_release() -> Optional[dict]:
     """Meest recente non-draft, non-prerelease release. None als er nog
     geen release is."""
@@ -234,6 +241,27 @@ if JIRA_EMAIL and JIRA_API_KEY:
     _jira_session.headers.update({"Accept": "application/json"})
 
 
+def _jira_last_status_change(issue: dict) -> str:
+    """
+    Geef de ISO-timestamp terug van de meest recente status-veld-wisseling
+    van deze issue, gebaseerd op de changelog. Lege string als geen
+    status-wisseling gevonden of changelog ontbreekt.
+
+    De zoek-API levert histories meestal oudst-eerst, dus we scannen
+    volledig en houden de laatste status-item bij.
+    """
+    histories = (issue.get("changelog") or {}).get("histories") or []
+    latest = ""
+    for h in histories:
+        created = h.get("created", "")
+        for item in h.get("items", []) or []:
+            if item.get("field") == "status":
+                if not latest or created > latest:
+                    latest = created
+                break
+    return latest
+
+
 def jira_search_tracked() -> list[dict]:
     """
     Issues in een van de tracked statussen (AI Ready + AI IN PROGRESS
@@ -255,10 +283,13 @@ def jira_search_tracked() -> list[dict]:
             f"{JIRA_BASE_URL}/rest/api/3/search/jql",
             params={
                 "jql": jql,
-                # statuscategorychangedate = wanneer de issue voor 't laatst
-                # van statuscategorie wisselde (= veel preciezer dan
-                # `updated` voor "sinds wanneer in deze status").
-                "fields": "summary,status,updated,statuscategorychangedate",
+                "fields": "summary,status,updated",
+                # changelog ophalen zodat we de exacte laatste
+                # status-field-wisseling kunnen vinden. Anders zou
+                # b.v. AI IN REVIEW → AI IN PROGRESS (zelfde categorie)
+                # géén timestamp-update geven via
+                # statuscategorychangedate.
+                "expand": "changelog",
                 "maxResults": "50",
             },
             timeout=10,
@@ -299,6 +330,8 @@ class PRCard:
     pr_state: str = ""          # 'ready' / 'building' / 'failed' / 'pending'
     pr_state_label: str = ""    # mensleesbare label
     jira_status: str = ""       # 'AI IN REVIEW' etc., leeg als geen JIRA-issue
+    jira_status_age: str = ""   # 'sinds Xm' (vanuit changelog)
+    last_commit_age: str = ""   # 'Xm geleden' op de HEAD-commit
 
 
 @dataclass
@@ -661,6 +694,13 @@ def build_state() -> dict:
         card.phases.append(_pods_phase(preview_pods, "backend", expected_sha7=head_sha7))
         card.phases.append(_pods_phase(preview_pods, "frontend", expected_sha7=head_sha7))
 
+        # HEAD-commit timestamp ophalen (apart call per PR, gecached).
+        commit_data = gh_commit(head_sha)
+        if commit_data:
+            card.last_commit_age = _ago(
+                ((commit_data.get("commit") or {}).get("committer") or {}).get("date", "")
+            )
+
         pr_cards.append(card)
 
     # JIRA: één call die alle tracked statussen ophaalt.
@@ -680,6 +720,7 @@ def build_state() -> dict:
                 card.jira_status = (
                     ((issue.get("fields") or {}).get("status") or {}).get("name", "")
                 )
+                card.jira_status_age = _ago(_jira_last_status_change(issue))
 
     # AI bezig: filter op de active subset.
     jira_cards: list[JIRACard] = []
@@ -690,11 +731,11 @@ def build_state() -> dict:
         status_name = (fields.get("status") or {}).get("name", "")
         if status_name not in JIRA_ACTIVE_STATUSES:
             continue
-        # Voorkeur: statuscategorychangedate (wanneer 'm in deze status
-        # kwam) boven het generieke `updated` veld dat ook reageert op
-        # comment-changes. Fallback naar updated.
+        # Accurate "sinds wanneer in deze status": uit de changelog
+        # halen. Fallback naar fields.updated (= laatste activiteit op
+        # issue, ook door comments — niet ideaal maar beter dan niks).
         status_change = (
-            fields.get("statuscategorychangedate") or fields.get("updated", "")
+            _jira_last_status_change(issue) or fields.get("updated", "")
         )
         card = JIRACard(
             key=key,
@@ -808,16 +849,18 @@ h1 { font-size: 18px; margin: 0 0 4px 0; }
 .title a:hover { text-decoration: underline; }
 .meta { font-size: 12px; color: #8b96a8; margin-bottom: 10px; }
 .meta a { color: #93c5fd; text-decoration: none; }
-.phase {
+.phase, .info-row {
   display: flex; align-items: center; gap: 8px;
   padding: 4px 0; font-size: 13px;
 }
 .phase .icon { font-size: 14px; min-width: 18px; text-align: center; }
-.phase .label { min-width: 130px; color: #cbd5e1; }
-.phase .detail { color: #8b96a8; font-size: 12px; }
+.phase .label, .info-row .label { min-width: 130px; color: #cbd5e1; }
+.phase .detail, .info-row .detail { color: #8b96a8; font-size: 12px; }
+.info-row .label { padding-left: 26px; color: #94a3b8; }
 .phase.fail .detail { color: #fca5a5; }
-.phase a { color: #93c5fd; text-decoration: none; }
+.phase a, .info-row a { color: #93c5fd; text-decoration: none; }
 .since { color: #64748b; font-size: 11px; }
+.info-row + .phase, .badges + .info-row, .info-row + .info-row { border-top: 1px dotted transparent; }
 .preview, .apk {
   display: inline-block; margin-top: 8px; padding: 6px 10px;
   background: #1e3a5f; border-radius: 6px;
@@ -898,26 +941,54 @@ def render_pr(card: PRCard) -> str:
         f'<a class="preview" href="{escape(card.preview_url)}" target="_blank">'
         f"🌐 {escape(card.preview_url.replace('https://', ''))}</a>"
     )
-    # Badges-regel: PR-state (afgeleid uit fases) + JIRA-status (apart).
-    badges: list[str] = []
+
+    # Status-badge bovenaan: enkel de PR-state. JIRA komt nu als
+    # info-rij hieronder, mét sinds-timestamp.
+    badge_html = ""
     if card.pr_state and card.pr_state_label:
-        badges.append(
-            f'<span class="badge {escape(card.pr_state)}">{escape(card.pr_state_label)}</span>'
+        badge_html = (
+            f'<div class="badges">'
+            f'<span class="badge {escape(card.pr_state)}">'
+            f"{escape(card.pr_state_label)}</span></div>"
         )
+
+    # Info-rijen: branch/author + last commit + JIRA-status. Zelfde layout
+    # als phases zodat 't visueel consistent oogt.
+    info_rows: list[str] = []
+    info_rows.append(
+        f'<div class="info-row">'
+        f'<span class="label">branch</span>'
+        f'<span class="detail"><code>{escape(card.branch)}</code> · door {escape(card.author)}</span>'
+        f"</div>"
+    )
+    commit_age_html = (
+        f' <span class="since">· {escape(card.last_commit_age)} geleden</span>'
+        if card.last_commit_age else ""
+    )
+    info_rows.append(
+        f'<div class="info-row">'
+        f'<span class="label">last commit</span>'
+        f'<span class="detail"><code>{escape(card.head_sha)}</code>{commit_age_html}</span>'
+        f"</div>"
+    )
     if card.jira_status:
-        badges.append(
-            f'<span class="badge jira">JIRA: {escape(card.jira_status)}</span>'
+        jira_age_html = (
+            f' <span class="since">· sinds {escape(card.jira_status_age)}</span>'
+            if card.jira_status_age else ""
         )
-    badges_html = f'<div class="badges">{"".join(badges)}</div>' if badges else ""
+        info_rows.append(
+            f'<div class="info-row">'
+            f'<span class="label">JIRA-status</span>'
+            f'<span class="detail">{escape(card.jira_status)}{jira_age_html}</span>'
+            f"</div>"
+        )
+
     return (
         '<div class="card pr">'
         f'<div class="title"><a href="{escape(card.html_url)}" target="_blank">'
         f"🟡 PR #{card.number} — {escape(card.title)}</a></div>"
-        f"{badges_html}"
-        f'<div class="meta">branch <code>{escape(card.branch)}</code> @ '
-        f'<code>{escape(card.head_sha)}</code> '
-        f'<span class="since">(laatste activiteit {escape(card.updated_age)} geleden)</span> · '
-        f"door {escape(card.author)}</div>"
+        f"{badge_html}"
+        f'{"".join(info_rows)}'
         f"{phases_html}"
         f"{preview}"
         "</div>"
