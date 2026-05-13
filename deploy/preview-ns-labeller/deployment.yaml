@@ -30,7 +30,12 @@ spec:
           resources:
             requests:
               cpu: 10m
-              memory: 16Mi
-            limits:
-              cpu: 100m
               memory: 64Mi
+            limits:
+              # `kubectl` is een Go-binary van ~50 MB; meerdere parallele
+              # forks tegelijk binnen één poll-iteratie tikken de limit
+              # snel aan. 64Mi was te krap → OOMKilled na de eerste
+              # kubectl-call, daarna eindeloos crash-loop met alléén
+              # de "start"-log zichtbaar.
+              cpu: 200m
+              memory: 192Mi
