@@ -253,7 +253,14 @@ def jira_search_tracked() -> list[dict]:
     try:
         r = _jira_session.get(
             f"{JIRA_BASE_URL}/rest/api/3/search/jql",
-            params={"jql": jql, "fields": "summary,status,updated", "maxResults": "50"},
+            params={
+                "jql": jql,
+                # statuscategorychangedate = wanneer de issue voor 't laatst
+                # van statuscategorie wisselde (= veel preciezer dan
+                # `updated` voor "sinds wanneer in deze status").
+                "fields": "summary,status,updated,statuscategorychangedate",
+                "maxResults": "50",
+            },
             timeout=10,
         )
     except requests.RequestException as e:
@@ -274,6 +281,7 @@ class Phase:
     status: str  # 'pass', 'running', 'fail', 'pending', 'unknown'
     detail: str = ""
     link: str = ""
+    since: str = ""  # 'Xm geleden' suffix, b.v. wanneer de run klaar was
 
 
 @dataclass
@@ -330,31 +338,40 @@ class JIRACard:
 # ─── helpers voor fase-status afleiden ────────────────────────────────────
 
 
-def _run_to_status(run: Optional[dict]) -> tuple[str, str, str]:
-    """Map workflow-run naar (status, detail, link)."""
+def _run_to_status(run: Optional[dict]) -> tuple[str, str, str, str]:
+    """Map workflow-run naar (status, detail, link, since)."""
     if not run:
-        return ("pending", "—", "")
+        return ("pending", "—", "", "")
     state = run.get("status")  # queued/in_progress/completed
     conc = run.get("conclusion")  # success/failure/cancelled/...
     link = run.get("html_url", "")
+    # Timestamp: updated_at als 'm klaar is, anders run_started_at.
+    if state == "completed":
+        since = _ago(run.get("updated_at", ""))
+    else:
+        since = _ago(run.get("run_started_at") or run.get("created_at", ""))
     if state != "completed":
-        return ("running", state or "running", link)
+        return ("running", state or "running", link, since)
     if conc == "success":
-        return ("pass", "", link)
-    return ("fail", conc or "failed", link)
+        return ("pass", "", link, since)
+    return ("fail", conc or "failed", link, since)
 
 
-def _job_to_status(job: Optional[dict]) -> tuple[str, str, str]:
+def _job_to_status(job: Optional[dict]) -> tuple[str, str, str, str]:
     if not job:
-        return ("pending", "—", "")
+        return ("pending", "—", "", "")
     state = job.get("status")
     conc = job.get("conclusion")
     link = job.get("html_url", "")
+    if state == "completed":
+        since = _ago(job.get("completed_at", "") or job.get("started_at", ""))
+    else:
+        since = _ago(job.get("started_at", ""))
     if state != "completed":
-        return ("running", state or "running", link)
+        return ("running", state or "running", link, since)
     if conc == "success":
-        return ("pass", "", link)
-    return ("fail", conc or "failed", link)
+        return ("pass", "", link, since)
+    return ("fail", conc or "failed", link, since)
 
 
 def _find_job(jobs: list[dict], name_substr: str) -> Optional[dict]:
@@ -403,18 +420,28 @@ def _app_phase(app: Optional[dict]) -> Phase:
     """ArgoCD Application status → Phase."""
     if not app:
         return Phase(label="argocd sync", status="pending", detail="—")
-    status = (app.get("status") or {}).get("sync", {}).get("status")
-    health = (app.get("status") or {}).get("health", {}).get("status")
+    app_status = app.get("status") or {}
+    status = (app_status.get("sync") or {}).get("status")
+    health = (app_status.get("health") or {}).get("status")
+    # Beste timestamp: operationState.finishedAt (laatste sync klaar);
+    # fallback naar reconciledAt.
+    op_state = app_status.get("operationState") or {}
+    since = _ago(
+        op_state.get("finishedAt")
+        or app_status.get("reconciledAt")
+        or ""
+    )
     if status == "Synced" and health == "Healthy":
-        return Phase(label="argocd sync", status="pass", detail="Synced/Healthy")
+        return Phase(label="argocd sync", status="pass", detail="Synced/Healthy", since=since)
     if status == "Synced" and health == "Progressing":
-        return Phase(label="argocd sync", status="running", detail="Synced/Progressing")
+        return Phase(label="argocd sync", status="running", detail="Synced/Progressing", since=since)
     if status == "OutOfSync":
-        return Phase(label="argocd sync", status="running", detail="OutOfSync")
+        return Phase(label="argocd sync", status="running", detail="OutOfSync", since=since)
     return Phase(
         label="argocd sync",
         status="running" if status else "pending",
         detail=f"{status or '—'}/{health or '—'}",
+        since=since,
     )
 
 
@@ -459,19 +486,22 @@ def _pods_phase(pods: list[dict], part: str, expected_sha7: str = "") -> Phase:
             c.get("restartCount", 0)
             for c in p.get("status", {}).get("containerStatuses", []) or []
         )
+        # Pod-leeftijd: startTime (= moment dat de kubelet 'm scheduled).
+        since = _ago(p.get("status", {}).get("startTime", ""))
         # Mismatch met verwachte SHA = oude image, wacht op redeploy.
         if expected_sha7 and pod_sha and pod_sha != expected_sha7:
             return Phase(
                 label=f"{part} pod",
                 status="running",
                 detail=f"Running (oude image sha-{pod_sha})",
+                since=since,
             )
         detail = "Running"
         if pod_sha:
             detail += f" (sha-{pod_sha})"
         if restarts:
             detail += f" · restarts: {restarts}"
-        return Phase(label=f"{part} pod", status="pass", detail=detail)
+        return Phase(label=f"{part} pod", status="pass", detail=detail, since=since)
     p = matches[0]
     phase = p.get("status", {}).get("phase", "Unknown")
     reason = ""
@@ -484,6 +514,7 @@ def _pods_phase(pods: list[dict], part: str, expected_sha7: str = "") -> Phase:
         label=f"{part} pod",
         status="running" if phase in ("Pending", "ContainerCreating") else "fail",
         detail=f"{phase}" + (f" — {reason}" if reason else ""),
+        since=_ago(p.get("status", {}).get("startTime", "")),
     )
 
 
@@ -566,13 +597,13 @@ def build_state() -> dict:
     be_job = _find_job(build_jobs, "build-backend")
     fe_job = _find_job(build_jobs, "build-frontend")
     bump_job = _find_job(build_jobs, "bump-manifests")
-    s, d, l = _job_to_status(be_job)
-    main_card.phases.append(Phase("build backend", s, d, l))
-    s, d, l = _job_to_status(fe_job)
-    main_card.phases.append(Phase("build frontend", s, d, l))
+    s, d, l, since = _job_to_status(be_job)
+    main_card.phases.append(Phase("build backend", s, d, l, since))
+    s, d, l, since = _job_to_status(fe_job)
+    main_card.phases.append(Phase("build frontend", s, d, l, since))
     if bump_job is not None:
-        s, d, l = _job_to_status(bump_job)
-        main_card.phases.append(Phase("bump manifests", s, d, l))
+        s, d, l, since = _job_to_status(bump_job)
+        main_card.phases.append(Phase("bump manifests", s, d, l, since))
     main_card.phases.append(_app_phase(apps_by_name.get(PROD_NS)))
     main_sha7 = main_sha[:7] if main_sha else ""
     main_card.phases.append(
@@ -607,16 +638,16 @@ def build_state() -> dict:
 
         # validate-pr
         val_run = gh_latest_run_for_sha("validate-pr.yml", head_sha) if head_sha else None
-        s, d, l = _run_to_status(val_run)
-        card.phases.append(Phase("validate-pr", s, d, l))
+        s, d, l, since = _run_to_status(val_run)
+        card.phases.append(Phase("validate-pr", s, d, l, since))
 
         # build-images jobs (backend + frontend)
         b_run = gh_latest_run_for_sha("build-images.yml", head_sha) if head_sha else None
         b_jobs = gh_jobs_for_run(b_run["id"]) if b_run else []
-        s, d, l = _job_to_status(_find_job(b_jobs, "build-backend"))
-        card.phases.append(Phase("build backend", s, d, l))
-        s, d, l = _job_to_status(_find_job(b_jobs, "build-frontend"))
-        card.phases.append(Phase("build frontend", s, d, l))
+        s, d, l, since = _job_to_status(_find_job(b_jobs, "build-backend"))
+        card.phases.append(Phase("build backend", s, d, l, since))
+        s, d, l, since = _job_to_status(_find_job(b_jobs, "build-frontend"))
+        card.phases.append(Phase("build frontend", s, d, l, since))
 
         # ArgoCD-Application zoeken op destination.namespace (de
         # gegenereerde naam bevat een branch_slug en is niet
@@ -659,12 +690,18 @@ def build_state() -> dict:
         status_name = (fields.get("status") or {}).get("name", "")
         if status_name not in JIRA_ACTIVE_STATUSES:
             continue
+        # Voorkeur: statuscategorychangedate (wanneer 'm in deze status
+        # kwam) boven het generieke `updated` veld dat ook reageert op
+        # comment-changes. Fallback naar updated.
+        status_change = (
+            fields.get("statuscategorychangedate") or fields.get("updated", "")
+        )
         card = JIRACard(
             key=key,
             title=fields.get("summary", ""),
             status=status_name,
             jira_url=f"{JIRA_BASE_URL}/browse/{key}" if JIRA_BASE_URL else "",
-            age=_ago(fields.get("updated", "")),
+            age=_ago(status_change),
         )
         # Job-lookup: label story-id is de lowercase-kebab key (kan-12).
         story_label = re.sub(r"[^a-z0-9-]+", "-", key.lower()).strip("-")[:30]
@@ -780,6 +817,7 @@ h1 { font-size: 18px; margin: 0 0 4px 0; }
 .phase .detail { color: #8b96a8; font-size: 12px; }
 .phase.fail .detail { color: #fca5a5; }
 .phase a { color: #93c5fd; text-decoration: none; }
+.since { color: #64748b; font-size: 11px; }
 .preview, .apk {
   display: inline-block; margin-top: 8px; padding: 6px 10px;
   background: #1e3a5f; border-radius: 6px;
@@ -812,11 +850,15 @@ def render_phase(p: Phase) -> str:
     detail = escape(p.detail) if p.detail else ""
     if p.link and p.status in ("fail", "running"):
         detail = f'<a href="{escape(p.link)}" target="_blank">{detail or "↗ logs"}</a>'
+    since_html = (
+        f' <span class="since">· {escape(p.since)} geleden</span>'
+        if p.since else ""
+    )
     return (
         f'<div class="phase {escape(p.status)}">'
         f'<span class="icon">{icon}</span>'
         f'<span class="label">{escape(p.label)}</span>'
-        f'<span class="detail">{detail}</span>'
+        f'<span class="detail">{detail}{since_html}</span>'
         f"</div>"
     )
 
@@ -872,8 +914,10 @@ def render_pr(card: PRCard) -> str:
         f'<div class="title"><a href="{escape(card.html_url)}" target="_blank">'
         f"🟡 PR #{card.number} — {escape(card.title)}</a></div>"
         f"{badges_html}"
-        f'<div class="meta">branch <code>{escape(card.branch)}</code> @ <code>{escape(card.head_sha)}</code> · '
-        f"door {escape(card.author)} · {escape(card.updated_age)} geleden</div>"
+        f'<div class="meta">branch <code>{escape(card.branch)}</code> @ '
+        f'<code>{escape(card.head_sha)}</code> '
+        f'<span class="since">(laatste activiteit {escape(card.updated_age)} geleden)</span> · '
+        f"door {escape(card.author)}</div>"
         f"{phases_html}"
         f"{preview}"
         "</div>"
@@ -886,8 +930,8 @@ def render_jira(card: JIRACard) -> str:
         f'<a href="{escape(card.jira_url)}" target="_blank">{title_inner}</a>'
         if card.jira_url else title_inner
     )
-    # Bouw de meta-regel: status · age · job-info (indien aanwezig).
-    parts = [escape(card.status), f"{escape(card.age)} geleden"]
+    # Bouw de meta-regel: status (sinds X) · job-info (indien aanwezig).
+    parts = [f"{escape(card.status)} sinds {escape(card.age)}"]
     if card.job_state:
         icon = STATUS_ICONS.get(card.job_status, "?")
         parts.append(f"{icon} Job {escape(card.job_state)}")
