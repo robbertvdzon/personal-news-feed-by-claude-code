@@ -5,6 +5,7 @@ import '../api/local_cache.dart';
 import '../api/ws_client.dart';
 import '../models/models.dart';
 import 'auth_provider.dart';
+import 'version_provider.dart';
 
 /// Helper: probeer een list-API-call. Bij succes → cache + return. Bij
 /// netwerk- of HTTP-fout → val terug op de eerder gecachete waarde
@@ -221,6 +222,12 @@ class RequestNotifier extends AsyncNotifier<List<NewsRequest>> {
   }
 
   void _apply(Map<String, dynamic> msg) {
+    // Specials: de backend stuurt na (re)connect een `serverVersion`-bericht
+    // zodat lange WS-sessies een nieuwe deploy oppikken zonder polling.
+    if (msg['type'] == 'serverVersion') {
+      ref.read(versionProvider.notifier).applyServerVersion(msg);
+      return;
+    }
     final updated = NewsRequest.fromJson(msg);
     final cur = state.value;
     if (cur == null) return;

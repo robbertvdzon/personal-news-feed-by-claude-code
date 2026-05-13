@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../api/api_client.dart';
+import '../api/version_client.dart';
 import '../models/models.dart';
 import '../providers/auth_provider.dart';
 import '../providers/data_providers.dart';
+import '../providers/version_provider.dart';
 import '../widgets/app_logo.dart';
 import 'api_log_screen.dart';
 
@@ -108,6 +110,9 @@ class SettingsScreen extends ConsumerWidget {
             MaterialPageRoute<void>(builder: (_) => const ApiLogScreen()),
           ),
         ),
+        const Divider(),
+        Text('Over deze app', style: Theme.of(context).textTheme.titleLarge),
+        const _VersionBlock(),
       ]),
     );
   }
@@ -400,5 +405,63 @@ class _RssFeedsEditorState extends ConsumerState<_RssFeedsEditor> {
     final next = [...widget.feeds, url];
     ref.read(rssFeedsProvider.notifier).save(next);
     _controller.clear();
+  }
+}
+
+/// Toont de actieve frontend- en backend-versie zoals beschreven in
+/// frontend-spec §9: buildnummer (git short SHA) en build-timestamp in
+/// lokale tijd. Frontend-info komt uit de bundel, backend-info uit het
+/// `versionProvider` (gevuld door `/api/version` of het WS-bericht
+/// `serverVersion`). Bij ontbrekende backend-info tonen we `onbekend`.
+class _VersionBlock extends ConsumerWidget {
+  const _VersionBlock();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final v = ref.watch(versionProvider);
+    return Column(children: [
+      _VersionTile(label: 'Frontend', info: v.frontend),
+      _VersionTile(label: 'Backend', info: v.backend),
+    ]);
+  }
+}
+
+class _VersionTile extends StatelessWidget {
+  final String label;
+  final VersionInfo? info;
+  const _VersionTile({required this.label, required this.info});
+
+  @override
+  Widget build(BuildContext context) {
+    final i = info;
+    final sub = (i == null) ? 'onbekend' : _formatVersion(i);
+    return ListTile(
+      dense: true,
+      leading: const Icon(Icons.info_outline),
+      title: Text(label),
+      subtitle: Text(sub, style: const TextStyle(fontFamily: 'monospace')),
+    );
+  }
+
+  static String _formatVersion(VersionInfo v) {
+    final sha = v.sha;
+    final t = _formatBuildTime(v.buildTime);
+    return '$sha · $t';
+  }
+
+  static const _months = [
+    'januari', 'februari', 'maart', 'april', 'mei', 'juni',
+    'juli', 'augustus', 'september', 'oktober', 'november', 'december',
+  ];
+
+  static String _formatBuildTime(String iso) {
+    if (iso.isEmpty || iso == 'unknown') return 'onbekend';
+    final parsed = DateTime.tryParse(iso);
+    if (parsed == null) return iso;
+    // ISO is UTC; toon in lokale tijd zoals de spec voorschrijft.
+    final local = parsed.toLocal();
+    final hh = local.hour.toString().padLeft(2, '0');
+    final mm = local.minute.toString().padLeft(2, '0');
+    return '${local.day} ${_months[local.month - 1]} ${local.year} $hh:$mm';
   }
 }
