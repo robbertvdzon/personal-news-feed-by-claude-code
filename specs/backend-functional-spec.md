@@ -48,7 +48,7 @@ data/
 
 ## 3. Authenticatie
 
-**Mechanisme:** JWT Bearer token (HS256), geldig 30 dagen. Alle endpoints vereisen een geldig token in de `Authorization: Bearer {token}` header, behalve `/api/auth/**` en `/ws/**`.
+**Mechanisme:** JWT Bearer token (HS256), geldig 30 dagen. Alle endpoints vereisen een geldig token in de `Authorization: Bearer {token}` header, behalve `/api/auth/**`, `/api/version` en `/ws/**`.
 
 **Uitzondering — audio endpoint:** `GET /api/podcasts/{id}/audio` accepteert het JWT token ook als query-parameter `?token=...`. Dit is nodig omdat browser mediaplayers en Flutter's `AudioPlayer` geen `Authorization` header kunnen meesturen bij het streamen van audio. De JWT-filter moet deze query-parameter herkennen en als geldig authenticatiemiddel beschouwen.
 
@@ -106,6 +106,8 @@ De categorie `overig` is een speciale vangnetcategorie: als Claude een artikel n
 De volledige REST API is gespecificeerd in **[`openapi.yaml`](./openapi.yaml)** (OpenAPI 3.1).
 
 Daarin staan alle endpoints met paden, methoden, request/response bodies, query parameters, statuscodes en datamodellen.
+
+**Publiek endpoint — versie-informatie:** `GET /api/version` geeft zonder authenticatie een JSON terug met `gitSha` (kort git-SHA van de huidige build, gelezen uit env-var `BUILD_SHA`, fallback `"unknown"`) en `springVersion` (de Spring Boot-versie). Handig voor health-checks en het verifiëren welke build live staat.
 
 **WebSocket:** `ws://{host}/ws/requests`
 - Geen authenticatie vereist
