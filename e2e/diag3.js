@@ -40,7 +40,7 @@ const { FlutterApp } = require('./flutter-helpers');
   await app.shot('05-after-submit');
 
   // Check of we naar MainShell zijn — die heeft een bottom-nav met
-  // tabs zoals "Feed", "RSS", "Settings", "Queue".
+  // tabs zoals "Feed", "RSS", "Podcast", "Settings".
   const inApp = await page.evaluate(() =>
     Array.from(document.querySelectorAll('flt-semantics'))
       .some(el => (el.textContent || '').includes('Feed')));

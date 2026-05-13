@@ -93,6 +93,9 @@ class SettingsScreen extends ConsumerWidget {
           error: (e, _) => Text('Fout: $e'),
         ),
         const Divider(),
+        Text('Achtergrond-taken', style: Theme.of(context).textTheme.titleLarge),
+        const _BackgroundJobsSection(),
+        const Divider(),
         Text('Opruimen', style: Theme.of(context).textTheme.titleLarge),
         ListTile(
           leading: const Icon(Icons.cleaning_services),
@@ -357,6 +360,125 @@ class SettingsScreen extends ConsumerWidget {
         const SnackBar(content: Text('Wachtwoord gewijzigd')),
       );
     }
+  }
+}
+
+/// Handmatige triggers voor de twee scheduled jobs (hourly RSS-refresh en
+/// daily summary). De jobs blijven zelf gewoon doorlopen op hun schedule;
+/// deze sectie biedt alleen een knop om ze on-demand te starten en de
+/// status terug te koppelen via spinner + toast.
+class _BackgroundJobsSection extends ConsumerStatefulWidget {
+  const _BackgroundJobsSection();
+
+  @override
+  ConsumerState<_BackgroundJobsSection> createState() => _BackgroundJobsSectionState();
+}
+
+class _BackgroundJobsSectionState extends ConsumerState<_BackgroundJobsSection> {
+  @override
+  Widget build(BuildContext context) {
+    // Detecteer de PENDING/PROCESSING → DONE transitie zodat we precies
+    // één keer een "Klaar — N items verwerkt"-snackbar tonen wanneer de
+    // job voltooit terwijl Settings open staat.
+    ref.listen<AsyncValue<List<NewsRequest>>>(requestProvider, (prev, next) {
+      final prevList = prev?.value;
+      final nextList = next.value;
+      if (prevList == null || nextList == null) return;
+      for (final r in nextList) {
+        if (!r.isHourlyUpdate && !r.isDailySummary) continue;
+        final prevR = _findById(prevList, r.id);
+        if (prevR == null) continue;
+        final wasRunning = prevR.status == 'PENDING' || prevR.status == 'PROCESSING';
+        if (wasRunning && r.status == 'DONE') {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Klaar — ${r.newItemCount} items verwerkt')),
+          );
+        }
+      }
+    });
+
+    final reqs = ref.watch(requestProvider);
+    return reqs.when(
+      data: (items) {
+        final hourly = _findFirst(items, (r) => r.isHourlyUpdate);
+        final daily = _findFirst(items, (r) => r.isDailySummary);
+        return Column(children: [
+          _BackgroundJobTile(
+            icon: Icons.rss_feed,
+            title: 'RSS-feeds nu vernieuwen',
+            request: hourly,
+            onPressed: hourly == null
+                ? null
+                : () => ref.read(requestProvider.notifier).rerun(hourly.id),
+          ),
+          _BackgroundJobTile(
+            icon: Icons.summarize,
+            title: 'Genereer dagelijkse samenvatting nu',
+            request: daily,
+            onPressed: daily == null
+                ? null
+                : () => ref.read(requestProvider.notifier).rerun(daily.id),
+          ),
+        ]);
+      },
+      loading: () => const Padding(
+        padding: EdgeInsets.all(16),
+        child: Center(child: CircularProgressIndicator()),
+      ),
+      error: (e, _) => Text('Fout: $e'),
+    );
+  }
+
+  static NewsRequest? _findById(List<NewsRequest> list, String id) {
+    for (final r in list) {
+      if (r.id == id) return r;
+    }
+    return null;
+  }
+
+  static NewsRequest? _findFirst(List<NewsRequest> list, bool Function(NewsRequest) test) {
+    for (final r in list) {
+      if (test(r)) return r;
+    }
+    return null;
+  }
+}
+
+class _BackgroundJobTile extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final NewsRequest? request;
+  final VoidCallback? onPressed;
+
+  const _BackgroundJobTile({
+    required this.icon,
+    required this.title,
+    required this.request,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final status = request?.status;
+    final running = status == 'PENDING' || status == 'PROCESSING';
+    final button = FilledButton.icon(
+      onPressed: running ? null : onPressed,
+      icon: running
+          ? const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : const Icon(Icons.play_arrow),
+      label: Text(running ? 'Bezig…' : 'Start'),
+    );
+    return ListTile(
+      leading: Icon(icon),
+      title: Text(title),
+      trailing: running
+          ? Tooltip(message: 'Loopt al…', child: button)
+          : button,
+    );
   }
 }
 

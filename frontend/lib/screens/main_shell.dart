@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/auth_provider.dart';
-import '../providers/data_providers.dart';
 import 'admin_screen.dart';
 import 'feed_screen.dart';
 import 'rss_screen.dart';
-import 'queue_screen.dart';
 import 'podcast_screen.dart';
 import 'settings_screen.dart';
 
@@ -21,13 +19,11 @@ class _MainShellState extends ConsumerState<MainShell> {
 
   @override
   Widget build(BuildContext context) {
-    final activeRequests = ref.watch(activeRequestCountProvider);
     final isAdmin = ref.watch(authProvider).isAdmin;
 
     final screens = <Widget>[
       const FeedScreen(),
       const RssScreen(),
-      const QueueScreen(),
       const PodcastScreen(),
       const SettingsScreen(),
       if (isAdmin) const AdminScreen(),
@@ -36,14 +32,6 @@ class _MainShellState extends ConsumerState<MainShell> {
     final destinations = <NavigationDestination>[
       const NavigationDestination(icon: Icon(Icons.dynamic_feed), label: 'Feed'),
       const NavigationDestination(icon: Icon(Icons.rss_feed), label: 'RSS'),
-      NavigationDestination(
-        icon: Badge.count(
-          count: activeRequests,
-          isLabelVisible: activeRequests > 0,
-          child: const Icon(Icons.queue),
-        ),
-        label: 'Queue',
-      ),
       const NavigationDestination(icon: Icon(Icons.podcasts), label: 'Podcast'),
       const NavigationDestination(icon: Icon(Icons.settings), label: 'Settings'),
       if (isAdmin)

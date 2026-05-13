@@ -38,7 +38,7 @@ De frontend is een **Flutter-app** (mobile + web) voor het lezen van een persoon
 
 ## 3. Navigatiestructuur
 
-De app heeft twee hoofdstaten: **niet ingelogd** (toont LoginScreen) en **ingelogd** (toont een shell met vijf tabs).
+De app heeft twee hoofdstaten: **niet ingelogd** (toont LoginScreen) en **ingelogd** (toont een shell met vier tabs).
 
 ```
 AuthGate
@@ -49,20 +49,17 @@ AuthGate
     ├── Tab 1: RssScreen
     │       └── navigeer naar → RssItemDetailScreen
     │               └── navigeer naar → FeedItemDetailScreen (via "open feed-item")
-    ├── Tab 2: QueueScreen
-    │       └── dialog → NieuwVerzoekDialog
-    │       └── dialog → VerzoekDetailDialog
-    ├── Tab 3: PodcastScreen
+    ├── Tab 2: PodcastScreen
     │       └── dialog → NieuwePodcastDialog
     │       └── navigeer naar → PodcastDetailScreen
     │               └── bottom sheet → ScriptSheet
-    └── Tab 4: SettingsScreen
+    └── Tab 3: SettingsScreen
             └── dialog → EditCategoryDialog
             └── dialog → AddCategoryDialog
             └── dialog → CleanupDialog
 ```
 
-**Belangrijk:** Alle tabs blijven in leven bij tab-wisseling (geen rebuild bij terugkeer). Een badge op de Queue-tab toont het aantal actieve (PENDING/PROCESSING) verzoeken.
+**Belangrijk:** Alle tabs blijven in leven bij tab-wisseling (geen rebuild bij terugkeer).
 
 ---
 
@@ -165,34 +162,14 @@ Identiek qua PageView-navigatie en AppBar-acties als FeedItemDetailScreen.
 
 ---
 
-## 7. Queue-tab (Tab 2)
+## 7. Verzoeken (achtergrond — geen eigen tab)
 
-Toont de lijst van verwerkingsverzoeken: `GET /api/requests`.
+De app heeft géén Queue-tab meer. De twee scheduled jobs lopen automatisch door:
 
-### Verzoektypen in de lijst
+- **Uurlijkse RSS-update** — vast verzoek-record met ID `hourly-update-{username}` (flag `isHourlyUpdate: true`).
+- **Dagelijkse samenvatting** — vast verzoek-record met ID `daily-summary-{username}` (flag `isDailySummary: true`).
 
-**Uurlijkse RSS-update (vast, niet verwijderbaar):** item met ID `hourly-update-{username}` en flag `isHourlyUpdate: true`. Vertegenwoordigt de status van de uurlijkse RSS-verwerking — één vast record dat in-place wordt bijgewerkt bij elke run, niet één per uur. Toont status, voortgangs-indicator tijdens verwerking, kosten en itemtelling na voltooiing. Looptijd wordt live bijgehouden (elapsed timer).
-
-**Dagelijkse samenvatting (vast, niet verwijderbaar):** item met ID `daily-summary-{username}` en flag `isDailySummary: true`. Zelfde weergave als de uurlijkse RSS-update. **Handmatig triggeren** gebeurt via de play-knop op deze rij — dat stuurt `POST /api/requests/{id}/rerun`, wat aan de backend-kant de daily-summary pipeline (her)start. Tooltip op de knop voor dit record: "Genereer dagelijkse samenvatting nu".
-
-**Ad-hoc verzoeken:** alle overige items. Zelfde weergave als boven.
-
-### Visuele weergave per rij
-- **Leading icon:** een `CircularProgressIndicator` zolang status `PENDING` of `PROCESSING` is, anders een type-specifiek icoon (`rss_feed` voor uurlijks, `summarize` voor daily summary, `search` voor ad-hoc, `error` rood voor FAILED, `block` voor CANCELLED).
-- **Statuslabel:** Nederlandse weergave ("In wachtrij…", "Bezig…", "Klaar", "Mislukt", "Geannuleerd"), blauw + bold tijdens uitvoering.
-- **Trailing-knop:** annuleer-knop tijdens uitvoering, anders een play-knop met type-specifieke tooltip ("RSS-feeds nu vernieuwen", "Genereer dagelijkse samenvatting nu", of "Opnieuw uitvoeren").
-
-### Acties
-- **FAB / knop "Nieuw verzoek":** opent NieuwVerzoekDialog
-  - Verplicht veld: onderwerp (vrije tekst)
-  - Optioneel: extra instructies
-  - Tijdsbereik kiezen via chips: "Vandaag" (1 dag), "3 dagen", "1 week", "1 maand"
-  - Indienen: POST `/api/requests`; direct optimistisch een tijdelijk item toevoegen met status PENDING
-- **Tik op verzoek:** opent VerzoekDetailDialog met per-categorie resultaten en totale kosten
-- **Swipe links:** verzoek verwijderen (DELETE `/api/requests/{id}`); niet mogelijk voor vaste verzoeken
-- **Annuleer-knop:** POST `/api/requests/{id}/cancel`; optimistisch status → CANCELLED
-- **Play-knop (rerun):** POST `/api/requests/{id}/rerun`; optimistisch status → PENDING. Voor `hourly-update-*` wordt de RSS-pipeline (her)start, voor `daily-summary-*` de daily summary pipeline.
-- **Pull-to-refresh / vernieuwen-icoon:** herlaad verzoeken
+De gebruiker kan ze beide handmatig starten via de sectie *Achtergrond-taken* op de Settings-tab (zie §9). De `requestProvider` blijft op de achtergrond actief — hij is nodig om de knop-state (idle / "Loopt al…") en de "Klaar"-toast af te kunnen leiden uit de live status.
 
 ### WebSocket-integratie
 Verbinding met `ws(s)://{host}/ws/requests` zodra de verzoeken geladen zijn.
@@ -202,14 +179,17 @@ Verbinding met `ws(s)://{host}/ws/requests` zodra de verzoeken geladen zijn.
   - **`NewsRequest`-objecten** (geen `type`-veld) conform het schema uit `openapi.yaml` (zie ook de berichtspecificatie in `backend-functional-spec.md` sectie 5).
 - **Belangrijk:** de WebSocket-broadcast bevat updates van **alle** gebruikers (server filtert niet per user). De frontend moet zelf filteren:
   - Bij **bekend ID** in de lokale lijst: vervang het item — dit is veilig omdat de lokale lijst is geladen via `GET /api/requests` (JWT-gescoped, dus alleen eigen items).
-  - Bij **onbekend ID**: doe een stille herlaad van de volledige verzoeklijst via `GET /api/requests`. De backend filtert daar wel op JWT, dus updates van andere gebruikers verdwijnen automatisch en eigen nieuwe items komen binnen. Voeg het item níet rechtstreeks toe op basis van het WebSocket-bericht — dan zouden andere gebruikers' verzoeken in de queue verschijnen.
+  - Bij **onbekend ID**: doe een stille herlaad van de volledige verzoeklijst via `GET /api/requests`. De backend filtert daar wel op JWT, dus updates van andere gebruikers verdwijnen automatisch en eigen nieuwe items komen binnen. Voeg het item níet rechtstreeks toe op basis van het WebSocket-bericht — dan zouden andere gebruikers' verzoeken zichtbaar worden.
 - Bij status DONE of CANCELLED: automatisch RSS-items en feed-items herladen (nieuwe artikelen kunnen zijn binnengekomen)
 - Bij verbrekingsfout: automatisch herverbinden na 5 seconden
 - Verbinding verbreken bij uitloggen
 
+### Ad-hoc "Meer hierover"-verzoeken
+Vanuit de RSS-item-detailpagina kan de gebruiker met **Meer hierover** een ad-hoc verzoek aanmaken (`POST /api/requests` met `sourceItemId`/`sourceItemTitle`). De UI toont alleen een bevestigingstoast — er is geen aparte lijst meer waarin deze verzoeken zichtbaar zijn. De resultaten verschijnen vanzelf in de feed wanneer de backend het verzoek heeft verwerkt.
+
 ---
 
-## 8. Podcast-tab (Tab 3)
+## 8. Podcast-tab (Tab 2)
 
 Toont gegenereerde podcasts: `GET /api/podcasts`.
 
@@ -257,7 +237,7 @@ Zolang een of meer podcasts de status `PENDING`, `DETERMINING_TOPICS`, `GENERATI
 
 ---
 
-## 9. Instellingen-tab (Tab 4)
+## 9. Instellingen-tab (Tab 3)
 
 ### Account
 - Gebruikersnaam weergeven
@@ -289,6 +269,19 @@ Lijst van geconfigureerde RSS-feed URLs uit `GET /api/rss-feeds`.
 - **Tik op URL:** opent URL in externe browser
 - **Verwijder-icoon (×):** verwijder feed-URL, PUT `/api/rss-feeds`
 - **Invoerveld + toevoegen-knop:** nieuwe URL toevoegen, PUT `/api/rss-feeds`
+
+### Achtergrond-taken
+Twee handmatige triggers voor de scheduled jobs (die zelf gewoon doorlopen op hun schedule — hourly RSS-refresh en de daily summary om 06:00):
+
+- **"RSS-feeds nu vernieuwen"** — stuurt `POST /api/requests/{hourly-update-{username}}/rerun`.
+- **"Genereer dagelijkse samenvatting nu"** — stuurt `POST /api/requests/{daily-summary-{username}}/rerun`.
+
+Gedrag per rij:
+
+- Status (`PENDING` / `PROCESSING` / `DONE`) wordt afgeleid uit de live `requestProvider` (gevoed door REST + WebSocket).
+- Zolang de bijbehorende job `PENDING` of `PROCESSING` is, is de knop **disabled** met tooltip *"Loopt al…"* en toont een kleine `CircularProgressIndicator` in plaats van het play-icoon.
+- Wanneer de status overgaat naar `DONE` terwijl Settings open staat, verschijnt een snackbar **"Klaar — N items verwerkt"** (één keer per transitie, op basis van `newItemCount` uit het verzoek).
+- De vaste records bestaan altijd zodra `ensureFixedRequests` heeft gedraaid; bij ontbreken (eerste login zonder server-roundtrip) zijn de knoppen disabled.
 
 ### Over deze app
 Onderaan het Settings-scherm staat een blok **Over deze app** met twee regels:
@@ -347,8 +340,7 @@ De app gebruikt Riverpod. Providers zijn globaal beschikbaar via `ProviderScope`
 | `feedProvider` | Feed-items (`/api/feed`) |
 | `filteredFeedProvider` | Afgeleide gefilterde feedlijst op basis van categorie, gelezen, ster, samenvatting |
 | `rssItemsProvider` | RSS-items (`/api/rss`) |
-| `requestProvider` | Verzoeken + WebSocket-updates |
-| `activeRequestCountProvider` | Telbadge op Queue-tab (PENDING + PROCESSING) |
+| `requestProvider` | Verzoeken + WebSocket-updates (gebruikt door Settings → Achtergrond-taken voor knop-state en klaar-toast) |
 | `settingsProvider` | Categorie-instellingen |
 | `rssFeedsProvider` | RSS-feed URLs |
 | `podcastProvider` | Podcasts + polling tijdens generatie |
@@ -394,7 +386,7 @@ flutter pub get
 flutter pub run flutter_launcher_icons
 ```
 
-In de app zelf wordt hetzelfde icoon klein (32px, afgerond) als `leading` van elke `AppBar` getoond (Feed, RSS, Queue, Podcast, Settings) via de `AppLogo`-helper in `lib/widgets/app_logo.dart`.
+In de app zelf wordt hetzelfde icoon klein (32px, afgerond) als `leading` van elke `AppBar` getoond (Feed, RSS, Podcast, Settings) via de `AppLogo`-helper in `lib/widgets/app_logo.dart`.
 
 ---
 
