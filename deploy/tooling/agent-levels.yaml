@@ -1,0 +1,42 @@
+# Level-matrix voor de software factory.
+#
+# Per `AI Level` (0-10) op een story: wat elke rol gebruikt qua model
+# en effort. Stories zonder expliciet level vallen op een default-level
+# (zie poller's DEFAULT_AI_LEVEL — voor Fase 2 PR 1 staat die op 5
+# om backward-compat te houden met het huidige Sonnet-default-gedrag;
+# verandert naar 0 zodra de JIRA-custom-field-integratie live is).
+#
+# Niveaus zijn niet-lineair: 0-3 voor goedkoop experimenteren, 4-5
+# voor "doe gewoon je werk", 6+ voor opschalen, 10 voor "doe alsof het
+# ertoe doet".
+#
+# Wordt door de poller als ConfigMap gemount op /etc/factory/
+# agent-levels.yaml en bij elke spawn opnieuw gelezen — dus tunen kan
+# zonder image-rebuild.
+
+models:
+  cheap:    { model: claude-haiku-4-5,    effort: quick   }
+  cheap+:   { model: claude-haiku-4-5,    effort: default }
+  mid:      { model: claude-sonnet-4-6,   effort: quick   }
+  mid+:     { model: claude-sonnet-4-6,   effort: default }
+  mid++:    { model: claude-sonnet-4-6,   effort: deep    }
+  premium:  { model: claude-opus-4-7,     effort: default }
+  premium+: { model: claude-opus-4-7,     effort: deep    }
+
+levels:
+  # Alles op het goedkoopste — Haiku quick voor elke rol.
+  0:  { refiner: cheap,   developer: cheap,    reviewer: cheap,    tester: cheap   }
+  # Developer iets meer ruimte; rest blijft licht.
+  1:  { refiner: cheap,   developer: cheap+,   reviewer: cheap,    tester: cheap   }
+  2:  { refiner: cheap,   developer: mid,      reviewer: cheap,    tester: cheap   }
+  3:  { refiner: cheap,   developer: mid,      reviewer: cheap+,   tester: cheap+  }
+  # "Production"-niveau: iedereen op Sonnet default. Default-level
+  # voor Fase 2 PR 1 voordat de JIRA-AI-Level-veldintegratie live is.
+  4:  { refiner: cheap+,  developer: mid+,     reviewer: mid,      tester: mid     }
+  5:  { refiner: cheap+,  developer: mid+,     reviewer: mid+,     tester: mid+    }
+  # Dev krijgt extended-thinking, architect-rol/reviewer mee.
+  6:  { refiner: mid,     developer: mid++,    reviewer: mid+,     tester: mid+    }
+  7:  { refiner: mid,     developer: premium,  reviewer: mid+,     tester: mid+    }
+  8:  { refiner: mid,     developer: premium,  reviewer: mid++,    tester: mid+    }
+  9:  { refiner: mid+,    developer: premium+, reviewer: premium,  tester: mid++   }
+  10: { refiner: mid+,    developer: premium+, reviewer: premium+, tester: premium }
