@@ -41,17 +41,18 @@ Vijf rollen. Vier zijn LLM-agents (Claude-pods), één is een regelaar (Python-s
 
 ### 3.1 Statussen op het bord
 
-Vijf statussen, zichtbaar voor de PO:
+Zes statussen, zichtbaar voor de PO. Het belangrijkste onderscheid: **`AI In Progress` betekent letterlijk "er draait een Job in K8s"**, en **`AI Queued` betekent "werk wacht op de poller om de volgende agent te starten"**. Geen vals beeld van activiteit.
 
-```
-AI Ready          PO heeft 'm net ingeschoten
-AI In Progress    één van de agents werkt eraan (refiner, dev, reviewer, tester — onderscheid via custom field)
-AI Needs Info     wacht op PO; kan vanaf elke agent komen
-AI Paused         handmatig stilgezet, vanaf elke status bereikbaar
-Klaar             merged + getest
-```
+| Status | Wat het betekent | Wie zet 'm |
+|---|---|---|
+| `AI Ready` | Nieuwe story, PO heeft 'm net ingeschoten | PO |
+| `AI Queued` | Werk klaar voor poller om de volgende agent te dispatchen | Agent (na completion) of PO (na een antwoord) |
+| `AI In Progress` | Een agent-Job draait nu echt in K8s | Poller (bij dispatch) |
+| `AI Needs Info` | Agent heeft een vraag, PO aan zet | Agent |
+| `AI Paused` | Handmatig stilgezet | Mens |
+| `Klaar` | PR gemerged + tests OK | Poller (na merge-detect) |
 
-**Waarom maar één "In Progress"-status** in plaats van per-fase: het JIRA-bord blijft overzichtelijk, en alle nuance staat in custom fields die de orchestratie gebruikt.
+**Cruciale regel:** alleen de **poller** mag status naar `AI In Progress` zetten. Daarmee is "draait er iets?" altijd betrouwbaar.
 
 ### 3.2 Custom fields
 
@@ -59,78 +60,171 @@ Klaar             merged + getest
 |---|---|---|---|
 | `AI Level` | number 0-10 | `0` (cheapest) | Welke model/effort-matrix de agents pakken |
 | `AI Token Budget` | number | `40000` | Sommatie-cap voor alle agent-runs samen |
-| `AI Phase` | enum: `refining`, `developing`, `reviewing`, `testing` | (poller zet) | Welke agent op dit moment actief is |
-| `AI Resume Phase` | enum (zelfde opties) | (poller zet) | Naar welke fase resumen na pauze of Needs Info |
+| `AI Phase` | enum (zie hieronder) | (orchestratie zet) | Phase van de story; bepaalt wat de poller moet dispatchen |
+| `AI Resume Phase` | enum (active-phases) | (orchestratie zet) | Naar welke active-phase resumen na Needs Info / pauze |
 | `AI Tokens Used` | number | `0` | Som van usage tot nu toe (cost-monitor onderhoudt) |
 
 `AI Phase` en `AI Resume Phase` mogen system-only zijn — de PO komt er niet aan. `AI Level` en `AI Token Budget` mag de PO bewerken op elke status.
 
+#### Phase-waardes — twee categorieën
+
+**Active phases** (er draait een Job) — alleen de **poller** zet deze:
+
+| Phase | Betekenis |
+|---|---|
+| `refining` | Refiner-Job draait |
+| `developing` | Developer-Job draait |
+| `reviewing` | Reviewer-Job draait |
+| `testing` | Tester-Job draait |
+
+**Completed phases** (Job is klaar, wachten op poller om volgende stap) — alleen **agents** zetten deze:
+
+| Phase | Betekenis | Poller dispatcht volgende: |
+|---|---|---|
+| `refined` | Refiner zegt: alles helder | developer (→ `developing`) |
+| `developed` | Developer is klaar met implementatie | reviewer (→ `reviewing`) |
+| `reviewed-ok` | Reviewer keurt PR goed | tester (→ `testing`) |
+| `reviewed-changes` | Reviewer wil wijzigingen | developer (loopback → `developing`) |
+| `tested-ok` | Tester heeft niets gevonden | niets (wacht op humane merge) |
+| `tested-fail` | Tester vond bug(s) | developer (loopback → `developing`) |
+
+**Speciaal:**
+
+| Phase | Betekenis |
+|---|---|
+| `awaiting-po` | Agent zit te wachten op PO-antwoord (gecombineerd met status `AI Needs Info`). `AI Resume Phase` houdt de active-phase vast waaruit de vraag kwam. |
+
 ### 3.3 Workflow-transitions
 
-Alleen de belangrijkste — volledige beschrijving in JIRA-admin.
+De statustransitions in JIRA-workflow-termen. Belangrijke regel: **active-phases zijn altijd gekoppeld aan `AI In Progress`-status, completed-phases aan `AI Queued`.** Phase en status raken nooit uit sync.
 
 ```
-AI Ready        → AI In Progress    (refiner pakt op)
-AI In Progress  → AI Needs Info     (een agent loopt vast → PO aan zet)
-AI In Progress  → AI In Progress    (interne fase-overgang: refining → developing etc.)
-AI In Progress  → AI Paused         (handmatig)
-AI Needs Info   → AI In Progress    (PO heeft beantwoord)
-AI Needs Info   → AI Paused         (handmatig)
-AI Paused       → AI In Progress    (resume via AI Resume Phase)
-AI Paused       → AI Needs Info     (alsnog vraag formuleren)
-AI In Progress  → Klaar             (merge + tests passed)
+AI Ready        → AI In Progress     (poller spawnt refiner; phase=refining)
+AI In Progress  → AI Queued          (agent klaar; phase=refined / developed / reviewed-* / tested-*)
+AI Queued       → AI In Progress     (poller dispatcht volgende; active-phase erbij)
+AI In Progress  → AI Needs Info      (agent heeft vraag; phase=awaiting-po, resume_phase=<active>)
+AI Needs Info   → AI Queued          (PO antwoordt; phase blijft awaiting-po — poller leest resume_phase)
+elke status     → AI Paused          (handmatig)
+AI Paused       → AI Queued          (resume — poller leest resume_phase)
+AI In Progress  → Klaar              (poller bij detect merge + tested-ok)
 ```
+
+PO-acties (de enige transitions die de PO zelf doet):
+
+| Vanuit | Naar | Wanneer |
+|---|---|---|
+| (nieuw) | `AI Ready` | Nieuwe story aanmaken |
+| `AI Needs Info` | `AI Queued` | Vraag beantwoord |
+| elke status | `AI Paused` | Handmatig stoppen |
+| `AI Paused` | `AI Queued` | Hervatten |
 
 ---
 
 ## 4. Orchestratie — hoe een story door de pipeline loopt
 
-```
-PO maakt issue → AI Ready
-        │
-        ▼  poller polt elke 30s
-        │  spawns: refiner-Job (AI Phase=refining)
-        │
-   ┌────┴─────────────────────────────────────────────────────┐
-   │                       Refiner                            │
-   │  • leest story                                           │
-   │  • genoeg info?                                          │
-   │    ja → transition AI Phase=developing, status In Progress
-   │    nee → post [REFINER] vragen, transition naar Needs Info
-   │           AI Resume Phase=refining                       │
-   └──────────────────────────────────────────────────────────┘
-        │ (bij Needs Info)              │ (bij Refined)
-        ▼                                ▼
-   PO antwoordt → AI In Progress    Developer-Job spawnt
-   poller ziet AI Resume Phase=     • clone, branch, claude code
-   refining → refiner pakt opnieuw    --print, --output-format
-   op met volle context                stream-json met --verbose
-                                    • commit + push + PR open
-                                    • AI Phase=reviewing
+Twee actor-types in dit diagram: **agents** (LLM-pods die hun werk doen en daarna phase op completed zetten) en de **poller** (Python-controller die als enige active-phases dispatcht).
 
-   ┌────────────────────────────────────────────────────────────┐
-   │                       Reviewer                             │
-   │  • leest PR-diff                                           │
-   │  • post review-comments [REVIEWER]                         │
-   │  • alles ok → AI Phase=testing                             │
-   │  • wijzigingen nodig → AI Phase=developing (dev pakt op    │
-   │    via bestaande S-09 comment-iteratie-loop)               │
-   └────────────────────────────────────────────────────────────┘
-        │                                       ▲
-        ▼                                       │
-   ┌────────────────────────────────────────────┐
-   │                       Tester              │
-   │  • leest PR-titel + AC's uit JIRA          │
-   │  • runt Chrome tegen pnf-pr-<num>.…        │
-   │  • checkt DB, pod-logs                     │
-   │  • alles ok → laat het zo                  │
-   │  • fout gevonden → [TESTER] op PR + JIRA, │
-   │    AI Phase=developing                     │
-   └────────────────────────────────────────────┘
-        │
-        ▼  (mens merget de PR)
-   poller ziet merge → status Klaar
 ```
+PO maakt issue       status=Ready,       phase=(leeg)
+                              │
+                       [poller dispatcht refiner]
+                              │
+                     status=In Progress,  phase=refining
+                              │
+        ┌─────────────────────┴─────────────────────┐
+        │                  Refiner                  │
+        │  • leest story                            │
+        │  • heeft genoeg info?                     │
+        │     ja  → status=Queued,    phase=refined │
+        │     nee → status=NeedsInfo, phase=awaiting-po
+        │                             resume_phase=refining
+        └─────────────────────────────────────────────┘
+                              │
+              (bij refined)        (bij awaiting-po)
+                              │           │
+                              │           ▼
+                              │     PO antwoordt + transition naar
+                              │     status=Queued (phase blijft
+                              │     awaiting-po)
+                              │           │
+                              │           ▼  poller leest resume_phase
+                              │           │  → dispatcht refiner opnieuw
+                              │           ▼
+                              │     status=In Progress, phase=refining
+                              │     (loop terug naar refiner-block)
+                              ▼
+            [poller dispatcht developer]
+                              │
+                     status=In Progress,  phase=developing
+                              │
+        ┌─────────────────────┴─────────────────────┐
+        │                Developer                  │
+        │  • clone, branch, claude code             │
+        │    --print --output-format stream-json    │
+        │  • commit + push + PR open                │
+        │  → status=Queued, phase=developed         │
+        └─────────────────────────────────────────────┘
+                              │
+            [poller dispatcht reviewer]
+                              │
+                     status=In Progress,  phase=reviewing
+                              │
+        ┌─────────────────────┴─────────────────────┐
+        │                 Reviewer                  │
+        │  • leest PR-diff                          │
+        │  • post review-comments [REVIEWER]        │
+        │  • alles OK     → phase=reviewed-ok       │
+        │  • wijzigingen  → phase=reviewed-changes  │
+        │  → status=Queued                          │
+        └─────────────────────────────────────────────┘
+                              │
+            ┌─────────────────┴─────────────────┐
+            │                                   │
+   (reviewed-changes)                  (reviewed-ok)
+            │                                   │
+   [poller → developer]              [poller dispatcht tester]
+   loopback naar boven                          │
+                                       status=In Progress,
+                                       phase=testing
+                                                │
+                          ┌─────────────────────┴─────────────────────┐
+                          │                  Tester                   │
+                          │  • leest PR-titel + AC's uit JIRA         │
+                          │  • runt Chrome tegen pnf-pr-<num>.…       │
+                          │  • checkt DB, pod-logs via oc             │
+                          │  • alles OK   → phase=tested-ok           │
+                          │  • bug(s)     → phase=tested-fail         │
+                          │  → status=Queued                          │
+                          └─────────────────────────────────────────────┘
+                                                │
+                          ┌─────────────────────┴─────────────────────┐
+                          │                                           │
+                  (tested-fail)                              (tested-ok)
+                          │                                           │
+                  [poller → developer]              [niets — wacht op humane merge]
+                  loopback naar boven                          │
+                                                               ▼
+                                                  Mens merget de PR
+                                                               │
+                                                               ▼
+                                              poller ziet merge → status=Klaar
+```
+
+### Poller-dispatchtabel
+
+Poller bekijkt elke 30s alle stories. Voor stories in `AI Queued`:
+
+| `AI Phase` | Actie poller |
+|---|---|
+| `refined` | spawn developer, status → In Progress, phase → developing |
+| `developed` | spawn reviewer, status → In Progress, phase → reviewing |
+| `reviewed-ok` | spawn tester, status → In Progress, phase → testing |
+| `reviewed-changes` | spawn developer, status → In Progress, phase → developing |
+| `tested-ok` | niets (wachten op humane PR-merge) |
+| `tested-fail` | spawn developer, status → In Progress, phase → developing |
+| `awaiting-po` | lees `AI Resume Phase`, spawn die agent opnieuw |
+
+Voor stories in `AI Ready`: spawn refiner, status → In Progress, phase → refining.
 
 ### 4.1 Comment-conventie
 
@@ -147,21 +241,21 @@ Mens-leesbaar, en orchestratie kan filteren ("toon alleen [TESTER]-comments uit 
 
 ### 4.2 Pauze-semantiek
 
-- **Handmatig pauzeren** (dashboard-knop, of JIRA-transition): de huidige Job wordt **hard gekilled** (`oc delete job`). Pending commits gaan verloren. Branch blijft zoals 'ie was bij de laatste push.
-- **Resume**: `AI Resume Phase` wordt gevolgd. Als 'ie op `developing` stond, pakt de developer-agent de bestaande `ai/KAN-XX`-branch op en gaat verder.
+- **Handmatig pauzeren** (dashboard-knop, of JIRA-transition naar `AI Paused`): de huidige Job wordt **hard gekilled** (`oc delete job`) als die actief was (status was `AI In Progress`). Was de story al in `AI Queued`: alleen status-transition, geen Job om te killen. Pending commits in een lopende Job gaan verloren. Branch blijft zoals 'ie was bij de laatste push. De agent die actief was zet **niet** zelf de status; dat doet de pauze-actor (mens of dashboard-backend), en die zorgt dat `AI Resume Phase` op de active-phase blijft staan.
+- **Resume** (transition van `AI Paused` → `AI Queued`): de poller pakt op via `AI Resume Phase`, dispatcht die agent opnieuw. Als 'ie op `developing` stond, pakt de developer de bestaande `ai/KAN-XX`-branch op en gaat verder.
 
 ### 4.3 AI Needs Info kan vanaf elke agent
 
-Vier scenario's:
+Vier scenario's. Agent zet **altijd** dezelfde combo: `phase=awaiting-po`, `resume_phase=<eigen-active-phase>`, status=`AI Needs Info`.
 
-| Wie vraagt? | Wanneer | `AI Resume Phase` zet poller op |
+| Wie vraagt? | Wanneer | `AI Resume Phase` |
 |---|---|---|
 | Refiner | Story is te vaag | `refining` |
 | Developer | Hij komt iets tegen wat niet voorzien was | `developing` |
 | Reviewer | Architectuur-keuze waar 'ie geen mandaat over heeft | `reviewing` |
 | Tester | Onduidelijke acceptatie-criteria, test geeft ander gedrag dan verwacht maar onduidelijk of dat een bug is | `testing` |
 
-PO beantwoordt → transition naar `AI In Progress` → poller pakt op vanaf `AI Resume Phase`.
+PO beantwoordt → transition naar `AI Queued` (phase blijft `awaiting-po`). Poller ziet dat, leest `AI Resume Phase`, dispatcht die agent opnieuw → status `AI In Progress`, phase wordt de active-phase.
 
 ---
 
@@ -361,7 +455,7 @@ In aanvulling op de RBAC krijgt de tester een **expliciete prompt-restrictie**:
 > - DB-queries lezen + schrijven in de preview-DB
 > - `oc delete pod` om een pod-restart te forceren in een pnf-pr-namespace
 >
-> Bij ontdekking van een bug: documenteer reproductie-stappen, suggereer een fix in een [TESTER]-comment, en zet `AI Phase` op `developing`. Pas geen code aan.
+> Bij ontdekking van een bug: documenteer reproductie-stappen, suggereer een fix in een [TESTER]-comment, en zet `AI Phase` op `tested-fail` (status `AI Queued`). De poller dispatcht de developer dan automatisch. Pas geen code aan.
 
 ### 8.4 Test-DB
 
@@ -454,7 +548,7 @@ MAX_PARALLEL_REVIEWER=3
 MAX_PARALLEL_TESTER=1
 ```
 
-Bij hitting van de cap: nieuwe stories blijven op `AI Ready` of `AI In Progress` met `AI Phase` ongewijzigd; volgende poll-tick probeert opnieuw.
+Bij hitting van de cap: stories die gedispatched zouden worden blijven op `AI Ready` of `AI Queued` staan; volgende poll-tick probeert opnieuw.
 
 **Globaal token-quota** wordt niet door de poller bewaakt — dat is de verantwoordelijkheid van Anthropic's API zelf (HTTP 429 bij overschrijding) plus de cost-monitor per story. Bij 429 retry'et de runner met exponential backoff (3 pogingen); blijft 't falen, dan transition naar AI Needs Info met `[RUNNER] HTTP 429 — Anthropic-quota uitgeput, probeer over X uur opnieuw.`
 
