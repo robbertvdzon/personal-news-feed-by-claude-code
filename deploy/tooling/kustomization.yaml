@@ -48,7 +48,7 @@ configMapGenerator:
 images:
 - name: ghcr.io/robbertvdzon/jira-poller
   newName: ghcr.io/robbertvdzon/jira-poller
-  newTag: sha-2b0c7bd
+  newTag: sha-8f50b1c
 - name: ghcr.io/robbertvdzon/status-dashboard
   newName: ghcr.io/robbertvdzon/status-dashboard
   newTag: sha-2b0c7bd
