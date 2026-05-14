@@ -74,7 +74,8 @@ JIRA_PROJECT = os.environ.get("JIRA_PROJECT", "KAN")
 JIRA_ACTIVE_STATUSES = [
     s.strip()
     for s in os.environ.get(
-        "JIRA_ACTIVE_STATUSES", "AI Ready,AI IN PROGRESS"
+        "JIRA_ACTIVE_STATUSES",
+        "AI Ready,AI Queued,AI IN PROGRESS,AI Needs Info,AI Paused",
     ).split(",")
     if s.strip()
 ]
