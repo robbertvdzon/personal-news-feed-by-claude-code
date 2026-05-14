@@ -171,7 +171,7 @@ De app heeft géén Queue-tab meer. De twee scheduled jobs lopen automatisch doo
 - **Uurlijkse RSS-update** — vast verzoek-record met ID `hourly-update-{username}` (flag `isHourlyUpdate: true`).
 - **Dagelijkse samenvatting** — vast verzoek-record met ID `daily-summary-{username}` (flag `isDailySummary: true`).
 
-De gebruiker kan ze beide handmatig starten via de sectie *Achtergrond-taken* op de instellingen-tab (zie §9). De `requestProvider` blijft op de achtergrond actief — hij is nodig om de knop-state (idle / "Loopt al…") en de "Klaar"-toast af te kunnen leiden uit de live status.
+De gebruiker kan ze beide handmatig starten via de sectie *Achtergrond-taken* op de Settings-tab (zie §9). De `requestProvider` blijft op de achtergrond actief — hij is nodig om de knop-state (idle / "Loopt al…") en de "Klaar"-toast af te kunnen leiden uit de live status.
 
 ### WebSocket-integratie
 Verbinding met `ws(s)://{host}/ws/requests` zodra de verzoeken geladen zijn.
@@ -288,7 +288,7 @@ Gedrag per rij:
 - De vaste records bestaan altijd zodra `ensureFixedRequests` heeft gedraaid; bij ontbreken (eerste login zonder server-roundtrip) zijn de knoppen disabled.
 
 ### Over deze app
-Onderaan het instellingen-scherm staat een blok **Over deze app** met twee regels:
+Onderaan het Settings-scherm staat een blok **Over deze app** met twee regels:
 
 - **Frontend:** `<short-git-sha>` · `<build-timestamp in lokale tijd>` — beide compile-time geïnjecteerd via `--dart-define=BUILD_SHA=...` en `--dart-define=BUILD_TIME=...` en uitgelezen met `String.fromEnvironment`. Altijd beschikbaar uit de bundel zelf.
 - **Backend:** `<short-git-sha>` · `<build-timestamp in lokale tijd>` — komt uit het `versionProvider` (gevuld door `GET /api/version` of het WebSocket `serverVersion`-bericht). Bij een fout (`/api/version` offline of 5xx) toont de regel **`onbekend`** tot de volgende geslaagde check.
@@ -326,7 +326,7 @@ Knop "Artikelen opruimen" opent CleanupDialog:
 
 ### Beheer (alleen admins)
 
-Onderaan het instellingen-scherm verschijnt een extra sectie **"Beheer"** die alleen zichtbaar is voor gebruikers met de rol `admin`.
+Onderaan het Settings-scherm verschijnt een extra sectie **"Beheer"** die alleen zichtbaar is voor gebruikers met de rol `admin`.
 
 - **Adminpaneel-tegel:** navigeert via `Navigator.push` naar AdminScreen.
   - AdminScreen toont alle gebruikers met hun rollen.
