@@ -154,6 +154,7 @@ set +e
 claude \
   --append-system-prompt "$SYSTEM_PROMPT" \
   --permission-mode bypassPermissions \
+  --verbose \
   --print \
   "Implementeer de story uit .task.md. Volg de regels uit de system prompt." \
   2>&1 | tee /tmp/claude.log
@@ -283,6 +284,7 @@ EOF
   claude \
     --append-system-prompt "$SYSTEM_PROMPT" \
     --permission-mode bypassPermissions \
+    --verbose \
     --print \
     "Fix de CI-fout zoals beschreven in /work/repo/.fix-task.md." \
     2>&1 | tee -a /tmp/claude.log
