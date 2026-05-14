@@ -32,11 +32,21 @@ import logging
 import os
 import re
 import subprocess
+import threading
 import sys
 import time
 from typing import Optional
 
 import requests
+from flask import Flask, jsonify, request as flask_request
+
+# psycopg v3 voor de factory-DB (Fase 1). Import is "soft" — als de
+# package nog niet beschikbaar is (oude image) draait de poller alsnog,
+# alleen de HTTP-endpoint geeft 503.
+try:
+    import psycopg
+except ImportError:  # pragma: no cover
+    psycopg = None  # type: ignore
 
 # Module-level placeholder for `re.match` is used in config section below;
 # the import must come first.
@@ -57,6 +67,11 @@ CLAUDE_RUNNER_IMAGE = os.environ.get(
     "CLAUDE_RUNNER_IMAGE", "ghcr.io/robbertvdzon/claude-runner:main"
 )
 RUNNER_NAMESPACE = os.environ.get("RUNNER_NAMESPACE", "personal-news-feed")
+# DB voor de factory-observability (Fase 1). Bevat schema `factory` met
+# story_runs / agent_runs / agent_events. Wordt door de HTTP-endpoint
+# `/agent-run/complete` beschreven; lege string betekent niet-
+# geconfigureerd en de endpoint geeft 503.
+FACTORY_DATABASE_URL = os.environ.get("FACTORY_DATABASE_URL", "")
 REPO_URL = os.environ.get(
     "REPO_URL",
     "https://github.com/robbertvdzon/personal-news-feed-by-claude-code.git",
@@ -302,6 +317,12 @@ def spawn_runner_job(
 
     env = [
         {"name": "STORY_ID", "value": issue_key},
+        # Job-naam meegeven zodat de runner z'n usage-record correct kan
+        # rapporteren aan de factory-DB (HOSTNAME is pod-naam, niet job-naam).
+        {"name": "JOB_NAME", "value": job_name},
+        # URL waar de runner z'n usage-record POST't aan het einde.
+        # In-cluster service-DNS.
+        {"name": "FACTORY_POLLER_URL", "value": "http://jira-poller.pnf-software-factory.svc.cluster.local:8080"},
         {"name": "REPO_URL", "value": REPO_URL},
         {"name": "BASE_BRANCH", "value": "main"},
         {"name": "BRANCH_PREFIX", "value": "ai/"},
@@ -927,30 +948,181 @@ def process_one_pass() -> None:
         active += 1
 
 
-def main() -> int:
+# ─── HTTP-app voor agent-run-rapportage (Fase 1) ─────────────────────────
+#
+# De poller draait nu óók een kleine HTTP-server (Flask via gunicorn). Eén
+# endpoint, `/agent-run/complete`, ontvangt aan het einde van elke
+# runner-Job een usage-record + event-stream en schrijft 'm naar
+# Postgres (schema `factory`).
+#
+# De JIRA-poll-loop blijft draaien op een achtergrondthread; gunicorn
+# serveert HTTP in de main-thread. Met `--workers 1` (zie Dockerfile) is
+# er gegarandeerd één poll-thread.
+
+app = Flask(__name__)
+
+
+@app.route("/healthz", methods=["GET"])
+def healthz():
+    return jsonify({"ok": True})
+
+
+@app.route("/agent-run/complete", methods=["POST"])
+def agent_run_complete():
+    """Ontvangt usage-record + events van een voltooide runner-Job."""
+    if not FACTORY_DATABASE_URL or psycopg is None:
+        return jsonify({"error": "factory-DB niet geconfigureerd"}), 503
+
+    data = flask_request.get_json(force=True, silent=True)
+    if not data:
+        return jsonify({"error": "missing or invalid JSON body"}), 400
+
+    story_key = (data.get("story_key") or "").strip()
+    if not story_key:
+        return jsonify({"error": "missing story_key"}), 400
+
+    role = data.get("role", "developer")
+    job_name = data.get("job_name", "")
+    input_tokens = int(data.get("input_tokens", 0) or 0)
+    output_tokens = int(data.get("output_tokens", 0) or 0)
+
+    try:
+        with psycopg.connect(FACTORY_DATABASE_URL) as conn, conn.cursor() as cur:
+            # Vind of maak een lopende story_run voor deze story_key.
+            cur.execute(
+                """SELECT id FROM factory.story_runs
+                   WHERE story_key = %s AND ended_at IS NULL
+                   ORDER BY started_at DESC LIMIT 1""",
+                (story_key,),
+            )
+            row = cur.fetchone()
+            if row:
+                story_run_id = row[0]
+            else:
+                cur.execute(
+                    "INSERT INTO factory.story_runs (story_key) VALUES (%s) RETURNING id",
+                    (story_key,),
+                )
+                story_run_id = cur.fetchone()[0]
+
+            cur.execute(
+                """INSERT INTO factory.agent_runs
+                   (story_run_id, role, job_name, model, effort, level,
+                    ended_at, outcome, input_tokens, output_tokens)
+                   VALUES (%s, %s, %s, %s, %s, %s, now(), %s, %s, %s)
+                   RETURNING id""",
+                (
+                    story_run_id, role, job_name,
+                    data.get("model") or None,
+                    data.get("effort") or None,
+                    int(data.get("level", 0) or 0),
+                    data.get("outcome", ""),
+                    input_tokens, output_tokens,
+                ),
+            )
+            agent_run_id = cur.fetchone()[0]
+
+            # Bulk-insert events. Onbekende/missende kind/payload-velden
+            # vallen netjes terug op default-waarden.
+            events = data.get("events") or []
+            event_rows = []
+            for e in events:
+                if not isinstance(e, dict):
+                    continue
+                event_rows.append((
+                    agent_run_id,
+                    e.get("kind", "unknown"),
+                    json.dumps(e.get("payload", {})),
+                ))
+            if event_rows:
+                cur.executemany(
+                    """INSERT INTO factory.agent_events (agent_run_id, kind, payload)
+                       VALUES (%s, %s, %s::jsonb)""",
+                    event_rows,
+                )
+
+            # Story-totals bijwerken (cost-monitor leest deze sommen).
+            cur.execute(
+                """UPDATE factory.story_runs
+                   SET total_input_tokens  = total_input_tokens  + %s,
+                       total_output_tokens = total_output_tokens + %s
+                   WHERE id = %s""",
+                (input_tokens, output_tokens, story_run_id),
+            )
+
+            conn.commit()
+
+        log.info(
+            "recorded agent_run %d (story=%s role=%s tokens=%d→%d events=%d)",
+            agent_run_id, story_key, role,
+            input_tokens, output_tokens, len(event_rows),
+        )
+        return jsonify({
+            "ok": True,
+            "agent_run_id": agent_run_id,
+            "story_run_id": story_run_id,
+        })
+    except Exception as e:
+        log.exception("agent-run-complete schrijven faalde: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+# ─── Background polling thread ───────────────────────────────────────────
+
+_poll_thread_started = False
+_poll_thread_lock = threading.Lock()
+
+
+def _start_poll_thread() -> None:
+    """Spawn de JIRA-poll-loop als daemon-thread (idempotent)."""
+    global _poll_thread_started
+    with _poll_thread_lock:
+        if _poll_thread_started:
+            return
+        _poll_thread_started = True
+
     log.info(
-        "start — JIRA=%s project=%s source=%r target=%r interval=%ds max=%d",
-        JIRA_BASE_URL,
-        JIRA_PROJECT,
-        JIRA_SOURCE_STATUS,
-        JIRA_TARGET_STATUS,
-        POLL_INTERVAL_SEC,
-        MAX_CONCURRENT_JOBS,
+        "start poll-loop — JIRA=%s project=%s source=%r target=%r interval=%ds max=%d",
+        JIRA_BASE_URL, JIRA_PROJECT,
+        JIRA_SOURCE_STATUS, JIRA_TARGET_STATUS,
+        POLL_INTERVAL_SEC, MAX_CONCURRENT_JOBS,
     )
 
-    # Sanity check JIRA-auth voor we beginnen
-    me = jira("GET", "/rest/api/3/myself")
-    if me.status_code != 200:
-        log.error("JIRA-auth faalt: %s %s", me.status_code, me.text[:200])
-        return 1
-    log.info("JIRA-auth OK als %s", me.json().get("emailAddress"))
+    # JIRA-auth sanity check — niet-blokkerend (poll-loop start sowieso).
+    try:
+        me = jira("GET", "/rest/api/3/myself")
+        if me.status_code == 200:
+            log.info("JIRA-auth OK als %s", me.json().get("emailAddress"))
+        else:
+            log.error("JIRA-auth faalt: %s %s", me.status_code, me.text[:200])
+    except Exception as e:
+        log.warning("JIRA-auth-check faalde: %s", e)
 
-    while True:
-        try:
-            process_one_pass()
-        except Exception as e:
-            log.exception("pass faalde: %s", e)
-        time.sleep(POLL_INTERVAL_SEC)
+    def loop():
+        while True:
+            try:
+                process_one_pass()
+            except Exception as e:
+                log.exception("pass faalde: %s", e)
+            time.sleep(POLL_INTERVAL_SEC)
+
+    t = threading.Thread(target=loop, daemon=True, name="poll-loop")
+    t.start()
+
+
+# Onder gunicorn (productie): start de poll-loop direct bij module-load.
+# Onder `python poller.py` (dev): start 'm via main() hieronder.
+_start_poll_thread()
+
+
+def main() -> int:
+    """Dev-modus entrypoint. In productie draait gunicorn dit module.
+
+    `_start_poll_thread()` is bij module-load al gedraaid; hier alleen
+    nog de Flask dev-server starten.
+    """
+    app.run(host="0.0.0.0", port=8080)
+    return 0
 
 
 if __name__ == "__main__":
