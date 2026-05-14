@@ -79,10 +79,11 @@ FACTORY_DATABASE_URL = os.environ.get("FACTORY_DATABASE_URL", "")
 AGENT_LEVELS_PATH = os.environ.get(
     "AGENT_LEVELS_PATH", "/etc/factory/agent-levels.yaml"
 )
-# Default-level voor stories zonder expliciete `AI Level`-veld. Staat
-# voor Fase 2 PR 1 nog op 5 (huidig Sonnet-gedrag); zakt naar 0 zodra
-# JIRA-AI-Level integratie live is (Fase 2 PR 2).
-DEFAULT_AI_LEVEL = int(os.environ.get("DEFAULT_AI_LEVEL", "5"))
+# Default-level voor stories zonder expliciete `AI Level`-veld in JIRA.
+# Sinds Fase 2 PR 2 staat dit op 0 (cheapest); PO bumpt 't naar
+# 1-10 per story als die meer power verdient.
+DEFAULT_AI_LEVEL = int(os.environ.get("DEFAULT_AI_LEVEL", "0"))
+DEFAULT_TOKEN_BUDGET = int(os.environ.get("DEFAULT_TOKEN_BUDGET", "40000"))
 REPO_URL = os.environ.get(
     "REPO_URL",
     "https://github.com/robbertvdzon/personal-news-feed-by-claude-code.git",
@@ -221,13 +222,124 @@ def transition_issue(issue_key: str, target_status: str) -> bool:
     return False
 
 
+# ─── JIRA custom-field discovery (Fase 2 PR 2) ───────────────────────────
+#
+# JIRA custom fields zijn gekoppeld aan een veld-ID (`customfield_10042`)
+# die per workspace verschilt. We zoeken bij eerste gebruik de IDs op
+# basis van de display-naam — robuust tegen workspace-recreate én
+# tegen typo's omdat we hier op naam matchen, niet op ID.
+
+# Display-namen exact zoals ze in JIRA staan. Hoofdletter-gevoelig.
+AI_FIELD_NAMES = {
+    "level":         "AI Level",
+    "token_budget":  "AI Token Budget",
+    "tokens_used":   "AI Tokens Used",
+    "phase":         "AI Phase",
+    "resume_phase":  "AI Resume Phase",
+}
+
+_field_id_cache: dict[str, Optional[str]] = {}
+
+
+def _discover_field_ids() -> None:
+    """Vul _field_id_cache met de live custom-field-IDs uit JIRA.
+
+    Idempotent. Roep aan vóór elke read/write — eerste keer doet de
+    HTTP-call, daarna pakt 'ie uit cache. Bij JIRA-onbereikbaarheid
+    blijven IDs leeg en doen reads/writes silently niets.
+    """
+    if _field_id_cache:
+        return
+    try:
+        r = jira("GET", "/rest/api/3/field")
+        if r.status_code != 200:
+            log.warning("field-discovery JIRA -> %s", r.status_code)
+            return
+        by_name: dict[str, str] = {}
+        for fld in r.json():
+            name = fld.get("name", "")
+            fid = fld.get("id", "")
+            if name and fid:
+                by_name[name] = fid
+        for short, display in AI_FIELD_NAMES.items():
+            _field_id_cache[short] = by_name.get(display)
+            if not _field_id_cache[short]:
+                log.warning("custom field %r niet gevonden in JIRA", display)
+        log.info(
+            "AI custom-field-IDs: %s",
+            {k: v for k, v in _field_id_cache.items() if v},
+        )
+    except Exception as e:
+        log.exception("field-discovery faalde: %s", e)
+
+
+def _ai_field(short: str) -> Optional[str]:
+    """Field-ID voor één van de AI_FIELD_NAMES, lazy discovery."""
+    _discover_field_ids()
+    return _field_id_cache.get(short)
+
+
+def get_ai_fields(issue: dict) -> dict:
+    """Lees AI-fields uit een issue-payload. Mist een veld → None / default."""
+    fields = issue.get("fields") or {}
+
+    def f(short: str):
+        fid = _ai_field(short)
+        return fields.get(fid) if fid else None
+
+    level_raw = f("level")
+    budget_raw = f("token_budget")
+    used_raw = f("tokens_used")
+
+    return {
+        "level":         int(level_raw) if level_raw is not None else None,
+        "token_budget":  int(budget_raw) if budget_raw is not None else None,
+        "tokens_used":   int(used_raw) if used_raw is not None else None,
+        "phase":         f("phase") or None,
+        "resume_phase":  f("resume_phase") or None,
+    }
+
+
+def set_ai_fields(issue_key: str, updates: dict) -> bool:
+    """Schrijf één of meer AI-fields naar een story. Keys uit AI_FIELD_NAMES.
+
+    Lege updates of ontbrekende field-IDs → no-op (geen error).
+    """
+    _discover_field_ids()
+    payload_fields: dict[str, object] = {}
+    for short, value in updates.items():
+        fid = _field_id_cache.get(short)
+        if not fid:
+            continue
+        payload_fields[fid] = value
+    if not payload_fields:
+        return False
+    r = jira(
+        "PUT",
+        f"/rest/api/3/issue/{issue_key}",
+        json={"fields": payload_fields},
+        headers={"Content-Type": "application/json"},
+    )
+    if r.status_code in (200, 204):
+        return True
+    log.warning("set_ai_fields(%s) -> %s %s", issue_key, r.status_code, r.text[:200])
+    return False
+
+
 def fetch_ai_ready_issues() -> list[dict]:
-    """Geef alle issues in source-status terug — key + summary + description."""
+    """Geef alle issues in source-status terug — key + summary + description
+    + custom fields. Custom-field-IDs worden lazy gediscovered."""
+    _discover_field_ids()
+    # Bouw de field-set: standaard + alle bekende AI-field-IDs.
+    fields_param = "summary,description,status"
+    for fid in _field_id_cache.values():
+        if fid:
+            fields_param += f",{fid}"
     jql = f'project={JIRA_PROJECT} AND status="{JIRA_SOURCE_STATUS}" ORDER BY created ASC'
     r = jira(
         "GET",
         "/rest/api/3/search/jql",
-        params={"jql": jql, "fields": "summary,description,status"},
+        params={"jql": jql, "fields": fields_param},
     )
     if r.status_code != 200:
         log.warning("search faalde: %s %s", r.status_code, r.text[:200])
@@ -961,13 +1073,33 @@ def process_one_pass() -> None:
         key = issue["key"]
         log.info("  oppakken: %s", key)
 
+        # Lees AI-fields. Lege velden → fall back op defaults, en
+        # schrijf die defaults meteen terug zodat ze in de UI verschijnen
+        # (anders ziet de PO leeg en weet 'ie niet dat ze invulbaar zijn).
+        ai = get_ai_fields(issue)
+        write_back: dict = {}
+        if ai["level"] is None:
+            ai["level"] = DEFAULT_AI_LEVEL
+            write_back["level"] = DEFAULT_AI_LEVEL
+        if ai["token_budget"] is None:
+            ai["token_budget"] = DEFAULT_TOKEN_BUDGET
+            write_back["token_budget"] = DEFAULT_TOKEN_BUDGET
+        if ai["tokens_used"] is None:
+            write_back["tokens_used"] = 0
+        if write_back:
+            set_ai_fields(key, write_back)
+            log.info("  defaults geschreven voor %s: %s", key, write_back)
+
+        # Clamp level naar 0-10 (PO kan typo'en).
+        level = max(0, min(10, ai["level"]))
+
         # Atomic claim: transition (als 'er een race is wint slechts één).
         if not transition_issue(key, JIRA_TARGET_STATUS):
             log.warning("  transition voor %s faalde — skip deze ronde", key)
             continue
 
         task_md = issue_to_task_md(issue)
-        job_name = spawn_runner_job(key, task_md)
+        job_name = spawn_runner_job(key, task_md, role="developer", ai_level=level)
         if not job_name:
             log.error(
                 "  spawn faalde voor %s — issue staat nu in %s; manueel terugzetten",
