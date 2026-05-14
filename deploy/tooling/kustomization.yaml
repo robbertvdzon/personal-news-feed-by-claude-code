@@ -1,0 +1,32 @@
+# Kustomization voor de "tooling"-deployments rond de AI-pipeline:
+# jira-poller en status-dashboard. Wordt door ArgoCD gesynct vanuit
+# deploy/tooling-application.yaml.
+#
+# Bewust gescheiden van deploy/base/:
+#   * deploy/base/   = de applicatie zelf (frontend + backend + tunnel)
+#   * deploy/tooling = de cluster-side automation die er omheen zit
+#
+# De RBAC voor deze services (ClusterRole, ClusterRoleBinding) blijft
+# in deploy/<service>/rbac.yaml + apply via bootstrap.sh — onze ArgoCD
+# draait in namespaced mode en mag geen cluster-scoped resources beheren.
+#
+# `images:` wordt door CI automatisch ge-bumpt na elke image-build (zie
+# .github/workflows/{jira-poller,status-dashboard}-image.yml). Hand-bumpen
+# kan ook met `kustomize edit set image ...` vanuit deze map.
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Bewust GEEN commonLabels of namespace-veld: de Deployments brengen
+# hun eigen metadata mee. Een commonLabel zou de Deployment-selector
+# willen aanpassen (immutable veld) en de eerste sync laten falen.
+
+resources:
+  - jira-poller-deployment.yaml
+  - status-dashboard-deployment.yaml
+
+images:
+  - name: ghcr.io/robbertvdzon/jira-poller
+    newTag: sha-88bd2ba
+  - name: ghcr.io/robbertvdzon/status-dashboard
+    newTag: sha-f9e1b6c

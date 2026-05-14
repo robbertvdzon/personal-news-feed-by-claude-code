@@ -1,0 +1,38 @@
+# ArgoCD Application voor de "tooling"-deployments: jira-poller +
+# status-dashboard. Wordt één keer ge-applyd vanuit deploy/bootstrap.sh.
+#
+# Bewust apart van de hoofd-Application (deploy/argocd-application.yaml):
+# de tooling heeft een eigen lifecycle (verandert vaker, andere image-bump
+# workflows) en mag de prod-app niet kunnen verstoren.
+#
+# `automated.prune: false` is bewust: ArgoCD ruimt geen resources op die
+# niet meer in deploy/tooling/ staan. Veilig omdat de set klein en stabiel
+# is; voorkomt dat een verkeerde merge per ongeluk een Deployment wipet.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: personal-news-feed-tooling
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/robbertvdzon/personal-news-feed-by-claude-code.git
+    targetRevision: main
+    path: deploy/tooling
+  destination:
+    server: https://kubernetes.default.svc
+    # Default-namespace voor resources zonder expliciete namespace; de
+    # poller en dashboard hebben 'm beide al expliciet op personal-news-feed.
+    namespace: personal-news-feed
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m
