@@ -387,11 +387,25 @@ Werk in plaats daarvan zo:
    focusable elementen te lopen, of klik op coördinaten als je weet
    waar 'n knop zit (uit eerder screenshot).
 
-4. **Login** als de app dat vereist: registreer een testgebruiker via
-   de API (POST naar /api/auth/register of vergelijkbaar in de
-   preview-backend), zet de JWT in localStorage via
-   \`page.addInitScript()\`, reload, screenshot. Het tester-image heeft
-   geen vaste credentials — een wegwerp-account per run werkt prima.
+4. **Login** als de app dat vereist:
+   - Stap 1: registreer een wegwerp-testgebruiker via de backend-API
+     (POST naar \`/api/auth/register\` met JSON body \`{username, password}\`).
+     De backend maakt 't account aan in z'n DB. Antwoord = 200 + JWT.
+   - Stap 2: doe de echte login via de UI-form, NIET via localStorage.
+     Flutter Web overlay't TextField-widgets als verborgen \`<input>\`-
+     elementen in de DOM — Playwright kan die WEL targetten ondanks
+     dat de visuele rendering canvas is. Voor onze app:
+         await page.locator('input').nth(0).fill(username);
+         await page.locator('input').nth(1).fill(password);
+         await page.keyboard.press('Tab');
+         await page.keyboard.press('Enter'); // submit
+     De app doet dan zelf de auth-call + bewaart de JWT correct in
+     SharedPreferences (Flutter-specifieke serialisatie).
+   - DOE NIET: localStorage.setItem('token', X) of vergelijkbaar.
+     Flutter web slaat tokens op met prefix \`flutter.token\` en met
+     een eigen type-encoding; handmatig injecteren faalt stilletjes
+     (tester ziet '401' of blijft op login-scherm). Login-via-form
+     is de enige betrouwbare route.
 
 5. **Verdict op screenshots**, niet op DOM-content. Als je op de
    screenshots 'Settings' duidelijk ziet → \`tested-ok\`. Geen DOM-match
@@ -448,26 +462,33 @@ Werkwijze:
            await page.goto(process.env.PREVIEW_URL, {waitUntil:'load'});
            await page.waitForTimeout(5000); // Flutter-hydratie
          });
-         // Login via API (Flutter app heeft geen test-creds; registreer
-         // wegwerp-gebruiker en zet JWT vóór je de app reload't).
-         await step(2, 'login-en-reload', async () => {
-           const u = 'tester_' + Date.now();
-           const reg = await fetch(process.env.PREVIEW_URL + '/api/auth/register', {
+         // Stap 2: registreer wegwerp-user via API (account in backend-DB).
+         const u = 'tester_' + Date.now();
+         const pw = 'P@ss1234!';
+         await step(2, 'register-user', async () => {
+           const r = await fetch(process.env.PREVIEW_URL + '/api/auth/register', {
              method: 'POST',
              headers: {'Content-Type': 'application/json'},
-             body: JSON.stringify({username: u, password: 'P@ss1234'}),
-           }).then(r => r.json());
-           const token = reg.token;
-           await page.addInitScript(t => localStorage.setItem('jwt', t), token);
-           await page.reload({waitUntil: 'load'});
-           await page.waitForTimeout(5000);
+             body: JSON.stringify({username: u, password: pw}),
+           });
+           if (!r.ok) throw new Error('register failed: ' + r.status);
          });
-         // Navigeer naar de relevante tab via keyboard (Flutter heeft
-         // geen klikbare text-elementen in DOM).
-         await step(3, 'navigate-settings', async () => {
-           await page.keyboard.press('Tab');
-           await page.keyboard.press('Tab');
-           await page.keyboard.press('Tab');
+         // Stap 3: login via de UI-form (Flutter <input>-overlay targetten).
+         //   - locator('input').nth(0) = Gebruikersnaam
+         //   - locator('input').nth(1) = Wachtwoord
+         // Geen localStorage-hack — Flutter SharedPreferences werkt
+         // alleen als de app zelf authenticeert via z'n login-call.
+         await step(3, 'login-via-form', async () => {
+           await page.locator('input').nth(0).fill(u);
+           await page.locator('input').nth(1).fill(pw);
+           await page.keyboard.press('Enter');
+           await page.waitForTimeout(4000); // wacht op auth-roundtrip + UI-overgang
+         });
+         // Stap 4: navigeer naar de relevante tab. Flutter heeft een
+         // BottomNavigationBar — gebruik keyboard (Tab + Enter) of
+         // coördinaat-click op basis van eerdere screenshot.
+         await step(4, 'navigate-settings', async () => {
+           for (let i = 0; i < 4; i++) await page.keyboard.press('Tab');
            await page.keyboard.press('Enter');
            await page.waitForTimeout(3000);
          });
