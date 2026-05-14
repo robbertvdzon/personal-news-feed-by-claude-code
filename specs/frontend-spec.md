@@ -57,6 +57,8 @@ AuthGate
             └── dialog → EditCategoryDialog
             └── dialog → AddCategoryDialog
             └── dialog → CleanupDialog
+            └── navigeer naar → AdminScreen          (alleen voor admins, via "Beheer"-sectie)
+                    └── navigeer naar → AdminCostsScreen
 ```
 
 **Belangrijk:** Alle tabs blijven in leven bij tab-wisseling (geen rebuild bij terugkeer).
@@ -321,6 +323,17 @@ Knop "Artikelen opruimen" opent CleanupDialog:
   - bij bevestigen worden de keep-flags geforceerd op `false` in de query-string, ongeacht eerdere checkbox-stand
 - **Bevestigen:** roept zowel `DELETE /api/rss/cleanup?...` als `DELETE /api/feed/cleanup?...` aan met dezelfde parameters — beide verzamelingen worden altijd opgeruimd, RSS-items en gecureerde feed-items.
 - **Annuleren:** sluit dialog zonder actie
+
+### Beheer (alleen admins)
+
+Onderaan het Settings-scherm verschijnt een extra sectie **"Beheer"** die alleen zichtbaar is voor gebruikers met de rol `admin`.
+
+- **Adminpaneel-tegel:** navigeert via `Navigator.push` naar AdminScreen.
+  - AdminScreen toont alle gebruikers met hun rollen.
+  - Per gebruiker: wachtwoord resetten, promoveren naar admin, degraderen naar user, verwijderen.
+  - Vanuit AdminScreen is er een navigatieknop naar AdminCostsScreen (kosten-overzicht).
+
+Er is geen aparte Admin-tab in de bottom navigation bar — alle admin-functionaliteit zit achter de Beheer-tegel in Settings.
 
 ---
 
