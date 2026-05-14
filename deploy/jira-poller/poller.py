@@ -374,13 +374,67 @@ def fetch_queued_with_phase(phase: str) -> list[dict]:
     return r.json().get("issues", [])
 
 
+def fetch_jira_comments(issue_key: str, limit: int = 50) -> list[dict]:
+    """Haal de comment-thread van een JIRA-issue op (chronologisch).
+
+    Returnt een lijst dicts met keys 'author', 'created' (ISO), 'text'
+    (gemark-down'de body). Bot-status-updates ('🤖 Claude …', '✅ Gemerged …')
+    worden NIET gefilterd hier — caller bepaalt zelf wat relevant is.
+    """
+    r = jira(
+        "GET",
+        f"/rest/api/3/issue/{issue_key}/comment",
+        params={"maxResults": str(limit), "orderBy": "created"},
+    )
+    if r.status_code != 200:
+        log.warning("comment-fetch voor %s gaf HTTP %d", issue_key, r.status_code)
+        return []
+    out: list[dict] = []
+    for c in r.json().get("comments", []):
+        out.append({
+            "author":  (c.get("author") or {}).get("displayName") or "?",
+            "created": c.get("created") or "",
+            "text":    adf_to_markdown(c.get("body")).strip(),
+        })
+    return out
+
+
+# Patronen waarop we comments overslaan in task.md. Dit zijn de
+# automatische status-updates van poller/runner die geen inhoudelijke
+# info dragen voor de agent.
+_TASK_MD_COMMENT_SKIP = re.compile(
+    r"^\s*(?:🤖|✅)\s",
+)
+
+
 def issue_to_task_md(issue: dict) -> str:
-    """Bouw een task.md uit een JIRA-issue."""
+    """Bouw een task.md uit een JIRA-issue (incl. comment-thread).
+
+    De thread wordt meegestuurd zodat refiner/developer eerdere
+    [REFINER]/[DEVELOPER]-vragen + PO-antwoorden mee kan lezen — anders
+    blijft een agent op elke spawn dezelfde vraag stellen.
+    """
     key = issue["key"]
     summary = issue["fields"].get("summary", "(geen titel)")
     desc_node = issue["fields"].get("description")
     body = adf_to_markdown(desc_node).strip() if desc_node else "_(geen beschrijving)_"
-    return f"# {summary}\n\n_JIRA-issue: {key}_\n\n{body}\n"
+
+    md = f"# {summary}\n\n_JIRA-issue: {key}_\n\n{body}\n"
+
+    comments = fetch_jira_comments(key)
+    # Skip pure status-emoji updates van de bot-flow.
+    useful = [c for c in comments if c["text"] and not _TASK_MD_COMMENT_SKIP.match(c["text"])]
+    if useful:
+        md += "\n\n## JIRA-comments (chronologisch)\n\n"
+        md += (
+            "_De thread hieronder is leidend voor je interpretatie van de story. "
+            "Eerdere vragen van agents (`[REFINER]`/`[DEVELOPER]`) en de "
+            "antwoorden van de PO daarop zijn authoritative — gebruik ze in "
+            "plaats van opnieuw dezelfde vraag te stellen._\n\n"
+        )
+        for c in useful:
+            md += f"### {c['author']} — {c['created']}\n\n{c['text']}\n\n"
+    return md
 
 
 # ─── kubectl wrappers ─────────────────────────────────────────────────────
