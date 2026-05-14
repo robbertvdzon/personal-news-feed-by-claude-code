@@ -129,7 +129,42 @@ fi
 # tool-use. NB: dit is alleen veilig binnen een runner-pod, niet voor
 # interactief gebruik.
 
-SYSTEM_PROMPT="Je bent een autonome software engineer. Implementeer de
+# System-prompt per rol. Default = developer (huidig gedrag); refiner
+# krijgt een fundamenteel andere instructie (lezen + vragen, geen code).
+case "${AGENT_ROLE:-developer}" in
+  refiner)
+    SYSTEM_PROMPT="Je bent een refinement-agent voor de software-factory.
+Je leest een story en bepaalt of er voldoende info is om 'm zonder
+verdere vragen te implementeren.
+
+Werkwijze:
+1. Lees /work/repo/.task.md (de story).
+2. Verken het repo met Read om bestaande conventies, gerelateerde features
+   en architectuur te checken — vragen die je zélf kunt beantwoorden door
+   het repo te bekijken hoef je NIET aan de PO te stellen.
+3. Beslis: is de story helder genoeg, of zijn er ambiguïteiten?
+
+Regels:
+- Je schrijft GEEN code, doet GEEN commits, en wijzigt geen bestanden.
+- Stel max 5 vragen tegelijk. Concrete vragen, geen 'wat denk jij'.
+- Geen vragen waar het antwoord 'zoals de bestaande feature X werkt' zou
+  zijn — bouw die kennis zelf op door het repo te lezen.
+
+Antwoordformaat — schrijf op de LAATSTE regel van je antwoord EXACT één
+van deze twee JSON-objecten:
+
+  {\"phase\": \"refined\"}
+
+als alles helder is, OF:
+
+  {\"phase\": \"awaiting-po\", \"questions\": [\"vraag 1\", \"vraag 2\"]}
+
+bij open vragen. Geen extra tekst NA dit JSON-object. Daarboven mag je
+kort motiveren waarom je deze keuze maakt."
+    ;;
+
+  developer|*)
+    SYSTEM_PROMPT="Je bent een autonome software engineer. Implementeer de
 gegeven story op de bestaande codebase. Regels:
 
 1. Je werkt op branch '$BRANCH'. Pusht of merget zelf NOOIT — die stap doe ik
@@ -143,9 +178,12 @@ gegeven story op de bestaande codebase. Regels:
 6. Stop nadat alle wijzigingen lokaal gecommit zijn. Push doet het script.
 
 Story staat in /work/repo/.task.md."
+    ;;
+esac
 
 # Extra context als dit een iteratie op een bestaande PR is (S-09).
-if [[ -n "$TRIGGER_COMMENT_ID" ]]; then
+# Alleen developer-mode pakt dat op; refiner werkt nooit op PR-iteraties.
+if [[ "${AGENT_ROLE:-developer}" == "developer" && -n "$TRIGGER_COMMENT_ID" ]]; then
   SYSTEM_PROMPT+="
 
 LET OP: dit is een iteratie op een al bestaande PR. /work/repo/.task.md
@@ -246,6 +284,97 @@ echo "[runner] Claude exit=$CLAUDE_EXIT"
 
 # Opruimen vóór we committen
 rm -f /work/repo/.task.md
+
+# ─────────────────────────────────────────────────────────────────────
+# ROL-SPLITSING: refiner doet géén git-push of PR. Alleen JSON-outcome
+# parsen uit /tmp/claude.log.jsonl en JIRA bijwerken.
+# ─────────────────────────────────────────────────────────────────────
+if [[ "${AGENT_ROLE:-developer}" == "refiner" ]]; then
+  echo "[runner] role=refiner — parse outcome + post JIRA"
+
+  # De refiner-system-prompt eindigt met een JSON-object op de laatste
+  # regel van het terminal `result`-event. We extraheren 'm met jq.
+  OUTCOME_JSON=$(jq -r 'select(.type == "result") | .result // ""' \
+    /tmp/claude.log.jsonl 2>/dev/null | tail -1 | grep -oE '\{[^}]*"phase"[^}]*\}' | tail -1)
+
+  if [[ -z "$OUTCOME_JSON" ]]; then
+    echo "[runner] geen geldig JSON-outcome gevonden — markeer als awaiting-po met fallback-vraag"
+    OUTCOME_JSON='{"phase":"awaiting-po","questions":["Refiner kon geen duidelijke outcome formuleren. Bekijk de log handmatig."]}'
+  fi
+
+  echo "[runner] outcome: $OUTCOME_JSON"
+  REFINER_PHASE=$(echo "$OUTCOME_JSON" | jq -r '.phase // "awaiting-po"')
+
+  # JIRA-update: status + phase + (optioneel) comment met vragen.
+  if [[ -n "${JIRA_FIELD_AI_PHASE:-}" && -n "${JIRA_BASE_URL:-}" ]]; then
+    case "$REFINER_PHASE" in
+      refined)
+        TARGET_STATUS="AI Queued"
+        ;;
+      awaiting-po|*)
+        REFINER_PHASE="awaiting-po"
+        TARGET_STATUS="AI Needs Info"
+        # Post comment met vragen
+        QUESTIONS=$(echo "$OUTCOME_JSON" | jq -r '.questions // [] | map("- " + .) | join("\n")')
+        if [[ -n "$QUESTIONS" ]]; then
+          COMMENT_TEXT=$(printf '[REFINER] Vragen voor je goedkeuring vóór de developer aan de slag kan:\n\n%s\n\nBeantwoord in een nieuwe comment, en zet de status terug op "AI Ready" zodra je klaar bent.' "$QUESTIONS")
+          COMMENT_JSON=$(jq -n --arg t "$COMMENT_TEXT" '{body: {type:"doc", version:1, content:[{type:"paragraph", content:[{type:"text", text:$t}]}]}}')
+          echo "[runner] JIRA: post [REFINER]-comment met $(echo "$OUTCOME_JSON" | jq '.questions | length') vragen"
+          curl -s -m 10 -o /dev/null -w "  comment HTTP %{http_code}\n" \
+            -u "${JIRA_EMAIL}:${JIRA_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -X POST -d "$COMMENT_JSON" \
+            "${JIRA_BASE_URL}/rest/api/3/issue/${STORY_ID}/comment"
+        fi
+        ;;
+    esac
+
+    # Phase + (resume_phase als nodig) zetten via PUT
+    if [[ "$REFINER_PHASE" == "awaiting-po" && -n "${JIRA_FIELD_AI_RESUME_PHASE:-}" ]]; then
+      PATCH_JSON=$(jq -n \
+        --arg phase "$REFINER_PHASE" \
+        --arg resume "refining" \
+        --arg pf "$JIRA_FIELD_AI_PHASE" \
+        --arg rf "$JIRA_FIELD_AI_RESUME_PHASE" \
+        '{fields: ({} | .[$pf] = $phase | .[$rf] = $resume)}')
+    else
+      PATCH_JSON=$(jq -n \
+        --arg phase "$REFINER_PHASE" \
+        --arg pf "$JIRA_FIELD_AI_PHASE" \
+        '{fields: ({} | .[$pf] = $phase)}')
+    fi
+    echo "[runner] JIRA: AI Phase = $REFINER_PHASE"
+    curl -s -m 10 -o /dev/null -w "  phase HTTP %{http_code}\n" \
+      -u "${JIRA_EMAIL}:${JIRA_API_KEY}" \
+      -H "Content-Type: application/json" \
+      -X PUT -d "$PATCH_JSON" \
+      "${JIRA_BASE_URL}/rest/api/3/issue/${STORY_ID}"
+
+    # Status-transition naar de juiste target
+    transitions=$(curl -s -m 10 -u "${JIRA_EMAIL}:${JIRA_API_KEY}" \
+      -H "Accept: application/json" \
+      "${JIRA_BASE_URL}/rest/api/3/issue/${STORY_ID}/transitions" 2>/dev/null)
+    tr_id=$(echo "$transitions" | jq -r --arg name "$TARGET_STATUS" \
+      '.transitions[] | select(.to.name == $name) | .id' 2>/dev/null | head -1)
+    if [[ -n "$tr_id" ]]; then
+      echo "[runner] JIRA: $STORY_ID → '$TARGET_STATUS'"
+      curl -s -m 10 -o /dev/null -w "  transition HTTP %{http_code}\n" \
+        -u "${JIRA_EMAIL}:${JIRA_API_KEY}" \
+        -H "Content-Type: application/json" \
+        -X POST -d "{\"transition\":{\"id\":\"${tr_id}\"}}" \
+        "${JIRA_BASE_URL}/rest/api/3/issue/${STORY_ID}/transitions"
+    else
+      echo "[runner] geen transition naar '$TARGET_STATUS' beschikbaar — manueel verplaatsen"
+    fi
+  fi
+
+  echo "[runner] refiner klaar."
+  exit 0
+fi
+
+# ─────────────────────────────────────────────────────────────────────
+# Onder dit punt: developer-flow (huidige logica). Refiner exit'te al.
+# ─────────────────────────────────────────────────────────────────────
 
 # ---------- verifieer dat er iets is gewijzigd ----------
 # Claude moet zelf gecommit hebben volgens regel 5; check of er commits
