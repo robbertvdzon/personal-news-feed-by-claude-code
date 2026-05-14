@@ -119,6 +119,19 @@ else
   git checkout -b "$BRANCH"
 fi
 
+# ---------- diff voor reviewer ----------
+# Reviewer leest geen werk-tree maar de PR-diff. We schrijven 'm vooraf
+# naar een bestand zodat Claude 'm via Read kan oppakken. Het kloon-pad
+# heeft inmiddels zowel main als de ai/-branch lokaal.
+if [[ "${AGENT_ROLE:-developer}" == "reviewer" ]]; then
+  # Zorg dat we main als ref hebben — shallow clone heeft 'm via origin/main.
+  git fetch --depth=50 origin "$BASE_BRANCH" 2>/dev/null || true
+  # Diff tussen merge-base en HEAD = 'wat zou er in de PR komen'.
+  git diff "origin/${BASE_BRANCH}...HEAD" > /work/repo/.pr-diff.txt 2>/dev/null || true
+  diff_bytes=$(wc -c < /work/repo/.pr-diff.txt 2>/dev/null || echo 0)
+  echo "[runner] reviewer-mode: PR-diff geschreven naar /work/repo/.pr-diff.txt (${diff_bytes} bytes)"
+fi
+
 # ---------- Claude draaien ----------
 # We bouwen een prompt die:
 #   - de story injecteert
@@ -192,6 +205,69 @@ quotes (\\\") — dat breekt JSON-parsing. Wil je iets citeren of benadrukken,
 gebruik dan enkele aanhalingstekens ('zoals dit'), backticks (\`Colors.red\`)
 of een em-dash (—). Voorbeeld: schrijf 'Hoe \\'licht rood\\' precies?'
 NIET 'Hoe \\\"licht rood\\\" precies?'."
+    ;;
+
+  reviewer)
+    SYSTEM_PROMPT="Je bent een senior code-reviewer voor de software-factory.
+Een collega-agent (developer) heeft een story geïmplementeerd op branch
+'$BRANCH'. Jouw taak: beoordelen of de PR mergebaar is, OF dat 'r
+wijzigingen moeten gebeuren vóór de tester eraan kan beginnen.
+
+Werkwijze:
+1. Lees /work/repo/.task.md. Onderaan staat de comment-thread:
+   refiner-aannames, PO-antwoorden, en de [DEVELOPER]-samenvatting
+   met 'Gedaan:' en 'Niet gedaan / aangepast:'-bullets. Dat is de
+   scope-baseline waaraan je de implementatie aftoetst.
+2. Lees /work/repo/.pr-diff.txt. Dat is de unified diff van wat de
+   developer heeft toegevoegd t.o.v. main. Gebruik dat als primaire
+   input — geen werk-tree verkennen tenzij echt nodig.
+3. Verken het repo met Read als je context nodig hebt (bv. om te zien
+   waar een gewijzigde functie wordt aangeroepen, of om de bestaande
+   stijl te checken).
+4. Geef een verdict: matched de implementatie de story + aannames,
+   en is de code-kwaliteit acceptabel?
+
+Regels:
+- Je schrijft GEEN code, doet GEEN commits, en wijzigt geen bestanden.
+- Je post GEEN PR-line-comments (komt later) — alleen een
+  JIRA-samenvatting.
+- Beoordeel pragmatisch: dit is geen ivory-tower code-review. Vraag
+  alleen wijzigingen als 't blokkerend is voor merge of een echte bug
+  introduceert. Style-nits / 'kan-mooier' → benoem als info, niet als
+  blocker.
+
+Bevindingen-rubriek (gebruik deze prefixes in je bullet-lijst):
+- [blocker]   — moet eerst gefixt voordat de PR gemerged kan
+- [bug]       — werkt aantoonbaar niet, fix vereist
+- [suggestie] — kan mooier maar is geen blocker
+- [info]      — observatie / vraag / opmerking voor de PO of tester
+
+Antwoordformaat — schrijf EERST een gestructureerde samenvatting met
+deze drie koppen exact zo gespeld op een eigen regel:
+
+Samenvatting:
+2-4 regels prose over wat je hebt bekeken en je algehele indruk.
+
+Bevindingen:
+- [blocker] bullet over een blokkerend probleem (bv. 'compile-fail
+  ontbreekt voor X')
+- [suggestie] bullet over een verbeterpunt
+- als er ECHT niets is: schrijf één regel 'Geen — implementatie is OK.'
+
+Verdict:
+één regel: 'OK' of 'WIJZIGINGEN'. Gebruik 'WIJZIGINGEN' als er ook
+maar één [blocker] of [bug] in de Bevindingen staat.
+
+DAARNA op de LAATSTE regel EXACT één van deze twee JSON-objecten,
+op ÉÉN regel, ZONDER markdown code-fence:
+
+{\"phase\": \"reviewed-ok\"}
+
+als alles OK is, OF:
+
+{\"phase\": \"reviewed-changes\"}
+
+als er wijzigingen nodig zijn. Geen extra tekst NA dit JSON-object."
     ;;
 
   developer|*)
@@ -551,7 +627,104 @@ else:
 fi
 
 # ─────────────────────────────────────────────────────────────────────
-# Onder dit punt: developer-flow (huidige logica). Refiner exit'te al.
+# Reviewer-flow (Fase 4): geen code, geen push — alleen JIRA-comment
+# met bevindingen + outcome-JSON.
+# ─────────────────────────────────────────────────────────────────────
+if [[ "${AGENT_ROLE:-developer}" == "reviewer" ]]; then
+  echo "[runner] role=reviewer — parse outcome + post JIRA"
+
+  REVIEWER_FULL_TEXT=$(extract_claude_summary)
+
+  # Outcome-JSON met dezelfde robuuste parser als de refiner: strict
+  # json.loads, dan regex-fallback bij broken quotes.
+  OUTCOME_JSON=$(jq -r 'select(.type == "result") | .result // ""' \
+    /tmp/claude.log.jsonl 2>/dev/null | python3 -c '
+import sys, re, json
+text = sys.stdin.read()
+text = re.sub(r"```(?:json)?\s*", "", text)
+text = re.sub(r"```", "", text)
+strict_candidates = []
+lenient_blocks = []
+i = 0
+while i < len(text):
+    if text[i] == "{":
+        depth = 0
+        for j in range(i, len(text)):
+            if text[j] == "{": depth += 1
+            elif text[j] == "}":
+                depth -= 1
+                if depth == 0:
+                    candidate = text[i:j+1]
+                    try:
+                        obj = json.loads(candidate)
+                        if isinstance(obj, dict) and "phase" in obj:
+                            strict_candidates.append(json.dumps(obj))
+                    except json.JSONDecodeError:
+                        if "\"phase\"" in candidate:
+                            lenient_blocks.append(candidate)
+                    i = j
+                    break
+        else:
+            break
+    i += 1
+if strict_candidates:
+    print(strict_candidates[-1])
+elif lenient_blocks:
+    block = lenient_blocks[-1]
+    m = re.search(r"\"phase\"\s*:\s*\"([^\"]+)\"", block)
+    if m:
+        print(json.dumps({"phase": m.group(1)}))
+    else:
+        print("")
+else:
+    print("")
+' 2>/dev/null || true)
+
+  if [[ -z "$OUTCOME_JSON" ]]; then
+    echo "[runner] geen geldige reviewer-outcome — default reviewed-changes (veiliger)"
+    OUTCOME_JSON='{"phase":"reviewed-changes"}'
+  fi
+
+  echo "[runner] outcome: $OUTCOME_JSON"
+  REVIEWER_PHASE=$(echo "$OUTCOME_JSON" | jq -r '.phase // "reviewed-changes"')
+  # Normaliseer: enige toegestane waardes nu zijn reviewed-ok en
+  # reviewed-changes. Awaiting-po komt later (spec).
+  case "$REVIEWER_PHASE" in
+    reviewed-ok|reviewed-changes) ;;
+    *)
+      echo "[runner] onverwachte phase '$REVIEWER_PHASE' — degradeer naar reviewed-changes"
+      REVIEWER_PHASE="reviewed-changes"
+      ;;
+  esac
+
+  # Strip de slot-JSON-regel zodat we de pure prose als JIRA-comment posten.
+  REVIEWER_PROSE=$(echo "$REVIEWER_FULL_TEXT" | sed '/^[[:space:]]*{.*"phase".*}[[:space:]]*$/d')
+  if [[ -z "$REVIEWER_PROSE" ]]; then
+    REVIEWER_PROSE="(Geen samenvatting beschikbaar — bekijk de log.)"
+  fi
+  post_role_jira_comment "REVIEWER" "$REVIEWER_PROSE"
+
+  # Phase op JIRA zetten. Géén status-transition: de story blijft op
+  # AI IN REVIEW (PR open, wacht op tester of mens).
+  if [[ -n "${JIRA_FIELD_AI_PHASE:-}" && -n "${JIRA_BASE_URL:-}" ]]; then
+    echo "[runner] JIRA: AI Phase = '$REVIEWER_PHASE'"
+    curl -s -m 10 -o /dev/null -w "  phase HTTP %{http_code}\n" \
+      -u "${JIRA_EMAIL}:${JIRA_API_KEY}" \
+      -H "Content-Type: application/json" \
+      -X PUT \
+      -d "{\"fields\":{\"${JIRA_FIELD_AI_PHASE}\":\"${REVIEWER_PHASE}\"}}" \
+      "${JIRA_BASE_URL}/rest/api/3/issue/${STORY_ID}"
+  fi
+
+  # Sla 'update_jira_after_run' over — die zou anders status overrulen.
+  # Markeer dit explicitiet zodat de developer-end-of-script niet draait.
+  echo "[runner] reviewer klaar (phase=$REVIEWER_PHASE)."
+  exit 0
+fi
+
+# ─────────────────────────────────────────────────────────────────────
+# Onder dit punt: developer-flow (huidige logica). Refiner + reviewer
+# exit'ten al hierboven.
 # ─────────────────────────────────────────────────────────────────────
 
 # ---------- verifieer dat er iets is gewijzigd ----------

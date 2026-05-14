@@ -1760,6 +1760,9 @@ _REFINER_HEADING_ASSUMPTIONS = "Aannames:"
 _DEVELOPER_HEADING_PROSE = "Samenvatting:"
 _DEVELOPER_HEADING_DONE = "Gedaan:"
 _DEVELOPER_HEADING_SKIPPED = "Niet gedaan / aangepast:"
+_REVIEWER_HEADING_PROSE = "Samenvatting:"
+_REVIEWER_HEADING_FINDINGS = "Bevindingen:"
+_REVIEWER_HEADING_VERDICT = "Verdict:"
 
 
 def _strip_refiner_json_line(text: str) -> str:
@@ -1895,16 +1898,33 @@ def _render_handover_page(data: dict, jira_title: str = "") -> str:
             status="miss",
         )
 
-    # Reviewer-sectie (Fase 4 — placeholder zolang de agent niet bestaat)
+    # Reviewer-sectie (Fase 4)
     if reviewer and reviewer.get("summary_text"):
-        reviewer_card = _section_card(
-            "Reviewer — code-review",
-            f'<p class="prose">{escape(reviewer["summary_text"])}</p>',
+        rev_sections = _split_sections(
+            _strip_refiner_json_line(reviewer["summary_text"]),
+            [_REVIEWER_HEADING_PROSE, _REVIEWER_HEADING_FINDINGS, _REVIEWER_HEADING_VERDICT],
         )
+        prose = rev_sections.get(_REVIEWER_HEADING_PROSE) or rev_sections.get("__intro", "")
+        findings = rev_sections.get(_REVIEWER_HEADING_FINDINGS, "")
+        verdict = rev_sections.get(_REVIEWER_HEADING_VERDICT, "").strip()
+        rev_html = ""
+        if prose:
+            rev_html += f'<p class="prose">{escape(prose)}</p>'
+        if findings:
+            rev_html += "<h3>Bevindingen</h3>" + _bullets_to_html(findings)
+        if verdict:
+            verdict_class = "ok" if verdict.upper().startswith("OK") else "changes"
+            rev_html += (
+                f'<p class="verdict verdict-{verdict_class}">'
+                f"Verdict: <strong>{escape(verdict)}</strong></p>"
+            )
+        if not rev_html:
+            rev_html = '<p class="muted">Geen reviewer-samenvatting beschikbaar.</p>'
+        reviewer_card = _section_card("Reviewer — code-review", rev_html)
     else:
         reviewer_card = _section_card(
             "Reviewer — code-review",
-            '<p class="muted">Komt in Fase 4. Voor nu: bekijk de PR-diff op GitHub.</p>',
+            '<p class="muted">Nog niet gedraaid. Komt automatisch zodra de developer een PR heeft gepusht.</p>',
             status="wait",
         )
 
@@ -1940,6 +1960,12 @@ def _render_handover_page(data: dict, jira_title: str = "") -> str:
       color: #d8dde6; margin: 4px 0 6px 0; white-space: pre-wrap; }}
     .handover-section .muted {{ color: #6f7a8a; font-style: italic; font-size: 13px; }}
     .handover-section.status-miss h2 {{ color: #8b96a8; }}
+    .verdict {{ margin: 8px 0 4px 0; padding: 6px 10px; border-radius: 4px;
+      font-size: 13px; display: inline-block; }}
+    .verdict-ok {{ background: #052e16; color: #4ade80;
+      border: 1px solid #065f46; }}
+    .verdict-changes {{ background: #2c1810; color: #fbbf24;
+      border: 1px solid #713f12; }}
     .links-card {{ background: #1a2029; border: 1px solid #2c3340;
       border-radius: 8px; padding: 12px 18px; margin: 12px 0;
       display: flex; gap: 18px; flex-wrap: wrap; font-size: 14px; }}
