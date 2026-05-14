@@ -165,7 +165,13 @@ als alles helder is, OF:
 {\"phase\": \"awaiting-po\", \"questions\": [\"vraag 1\", \"vraag 2\"]}
 
 bij open vragen. Geen extra tekst NA dit JSON-object. Géén newlines
-binnen het JSON-object. Geen indent. Plain one-liner."
+binnen het JSON-object. Geen indent. Plain one-liner.
+
+BELANGRIJK over de vraag-strings: gebruik BINNEN een vraag NOOIT dubbele
+quotes (\\\") — dat breekt JSON-parsing. Wil je iets citeren of benadrukken,
+gebruik dan enkele aanhalingstekens ('zoals dit'), backticks (\`Colors.red\`)
+of een em-dash (—). Voorbeeld: schrijf 'Hoe \\'licht rood\\' precies?'
+NIET 'Hoe \\\"licht rood\\\" precies?'."
     ;;
 
   developer|*)
@@ -354,8 +360,12 @@ text = sys.stdin.read()
 # Strip eventuele ```json/``` code-fences.
 text = re.sub(r"```(?:json)?\s*", "", text)
 text = re.sub(r"```", "", text)
-# Vind alle balanced { … } objecten en pak de laatste met "phase".
-candidates = []
+
+# Pass 1: zoek balanced { … } met geldige JSON die "phase" bevat.
+strict_candidates = []
+# Pass 2-fallback: bewaar óók balanced blokken waar json.loads faalt,
+# voor regex-redding hieronder.
+lenient_blocks = []
 i = 0
 while i < len(text):
     if text[i] == "{":
@@ -369,20 +379,55 @@ while i < len(text):
                     try:
                         obj = json.loads(candidate)
                         if isinstance(obj, dict) and "phase" in obj:
-                            candidates.append(json.dumps(obj))
+                            strict_candidates.append(json.dumps(obj))
                     except json.JSONDecodeError:
-                        pass
+                        if "\"phase\"" in candidate:
+                            lenient_blocks.append(candidate)
                     i = j
                     break
         else:
             break
     i += 1
-print(candidates[-1] if candidates else "")
+
+if strict_candidates:
+    print(strict_candidates[-1])
+elif lenient_blocks:
+    # Regex-redding: extract phase + questions ook al is JSON ongeldig
+    # (typisch: onontsnapte dubbele quotes binnen een vraag-string).
+    block = lenient_blocks[-1]
+    phase_m = re.search(r"\"phase\"\s*:\s*\"([^\"]+)\"", block)
+    if phase_m:
+        phase = phase_m.group(1)
+        questions = []
+        q_block = re.search(r"\"questions\"\s*:\s*\[(.*)\]\s*\}?\s*$", block, re.DOTALL)
+        if q_block:
+            raw = q_block.group(1).strip()
+            # Split op "(",")" maar tolerant: zoek "...", "..." patronen.
+            # Strip buitenste quotes en split op kwart-quote-comma-spatie-quote.
+            if raw.startswith("\""):
+                raw = raw[1:]
+            if raw.endswith("\""):
+                raw = raw[:-1]
+            parts = re.split(r"\"\s*,\s*\"", raw)
+            for p in parts:
+                p = p.strip().rstrip(",").strip()
+                if p:
+                    # Convert eventuele \\" en losse " naar quote-veilige tekst.
+                    cleaned = p.replace("\\\"", "\"")
+                    questions.append(cleaned)
+        out = {"phase": phase}
+        if questions:
+            out["questions"] = questions
+        print(json.dumps(out))
+    else:
+        print("")
+else:
+    print("")
 ' 2>/dev/null || true)
 
   if [[ -z "$OUTCOME_JSON" ]]; then
     echo "[runner] geen geldig JSON-outcome gevonden — markeer als awaiting-po met fallback-vraag"
-    OUTCOME_JSON='{"phase":"awaiting-po","questions":["Refiner kon geen duidelijke outcome formuleren. Bekijk de log handmatig."]}'
+    OUTCOME_JSON='{"phase":"awaiting-po","questions":["De refinement kon niet automatisch worden afgerond. Probeer de story opnieuw te starten via AI Queued, of maak de beschrijving wat concreter."]}'
   fi
 
   echo "[runner] outcome: $OUTCOME_JSON"
@@ -409,7 +454,7 @@ print(candidates[-1] if candidates else "")
         # Post comment met vragen
         QUESTIONS=$(echo "$OUTCOME_JSON" | jq -r '.questions // [] | map("- " + .) | join("\n")')
         if [[ -n "$QUESTIONS" ]]; then
-          COMMENT_TEXT=$(printf '[REFINER] Vragen voor je goedkeuring vóór de developer aan de slag kan:\n\n%s\n\nBeantwoord in een nieuwe comment, en zet de status terug op "AI Ready" zodra je klaar bent.' "$QUESTIONS")
+          COMMENT_TEXT=$(printf '[REFINER] Vragen voor je goedkeuring vóór de developer aan de slag kan:\n\n%s\n\nBeantwoord in een nieuwe comment, en zet de status op "AI Queued" zodra je klaar bent. De refiner pakt de story dan automatisch weer op.' "$QUESTIONS")
           COMMENT_JSON=$(jq -n --arg t "$COMMENT_TEXT" '{body: {type:"doc", version:1, content:[{type:"paragraph", content:[{type:"text", text:$t}]}]}}')
           echo "[runner] JIRA: post [REFINER]-comment met $(echo "$OUTCOME_JSON" | jq '.questions | length') vragen"
           curl -s -m 10 -o /dev/null -w "  comment HTTP %{http_code}\n" \
