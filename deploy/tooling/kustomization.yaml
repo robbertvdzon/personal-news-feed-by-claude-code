@@ -22,11 +22,12 @@ kind: Kustomization
 # willen aanpassen (immutable veld) en de eerste sync laten falen.
 
 resources:
-  - jira-poller-deployment.yaml
-  - status-dashboard-deployment.yaml
+- jira-poller-deployment.yaml
+- status-dashboard-deployment.yaml
 
 images:
-  - name: ghcr.io/robbertvdzon/jira-poller
-    newTag: sha-88bd2ba
-  - name: ghcr.io/robbertvdzon/status-dashboard
-    newTag: sha-f9e1b6c
+- name: ghcr.io/robbertvdzon/jira-poller
+  newName: ghcr.io/robbertvdzon/jira-poller
+  newTag: sha-cc923d6
+- name: ghcr.io/robbertvdzon/status-dashboard
+  newTag: sha-f9e1b6c
