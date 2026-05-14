@@ -40,7 +40,12 @@ GITHUB_REPO = os.environ.get(
     "GITHUB_REPO", "personal-news-feed-by-claude-code"
 )
 ARGOCD_NS = os.environ.get("ARGOCD_NS", "argocd")
+# PROD_NS = waar de applicatie zelf draait (frontend/backend/tunnel).
+# FACTORY_NS = waar de claude-runner Jobs + poller + dashboard zelf draaien.
+# Sinds Fase 0 zijn die expliciet gescheiden; voor 'app-pods' lezen we
+# uit PROD_NS, voor 'runner-Jobs' uit FACTORY_NS.
 PROD_NS = os.environ.get("PROD_NS", "personal-news-feed")
+FACTORY_NS = os.environ.get("FACTORY_NS", "pnf-software-factory")
 PREVIEW_NS_PREFIX = os.environ.get("PREVIEW_NS_PREFIX", "pnf-pr-")
 APP_BASE_URL = os.environ.get("APP_BASE_URL", "https://vdzonsoftware.nl")
 PREVIEW_URL_FORMAT = os.environ.get(
@@ -272,7 +277,9 @@ def k8s_pod_log(
     De caller kan op http_status branchen voor specifieke meldingen
     (b.v. 403 → "rbac mist pods/log", 404 → "pod weg").
     """
-    ns = namespace or PROD_NS
+    # Default namespace voor pod-logs is FACTORY_NS — alle pods waarvan
+    # we logs willen tonen (runner-Jobs) draaien daar.
+    ns = namespace or FACTORY_NS
     r = _k8s_get(
         f"/api/v1/namespaces/{ns}/pods/{pod_name}/log",
         params={"tailLines": str(tail_lines)},
@@ -730,7 +737,7 @@ def build_state() -> dict:
     apps_by_name = {a.get("metadata", {}).get("name"): a for a in apps}
     pnf_namespaces = k8s_pnf_namespaces()
     pods_by_ns = {ns: k8s_pods(ns) for ns in [PROD_NS] + pnf_namespaces}
-    runner_jobs = k8s_jobs(PROD_NS, label_selector="app=claude-runner")
+    runner_jobs = k8s_jobs(FACTORY_NS, label_selector="app=claude-runner")
 
     # Production
     main_commit = gh_main_head_commit() or {}
@@ -873,7 +880,7 @@ def build_state() -> dict:
 
     # AI bezig: filter op de active subset.
     jira_cards: list[JIRACard] = []
-    active_jobs = k8s_jobs(PROD_NS, label_selector="app=claude-runner")
+    active_jobs = k8s_jobs(FACTORY_NS, label_selector="app=claude-runner")
     for issue in all_tracked:
         key = issue.get("key", "")
         fields = issue.get("fields", {}) or {}
@@ -1369,7 +1376,7 @@ def runner_log(job_name: str) -> Response:
     if not _JOB_NAME_RE.match(job_name):
         return Response("Ongeldige job-naam.", status=400, mimetype="text/plain")
 
-    job_data = kubectl_json("get", "job", job_name, "-n", PROD_NS)
+    job_data = kubectl_json("get", "job", job_name, "-n", FACTORY_NS)
     job_status = job_data.get("status", {})
     labels = (job_data.get("metadata", {}) or {}).get("labels", {}) or {}
 
@@ -1412,7 +1419,7 @@ def runner_log(job_name: str) -> Response:
         log.warning("PR-lookup voor log-pagina faalde: %s", exc)
 
     # Pod zoeken (automatisch label job-name=<job_name> door K8s).
-    pods_data = kubectl_json("get", "pods", "-n", PROD_NS, "-l", f"job-name={job_name}")
+    pods_data = kubectl_json("get", "pods", "-n", FACTORY_NS, "-l", f"job-name={job_name}")
     pods = pods_data.get("items", [])
 
     log_text: Optional[str] = None

@@ -17,9 +17,13 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-# Bewust GEEN commonLabels of namespace-veld: de Deployments brengen
-# hun eigen metadata mee. Een commonLabel zou de Deployment-selector
-# willen aanpassen (immutable veld) en de eerste sync laten falen.
+# Alle factory-Deployments leven in `pnf-software-factory`. De namespace-
+# directive overschrijft de `namespace:`-velden in de Deployment-files
+# (die ook al naar pnf-software-factory wijzen — dubbel verklaard zodat
+# het in beide views klopt).
+# Bewust GEEN commonLabels: dat zou de Deployment-selector willen
+# aanpassen (immutable veld) en een eerste sync laten falen.
+namespace: pnf-software-factory
 
 resources:
 - jira-poller-deployment.yaml
