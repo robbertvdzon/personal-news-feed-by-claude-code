@@ -149,6 +149,38 @@ if [[ "${AGENT_ROLE:-developer}" == "tester" ]]; then
     export PREVIEW_URL
     export PR_NUMBER="$PR_NUM_FOR_PREVIEW"
     echo "[runner] tester-mode: PREVIEW_URL=$PREVIEW_URL (PR #$PR_NUM_FOR_PREVIEW)"
+
+    # Wacht tot de preview-deploy live is. Typische pijplijn voor een
+    # Flutter-PR: validate (~1m) + build-images (~3-5m) + bump-manifests
+    # + ArgoCD-sync (~3m poll) + pod-start (~1m) ≈ 5-10 min totaal.
+    # Zonder deze wait spawnt de tester vaak vóórdat de pnf-pr-N
+    # namespace klaar is — preview retourneert dan 503, tester
+    # rapporteert tested-fail → onnodige developer-loopback.
+    #
+    # Budget: 10 min, polling per 15s. Faalt veilig: na timeout draait
+    # de tester alsnog z'n analyse op de diff (Claude beslist zelf of
+    # 'ie zonder live preview een verdict kan geven).
+    WAIT_MAX_SEC=600
+    WAIT_INTERVAL=15
+    echo "[runner] tester-mode: wachten tot preview live is (max ${WAIT_MAX_SEC}s, poll ${WAIT_INTERVAL}s)"
+    elapsed=0
+    preview_ready=0
+    while (( elapsed < WAIT_MAX_SEC )); do
+      code=$(curl -s -o /dev/null -w "%{http_code}" -m 8 "$PREVIEW_URL" 2>/dev/null || echo "000")
+      if [[ "$code" == "200" ]]; then
+        echo "[runner]   preview live na ${elapsed}s (HTTP 200)"
+        preview_ready=1
+        break
+      fi
+      echo "[runner]   ${elapsed}s — HTTP $code, wacht ${WAIT_INTERVAL}s"
+      sleep "$WAIT_INTERVAL"
+      elapsed=$((elapsed + WAIT_INTERVAL))
+    done
+    if (( preview_ready == 0 )); then
+      echo "[runner]   preview na ${WAIT_MAX_SEC}s nog steeds niet live — tester draait door zonder; Claude beslist op basis van de diff"
+    fi
+    export PREVIEW_WAIT_ELAPSED="$elapsed"
+    export PREVIEW_READY="$preview_ready"
   else
     echo "[runner] tester-mode: kon PR-number niet vinden voor branch $BRANCH — geen PREVIEW_URL"
   fi
@@ -315,6 +347,10 @@ Werkwijze:
 1. Lees task.md + diff om te begrijpen WAT er getest moet worden.
 2. Als PREVIEW_URL gezet is: curl 'm (curl -I voor headers + curl voor
    body) en check status-code + dat de pagina geen build-error toont.
+   LET OP: de runner heeft vóór jouw start al tot 10 min gewacht tot
+   de preview HTTP 200 gaf — als de pre-flight 't niet rond kreeg
+   (zie env-var PREVIEW_READY=0), is de deploy waarschijnlijk echt
+   stuk en kun je 'tested-fail' rapporteren zonder verder retrien.
 3. **Maak screenshots** van de live preview-deploy met:
        take-screenshot.sh URL OUTPUT.png [WIDTHxHEIGHT]
    Sla 'm op in /tmp/screenshots/. Geef beschrijvende bestandsnamen
