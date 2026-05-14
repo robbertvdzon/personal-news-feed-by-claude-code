@@ -1764,9 +1764,14 @@ _REVIEWER_HEADING_PROSE = "Samenvatting:"
 _REVIEWER_HEADING_FINDINGS = "Bevindingen:"
 _REVIEWER_HEADING_VERDICT = "Verdict:"
 _TESTER_HEADING_PROSE = "Samenvatting:"
-_TESTER_HEADING_TESTED = "Getest:"
-_TESTER_HEADING_RESULTS = "Resultaat per test:"
-_TESTER_HEADING_FOR_HUMAN = "Opvallend voor mens:"
+_TESTER_HEADING_STEPS = "Stappenrapport:"
+_TESTER_HEADING_FINDINGS = "Bevindingen:"
+_TESTER_HEADING_FOR_HUMAN = "Opvallend voor mens — handmatig checken:"
+# Legacy-koppen voor backwards-compat met testers die vóór deze PR
+# liepen. Worden ge-parsed als ze er staan, anders genegeerd.
+_TESTER_HEADING_TESTED_LEGACY = "Getest:"
+_TESTER_HEADING_RESULTS_LEGACY = "Resultaat per test:"
+_TESTER_HEADING_FOR_HUMAN_LEGACY = "Opvallend voor mens:"
 
 
 def _strip_refiner_json_line(text: str) -> str:
@@ -1824,6 +1829,60 @@ def _bullets_to_html(body: str) -> str:
         return f"<ul>{items}</ul>"
     # Geen bullets → laat als prose-paragraaf.
     return f"<p>{escape(body)}</p>"
+
+
+def _markdown_table_to_html(body: str) -> str:
+    """Parse een GFM-tabel ('| a | b |' rows + '|---|---|'-separator) naar
+    een echte <table>. Niet-tabel-input valt terug naar bullets/prose.
+
+    Heuristiek: een tabel-blok is een aaneengesloten reeks regels die
+    allemaal beginnen met '|'. Eerste rij = header, separator-rijen
+    (alleen '|', '-', ':' en spaces) worden geskipt. Andere rijen = body."""
+    raw_lines = [ln.rstrip() for ln in body.splitlines() if ln.strip()]
+    if not raw_lines:
+        return ""
+    if not all(ln.lstrip().startswith("|") for ln in raw_lines):
+        # Geen pure tabel → val terug op bullets/prose-renderer.
+        return _bullets_to_html(body)
+
+    def split_row(line: str) -> list[str]:
+        s = line.strip()
+        if s.startswith("|"):
+            s = s[1:]
+        if s.endswith("|"):
+            s = s[:-1]
+        return [c.strip() for c in s.split("|")]
+
+    is_sep = re.compile(r"^[\s\-:|]+$")
+    header_cells: list[str] = []
+    body_rows: list[list[str]] = []
+    for ln in raw_lines:
+        cells = split_row(ln)
+        if is_sep.match(ln):
+            continue
+        if not header_cells:
+            header_cells = cells
+        else:
+            body_rows.append(cells)
+
+    if not header_cells:
+        return _bullets_to_html(body)
+
+    thead = (
+        "<thead><tr>"
+        + "".join(f"<th>{escape(c)}</th>" for c in header_cells)
+        + "</tr></thead>"
+    )
+    tbody_rows = []
+    for row in body_rows:
+        # Pad/truncate naar lengte van header.
+        while len(row) < len(header_cells):
+            row.append("")
+        row = row[: len(header_cells)]
+        cells_html = "".join(f"<td>{escape(c)}</td>" for c in row)
+        tbody_rows.append(f"<tr>{cells_html}</tr>")
+    tbody = "<tbody>" + "".join(tbody_rows) + "</tbody>"
+    return f'<table class="report-table">{thead}{tbody}</table>'
 
 
 def _section_card(title: str, body_html: str, status: str = "ok") -> str:
@@ -1932,28 +1991,44 @@ def _render_handover_page(data: dict, jira_title: str = "") -> str:
             status="wait",
         )
 
-    # Tester-sectie (Fase 5 MVP)
+    # Tester-sectie (Fase 5 MVP+). Parsed zowel het nieuwe Stappenrapport-
+    # formaat (markdown-tabel) als de legacy Getest/Resultaat-bullets.
     if tester and tester.get("summary_text"):
         tst_sections = _split_sections(
             _strip_refiner_json_line(tester["summary_text"]),
             [
                 _TESTER_HEADING_PROSE,
-                _TESTER_HEADING_TESTED,
-                _TESTER_HEADING_RESULTS,
+                _TESTER_HEADING_STEPS,
+                _TESTER_HEADING_FINDINGS,
                 _TESTER_HEADING_FOR_HUMAN,
+                _TESTER_HEADING_TESTED_LEGACY,
+                _TESTER_HEADING_RESULTS_LEGACY,
+                _TESTER_HEADING_FOR_HUMAN_LEGACY,
             ],
         )
         prose = tst_sections.get(_TESTER_HEADING_PROSE) or tst_sections.get("__intro", "")
-        tested = tst_sections.get(_TESTER_HEADING_TESTED, "")
-        results = tst_sections.get(_TESTER_HEADING_RESULTS, "")
-        for_human = tst_sections.get(_TESTER_HEADING_FOR_HUMAN, "")
+        steps = tst_sections.get(_TESTER_HEADING_STEPS, "")
+        findings = tst_sections.get(_TESTER_HEADING_FINDINGS, "")
+        for_human = (
+            tst_sections.get(_TESTER_HEADING_FOR_HUMAN, "")
+            or tst_sections.get(_TESTER_HEADING_FOR_HUMAN_LEGACY, "")
+        )
+        # Legacy fallback: oude rapporten hadden Getest + Resultaat ipv tabel.
+        tested_legacy = tst_sections.get(_TESTER_HEADING_TESTED_LEGACY, "")
+        results_legacy = tst_sections.get(_TESTER_HEADING_RESULTS_LEGACY, "")
+
         tst_html = ""
         if prose:
             tst_html += f'<p class="prose">{escape(prose)}</p>'
-        if tested:
-            tst_html += "<h3>Getest</h3>" + _bullets_to_html(tested)
-        if results:
-            tst_html += "<h3>Resultaat per test</h3>" + _bullets_to_html(results)
+        if steps:
+            tst_html += "<h3>Stappenrapport</h3>" + _markdown_table_to_html(steps)
+        elif tested_legacy or results_legacy:
+            if tested_legacy:
+                tst_html += "<h3>Getest</h3>" + _bullets_to_html(tested_legacy)
+            if results_legacy:
+                tst_html += "<h3>Resultaat per test</h3>" + _bullets_to_html(results_legacy)
+        if findings:
+            tst_html += "<h3>Bevindingen</h3>" + _bullets_to_html(findings)
         if for_human:
             tst_html += "<h3>Opvallend voor mens — handmatig checken</h3>" + _bullets_to_html(for_human)
         if not tst_html:
@@ -1991,6 +2066,13 @@ def _render_handover_page(data: dict, jira_title: str = "") -> str:
       border: 1px solid #065f46; }}
     .verdict-changes {{ background: #2c1810; color: #fbbf24;
       border: 1px solid #713f12; }}
+    table.report-table {{ border-collapse: collapse; width: 100%;
+      margin: 8px 0; font-size: 13px; }}
+    table.report-table th {{ background: #2c3340; color: #e4e6eb;
+      text-align: left; padding: 6px 10px; border-bottom: 1px solid #3a414f; }}
+    table.report-table td {{ padding: 6px 10px; border-bottom: 1px solid #2c3340;
+      vertical-align: top; }}
+    table.report-table tr:hover td {{ background: #1f2530; }}
     .links-card {{ background: #1a2029; border: 1px solid #2c3340;
       border-radius: 8px; padding: 12px 18px; margin: 12px 0;
       display: flex; gap: 18px; flex-wrap: wrap; font-size: 14px; }}
