@@ -1763,6 +1763,10 @@ _DEVELOPER_HEADING_SKIPPED = "Niet gedaan / aangepast:"
 _REVIEWER_HEADING_PROSE = "Samenvatting:"
 _REVIEWER_HEADING_FINDINGS = "Bevindingen:"
 _REVIEWER_HEADING_VERDICT = "Verdict:"
+_TESTER_HEADING_PROSE = "Samenvatting:"
+_TESTER_HEADING_TESTED = "Getest:"
+_TESTER_HEADING_RESULTS = "Resultaat per test:"
+_TESTER_HEADING_FOR_HUMAN = "Opvallend voor mens:"
 
 
 def _strip_refiner_json_line(text: str) -> str:
@@ -1928,16 +1932,37 @@ def _render_handover_page(data: dict, jira_title: str = "") -> str:
             status="wait",
         )
 
-    # Tester-sectie (Fase 5 — placeholder)
+    # Tester-sectie (Fase 5 MVP)
     if tester and tester.get("summary_text"):
-        tester_card = _section_card(
-            "Tester — test-rapport",
-            f'<p class="prose">{escape(tester["summary_text"])}</p>',
+        tst_sections = _split_sections(
+            _strip_refiner_json_line(tester["summary_text"]),
+            [
+                _TESTER_HEADING_PROSE,
+                _TESTER_HEADING_TESTED,
+                _TESTER_HEADING_RESULTS,
+                _TESTER_HEADING_FOR_HUMAN,
+            ],
         )
+        prose = tst_sections.get(_TESTER_HEADING_PROSE) or tst_sections.get("__intro", "")
+        tested = tst_sections.get(_TESTER_HEADING_TESTED, "")
+        results = tst_sections.get(_TESTER_HEADING_RESULTS, "")
+        for_human = tst_sections.get(_TESTER_HEADING_FOR_HUMAN, "")
+        tst_html = ""
+        if prose:
+            tst_html += f'<p class="prose">{escape(prose)}</p>'
+        if tested:
+            tst_html += "<h3>Getest</h3>" + _bullets_to_html(tested)
+        if results:
+            tst_html += "<h3>Resultaat per test</h3>" + _bullets_to_html(results)
+        if for_human:
+            tst_html += "<h3>Opvallend voor mens — handmatig checken</h3>" + _bullets_to_html(for_human)
+        if not tst_html:
+            tst_html = '<p class="muted">Geen tester-samenvatting beschikbaar.</p>'
+        tester_card = _section_card("Tester — test-rapport", tst_html)
     else:
         tester_card = _section_card(
             "Tester — test-rapport",
-            '<p class="muted">Komt in Fase 5. Voor nu: test handmatig op de preview-deploy.</p>',
+            '<p class="muted">Nog niet gedraaid. Komt automatisch na een succesvolle reviewer-ronde.</p>',
             status="wait",
         )
 
