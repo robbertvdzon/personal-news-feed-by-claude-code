@@ -213,10 +213,28 @@ Story staat in /work/repo/.task.md. Onderaan dat bestand staat een
 met aannames, PO-antwoorden, en eventuele eerdere [DEVELOPER]-comments.
 Lees die mee — de aannames van de refiner zijn voor jou de scope-baseline.
 
-EINDIG met een korte samenvatting (3-6 regels platte tekst) van wat
-je hebt gedaan en de belangrijkste keuzes. Geen markdown-headers, geen
-herhaling van de story. Deze samenvatting wordt rechtstreeks als JIRA-
-en PR-comment getoond, dus schrijf 'm voor een menselijke lezer."
+EINDIG met een gestructureerde samenvatting die de menselijke
+reviewer/tester precies vertelt wat je hebt opgeleverd. Dit gaat
+rechtstreeks naar JIRA en de handover-pagina van het dashboard, dus
+houd je aan deze drie koppen — exact zo gespeld, op een eigen regel:
+
+Samenvatting:
+1-3 regels prose over de aanpak en belangrijkste keuzes.
+
+Gedaan:
+- bullet per concreet stuk dat is opgeleverd
+- noem affected screens/endpoints/bestanden als 't relevant is
+- één regel per bullet, geen sub-bullets
+
+Niet gedaan / aangepast:
+- bullet per ding uit de story dat je BEWUST hebt overgeslagen,
+  uitgesteld, of anders ingevuld dan letterlijk gevraagd
+- inclusief WAAROM (bv. 'niet mogelijk omdat …', 'overlapt met X
+  uit refiner-aannames', 'leek out-of-scope')
+- als er niets is overgeslagen: schrijf één regel 'Niets — alles uit
+  de story (incl. refiner-aannames) is geïmplementeerd.'
+
+Geen markdown-headers (geen \`#\`), geen herhaling van de story-tekst."
     ;;
 esac
 
