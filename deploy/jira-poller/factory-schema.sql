@@ -1,7 +1,7 @@
 -- Schema voor de software-factory observability-DB.
 --
--- Wordt idempotent toegepast door factory-db-init-job.yaml bij elke
--- ArgoCD-sync. Toekomstige wijzigingen onderaan toevoegen als
+-- Wordt idempotent toegepast door poller.py's init_schema() bij elke
+-- pod-start. Toekomstige wijzigingen onderaan toevoegen als
 -- "ALTER TABLE … ADD COLUMN IF NOT EXISTS …" statements.
 --
 -- Conventies:
@@ -58,3 +58,24 @@ CREATE TABLE IF NOT EXISTS factory.agent_events (
 CREATE INDEX IF NOT EXISTS agent_runs_story_idx     ON factory.agent_runs(story_run_id);
 CREATE INDEX IF NOT EXISTS agent_events_run_idx     ON factory.agent_events(agent_run_id, ts);
 CREATE INDEX IF NOT EXISTS story_runs_key_idx       ON factory.story_runs(story_key, started_at DESC);
+
+-- ── Migraties — voeg hier nieuwe ALTER TABLE statements toe. ────────────
+--
+-- Schema-bootstrap loopt elke poller-startup, dus `IF NOT EXISTS` is
+-- essentieel om herhaling kosteloos te maken.
+
+-- 2026-05-14 — cache-tokens, num_turns, duration en echte cost-uit-Claude.
+-- De Claude CLI rapporteert input_tokens (= non-cached) los van
+-- cache_read en cache_creation; voor een correcte cost-monitor (Fase 2)
+-- hebben we alle drie nodig. `cost_usd_est` komt rechtstreeks uit het
+-- CLI-result-event (total_cost_usd) en is altijd accurater dan zelf
+-- rekenen met tarieven per model.
+ALTER TABLE factory.agent_runs
+    ADD COLUMN IF NOT EXISTS cache_read_input_tokens     INTEGER NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS cache_creation_input_tokens INTEGER NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS num_turns                   INTEGER NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS duration_ms                 INTEGER NOT NULL DEFAULT 0;
+
+ALTER TABLE factory.story_runs
+    ADD COLUMN IF NOT EXISTS total_cache_read_tokens     INTEGER NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS total_cache_creation_tokens INTEGER NOT NULL DEFAULT 0;
