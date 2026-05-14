@@ -152,7 +152,8 @@ Regels:
 
 Antwoordformaat — schrijf EERST 3-6 regels platte tekst die uitleggen
 WAAROM je deze keuze maakt (welke context heb je bekeken, welke
-aannames doe je, etc.). Die prose wordt als JIRA-comment getoond.
+aannames doe je, etc.). Die prose wordt als JIRA-comment getoond voor
+de PO; schrijf 'm voor een menselijke lezer.
 
 DAARNA op de LAATSTE regel EXACT één van deze twee JSON-objecten,
 op ÉÉN regel, ZONDER markdown code-fence (geen \`\`\`json):
@@ -181,7 +182,12 @@ gegeven story op de bestaande codebase. Regels:
 5. Schrijf één of meer commits — atomair als 't kan.
 6. Stop nadat alle wijzigingen lokaal gecommit zijn. Push doet het script.
 
-Story staat in /work/repo/.task.md."
+Story staat in /work/repo/.task.md.
+
+EINDIG met een korte samenvatting (3-6 regels platte tekst) van wat
+je hebt gedaan en de belangrijkste keuzes. Geen markdown-headers, geen
+herhaling van de story. Deze samenvatting wordt rechtstreeks als JIRA-
+en PR-comment getoond, dus schrijf 'm voor een menselijke lezer."
     ;;
 esac
 
@@ -293,8 +299,45 @@ rm -f /work/repo/.task.md
 # ROL-SPLITSING: refiner doet géén git-push of PR. Alleen JSON-outcome
 # parsen uit /tmp/claude.log.jsonl en JIRA bijwerken.
 # ─────────────────────────────────────────────────────────────────────
+# Helper: haal de finale assistant-tekst (`result.result`) uit het log.
+# Gebruikt door zowel refiner als developer om een JIRA-summary-comment
+# te bouwen.
+extract_claude_summary() {
+  jq -r 'select(.type == "result") | .result // ""' \
+    /tmp/claude.log.jsonl 2>/dev/null | tail -1
+}
+
+# Helper: post een JIRA-comment met [ROLE]-prefix. Eerste arg = rol-label
+# (REFINER/DEVELOPER/REVIEWER/TESTER), tweede arg = body-tekst.
+post_role_jira_comment() {
+  local role_label="$1"
+  local body_text="$2"
+  if [[ -z "${JIRA_BASE_URL:-}" || -z "${JIRA_EMAIL:-}" || -z "${JIRA_API_KEY:-}" ]]; then
+    return 0
+  fi
+  if [[ -z "$body_text" ]]; then
+    return 0
+  fi
+  local full_text
+  full_text=$(printf '[%s] %s' "$role_label" "$body_text")
+  local body
+  body=$(jq -n --arg t "$full_text" \
+    '{body: {type:"doc", version:1, content:[{type:"paragraph", content:[{type:"text", text:$t}]}]}}')
+  echo "[runner] JIRA: post [$role_label] summary-comment"
+  curl -s -m 10 -o /dev/null -w "  comment HTTP %{http_code}\n" \
+    -u "${JIRA_EMAIL}:${JIRA_API_KEY}" \
+    -H "Content-Type: application/json" \
+    -X POST -d "$body" \
+    "${JIRA_BASE_URL}/rest/api/3/issue/${STORY_ID}/comment"
+}
+
+
 if [[ "${AGENT_ROLE:-developer}" == "refiner" ]]; then
   echo "[runner] role=refiner — parse outcome + post JIRA"
+
+  # Volledige finale assistant-tekst (inclusief motivatie boven de
+  # JSON-regel). Gebruikt voor de [REFINER]-summary-comment hieronder.
+  REFINER_FULL_TEXT=$(extract_claude_summary)
 
   # De refiner-system-prompt eindigt met een JSON-object met 'phase'.
   # Extractie is bewust robuust: we accepteren multi-line JSON, JSON
@@ -350,6 +393,15 @@ print(candidates[-1] if candidates else "")
     case "$REFINER_PHASE" in
       refined)
         TARGET_STATUS="AI Queued"
+        # Post een samenvattende comment zodat de PO ziet dat de
+        # refiner de story heeft beoordeeld als helder genoeg. Body =
+        # de tekst die de refiner zelf produceerde, met de JSON-regel
+        # eraf gestript.
+        REFINER_PROSE=$(echo "$REFINER_FULL_TEXT" | sed '/^[[:space:]]*{.*"phase".*}[[:space:]]*$/d')
+        if [[ -z "$REFINER_PROSE" ]]; then
+          REFINER_PROSE="Story is helder genoeg om te starten. Geen vragen."
+        fi
+        post_role_jira_comment "REFINER" "$REFINER_PROSE"
         ;;
       awaiting-po|*)
         REFINER_PHASE="awaiting-po"
@@ -594,7 +646,12 @@ if [[ -n "$PR_NUMBER" ]]; then
   echo "[runner] preview-URL: $PREVIEW_URL"
   # Alleen comment posten als 'm er niet al staat (idempotent)
   if ! gh pr view "$PR_NUMBER" --json comments --jq '.comments[].body' 2>/dev/null | grep -q "$PREVIEW_URL"; then
-    COMMENT_BODY=$(printf '🚀 **Preview-deploy** — spint over ~2 min op:\n\n%s\n\n_Klik na de deploy om de branch live te bekijken. Bij merge wordt de preview automatisch opgeruimd._' "$PREVIEW_URL")
+    # Link naar JIRA-thread (waar de [DEVELOPER]-summary-comment staat)
+    JIRA_LINK=""
+    if [[ -n "${JIRA_BASE_URL:-}" && "$STORY_ID" =~ ^[A-Z][A-Z0-9]+-[0-9]+$ ]]; then
+      JIRA_LINK=$(printf '\n\n📋 [%s in JIRA](%s/browse/%s) — daar staat de samenvatting van de agent en het lopende verhaal.' "$STORY_ID" "$JIRA_BASE_URL" "$STORY_ID")
+    fi
+    COMMENT_BODY=$(printf '🚀 **[DEVELOPER] Preview-deploy** — spint over ~2 min op:\n\n%s\n\n_Klik na de deploy om de branch live te bekijken. Bij merge wordt de preview automatisch opgeruimd._%s' "$PREVIEW_URL" "$JIRA_LINK")
     gh pr comment "$PR_NUMBER" --body "$COMMENT_BODY" 2>&1 || echo "[runner] (PR-comment kon niet geplaatst worden; niet kritiek)"
   fi
 fi
@@ -679,10 +736,17 @@ jira_update() {
   files_json=$(git diff --name-only "origin/${BASE_BRANCH}..HEAD" 2>/dev/null \
     | jq -R . | jq -s . 2>/dev/null || echo '[]')
 
+  # Claude's eigen samenvatting van wat 'ie gedaan heeft — onderdeel
+  # van de JIRA-comment zodat de PO niet door commit-messages hoeft
+  # te scannen om te zien wat er is gebeurd.
+  local claude_summary
+  claude_summary=$(extract_claude_summary)
+
   local comment_json
   comment_json=$(jq -n \
     --arg pr "$PR_URL" \
     --arg preview "$PREVIEW_URL" \
+    --arg summary "$claude_summary" \
     --argjson commits "$commits_json" \
     --argjson files "$files_json" \
     '
@@ -693,10 +757,13 @@ jira_update() {
     def bullet(items): { type: "bulletList", content: (items | map({ type: "listItem", content: [ par([ txt(.) ]) ] })) };
 
     ([
-      par([ txt("🤖 Claude heeft de story uitgewerkt.") ]),
+      par([ txt("[DEVELOPER] Claude heeft de story uitgewerkt.") ]),
       par([ txt("Pull request: "), link($pr; $pr) ]),
       par([ txt("Test-pagina (preview-deploy, klaar na ~2 min): "), link($preview; $preview) ])
     ] +
+    (if ($summary | length) > 0
+      then [ par([ txt("Samenvatting:") ]), par([ txt($summary) ]) ]
+      else [] end) +
     (if ($commits | length) > 0
       then [ par([ txt("Wijzigingen:") ]), bullet($commits) ]
       else [] end) +

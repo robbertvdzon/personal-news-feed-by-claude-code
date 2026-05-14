@@ -79,3 +79,10 @@ ALTER TABLE factory.agent_runs
 ALTER TABLE factory.story_runs
     ADD COLUMN IF NOT EXISTS total_cache_read_tokens     INTEGER NOT NULL DEFAULT 0,
     ADD COLUMN IF NOT EXISTS total_cache_creation_tokens INTEGER NOT NULL DEFAULT 0;
+
+-- 2026-05-14 — per agent_run de finale samenvatting opslaan zodat we
+-- 'm snel kunnen tonen op het dashboard (timeline-page) en kunnen
+-- queriën zonder agent_events.payload uit te pluizen. Inhoud is wat
+-- de agent op JIRA als '[ROLE] …'-comment plaatst.
+ALTER TABLE factory.agent_runs
+    ADD COLUMN IF NOT EXISTS summary_text TEXT;

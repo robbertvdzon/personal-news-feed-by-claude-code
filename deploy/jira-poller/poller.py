@@ -1286,6 +1286,7 @@ def agent_run_complete():
         cost_usd = 0.0
     num_turns = int(data.get("num_turns", 0) or 0)
     duration_ms = int(data.get("duration_ms", 0) or 0)
+    summary_text = data.get("summary_text") or None
 
     try:
         with psycopg.connect(FACTORY_DATABASE_URL) as conn, conn.cursor() as cur:
@@ -1312,9 +1313,9 @@ def agent_run_complete():
                     ended_at, outcome,
                     input_tokens, output_tokens,
                     cache_read_input_tokens, cache_creation_input_tokens,
-                    cost_usd_est, num_turns, duration_ms)
+                    cost_usd_est, num_turns, duration_ms, summary_text)
                    VALUES (%s, %s, %s, %s, %s, %s, now(), %s,
-                           %s, %s, %s, %s, %s, %s, %s)
+                           %s, %s, %s, %s, %s, %s, %s, %s)
                    RETURNING id""",
                 (
                     story_run_id, role, job_name,
@@ -1324,7 +1325,7 @@ def agent_run_complete():
                     data.get("outcome", ""),
                     input_tokens, output_tokens,
                     cache_read, cache_creation,
-                    cost_usd, num_turns, duration_ms,
+                    cost_usd, num_turns, duration_ms, summary_text,
                 ),
             )
             agent_run_id = cur.fetchone()[0]
