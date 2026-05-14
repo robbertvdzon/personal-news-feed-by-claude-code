@@ -378,7 +378,8 @@ def factory_story_timeline(story_key: str) -> Optional[dict]:
                           started_at, ended_at, outcome,
                           input_tokens, output_tokens,
                           cache_read_input_tokens, cache_creation_input_tokens,
-                          cost_usd_est, num_turns, duration_ms
+                          cost_usd_est, num_turns, duration_ms,
+                          summary_text
                    FROM factory.agent_runs
                    WHERE story_run_id = %s
                    ORDER BY started_at ASC""",
@@ -403,6 +404,7 @@ def factory_story_timeline(story_key: str) -> Optional[dict]:
                     "cost_usd": float(r[13] or 0),
                     "num_turns": r[14] or 0,
                     "duration_ms": r[15] or 0,
+                    "summary_text": r[16] or "",
                 })
 
             return {
@@ -1353,6 +1355,18 @@ h1 { font-size: 18px; margin: 0 0 4px 0; }
 .step.done     { background: #065f46; color: #a7f3d0; border-color: #065f46; }
 .step.failed   { background: #7f1d1d; color: #fecaca; border-color: #7f1d1d; }
 .step-sep { color: #2c3340; }
+.handover-banner { margin: 12px 0 20px; }
+.handover-banner-grid { display: grid; gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+.handover-banner-card { background: #052e16; border: 1px solid #065f46;
+  border-radius: 8px; padding: 12px 14px; }
+.handover-banner-card .hb-title { color: #a7f3d0; font-weight: 600;
+  font-size: 14px; margin-bottom: 4px; }
+.handover-banner-card .hb-meta { color: #6f8a7f; font-size: 12px;
+  margin-bottom: 8px; }
+.handover-banner-card .hb-cta { display: inline-block;
+  color: #4ade80; text-decoration: none; font-weight: 600; font-size: 13px; }
+.handover-banner-card .hb-cta:hover { text-decoration: underline; }
 """
 
 
@@ -1732,6 +1746,225 @@ def _render_story_page(data: dict) -> str:
 </html>"""
 
 
+# ─── Handover-pagina ──────────────────────────────────────────────────────
+#
+# Briefing voor de menselijke reviewer/tester aan het einde van de
+# pipeline. Aggregeert per agent-rol de eind-samenvatting uit
+# `factory.agent_runs.summary_text`, parsed naar sub-secties (Aannames,
+# Gedaan, Niet gedaan, …). Bedoeld om in één blik te kunnen beoordelen
+# of een PR klaar is om te mergen.
+
+# Sectie-koppen die de agents moeten gebruiken in hun summary_text.
+# Gespeld zoals in de system-prompts (runner.sh).
+_REFINER_HEADING_ASSUMPTIONS = "Aannames:"
+_DEVELOPER_HEADING_PROSE = "Samenvatting:"
+_DEVELOPER_HEADING_DONE = "Gedaan:"
+_DEVELOPER_HEADING_SKIPPED = "Niet gedaan / aangepast:"
+
+
+def _strip_refiner_json_line(text: str) -> str:
+    """Verwijder de outcome-JSON-regel uit een refiner-summary."""
+    # Match `{"phase": …}` op een eigen regel (one-liner of compact).
+    return re.sub(
+        r"\n?\s*\{\s*\"phase\".*?\}\s*$",
+        "",
+        text,
+        flags=re.DOTALL,
+    ).strip()
+
+
+def _split_sections(text: str, headings: list[str]) -> dict[str, str]:
+    """Splits `text` op de gegeven koppen (in volgorde van voorkomen).
+
+    Returnt {heading: section_body} plus een speciale key '__intro' voor
+    alles vóór de eerste kop. Een afwezige kop ontbreekt simpelweg.
+    Vergelijking is case-sensitive en moet aan begin van een regel staan.
+    """
+    if not text:
+        return {}
+    # Vind posities van alle koppen.
+    hits: list[tuple[int, str]] = []
+    for h in headings:
+        for m in re.finditer(rf"^[ \t]*{re.escape(h)}[ \t]*$", text, flags=re.MULTILINE):
+            hits.append((m.start(), h))
+    hits.sort()
+    if not hits:
+        return {"__intro": text.strip()}
+    out: dict[str, str] = {}
+    intro = text[: hits[0][0]].strip()
+    if intro:
+        out["__intro"] = intro
+    for i, (pos, h) in enumerate(hits):
+        body_start = pos + len(h)
+        # Sla over de regel zelf (whitespace + newline).
+        nl = text.find("\n", body_start)
+        if nl >= 0:
+            body_start = nl + 1
+        body_end = hits[i + 1][0] if i + 1 < len(hits) else len(text)
+        out[h] = text[body_start:body_end].strip()
+    return out
+
+
+def _bullets_to_html(body: str) -> str:
+    """'- foo\\n- bar' → '<ul><li>foo</li><li>bar</li></ul>', prose-fallback."""
+    lines = [ln.rstrip() for ln in body.splitlines() if ln.strip()]
+    if not lines:
+        return ""
+    if all(ln.lstrip().startswith(("-", "*", "•")) for ln in lines):
+        items = "".join(
+            f"<li>{escape(ln.lstrip()[1:].lstrip())}</li>" for ln in lines
+        )
+        return f"<ul>{items}</ul>"
+    # Geen bullets → laat als prose-paragraaf.
+    return f"<p>{escape(body)}</p>"
+
+
+def _section_card(title: str, body_html: str, status: str = "ok") -> str:
+    """Wrapper-card voor een handover-sectie."""
+    icon = {"ok": "✅", "wait": "⏳", "miss": "—"}.get(status, "•")
+    return (
+        f'<section class="handover-section status-{status}">'
+        f'<h2>{icon} {escape(title)}</h2>'
+        f"{body_html}"
+        f"</section>"
+    )
+
+
+def _latest_run_by_role(runs: list[dict], role: str) -> Optional[dict]:
+    """Laatste run voor de gegeven role, of None."""
+    matches = [r for r in runs if r.get("role") == role]
+    return matches[-1] if matches else None
+
+
+def _render_handover_page(data: dict, jira_title: str = "") -> str:
+    key = data["story_key"]
+    runs = data["runs"]
+    refiner = _latest_run_by_role(runs, "refiner")
+    developer = _latest_run_by_role(runs, "developer")
+    reviewer = _latest_run_by_role(runs, "reviewer")
+    tester = _latest_run_by_role(runs, "tester")
+    jira_url = (
+        f"{JIRA_BASE_URL}/browse/{key}" if JIRA_BASE_URL else ""
+    )
+    title_text = jira_title or key
+
+    # Refiner-sectie
+    if refiner and refiner.get("summary_text"):
+        ref_text = _strip_refiner_json_line(refiner["summary_text"])
+        ref_sections = _split_sections(ref_text, [_REFINER_HEADING_ASSUMPTIONS])
+        intro = ref_sections.get("__intro", "")
+        ass = ref_sections.get(_REFINER_HEADING_ASSUMPTIONS, "")
+        ref_html = ""
+        if intro:
+            ref_html += f'<p class="prose">{escape(intro)}</p>'
+        if ass:
+            ref_html += "<h3>Aannames</h3>" + _bullets_to_html(ass)
+        elif not intro:
+            ref_html = '<p class="muted">Geen refiner-samenvatting beschikbaar.</p>'
+        refiner_card = _section_card("Refiner — context en aannames", ref_html)
+    else:
+        refiner_card = _section_card(
+            "Refiner — context en aannames",
+            '<p class="muted">Nog niet gedraaid.</p>',
+            status="miss",
+        )
+
+    # Developer-sectie
+    if developer and developer.get("summary_text"):
+        dev_sections = _split_sections(
+            developer["summary_text"],
+            [_DEVELOPER_HEADING_PROSE, _DEVELOPER_HEADING_DONE, _DEVELOPER_HEADING_SKIPPED],
+        )
+        prose = dev_sections.get(_DEVELOPER_HEADING_PROSE) or dev_sections.get("__intro", "")
+        done = dev_sections.get(_DEVELOPER_HEADING_DONE, "")
+        skipped = dev_sections.get(_DEVELOPER_HEADING_SKIPPED, "")
+        dev_html = ""
+        if prose:
+            dev_html += f'<p class="prose">{escape(prose)}</p>'
+        if done:
+            dev_html += "<h3>Gedaan</h3>" + _bullets_to_html(done)
+        if skipped:
+            dev_html += "<h3>Niet gedaan / aangepast</h3>" + _bullets_to_html(skipped)
+        if not dev_html:
+            dev_html = '<p class="muted">Geen developer-samenvatting beschikbaar.</p>'
+        developer_card = _section_card("Developer — wat is gebouwd", dev_html)
+    else:
+        developer_card = _section_card(
+            "Developer — wat is gebouwd",
+            '<p class="muted">Nog niet gedraaid.</p>',
+            status="miss",
+        )
+
+    # Reviewer-sectie (Fase 4 — placeholder zolang de agent niet bestaat)
+    if reviewer and reviewer.get("summary_text"):
+        reviewer_card = _section_card(
+            "Reviewer — code-review",
+            f'<p class="prose">{escape(reviewer["summary_text"])}</p>',
+        )
+    else:
+        reviewer_card = _section_card(
+            "Reviewer — code-review",
+            '<p class="muted">Komt in Fase 4. Voor nu: bekijk de PR-diff op GitHub.</p>',
+            status="wait",
+        )
+
+    # Tester-sectie (Fase 5 — placeholder)
+    if tester and tester.get("summary_text"):
+        tester_card = _section_card(
+            "Tester — test-rapport",
+            f'<p class="prose">{escape(tester["summary_text"])}</p>',
+        )
+    else:
+        tester_card = _section_card(
+            "Tester — test-rapport",
+            '<p class="muted">Komt in Fase 5. Voor nu: test handmatig op de preview-deploy.</p>',
+            status="wait",
+        )
+
+    return f"""<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Briefing — {escape(key)}</title>
+  <style>{_LOG_CSS}
+    .handover-section {{ background: #1a2029; border: 1px solid #2c3340;
+      border-radius: 8px; padding: 14px 18px; margin: 12px 0; }}
+    .handover-section h2 {{ margin: 0 0 8px 0; font-size: 16px; color: #e4e6eb; }}
+    .handover-section h3 {{ margin: 12px 0 4px 0; font-size: 13px;
+      color: #8b96a8; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.04em; }}
+    .handover-section ul {{ margin: 4px 0 8px 20px; padding: 0; }}
+    .handover-section li {{ margin: 2px 0; font-size: 13px; line-height: 1.5; }}
+    .handover-section p.prose {{ font-size: 14px; line-height: 1.55;
+      color: #d8dde6; margin: 4px 0 6px 0; white-space: pre-wrap; }}
+    .handover-section .muted {{ color: #6f7a8a; font-style: italic; font-size: 13px; }}
+    .handover-section.status-miss h2 {{ color: #8b96a8; }}
+    .links-card {{ background: #1a2029; border: 1px solid #2c3340;
+      border-radius: 8px; padding: 12px 18px; margin: 12px 0;
+      display: flex; gap: 18px; flex-wrap: wrap; font-size: 14px; }}
+    .links-card a {{ color: #4a9eff; text-decoration: none; }}
+    .links-card a:hover {{ text-decoration: underline; }}
+  </style>
+</head>
+<body>
+  <h1>🧪 Briefing — {escape(key)}</h1>
+  <p><a href="/">← terug naar dashboard</a> · <a href="/story/{escape(key)}">timeline →</a></p>
+  <h2 style="margin-top: 18px;">{escape(title_text)}</h2>
+
+  <div class="links-card">
+    {f'<a href="{escape(jira_url)}" target="_blank">JIRA-ticket →</a>' if jira_url else ''}
+    <span class="muted" style="color:#6f7a8a">PR + preview-link komen via de [DEVELOPER]-comment in JIRA.</span>
+  </div>
+
+  {refiner_card}
+  {developer_card}
+  {reviewer_card}
+  {tester_card}
+</body>
+</html>"""
+
+
 def render_phase(p: Phase) -> str:
     icon = STATUS_ICONS.get(p.status, "?")
     detail = escape(p.detail) if p.detail else ""
@@ -1884,7 +2117,8 @@ def render_jira(card: JIRACard) -> str:
         )
         fac_html = (
             f'<div class="meta">factory: {escape(fac_detail)} '
-            f'<a href="/story/{escape(card.key)}">Timeline →</a></div>'
+            f'<a href="/story/{escape(card.key)}">Timeline →</a> · '
+            f'<a href="/story/{escape(card.key)}/handover">Briefing →</a></div>'
         )
     return (
         f'<div class="card jira">'
@@ -1908,9 +2142,39 @@ def render_closed(cards: list[ClosedCard]) -> str:
     return f'<div class="closed-list">{rows}</div>'
 
 
+def render_handover_banner(cards: list[JIRACard]) -> str:
+    """Banner-sectie voor stories die klaar staan voor menselijke
+    test/merge: status AI IN REVIEW + phase=tested-ok. Tot Fase 5 leeft
+    deze sectie waarschijnlijk leeg — dat is OK; render_page slaat 'm
+    dan over."""
+    ready = [
+        c for c in cards
+        if c.status == "AI IN REVIEW" and c.ai_phase == "tested-ok"
+    ]
+    if not ready:
+        return ""
+    items = []
+    for c in ready:
+        title = escape(f"{c.key} — {c.title}")
+        items.append(
+            f'<div class="handover-banner-card">'
+            f'<div class="hb-title">{title}</div>'
+            f'<div class="hb-meta">{escape(c.status)} sinds {escape(c.age)}</div>'
+            f'<a class="hb-cta" href="/story/{escape(c.key)}/handover">Open briefing →</a>'
+            f'</div>'
+        )
+    return (
+        '<section class="handover-banner">'
+        f'<h1 style="margin: 16px 0 8px;">🧪 Klaar voor jouw test ({len(ready)})</h1>'
+        f'<div class="handover-banner-grid">{"".join(items)}</div>'
+        '</section>'
+    )
+
+
 def render_page(state: dict) -> str:
     main_html = render_main(state["main"])
     ai_cards = state.get("ai_active", [])
+    handover_html = render_handover_banner(ai_cards)
     ai_html = "".join(render_jira(c) for c in ai_cards)
     ai_section = (
         f'<h1 style="margin-top: 24px;">🤖 AI bezig ({len(ai_cards)})</h1>{ai_html}'
@@ -1936,6 +2200,8 @@ def render_page(state: dict) -> str:
   <div class="sub">Auto-refresh elke {REFRESH_SEC}s · cache {CACHE_TTL_SEC}s · fetched at {escape(state['fetched_at'])}</div>
 
   {main_html}
+
+  {handover_html}
 
   {ai_section}
 
@@ -1988,6 +2254,37 @@ def story_timeline(key: str) -> Response:
         body = _render_story_missing(key)
     else:
         body = _render_story_page(data)
+    return Response(body, mimetype="text/html; charset=utf-8")
+
+
+def _jira_fetch_issue_title(key: str) -> str:
+    """Eén losse JIRA-call om de issue-titel te krijgen. Best-effort —
+    op fout geven we gewoon "" terug zodat de handover-pagina alsnog
+    rendert met alleen de KAN-key als kop."""
+    if not (JIRA_BASE_URL and JIRA_EMAIL and JIRA_API_KEY):
+        return ""
+    try:
+        r = _jira_session.get(
+            f"{JIRA_BASE_URL}/rest/api/3/issue/{key}",
+            params={"fields": "summary"},
+            timeout=5,
+        )
+        if r.status_code != 200:
+            return ""
+        return (r.json().get("fields") or {}).get("summary") or ""
+    except requests.RequestException:
+        return ""
+
+
+@app.route("/story/<key>/handover")
+def story_handover(key: str) -> Response:
+    if not _STORY_KEY_RE.match(key):
+        return Response("Ongeldige story-key.", status=400, mimetype="text/plain")
+    data = factory_story_timeline(key)
+    if data is None:
+        body = _render_story_missing(key)
+    else:
+        body = _render_handover_page(data, jira_title=_jira_fetch_issue_title(key))
     return Response(body, mimetype="text/html; charset=utf-8")
 
 
