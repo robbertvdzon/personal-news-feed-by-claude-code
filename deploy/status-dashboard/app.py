@@ -122,6 +122,31 @@ def gh(path: str, params: Optional[dict] = None) -> Optional[dict]:
     return r.json()
 
 
+def gh_prs_for_branch(branch: str) -> list[dict]:
+    """Open + closed PR's voor een specifieke head-branch. Voor de
+    detail-page van een story: typisch 1 PR per ai/-branch."""
+    data = gh(
+        f"/repos/{GITHUB_OWNER}/{GITHUB_REPO}/pulls",
+        params={
+            "state": "all",
+            "head": f"{GITHUB_OWNER}:{branch}",
+            "per_page": "10",
+            "sort": "updated",
+            "direction": "desc",
+        },
+    )
+    return data or []
+
+
+def gh_commits_for_branch(branch: str, limit: int = 30) -> list[dict]:
+    """Recente commits op een branch (chronologisch nieuwste eerst)."""
+    data = gh(
+        f"/repos/{GITHUB_OWNER}/{GITHUB_REPO}/commits",
+        params={"sha": branch, "per_page": str(limit)},
+    )
+    return data or []
+
+
 def gh_list_open_prs() -> list[dict]:
     data = gh(
         f"/repos/{GITHUB_OWNER}/{GITHUB_REPO}/pulls",
@@ -346,6 +371,59 @@ def factory_totals_by_story(story_keys: list[str]) -> dict[str, dict]:
     except Exception as e:
         log.warning("factory_totals_by_story faalde: %s", e)
         return {}
+
+
+def factory_all_stories(limit: int = 200) -> list[dict]:
+    """Lijst alle stories uit `factory.story_runs` (één rij per story_run,
+    nieuwste eerst). Gebruikt door de /stories-overzichtstabel.
+
+    Per rij geven we ook count(agent_runs) + som(duration_ms) terug
+    zodat het dashboard direct duur + activiteit kan tonen zonder
+    een second-roundtrip per story.
+    """
+    if not _factory_db_available():
+        return []
+    try:
+        with psycopg.connect(FACTORY_DATABASE_URL) as conn, conn.cursor() as cur:
+            cur.execute(
+                """SELECT sr.id, sr.story_key, sr.started_at, sr.ended_at,
+                          sr.final_status,
+                          sr.total_input_tokens, sr.total_output_tokens,
+                          sr.total_cache_read_tokens, sr.total_cache_creation_tokens,
+                          sr.total_cost_usd_est,
+                          COALESCE(ar.run_count, 0) AS run_count,
+                          COALESCE(ar.duration_ms_sum, 0) AS duration_ms_sum
+                   FROM factory.story_runs sr
+                   LEFT JOIN LATERAL (
+                       SELECT COUNT(*) AS run_count,
+                              SUM(duration_ms) AS duration_ms_sum
+                       FROM factory.agent_runs
+                       WHERE story_run_id = sr.id
+                   ) ar ON true
+                   ORDER BY sr.started_at DESC
+                   LIMIT %s""",
+                (limit,),
+            )
+            rows = []
+            for r in cur.fetchall():
+                rows.append({
+                    "id": r[0],
+                    "story_key": r[1],
+                    "started_at": r[2],
+                    "ended_at": r[3],
+                    "final_status": r[4] or "",
+                    "input": r[5] or 0,
+                    "output": r[6] or 0,
+                    "cache_read": r[7] or 0,
+                    "cache_creation": r[8] or 0,
+                    "cost_usd": float(r[9] or 0),
+                    "run_count": r[10] or 0,
+                    "duration_ms_sum": r[11] or 0,
+                })
+            return rows
+    except Exception as e:
+        log.warning("factory_all_stories faalde: %s", e)
+        return []
 
 
 def factory_story_timeline(story_key: str) -> Optional[dict]:
@@ -1665,7 +1743,120 @@ def _fmt_ts(ts) -> str:
     return ts.strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
-def _render_story_page(data: dict) -> str:
+def _render_stories_index(rows: list[dict]) -> str:
+    """Tabel-overzicht van alle stories uit factory.story_runs."""
+    if not rows:
+        body_html = (
+            '<p class="notice">Geen factory-data. Mogelijke oorzaken: DB '
+            'leeg (nog geen story door de pipeline gegaan), of '
+            'FACTORY_DATABASE_URL is niet geconfigureerd.</p>'
+        )
+    else:
+        rows_html = []
+        for r in rows:
+            key = r["story_key"]
+            dur_s = (r["duration_ms_sum"] or 0) // 1000
+            wallclock_s = 0
+            if r["started_at"] and r["ended_at"]:
+                wallclock_s = int((r["ended_at"] - r["started_at"]).total_seconds())
+            status_icon = (
+                "✅" if (r["final_status"] or "").lower() in ("klaar", "gereed", "done")
+                else "🟡" if not r["ended_at"]
+                else "—"
+            )
+            rows_html.append(f"""
+            <tr>
+              <td>{status_icon}</td>
+              <td><a href="/story/{escape(key)}"><strong>{escape(key)}</strong></a></td>
+              <td>{escape(_fmt_ts(r["started_at"]))}</td>
+              <td>{escape(r["final_status"] or "lopend")}</td>
+              <td style="text-align:right">{r["run_count"]}</td>
+              <td style="text-align:right">{escape(_fmt_seconds(dur_s))}</td>
+              <td style="text-align:right">{escape(_fmt_seconds(wallclock_s)) if wallclock_s else "—"}</td>
+              <td style="text-align:right">{_fmt_tokens(r["input"])}</td>
+              <td style="text-align:right">{_fmt_tokens(r["output"])}</td>
+              <td style="text-align:right">{_fmt_tokens(r["cache_read"])}</td>
+              <td style="text-align:right">${r["cost_usd"]:.4f}</td>
+              <td>
+                <a href="/story/{escape(key)}">details →</a>
+                · <a href="/story/{escape(key)}/handover">briefing →</a>
+              </td>
+            </tr>""")
+
+        # Totaalrij
+        sum_runs   = sum(r["run_count"] for r in rows)
+        sum_dur    = sum((r["duration_ms_sum"] or 0) // 1000 for r in rows)
+        sum_input  = sum(r["input"] for r in rows)
+        sum_output = sum(r["output"] for r in rows)
+        sum_cache  = sum(r["cache_read"] for r in rows)
+        sum_cost   = sum(r["cost_usd"] for r in rows)
+        totals_html = f"""
+        <tfoot>
+          <tr class="totals-row">
+            <td></td><td><strong>Totaal ({len(rows)} stories)</strong></td>
+            <td></td><td></td>
+            <td style="text-align:right"><strong>{sum_runs}</strong></td>
+            <td style="text-align:right"><strong>{escape(_fmt_seconds(sum_dur))}</strong></td>
+            <td></td>
+            <td style="text-align:right"><strong>{_fmt_tokens(sum_input)}</strong></td>
+            <td style="text-align:right"><strong>{_fmt_tokens(sum_output)}</strong></td>
+            <td style="text-align:right"><strong>{_fmt_tokens(sum_cache)}</strong></td>
+            <td style="text-align:right"><strong>${sum_cost:.4f}</strong></td>
+            <td></td>
+          </tr>
+        </tfoot>"""
+
+        body_html = f"""
+        <table>
+          <thead>
+            <tr>
+              <th></th><th>Story</th><th>Gestart</th><th>Status</th>
+              <th style="text-align:right">Agents</th>
+              <th style="text-align:right">Agent-tijd</th>
+              <th style="text-align:right">Wallclock</th>
+              <th style="text-align:right">In</th>
+              <th style="text-align:right">Out</th>
+              <th style="text-align:right">Cache-r</th>
+              <th style="text-align:right">Cost</th>
+              <th>Links</th>
+            </tr>
+          </thead>
+          <tbody>{''.join(rows_html)}</tbody>
+          {totals_html}
+        </table>"""
+
+    return f"""<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stories — overzicht</title>
+  <style>{_LOG_CSS}
+    table {{ border-collapse: collapse; width: 100%; margin: 8px 0; }}
+    th, td {{ padding: 6px 10px; text-align: left;
+              border-bottom: 1px solid #2c3340; font-size: 13px; }}
+    th {{ background: #1a2029; color: #8b96a8; font-weight: normal; }}
+    tbody tr:hover {{ background: #1f2530; }}
+    .totals-row td {{ background: #1a2029; border-top: 2px solid #3a414f;
+                       border-bottom: none; }}
+    .notice {{ color: #8b96a8; padding: 12px; background: #1a2029;
+               border-radius: 6px; }}
+  </style>
+</head>
+<body>
+  <h1>Stories — overzicht ({len(rows)})</h1>
+  <p><a href="/">← terug naar dashboard</a></p>
+  {body_html}
+</body>
+</html>"""
+
+
+def _render_story_page(
+    data: dict,
+    jira_title: str = "",
+    prs: Optional[list[dict]] = None,
+    commits: Optional[list[dict]] = None,
+) -> str:
     key = data["story_key"]
     t = data["totals"]
     runs = data["runs"]
@@ -1694,6 +1885,80 @@ def _render_story_page(data: dict) -> str:
           <td>{log_link}</td>
         </tr>""")
 
+    # External links: JIRA + PR's + commits.
+    jira_url = f"{JIRA_BASE_URL}/browse/{key}" if JIRA_BASE_URL else ""
+    branch = f"ai/{key}"
+    branch_url = (
+        f"https://github.com/{GITHUB_OWNER}/{GITHUB_REPO}/tree/{branch}"
+        if GITHUB_OWNER and GITHUB_REPO else ""
+    )
+
+    links_html = '<div class="links-card">'
+    title_text = jira_title or "(geen titel opgehaald)"
+    links_html += f'<div class="links-title">{escape(title_text)}</div>'
+    links_html += '<div class="links-row">'
+    if jira_url:
+        links_html += f'<a href="{escape(jira_url)}" target="_blank">JIRA-ticket →</a>'
+    if branch_url:
+        links_html += f'<a href="{escape(branch_url)}" target="_blank">Branch <code>{escape(branch)}</code> →</a>'
+    links_html += f'<a href="/story/{escape(key)}/handover">Briefing →</a>'
+    links_html += '</div>'
+    links_html += '</div>'
+
+    # PR's
+    prs = prs or []
+    if prs:
+        pr_rows = []
+        for p in prs:
+            num = p.get("number")
+            title = p.get("title") or ""
+            state = p.get("state") or ""
+            merged_at = p.get("merged_at")
+            state_text = "merged" if merged_at else state
+            pr_url = p.get("html_url") or ""
+            preview_url = PREVIEW_URL_FORMAT.replace("{pr}", str(num))
+            pr_rows.append(
+                f'<tr>'
+                f'<td><a href="{escape(pr_url)}" target="_blank">#{num}</a></td>'
+                f'<td>{escape(title)}</td>'
+                f'<td>{escape(state_text)}</td>'
+                f'<td><a href="{escape(preview_url)}" target="_blank">preview →</a></td>'
+                f'</tr>'
+            )
+        prs_section = (
+            f'<h2>PR\'s ({len(prs)})</h2>'
+            f'<table><thead><tr><th>#</th><th>Title</th><th>State</th><th>Preview</th></tr></thead>'
+            f'<tbody>{"".join(pr_rows)}</tbody></table>'
+        )
+    else:
+        prs_section = ""
+
+    # Commits
+    commits = commits or []
+    if commits:
+        commit_rows = []
+        for c in commits[:30]:
+            sha = (c.get("sha") or "")[:7]
+            url = c.get("html_url") or ""
+            msg = ((c.get("commit") or {}).get("message") or "").splitlines()[0]
+            author = ((c.get("commit") or {}).get("author") or {}).get("name") or ""
+            when = ((c.get("commit") or {}).get("author") or {}).get("date") or ""
+            commit_rows.append(
+                f'<tr>'
+                f'<td><a href="{escape(url)}" target="_blank"><code>{escape(sha)}</code></a></td>'
+                f'<td>{escape(msg)}</td>'
+                f'<td>{escape(author)}</td>'
+                f'<td>{escape(when[:19].replace("T", " "))}</td>'
+                f'</tr>'
+            )
+        commits_section = (
+            f'<h2>Commits op <code>{escape(branch)}</code> ({len(commits)})</h2>'
+            f'<table><thead><tr><th>SHA</th><th>Message</th><th>Author</th><th>When</th></tr></thead>'
+            f'<tbody>{"".join(commit_rows)}</tbody></table>'
+        )
+    else:
+        commits_section = ""
+
     return f"""<!doctype html>
 <html lang="nl">
 <head>
@@ -1703,16 +1968,27 @@ def _render_story_page(data: dict) -> str:
   <style>{_LOG_CSS}
     table {{ border-collapse: collapse; width: 100%; margin: 8px 0; }}
     th, td {{ padding: 6px 10px; text-align: left;
-              border-bottom: 1px solid #2c3340; font-size: 13px; }}
+              border-bottom: 1px solid #2c3340; font-size: 13px;
+              vertical-align: top; }}
     th {{ background: #1a2029; color: #8b96a8; font-weight: normal; }}
+    tbody tr:hover {{ background: #1f2530; }}
     .totals {{ background: #1a2029; border: 1px solid #2c3340;
               border-radius: 8px; padding: 10px 14px; font-size: 13px; }}
     .totals strong {{ color: #e4e6eb; }}
+    .links-card {{ background: #1a2029; border: 1px solid #2c3340;
+                   border-radius: 8px; padding: 12px 16px; margin: 12px 0; }}
+    .links-card .links-title {{ font-size: 16px; color: #e4e6eb;
+                                margin-bottom: 6px; }}
+    .links-card .links-row {{ display: flex; gap: 16px; flex-wrap: wrap;
+                              font-size: 14px; }}
+    .links-card a {{ color: #4a9eff; text-decoration: none; }}
+    .links-card a:hover {{ text-decoration: underline; }}
   </style>
 </head>
 <body>
   <h1>Story {escape(key)}</h1>
-  <p><a href="/">← terug naar dashboard</a></p>
+  <p><a href="/">← dashboard</a> · <a href="/stories">alle stories →</a></p>
+  {links_html}
   <div class="meta">
     Gestart: {escape(_fmt_ts(data["started_at"]))}
     · Final status: <strong>{escape(final)}</strong>
@@ -1742,6 +2018,9 @@ def _render_story_page(data: dict) -> str:
       {''.join(rows_html) if rows_html else '<tr><td colspan="10">Geen agent-runs.</td></tr>'}
     </tbody>
   </table>
+
+  {prs_section}
+  {commits_section}
 </body>
 </html>"""
 
@@ -2330,7 +2609,7 @@ def render_page(state: dict) -> str:
 </head>
 <body>
   <h1>Personal News Feed — status</h1>
-  <div class="sub">Auto-refresh elke {REFRESH_SEC}s · cache {CACHE_TTL_SEC}s · fetched at {escape(state['fetched_at'])}</div>
+  <div class="sub">Auto-refresh elke {REFRESH_SEC}s · cache {CACHE_TTL_SEC}s · fetched at {escape(state['fetched_at'])} · <a href="/stories">alle stories →</a></div>
 
   {main_html}
 
@@ -2378,6 +2657,13 @@ def healthz() -> Response:
 _STORY_KEY_RE = re.compile(r"^[A-Z][A-Z0-9]+-[0-9]+$")
 
 
+@app.route("/stories")
+def stories_index() -> Response:
+    rows = factory_all_stories()
+    body = _render_stories_index(rows)
+    return Response(body, mimetype="text/html; charset=utf-8")
+
+
 @app.route("/story/<key>")
 def story_timeline(key: str) -> Response:
     if not _STORY_KEY_RE.match(key):
@@ -2386,7 +2672,12 @@ def story_timeline(key: str) -> Response:
     if data is None:
         body = _render_story_missing(key)
     else:
-        body = _render_story_page(data)
+        # Externe data lazy ophalen — alle drie best-effort, faalt
+        # veilig met lege defaults.
+        jira_title = _jira_fetch_issue_title(key)
+        prs = gh_prs_for_branch(f"ai/{key}")
+        commits = gh_commits_for_branch(f"ai/{key}", limit=30)
+        body = _render_story_page(data, jira_title=jira_title, prs=prs, commits=commits)
     return Response(body, mimetype="text/html; charset=utf-8")
 
 
