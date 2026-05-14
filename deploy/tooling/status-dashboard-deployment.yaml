@@ -72,6 +72,13 @@ spec:
                 secretKeyRef:
                   name: newsfeed-api-keys
                   key: ATLASSIAN_API_KEY
+            # Factory-DB voor token/cost-lookups per story-card en de
+            # /story/<key>-timeline. Leeg laten = sectie wordt overgeslagen.
+            - name: FACTORY_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: newsfeed-api-keys
+                  key: FACTORY_DATABASE_URL
           readinessProbe:
             httpGet:
               path: /healthz

@@ -32,6 +32,13 @@ from typing import Optional
 import requests
 from flask import Flask, Response
 
+# psycopg v3 voor de factory-DB (token/cost-lookups, timeline-page).
+# Soft import zodat dashboard ook draait als pakket-build nog niet door is.
+try:
+    import psycopg
+except ImportError:  # pragma: no cover
+    psycopg = None  # type: ignore
+
 # ─── config ───────────────────────────────────────────────────────────────
 
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
@@ -53,6 +60,9 @@ PREVIEW_URL_FORMAT = os.environ.get(
 )
 CACHE_TTL_SEC = int(os.environ.get("CACHE_TTL_SEC", "10"))
 REFRESH_SEC = int(os.environ.get("REFRESH_SEC", "10"))
+# Factory-DB voor token/cost-lookups en de timeline-page. Leeg = sectie
+# wordt overgeslagen, dashboard blijft voor de rest werken.
+FACTORY_DATABASE_URL = os.environ.get("FACTORY_DATABASE_URL", "")
 
 # JIRA-config voor de "AI bezig"-sectie. Als JIRA_API_KEY leeg is wordt
 # de sectie netjes overgeslagen — niets gebroken.
@@ -292,6 +302,189 @@ def k8s_pod_log(
     return None, r.status_code
 
 
+# ─── Factory-DB helpers ──────────────────────────────────────────────────
+
+
+def _factory_db_available() -> bool:
+    return bool(FACTORY_DATABASE_URL) and psycopg is not None
+
+
+def factory_totals_by_story(story_keys: list[str]) -> dict[str, dict]:
+    """Geef per story_key de totalen van de meest recente story_run.
+
+    Returnt {story_key: {input, output, cache_read, cache_creation, cost_usd}}.
+    Stories zonder rij in de DB komen niet voor in het resultaat.
+    Faalt 't (DB onbereikbaar): lege dict, dashboard blijft werken.
+    """
+    if not _factory_db_available() or not story_keys:
+        return {}
+    try:
+        with psycopg.connect(FACTORY_DATABASE_URL) as conn, conn.cursor() as cur:
+            # DISTINCT ON pakt per story_key de meest recente story_run.
+            cur.execute(
+                """SELECT DISTINCT ON (story_key)
+                          story_key,
+                          total_input_tokens, total_output_tokens,
+                          total_cache_read_tokens, total_cache_creation_tokens,
+                          total_cost_usd_est
+                   FROM factory.story_runs
+                   WHERE story_key = ANY(%s)
+                   ORDER BY story_key, started_at DESC""",
+                (list(story_keys),),
+            )
+            return {
+                row[0]: {
+                    "input": row[1] or 0,
+                    "output": row[2] or 0,
+                    "cache_read": row[3] or 0,
+                    "cache_creation": row[4] or 0,
+                    "cost_usd": float(row[5] or 0),
+                }
+                for row in cur.fetchall()
+            }
+    except Exception as e:
+        log.warning("factory_totals_by_story faalde: %s", e)
+        return {}
+
+
+def factory_story_timeline(story_key: str) -> Optional[dict]:
+    """Geef alle agent_runs voor de meest recente story_run van story_key.
+
+    Returnt {story_run_id, started_at, ended_at, totals, runs: [...]}
+    of None als de story niet in de DB voorkomt.
+    """
+    if not _factory_db_available():
+        return None
+    try:
+        with psycopg.connect(FACTORY_DATABASE_URL) as conn, conn.cursor() as cur:
+            cur.execute(
+                """SELECT id, started_at, ended_at, final_status,
+                          total_input_tokens, total_output_tokens,
+                          total_cache_read_tokens, total_cache_creation_tokens,
+                          total_cost_usd_est
+                   FROM factory.story_runs
+                   WHERE story_key = %s
+                   ORDER BY started_at DESC LIMIT 1""",
+                (story_key,),
+            )
+            sr_row = cur.fetchone()
+            if not sr_row:
+                return None
+            story_run_id = sr_row[0]
+
+            cur.execute(
+                """SELECT id, role, job_name, model, effort, level,
+                          started_at, ended_at, outcome,
+                          input_tokens, output_tokens,
+                          cache_read_input_tokens, cache_creation_input_tokens,
+                          cost_usd_est, num_turns, duration_ms
+                   FROM factory.agent_runs
+                   WHERE story_run_id = %s
+                   ORDER BY started_at ASC""",
+                (story_run_id,),
+            )
+            runs = []
+            for r in cur.fetchall():
+                runs.append({
+                    "id": r[0],
+                    "role": r[1] or "",
+                    "job_name": r[2] or "",
+                    "model": r[3] or "",
+                    "effort": r[4] or "",
+                    "level": r[5],
+                    "started_at": r[6],
+                    "ended_at": r[7],
+                    "outcome": r[8] or "",
+                    "input": r[9] or 0,
+                    "output": r[10] or 0,
+                    "cache_read": r[11] or 0,
+                    "cache_creation": r[12] or 0,
+                    "cost_usd": float(r[13] or 0),
+                    "num_turns": r[14] or 0,
+                    "duration_ms": r[15] or 0,
+                })
+
+            return {
+                "id": story_run_id,
+                "story_key": story_key,
+                "started_at": sr_row[1],
+                "ended_at": sr_row[2],
+                "final_status": sr_row[3],
+                "totals": {
+                    "input": sr_row[4] or 0,
+                    "output": sr_row[5] or 0,
+                    "cache_read": sr_row[6] or 0,
+                    "cache_creation": sr_row[7] or 0,
+                    "cost_usd": float(sr_row[8] or 0),
+                },
+                "runs": runs,
+            }
+    except Exception as e:
+        log.warning("factory_story_timeline(%s) faalde: %s", story_key, e)
+        return None
+
+
+def factory_events_for_run(agent_run_id: int) -> list[dict]:
+    """Geef alle agent_events voor een specifieke agent_run, ordered op ts."""
+    if not _factory_db_available():
+        return []
+    try:
+        with psycopg.connect(FACTORY_DATABASE_URL) as conn, conn.cursor() as cur:
+            cur.execute(
+                """SELECT kind, payload, ts
+                   FROM factory.agent_events
+                   WHERE agent_run_id = %s
+                   ORDER BY id ASC""",
+                (agent_run_id,),
+            )
+            return [
+                {"kind": r[0], "payload": r[1], "ts": r[2]}
+                for r in cur.fetchall()
+            ]
+    except Exception as e:
+        log.warning("factory_events_for_run(%s) faalde: %s", agent_run_id, e)
+        return []
+
+
+def factory_lookup_agent_run_by_job(job_name: str) -> Optional[dict]:
+    """Zoek een agent_run-row op basis van job_name. Voor de log-fallback
+    in /runner/<job>/log als de pod al weg is."""
+    if not _factory_db_available():
+        return None
+    try:
+        with psycopg.connect(FACTORY_DATABASE_URL) as conn, conn.cursor() as cur:
+            cur.execute(
+                """SELECT ar.id, ar.role, ar.outcome, ar.started_at, ar.ended_at,
+                          ar.input_tokens, ar.output_tokens, ar.cost_usd_est,
+                          ar.num_turns, ar.duration_ms,
+                          sr.story_key
+                   FROM factory.agent_runs ar
+                   JOIN factory.story_runs sr ON sr.id = ar.story_run_id
+                   WHERE ar.job_name = %s
+                   ORDER BY ar.started_at DESC LIMIT 1""",
+                (job_name,),
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+            return {
+                "id": row[0],
+                "role": row[1] or "",
+                "outcome": row[2] or "",
+                "started_at": row[3],
+                "ended_at": row[4],
+                "input": row[5] or 0,
+                "output": row[6] or 0,
+                "cost_usd": float(row[7] or 0),
+                "num_turns": row[8] or 0,
+                "duration_ms": row[9] or 0,
+                "story_key": row[10] or "",
+            }
+    except Exception as e:
+        log.warning("factory_lookup_agent_run_by_job(%s) faalde: %s", job_name, e)
+        return None
+
+
 # ─── JIRA helpers ─────────────────────────────────────────────────────────
 
 
@@ -395,6 +588,12 @@ class PRCard:
     runner_state: str = "none"  # 'none', 'running', 'finished', 'failed'
     runner_text: str = "—"      # display-tekst, bv. "🟢 running (12s)"
     runner_job_name: str = ""   # job-naam voor de log-link
+    # Factory-DB totalen (Fase 1 PR 2). 0 = geen rij in DB of niet
+    # geconfigureerd.
+    tokens_input: int = 0
+    tokens_output: int = 0
+    tokens_cache_read: int = 0
+    cost_usd: float = 0.0
 
 
 @dataclass
@@ -429,6 +628,11 @@ class JIRACard:
     job_state: str = ""
     job_status: str = ""  # 'running' / 'pass' / 'fail' / 'pending'
     job_name: str = ""
+    # Factory-DB totalen (Fase 1 PR 2)
+    tokens_input: int = 0
+    tokens_output: int = 0
+    tokens_cache_read: int = 0
+    cost_usd: float = 0.0
 
 
 # ─── helpers voor fase-status afleiden ────────────────────────────────────
@@ -942,6 +1146,33 @@ def build_state() -> dict:
             card.job_state = "starting…"
         jira_cards.append(card)
 
+    # Factory-DB totalen verrijken — één bulk-query voor alle relevante
+    # story-keys. Stories zonder DB-row krijgen 0/0/$0.
+    factory_keys: set[str] = set()
+    for c in pr_cards:
+        m = _JIRA_BRANCH_RE.match(c.branch)
+        if m:
+            factory_keys.add(m.group(1))
+    for c in jira_cards:
+        if c.key:
+            factory_keys.add(c.key)
+    totals = factory_totals_by_story(sorted(factory_keys))
+    for c in pr_cards:
+        m = _JIRA_BRANCH_RE.match(c.branch)
+        if m and m.group(1) in totals:
+            t = totals[m.group(1)]
+            c.tokens_input = t["input"]
+            c.tokens_output = t["output"]
+            c.tokens_cache_read = t["cache_read"]
+            c.cost_usd = t["cost_usd"]
+    for c in jira_cards:
+        if c.key in totals:
+            t = totals[c.key]
+            c.tokens_input = t["input"]
+            c.tokens_output = t["output"]
+            c.tokens_cache_read = t["cache_read"]
+            c.cost_usd = t["cost_usd"]
+
     # Sorteer: IN PROGRESS bovenaan, daarna AI Ready, beide op leeftijd.
     status_rank = {s: i for i, s in enumerate(JIRA_ACTIVE_STATUSES[::-1])}
     jira_cards.sort(key=lambda c: (-status_rank.get(c.status, -1), c.age))
@@ -1061,6 +1292,34 @@ def _render_runner_row(card: PRCard) -> str:
     )
 
 
+def _fmt_tokens(n: int) -> str:
+    """1234 -> '1.2K'; 123 -> '123'."""
+    if n >= 1000:
+        return f"{n / 1000:.1f}K"
+    return str(n)
+
+
+def _render_factory_row(story_key: str, card) -> str:
+    """Tokens + cost-rij voor een PR-card of JIRA-card. Toont niets als
+    er geen DB-data is voor deze story."""
+    if not story_key or (card.tokens_input == 0 and card.tokens_output == 0
+                         and card.tokens_cache_read == 0 and card.cost_usd == 0):
+        return ""
+    detail = (
+        f"{_fmt_tokens(card.tokens_input)} in / "
+        f"{_fmt_tokens(card.tokens_output)} out · "
+        f"cache-read {_fmt_tokens(card.tokens_cache_read)} · "
+        f"≈ ${card.cost_usd:.4f}"
+    )
+    timeline_link = f' <a href="/story/{escape(story_key)}">Timeline →</a>'
+    return (
+        f'<div class="info-row">'
+        f'<span class="label">factory</span>'
+        f'<span class="detail">{escape(detail)}{timeline_link}</span>'
+        f"</div>"
+    )
+
+
 _LOG_CSS = """
 * { box-sizing: border-box; }
 body {
@@ -1154,6 +1413,176 @@ def _render_log_page(
   <p><a href="/">← terug naar dashboard</a></p>
   <h2>Loguitvoer (laatste 2000 regels)</h2>
   {content}
+</body>
+</html>"""
+
+
+def _format_events_as_pretty_log(events: list[dict]) -> str:
+    """Reconstrueer de jq-prettyprint-stijl van runner.sh uit DB-events.
+
+    Format moet ongeveer overeenkomen met wat in de pod-log staat —
+    voor consistentie tussen live en archief-views.
+    """
+    def trim(s: str, n: int = 220) -> str:
+        s = "" if s is None else str(s)
+        return s[:n] + "…" if len(s) > n else s
+
+    lines: list[str] = []
+    for e in events:
+        kind = e.get("kind", "unknown")
+        payload = e.get("payload") or {}
+        if not isinstance(payload, dict):
+            lines.append(f"· {kind}")
+            continue
+        try:
+            if kind == "system" and payload.get("subtype") == "init":
+                lines.append(
+                    f"🛠  init session={payload.get('session_id', '?')[:8]}… "
+                    f"model={payload.get('model', '?')}"
+                )
+            elif kind == "assistant":
+                content = (payload.get("message") or {}).get("content") or []
+                for c in content:
+                    ct = c.get("type")
+                    if ct == "text":
+                        text = (c.get("text") or "").strip()
+                        if text:
+                            lines.append(f"💬 {trim(text, 800)}")
+                    elif ct == "tool_use":
+                        inp = c.get("input") or {}
+                        lines.append(f"→ {c.get('name', '?')} {trim(json.dumps(inp, default=str), 220)}")
+                    else:
+                        lines.append(f"· a.{ct}")
+            elif kind == "user":
+                content = (payload.get("message") or {}).get("content") or []
+                for c in content:
+                    if c.get("type") == "tool_result":
+                        inner = c.get("content") or ""
+                        if isinstance(inner, list):
+                            inner = "".join((x.get("text") or "") for x in inner if isinstance(x, dict))
+                        lines.append(f"← {trim(str(inner), 220)}")
+                    else:
+                        lines.append(f"· u.{c.get('type', '?')}")
+            elif kind == "result":
+                usage = payload.get("usage") or {}
+                dur = int((payload.get("duration_ms") or 0) // 1000)
+                lines.append(
+                    f"✅ done {dur}s "
+                    f"in={usage.get('input_tokens', 0)} out={usage.get('output_tokens', 0)} "
+                    f"cost=${payload.get('total_cost_usd', 0):.4f}"
+                )
+            elif kind == "raw":
+                lines.append(f"(raw) {trim(payload.get('text', ''), 200)}")
+            else:
+                lines.append(f"· {kind}")
+        except Exception as ex:
+            lines.append(f"· {kind} (format error: {ex})")
+    return "\n".join(lines)
+
+
+def _render_story_missing(key: str) -> str:
+    return f"""<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Story — {escape(key)}</title>
+  <style>{_LOG_CSS}</style>
+</head>
+<body>
+  <h1>Story {escape(key)}</h1>
+  <p><a href="/">← terug naar dashboard</a></p>
+  <div class="notice">Geen factory-data voor deze story. Mogelijke oorzaken:
+    de story is nooit door een runner verwerkt (vóór Fase 1), de DB is
+    onbereikbaar, of de story-key klopt niet.</div>
+</body>
+</html>"""
+
+
+def _fmt_ts(ts) -> str:
+    """datetime → 'YYYY-MM-DD HH:MM:SS UTC' of '—'."""
+    if ts is None:
+        return "—"
+    return ts.strftime("%Y-%m-%d %H:%M:%S UTC")
+
+
+def _render_story_page(data: dict) -> str:
+    key = data["story_key"]
+    t = data["totals"]
+    runs = data["runs"]
+    final = data.get("final_status") or "lopend"
+    duration_total = sum(r.get("duration_ms", 0) or 0 for r in runs)
+
+    rows_html = []
+    for r in runs:
+        icon = "✅" if r["outcome"] == "success" else ("❌" if "fail" in r["outcome"] else "🟡")
+        dur = _fmt_seconds((r["duration_ms"] or 0) // 1000) if r["duration_ms"] else "—"
+        log_link = (
+            f'<a href="/runner/{escape(r["job_name"])}/log">Log →</a>'
+            if r["job_name"] else "—"
+        )
+        rows_html.append(f"""
+        <tr>
+          <td>{icon}</td>
+          <td><code>{escape(r["role"])}</code></td>
+          <td>{escape(_fmt_ts(r["started_at"]))}</td>
+          <td>{escape(dur)}</td>
+          <td>{r["num_turns"]}</td>
+          <td style="text-align:right">{_fmt_tokens(r["input"])}</td>
+          <td style="text-align:right">{_fmt_tokens(r["output"])}</td>
+          <td style="text-align:right">{_fmt_tokens(r["cache_read"])}</td>
+          <td style="text-align:right">${r["cost_usd"]:.4f}</td>
+          <td>{log_link}</td>
+        </tr>""")
+
+    return f"""<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Story — {escape(key)}</title>
+  <style>{_LOG_CSS}
+    table {{ border-collapse: collapse; width: 100%; margin: 8px 0; }}
+    th, td {{ padding: 6px 10px; text-align: left;
+              border-bottom: 1px solid #2c3340; font-size: 13px; }}
+    th {{ background: #1a2029; color: #8b96a8; font-weight: normal; }}
+    .totals {{ background: #1a2029; border: 1px solid #2c3340;
+              border-radius: 8px; padding: 10px 14px; font-size: 13px; }}
+    .totals strong {{ color: #e4e6eb; }}
+  </style>
+</head>
+<body>
+  <h1>Story {escape(key)}</h1>
+  <p><a href="/">← terug naar dashboard</a></p>
+  <div class="meta">
+    Gestart: {escape(_fmt_ts(data["started_at"]))}
+    · Final status: <strong>{escape(final)}</strong>
+    · Totale duur agent-runs: {escape(_fmt_seconds(duration_total // 1000))}
+  </div>
+
+  <div class="totals">
+    <strong>Totalen:</strong>
+    {_fmt_tokens(t["input"])} in / {_fmt_tokens(t["output"])} out ·
+    cache-read {_fmt_tokens(t["cache_read"])} · cache-creation {_fmt_tokens(t["cache_creation"])} ·
+    geschatte kosten <strong>${t["cost_usd"]:.4f}</strong>
+  </div>
+
+  <h2>Agent-runs ({len(runs)})</h2>
+  <table>
+    <thead>
+      <tr>
+        <th></th><th>Rol</th><th>Gestart</th><th>Duur</th><th>Turns</th>
+        <th style="text-align:right">In</th>
+        <th style="text-align:right">Out</th>
+        <th style="text-align:right">Cache-r</th>
+        <th style="text-align:right">Cost</th>
+        <th>Log</th>
+      </tr>
+    </thead>
+    <tbody>
+      {''.join(rows_html) if rows_html else '<tr><td colspan="10">Geen agent-runs.</td></tr>'}
+    </tbody>
+  </table>
 </body>
 </html>"""
 
@@ -1253,6 +1682,12 @@ def render_pr(card: PRCard) -> str:
             f"</div>"
         )
     info_rows.append(_render_runner_row(card))
+    # Story-key uit branch afleiden voor de factory-row.
+    m = _JIRA_BRANCH_RE.match(card.branch)
+    story_key = m.group(1) if m else ""
+    fac_row = _render_factory_row(story_key, card)
+    if fac_row:
+        info_rows.append(fac_row)
 
     return (
         '<div class="card pr">'
@@ -1285,10 +1720,24 @@ def render_jira(card: JIRACard) -> str:
     elif card.status == "AI Ready":
         parts.append("wacht op poller (≤ 30s)")
     meta = " · ".join(parts)
+    # Factory-row (tokens + cost + timeline-link) als er DB-data is.
+    fac_html = ""
+    if card.tokens_input or card.tokens_output or card.tokens_cache_read or card.cost_usd:
+        fac_detail = (
+            f"{_fmt_tokens(card.tokens_input)} in / "
+            f"{_fmt_tokens(card.tokens_output)} out · "
+            f"cache-read {_fmt_tokens(card.tokens_cache_read)} · "
+            f"≈ ${card.cost_usd:.4f}"
+        )
+        fac_html = (
+            f'<div class="meta">factory: {escape(fac_detail)} '
+            f'<a href="/story/{escape(card.key)}">Timeline →</a></div>'
+        )
     return (
         f'<div class="card jira">'
         f'<div class="title">{title}</div>'
         f'<div class="meta">{meta}</div>'
+        f"{fac_html}"
         f"</div>"
     )
 
@@ -1371,6 +1820,23 @@ def healthz() -> Response:
     return Response("ok", mimetype="text/plain")
 
 
+# Story-key: KAN-XX of vergelijkbaar. Beperk wat we accepteren — voorkomt
+# path-injection en houdt de DB-query simpel.
+_STORY_KEY_RE = re.compile(r"^[A-Z][A-Z0-9]+-[0-9]+$")
+
+
+@app.route("/story/<key>")
+def story_timeline(key: str) -> Response:
+    if not _STORY_KEY_RE.match(key):
+        return Response("Ongeldige story-key.", status=400, mimetype="text/plain")
+    data = factory_story_timeline(key)
+    if data is None:
+        body = _render_story_missing(key)
+    else:
+        body = _render_story_page(data)
+    return Response(body, mimetype="text/html; charset=utf-8")
+
+
 @app.route("/runner/<job_name>/log")
 def runner_log(job_name: str) -> Response:
     if not _JOB_NAME_RE.match(job_name):
@@ -1433,6 +1899,26 @@ def runner_log(job_name: str) -> Response:
         ref_ts = completion_ts or start_ts
         if ref_ts and _duration_seconds(ref_ts) > 7200:
             pod_gone = True
+
+    # Fallback: pod onbereikbaar of weg → reconstrueer uit factory-DB.
+    # Werkt ook voor runs van weken oud, zolang ze ooit factory-report.py
+    # hebben uitgevoerd.
+    if log_text is None:
+        ar = factory_lookup_agent_run_by_job(job_name)
+        if ar is not None:
+            events = factory_events_for_run(ar["id"])
+            if events:
+                log_text = _format_events_as_pretty_log(events)
+                log_status = 200  # 'success-via-archive'
+                pod_gone = False  # we hébben de log
+                # Status-text upgraden naar archief-context als de pod
+                # weg was; aanvankelijke status uit Job kan ook stale zijn.
+                if ar.get("ended_at"):
+                    age = _ago(ar["ended_at"].isoformat() if ar["ended_at"] else "")
+                    status_text = (
+                        f"📦 archief — {ar['role']} · "
+                        f"outcome={ar['outcome']} · {age} geleden"
+                    )
 
     return Response(
         _render_log_page(
