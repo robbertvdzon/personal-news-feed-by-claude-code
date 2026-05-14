@@ -232,6 +232,49 @@ def k8s_jobs(namespace: str, label_selector: str = "") -> list[dict]:
     return kubectl_json(*args).get("items", [])
 
 
+# ─── Kubernetes in-cluster API (voor pod-logs) ────────────────────────────
+
+_K8S_API = "https://kubernetes.default.svc"
+_K8S_TOKEN_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+_K8S_CA_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+
+
+def _k8s_get(path: str, params: Optional[dict] = None) -> Optional[requests.Response]:
+    """HTTP GET naar de in-cluster K8s API via de pod's ServiceAccount-token."""
+    try:
+        with open(_K8S_TOKEN_PATH) as f:
+            token = f.read().strip()
+    except OSError:
+        return None
+    ca = _K8S_CA_PATH if os.path.exists(_K8S_CA_PATH) else False
+    try:
+        return requests.get(
+            f"{_K8S_API}{path}",
+            headers={"Authorization": f"Bearer {token}"},
+            params=params,
+            verify=ca,
+            timeout=15,
+        )
+    except requests.RequestException as e:
+        log.warning("k8s GET %s faalde: %s", path, e)
+        return None
+
+
+def k8s_pod_log(pod_name: str, namespace: str = "", tail_lines: int = 2000) -> Optional[str]:
+    """Haal pod-log op via K8s API. Geeft log-tekst of None bij fout."""
+    ns = namespace or PROD_NS
+    r = _k8s_get(
+        f"/api/v1/namespaces/{ns}/pods/{pod_name}/log",
+        params={"tailLines": str(tail_lines)},
+    )
+    if r is None:
+        return None
+    if r.status_code == 200:
+        return r.text
+    log.warning("k8s pod log %s -> %s", pod_name, r.status_code)
+    return None
+
+
 # ─── JIRA helpers ─────────────────────────────────────────────────────────
 
 
@@ -332,6 +375,9 @@ class PRCard:
     jira_status: str = ""       # 'AI IN REVIEW' etc., leeg als geen JIRA-issue
     jira_status_age: str = ""   # 'sinds Xm' (vanuit changelog)
     last_commit_age: str = ""   # 'Xm geleden' op de HEAD-commit
+    runner_state: str = "none"  # 'none', 'running', 'finished', 'failed'
+    runner_text: str = "—"      # display-tekst, bv. "🟢 running (12s)"
+    runner_job_name: str = ""   # job-naam voor de log-link
 
 
 @dataclass
@@ -574,6 +620,91 @@ def _ago(iso_ts: str) -> str:
     return f"{sec // 86400}d"
 
 
+def _duration_seconds(start_iso: str, end_iso: str = "") -> int:
+    """Seconden van start_iso tot end_iso (of nu als end_iso leeg is)."""
+    if not start_iso:
+        return 0
+    from datetime import datetime, timezone
+    try:
+        start = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
+        end = (
+            datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
+            if end_iso else datetime.now(timezone.utc)
+        )
+        return max(0, int((end - start).total_seconds()))
+    except ValueError:
+        return 0
+
+
+def _fmt_seconds(sec: int) -> str:
+    """Seconden formatteren als Xs / XmYs / XuYm."""
+    if sec < 60:
+        return f"{sec}s"
+    if sec < 3600:
+        return f"{sec // 60}m{sec % 60:02d}s"
+    return f"{sec // 3600}u{(sec % 3600) // 60:02d}m"
+
+
+# ─── claude-runner job helpers ────────────────────────────────────────────
+
+_AI_BRANCH_RE = re.compile(r"^ai/(.+)$")
+_JIRA_BRANCH_RE = re.compile(r"^ai/([A-Z]+-\d+)$")
+_JOB_NAME_RE = re.compile(r"^claude-run-[a-z0-9-]+$")
+
+
+def _sanitize_story_id(story_id: str) -> str:
+    """K8s-safe story-id (zelfde logica als poller.py sanitize_id)."""
+    s = story_id.lower()
+    s = re.sub(r"[^a-z0-9-]+", "-", s)
+    s = re.sub(r"-+", "-", s).strip("-")
+    return s[:30] or "job"
+
+
+def _match_runner_job(jobs: list[dict], pr_num: int, branch: str) -> Optional[dict]:
+    """Meest recente claude-runner Job voor deze PR (story- of comment-mode)."""
+    m = _AI_BRANCH_RE.match(branch)
+    story_id_label = _sanitize_story_id(m.group(1)) if m else None
+    candidates = []
+    for job in jobs:
+        labels = job.get("metadata", {}).get("labels", {}) or {}
+        mode = labels.get("mode", "")
+        if mode == "story" and story_id_label:
+            if labels.get("story-id") == story_id_label:
+                candidates.append(job)
+        elif mode == "comment":
+            if str(labels.get("pr-num", "")) == str(pr_num):
+                candidates.append(job)
+    if not candidates:
+        return None
+    candidates.sort(
+        key=lambda j: j.get("metadata", {}).get("creationTimestamp", ""),
+        reverse=True,
+    )
+    return candidates[0]
+
+
+def _runner_info_from_job(job: dict) -> tuple[str, str, str]:
+    """Geeft (state, display_text, job_name) voor een claude-runner Job.
+
+    state: 'running' | 'finished' | 'failed'
+    """
+    job_name = job.get("metadata", {}).get("name", "")
+    conds = job.get("status", {}).get("conditions", []) or []
+    complete = any(c.get("type") == "Complete" and c.get("status") == "True" for c in conds)
+    failed = any(c.get("type") == "Failed" and c.get("status") == "True" for c in conds)
+    start_ts = job.get("status", {}).get("startTime", "")
+    completion_ts = job.get("status", {}).get("completionTime", "")
+    if complete:
+        dur = _fmt_seconds(_duration_seconds(start_ts, completion_ts))
+        age = _ago(completion_ts) if completion_ts else "?"
+        return ("finished", f"✅ finished ({dur}, {age} geleden)", job_name)
+    if failed:
+        age = _ago(completion_ts or start_ts)
+        return ("failed", f"❌ failed ({age} geleden)", job_name)
+    dur_sec = _duration_seconds(start_ts)
+    return ("running", f"🟢 running ({dur_sec}s)", job_name)
+
+
 # ─── state-builder ────────────────────────────────────────────────────────
 
 
@@ -589,6 +720,7 @@ def build_state() -> dict:
     apps_by_name = {a.get("metadata", {}).get("name"): a for a in apps}
     pnf_namespaces = k8s_pnf_namespaces()
     pods_by_ns = {ns: k8s_pods(ns) for ns in [PROD_NS] + pnf_namespaces}
+    runner_jobs = k8s_jobs(PROD_NS, label_selector="app=claude-runner")
 
     # Production
     main_commit = gh_main_head_commit() or {}
@@ -701,6 +833,14 @@ def build_state() -> dict:
                 ((commit_data.get("commit") or {}).get("committer") or {}).get("date", "")
             )
 
+        # Claude runner: meest recente matching Job koppelen.
+        runner_job = _match_runner_job(runner_jobs, pr_num, branch)
+        if runner_job:
+            rstate, rtext, rjob = _runner_info_from_job(runner_job)
+            card.runner_state = rstate
+            card.runner_text = rtext
+            card.runner_job_name = rjob
+
         pr_cards.append(card)
 
     # JIRA: één call die alle tracked statussen ophaalt.
@@ -708,12 +848,11 @@ def build_state() -> dict:
     issues_by_key = {i.get("key", ""): i for i in all_tracked}
 
     # Verrijk PR-kaartjes met PR-state-badge + JIRA-status per key.
-    _branch_key_re = re.compile(r"^ai/([A-Z]+-\d+)$")
     for card in pr_cards:
         st, label = _derive_pr_state(card.phases)
         card.pr_state = st
         card.pr_state_label = label
-        m = _branch_key_re.match(card.branch)
+        m = _JIRA_BRANCH_RE.match(card.branch)
         if m:
             issue = issues_by_key.get(m.group(1))
             if issue:
@@ -888,6 +1027,91 @@ h1 { font-size: 18px; margin: 0 0 4px 0; }
 """
 
 
+def _render_runner_row(card: PRCard) -> str:
+    if card.runner_state == "none":
+        return (
+            '<div class="info-row">'
+            '<span class="label">claude runner</span>'
+            '<span class="detail">—</span>'
+            "</div>"
+        )
+    log_link = f' <a href="/runner/{escape(card.runner_job_name)}/log">Log →</a>'
+    return (
+        f'<div class="info-row">'
+        f'<span class="label">claude runner</span>'
+        f'<span class="detail">{escape(card.runner_text)}{log_link}</span>'
+        f"</div>"
+    )
+
+
+_LOG_CSS = """
+* { box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  margin: 0; padding: 16px;
+  background: #0f1419; color: #e4e6eb;
+  max-width: 1200px; margin-inline: auto;
+  font-size: 14px; line-height: 1.45;
+}
+h1 { font-size: 18px; margin: 0 0 4px; }
+h2 { font-size: 15px; margin: 16px 0 8px; }
+a { color: #93c5fd; text-decoration: none; }
+a:hover { text-decoration: underline; }
+.meta { color: #8b96a8; font-size: 12px; margin-bottom: 16px; }
+.notice { color: #fde68a; background: #713f12; padding: 12px; border-radius: 8px; }
+pre {
+  background: #1a2029; border: 1px solid #2c3340; border-radius: 8px;
+  padding: 12px; overflow-x: auto;
+  font-family: "Fira Mono", "Consolas", monospace; font-size: 12px;
+  line-height: 1.5; color: #cbd5e1; white-space: pre-wrap; word-break: break-word;
+}
+"""
+
+
+def _render_log_page(
+    job_name: str,
+    status_text: str,
+    pr_title: str,
+    pr_url: str,
+    log_text: Optional[str],
+    pod_gone: bool,
+    is_running: bool,
+) -> str:
+    refresh = '<meta http-equiv="refresh" content="5">' if is_running else ""
+    pr_html = ""
+    if pr_title and pr_url:
+        pr_html = f'<p><a href="{escape(pr_url)}" target="_blank">↗ PR: {escape(pr_title)}</a></p>'
+    elif pr_title:
+        pr_html = f"<p>{escape(pr_title)}</p>"
+    if pod_gone:
+        content = (
+            '<div class="notice">Pod is inmiddels opgeruimd (&gt;2u geleden voltooid).'
+            " De log is niet meer beschikbaar.</div>"
+        )
+    elif log_text is None:
+        content = '<div class="notice">Log kon niet worden opgehaald.</div>'
+    else:
+        content = f"<pre>{escape(log_text)}</pre>"
+    return f"""<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  {refresh}
+  <title>Log — {escape(job_name)}</title>
+  <style>{_LOG_CSS}</style>
+</head>
+<body>
+  <h1>Claude Runner Log</h1>
+  {pr_html}
+  <div class="meta">Job: <code>{escape(job_name)}</code> · {escape(status_text)}</div>
+  <p><a href="/">← terug naar dashboard</a></p>
+  <h2>Loguitvoer (laatste 2000 regels)</h2>
+  {content}
+</body>
+</html>"""
+
+
 def render_phase(p: Phase) -> str:
     icon = STATUS_ICONS.get(p.status, "?")
     detail = escape(p.detail) if p.detail else ""
@@ -982,6 +1206,7 @@ def render_pr(card: PRCard) -> str:
             f'<span class="detail">{escape(card.jira_status)}{jira_age_html}</span>'
             f"</div>"
         )
+    info_rows.append(_render_runner_row(card))
 
     return (
         '<div class="card pr">'
@@ -1093,6 +1318,74 @@ def index() -> Response:
 @app.route("/healthz")
 def healthz() -> Response:
     return Response("ok", mimetype="text/plain")
+
+
+@app.route("/runner/<job_name>/log")
+def runner_log(job_name: str) -> Response:
+    if not _JOB_NAME_RE.match(job_name):
+        return Response("Ongeldige job-naam.", status=400, mimetype="text/plain")
+
+    job_data = kubectl_json("get", "job", job_name, "-n", PROD_NS)
+    job_status = job_data.get("status", {})
+    labels = (job_data.get("metadata", {}) or {}).get("labels", {}) or {}
+
+    conds = job_status.get("conditions", []) or []
+    complete = any(c.get("type") == "Complete" and c.get("status") == "True" for c in conds)
+    failed_job = any(c.get("type") == "Failed" and c.get("status") == "True" for c in conds)
+    start_ts = job_status.get("startTime", "")
+    completion_ts = job_status.get("completionTime", "")
+    is_running = not complete and not failed_job
+
+    if complete:
+        dur = _fmt_seconds(_duration_seconds(start_ts, completion_ts))
+        status_text = f"✅ finished ({dur}, {_ago(completion_ts)} geleden)"
+    elif failed_job:
+        status_text = f"❌ failed ({_ago(completion_ts or start_ts)} geleden)"
+    elif start_ts:
+        status_text = f"🟢 running ({_duration_seconds(start_ts)}s)"
+    else:
+        status_text = "🟡 pending"
+
+    # PR-info opzoeken via gecachede state.
+    pr_title = ""
+    pr_url = ""
+    pr_num_label = labels.get("pr-num", "")
+    story_id_label = labels.get("story-id", "")
+    try:
+        cached = build_state()
+        for pr in cached.get("open_prs", []):
+            if pr_num_label and str(pr.number) == str(pr_num_label):
+                pr_title = pr.title
+                pr_url = pr.html_url
+                break
+            if story_id_label:
+                bm = _AI_BRANCH_RE.match(pr.branch)
+                if bm and _sanitize_story_id(bm.group(1)) == story_id_label:
+                    pr_title = pr.title
+                    pr_url = pr.html_url
+                    break
+    except Exception as exc:
+        log.warning("PR-lookup voor log-pagina faalde: %s", exc)
+
+    # Pod zoeken (automatisch label job-name=<job_name> door K8s).
+    pods_data = kubectl_json("get", "pods", "-n", PROD_NS, "-l", f"job-name={job_name}")
+    pods = pods_data.get("items", [])
+
+    log_text = None
+    pod_gone = False
+
+    if pods:
+        pod_name = pods[0].get("metadata", {}).get("name", "")
+        log_text = k8s_pod_log(pod_name)
+    else:
+        ref_ts = completion_ts or start_ts
+        if ref_ts and _duration_seconds(ref_ts) > 7200:
+            pod_gone = True
+
+    return Response(
+        _render_log_page(job_name, status_text, pr_title, pr_url, log_text, pod_gone, is_running),
+        mimetype="text/html; charset=utf-8",
+    )
 
 
 if __name__ == "__main__":
