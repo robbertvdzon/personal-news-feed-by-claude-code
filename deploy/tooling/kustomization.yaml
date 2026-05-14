@@ -28,17 +28,11 @@ namespace: pnf-software-factory
 resources:
 - jira-poller-deployment.yaml
 - status-dashboard-deployment.yaml
-- factory-db-init-job.yaml
 
-# Genereer de SQL-ConfigMap uit factory-schema.sql. `disableNameSuffixHash`
-# houdt de naam stabiel (`factory-schema-sql`) zodat de Job-volumeMount
-# in factory-db-init-job.yaml er statisch naar kan verwijzen.
-configMapGenerator:
-- files:
-  - factory-schema.sql
-  name: factory-schema-sql
-  options:
-    disableNameSuffixHash: true
+# Schema-init voor de factory-DB gebeurt in de poller zelf bij startup
+# (zie poller.py, `init_schema()`). Dat is eenvoudiger dan een aparte
+# init-Job + ConfigMap + ArgoCD-PreSync-hook, en de DDL is idempotent
+# dus runs-on-every-restart is goedkoop.
 
 images:
 - name: ghcr.io/robbertvdzon/jira-poller

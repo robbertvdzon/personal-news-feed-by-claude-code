@@ -1110,8 +1110,44 @@ def _start_poll_thread() -> None:
     t.start()
 
 
-# Onder gunicorn (productie): start de poll-loop direct bij module-load.
-# Onder `python poller.py` (dev): start 'm via main() hieronder.
+# ─── Factory-schema bootstrap ───────────────────────────────────────────
+#
+# In plaats van een aparte init-Job met ConfigMap + ArgoCD-hook draaien
+# we de DDL bij elke poller-startup. Idempotent (`CREATE … IF NOT EXISTS`)
+# en bliksemsnel. Geen sync-wave-ordering te bewaken.
+#
+# Faalt 't (DB onbereikbaar, geen rechten): poller start tóch, alleen de
+# HTTP-endpoint geeft 503 totdat we 't fixen.
+
+_FACTORY_SCHEMA_PATH = "/app/factory-schema.sql"
+
+
+def init_schema() -> None:
+    if not FACTORY_DATABASE_URL:
+        log.info("FACTORY_DATABASE_URL leeg — sla schema-init over")
+        return
+    if psycopg is None:
+        log.warning("psycopg niet geïnstalleerd — sla schema-init over")
+        return
+    if not os.path.exists(_FACTORY_SCHEMA_PATH):
+        log.warning("schema-file %s niet gevonden — sla schema-init over",
+                    _FACTORY_SCHEMA_PATH)
+        return
+
+    try:
+        with open(_FACTORY_SCHEMA_PATH, "r", encoding="utf-8") as f:
+            ddl = f.read()
+        with psycopg.connect(FACTORY_DATABASE_URL) as conn, conn.cursor() as cur:
+            cur.execute(ddl)
+            conn.commit()
+        log.info("factory-schema toegepast (%d bytes DDL)", len(ddl))
+    except Exception as e:
+        log.exception("factory-schema bootstrap faalde: %s", e)
+
+
+# Onder gunicorn (productie): bootstrap + poll-loop bij module-load.
+# Onder `python poller.py` (dev): idem, plus Flask via main() hieronder.
+init_schema()
 _start_poll_thread()
 
 
