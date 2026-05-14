@@ -341,7 +341,8 @@ class PodcastNotifier extends AsyncNotifier<List<Podcast>> {
 
 class AppearanceState {
   final bool largeFont;
-  const AppearanceState({this.largeFont = false});
+  final int backgroundColor;
+  const AppearanceState({this.largeFont = false, this.backgroundColor = 0});
 }
 
 class AppearanceNotifier extends StateNotifier<AppearanceState> {
@@ -350,12 +351,20 @@ class AppearanceNotifier extends StateNotifier<AppearanceState> {
   }
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
-    state = AppearanceState(largeFont: prefs.getBool('largeFont') ?? false);
+    state = AppearanceState(
+      largeFont: prefs.getBool('largeFont') ?? false,
+      backgroundColor: prefs.getInt('backgroundColor') ?? 0,
+    );
   }
   Future<void> setLarge(bool v) async {
-    state = AppearanceState(largeFont: v);
+    state = AppearanceState(largeFont: v, backgroundColor: state.backgroundColor);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('largeFont', v);
+  }
+  Future<void> setBackgroundColor(int colorIndex) async {
+    state = AppearanceState(largeFont: state.largeFont, backgroundColor: colorIndex);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('backgroundColor', colorIndex);
   }
 }
 
