@@ -260,19 +260,29 @@ def _k8s_get(path: str, params: Optional[dict] = None) -> Optional[requests.Resp
         return None
 
 
-def k8s_pod_log(pod_name: str, namespace: str = "", tail_lines: int = 2000) -> Optional[str]:
-    """Haal pod-log op via K8s API. Geeft log-tekst of None bij fout."""
+def k8s_pod_log(
+    pod_name: str, namespace: str = "", tail_lines: int = 2000
+) -> tuple[Optional[str], int]:
+    """Haal pod-log op via K8s API.
+
+    Returnt (log_text, http_status). http_status=0 betekent een setup-
+    of netwerkprobleem (geen SA-token, DNS, time-out). log_text is None
+    bij elke niet-200; alleen bij 200 staat de log erin.
+
+    De caller kan op http_status branchen voor specifieke meldingen
+    (b.v. 403 → "rbac mist pods/log", 404 → "pod weg").
+    """
     ns = namespace or PROD_NS
     r = _k8s_get(
         f"/api/v1/namespaces/{ns}/pods/{pod_name}/log",
         params={"tailLines": str(tail_lines)},
     )
     if r is None:
-        return None
+        return None, 0
     if r.status_code == 200:
-        return r.text
-    log.warning("k8s pod log %s -> %s", pod_name, r.status_code)
-    return None
+        return r.text, 200
+    log.warning("k8s pod log %s -> %s: %s", pod_name, r.status_code, r.text[:200])
+    return None, r.status_code
 
 
 # ─── JIRA helpers ─────────────────────────────────────────────────────────
@@ -1076,6 +1086,7 @@ def _render_log_page(
     log_text: Optional[str],
     pod_gone: bool,
     is_running: bool,
+    log_status: int = 200,
 ) -> str:
     refresh = '<meta http-equiv="refresh" content="5">' if is_running else ""
     pr_html = ""
@@ -1089,7 +1100,35 @@ def _render_log_page(
             " De log is niet meer beschikbaar.</div>"
         )
     elif log_text is None:
-        content = '<div class="notice">Log kon niet worden opgehaald.</div>'
+        # Specifieke hint per HTTP-status — anders staart de gebruiker
+        # naar "Log kon niet worden opgehaald" zonder aanknopingspunt.
+        if log_status == 403:
+            hint = (
+                "HTTP 403 Forbidden — de status-dashboard ServiceAccount "
+                "mist <code>pods/log</code>-rechten. Fix: <code>oc apply -f "
+                "deploy/status-dashboard/rbac.yaml</code>."
+            )
+        elif log_status == 404:
+            hint = (
+                "HTTP 404 Not Found — pod bestaat niet (meer). Vermoedelijk "
+                "tussen pod-lookup en log-fetch opgeruimd."
+            )
+        elif log_status == 400:
+            hint = (
+                "HTTP 400 — pod accepteert geen log-request (waitContainer, "
+                "init-container, of meerdere containers zonder explicit name)."
+            )
+        elif log_status == 0:
+            hint = (
+                "In-cluster K8s-API onbereikbaar — ServiceAccount-token mist "
+                "of netwerkprobleem."
+            )
+        else:
+            hint = f"HTTP {log_status}."
+        content = (
+            '<div class="notice">Log kon niet worden opgehaald. '
+            f"{hint}</div>"
+        )
     else:
         content = f"<pre>{escape(log_text)}</pre>"
     return f"""<!doctype html>
@@ -1227,10 +1266,15 @@ def render_jira(card: JIRACard) -> str:
         if card.jira_url else title_inner
     )
     # Bouw de meta-regel: status (sinds X) · job-info (indien aanwezig).
+    # Bij een actieve/recente Job hangt er een "Log →"-link aan zodat je
+    # kan meekijken vóórdat de PR überhaupt bestaat.
     parts = [f"{escape(card.status)} sinds {escape(card.age)}"]
     if card.job_state:
         icon = STATUS_ICONS.get(card.job_status, "?")
-        parts.append(f"{icon} Job {escape(card.job_state)}")
+        job_html = f"{icon} Job {escape(card.job_state)}"
+        if card.job_name:
+            job_html += f' <a href="/runner/{escape(card.job_name)}/log">Log →</a>'
+        parts.append(job_html)
     elif card.status == "AI Ready":
         parts.append("wacht op poller (≤ 30s)")
     meta = " · ".join(parts)
@@ -1371,19 +1415,23 @@ def runner_log(job_name: str) -> Response:
     pods_data = kubectl_json("get", "pods", "-n", PROD_NS, "-l", f"job-name={job_name}")
     pods = pods_data.get("items", [])
 
-    log_text = None
+    log_text: Optional[str] = None
+    log_status = 200
     pod_gone = False
 
     if pods:
         pod_name = pods[0].get("metadata", {}).get("name", "")
-        log_text = k8s_pod_log(pod_name)
+        log_text, log_status = k8s_pod_log(pod_name)
     else:
         ref_ts = completion_ts or start_ts
         if ref_ts and _duration_seconds(ref_ts) > 7200:
             pod_gone = True
 
     return Response(
-        _render_log_page(job_name, status_text, pr_title, pr_url, log_text, pod_gone, is_running),
+        _render_log_page(
+            job_name, status_text, pr_title, pr_url,
+            log_text, pod_gone, is_running, log_status,
+        ),
         mimetype="text/html; charset=utf-8",
     )
 
