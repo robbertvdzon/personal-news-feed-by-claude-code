@@ -30,4 +30,5 @@ images:
   newName: ghcr.io/robbertvdzon/jira-poller
   newTag: sha-cc923d6
 - name: ghcr.io/robbertvdzon/status-dashboard
-  newTag: sha-f9e1b6c
+  newName: ghcr.io/robbertvdzon/status-dashboard
+  newTag: sha-a125651
