@@ -360,7 +360,9 @@ def spawn_runner_job(
             "labels": labels,
         },
         "spec": {
-            "ttlSecondsAfterFinished": 86400,
+            # 2u TTL: lang genoeg om logs van een recent gefaalde Job nog te
+            # bekijken, kort genoeg om de namespace niet te laten dichtslibben.
+            "ttlSecondsAfterFinished": 7200,
             "backoffLimit": 0,
             "template": {
                 "metadata": {"labels": labels},
@@ -387,14 +389,51 @@ def spawn_runner_job(
         },
     }
 
-    # Apply both
-    for obj in (cm, job):
-        out = kubectl(
-            "apply", "-f", "-", input_data=json.dumps(obj), check=False
+    # Apply: ConfigMap eerst (Pod-mount vereist 'm), dan Job (geeft UID
+    # terug), tenslotte ConfigMap patchen met ownerReference naar de Job
+    # zodat garbage-collection 'm meeruimt als de Job verdwijnt (anders
+    # blijven CM's voor altijd hangen in de namespace).
+    cm_out = kubectl(
+        "apply", "-f", "-", input_data=json.dumps(cm), check=False
+    )
+    if cm_out.returncode != 0:
+        log.error("kubectl apply CM faalde: %s", cm_out.stderr[:200])
+        return None
+
+    job_out = kubectl(
+        "apply", "-f", "-", "-o", "json",
+        input_data=json.dumps(job), check=False,
+    )
+    if job_out.returncode != 0:
+        log.error("kubectl apply Job faalde: %s", job_out.stderr[:200])
+        return None
+    try:
+        job_uid = json.loads(job_out.stdout)["metadata"]["uid"]
+    except (json.JSONDecodeError, KeyError, TypeError) as e:
+        log.warning("kon Job-UID niet uitlezen voor ownerRef op CM %s: %s", cm_name, e)
+        job_uid = None
+
+    if job_uid:
+        patch = {
+            "metadata": {
+                "ownerReferences": [{
+                    "apiVersion": "batch/v1",
+                    "kind": "Job",
+                    "name": job_name,
+                    "uid": job_uid,
+                    "blockOwnerDeletion": True,
+                }]
+            }
+        }
+        p_out = kubectl(
+            "patch", "configmap", cm_name,
+            "-n", RUNNER_NAMESPACE,
+            "--type=merge",
+            "-p", json.dumps(patch),
+            check=False,
         )
-        if out.returncode != 0:
-            log.error("kubectl apply faalde voor %s: %s", obj["kind"], out.stderr[:200])
-            return None
+        if p_out.returncode != 0:
+            log.warning("ownerRef-patch op CM %s faalde: %s", cm_name, p_out.stderr[:200])
 
     log.info(
         "spawned Job %s voor %s (mode=%s)",
