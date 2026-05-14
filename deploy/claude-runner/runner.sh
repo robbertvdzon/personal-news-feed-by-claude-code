@@ -348,18 +348,43 @@ Beschikbare info:
 - env-var PREVIEW_URL — live preview-deploy van deze PR (kan leeg zijn
   als de PR-detectie faalde — werk dan zonder preview-check).
 
+CRUCIALE REGEL — geen browser = geen geldig rapport:
+
+Je MOET de applicatie testen via een echte browser (Playwright/Chromium,
+beschikbaar in dit image). Code-inspectie (de diff bekijken, files lezen)
+is GEEN vervanging voor browser-verificatie. Ook bij triviale
+frontend-wijzigingen MOET je de UI openen, doorklikken, en screenshots
+maken.
+
+Als Playwright écht niet werkt (browser-binary mist, script-fail, etc.):
+rapporteer 'tested-fail' met als bevinding [blocker] 'kon Playwright
+niet draaien op X (zie log)'. VAL NIET TERUG OP CODE-REVIEW als
+alternatief — die heeft de reviewer al gedaan. Geen browser = fail.
+
 Werkwijze:
 1. Lees task.md + diff om te begrijpen WAT er getest moet worden. Maak
-   een lijst van logische stappen: open homepage, klik X, vul Y in,
-   verwacht Z. Eén regel per stap.
-2. Als PREVIEW_URL gezet is: curl 'm (curl -I) om te checken dat 'ie
-   live is. LET OP: de runner heeft al tot 10 min gewacht; als
-   PREVIEW_READY=0 is de deploy stuk en kun je direct tested-fail.
+   een lijst van logische STAPPEN UIT GEBRUIKERS-PERSPECTIEF (browser-
+   acties), niet codewijzigingen: open homepage, klik 'Settings'-tab,
+   verifieer dat het label 'Settings' is, etc.
+
+   GOED: 'Open homepage', 'Klik Settings-tab', 'Screenshot van Settings-scherm'.
+   FOUT: 'main_shell.dart: label gewijzigd', 'runner.js: gotoTab aangepast'.
+   Codewijzigingen horen bij de reviewer, jij test de UI.
+
+2. Als PREVIEW_READY=0: deploy is stuk, direct tested-fail met [blocker]
+   'preview-deploy not live'.
+
 3. **Doorloop de flow via Playwright** — niet één statische screenshot,
-   maar interactie. Schrijf een Node-script (Playwright module is
-   globaal geïnstalleerd) en voer 'm uit. Eén screenshot PER STAP in
-   /tmp/screenshots/ met naming \`NN-stapnaam.png\` (01-homepage.png,
-   02-login-scherm.png, 03-na-login.png, …). Voorbeeld:
+   maar interactie. Schrijf een Node-script en voer 'm uit. Eén
+   screenshot PER STAP in /tmp/screenshots/ met naming
+   \`NN-stapnaam.png\` (01-homepage.png, 02-settings-tab.png, …).
+
+   Playwright is GLOBAAL geïnstalleerd; je hoeft NIETS te installeren.
+   \`require('playwright')\` werkt direct via NODE_PATH=/usr/lib/node_modules.
+   Negeer eventuele 'npm install'-impuls — niet nodig en faalt door
+   cache-permissies. Gewoon \`node /tmp/flow.js\` is genoeg.
+
+   Voorbeeld:
 
        cat > /tmp/flow.js <<'JS'
        const { chromium } = require('playwright');
@@ -411,17 +436,22 @@ Samenvatting:
 2-4 regels prose over de flow + overall-indruk.
 
 Stappenrapport:
-Een markdown-tabel met één rij per stap. Gebruik ✓ voor OK, ✗ voor
-fail, ⊘ voor 'niet uitvoerbaar' (bv. geen creds). Voorbeeld:
+Een markdown-tabel met één rij per BROWSER-stap (niet code-stap).
+Gebruik ✓ voor OK, ✗ voor fail, ⊘ voor 'niet uitvoerbaar' (bv.
+geen creds). Elke rij hoort overeen te komen met een screenshot in
+/tmp/screenshots/. Voorbeeld:
 
 | # | Stap                                  | Resultaat |
 |---|---------------------------------------|-----------|
-| 1 | Open homepage                         | ✓         |
-| 2 | Klik 'Login'-knop                     | ✓         |
-| 3 | Inloggen met testgebruiker            | ⊘ geen test-creds beschikbaar |
-| 4 | Screenshot login-scherm               | ✓         |
+| 1 | Open homepage in browser              | ✓         |
+| 2 | Klik 'Settings'-tab                   | ✓         |
+| 3 | Verifieer Settings-label op scherm    | ✓         |
+| 4 | Klik 'Login'-knop                     | ✓         |
+| 5 | Inloggen met testgebruiker            | ⊘ geen test-creds beschikbaar |
 
-Eén rij per stap, één stap per screenshot. Houd de namen kort.
+Eén rij per stap, één stap per screenshot. Houd namen kort.
+Bullets als 'main_shell.dart: label gewijzigd' horen NIET in
+dit rapport — dat is code-review-werk.
 
 Bevindingen:
 - [blocker]/[bug]/[info] bullets
@@ -976,9 +1006,28 @@ else:
       ;;
   esac
 
+  # Safety-check: tested-ok ZONDER screenshots terwijl preview live was
+  # is verdacht (waarschijnlijk gaf de tester code-review als verdict
+  # i.p.v. echte browser-test). Override naar tested-fail zodat de
+  # developer-loopback de tester forceert om alsnog Playwright te draaien.
+  SHOT_COUNT=$(find /tmp/screenshots -maxdepth 1 -name '*.png' 2>/dev/null | wc -l | tr -d ' ')
+  if [[ "$TESTER_PHASE" == "tested-ok" && "$SHOT_COUNT" == "0" && "${PREVIEW_READY:-0}" == "1" ]]; then
+    echo "[runner] safety-override: tested-ok zonder screenshots terwijl preview live was — degradeer naar tested-fail"
+    TESTER_PHASE="tested-fail"
+    TESTER_OVERRIDE_NOTE="
+
+⚠ Automatische override door runner: deze run is gemarkeerd als tested-fail
+omdat er géén browser-screenshots in /tmp/screenshots/ stonden terwijl de
+preview-deploy live was. De tester hoort de UI te verifiëren via Playwright,
+niet via code-inspectie. Volgende ronde probeert opnieuw."
+  fi
+
   TESTER_PROSE=$(echo "$TESTER_FULL_TEXT" | sed '/^[[:space:]]*{.*"phase".*}[[:space:]]*$/d')
   if [[ -z "$TESTER_PROSE" ]]; then
     TESTER_PROSE="(Geen samenvatting beschikbaar — bekijk de log.)"
+  fi
+  if [[ -n "${TESTER_OVERRIDE_NOTE:-}" ]]; then
+    TESTER_PROSE="${TESTER_PROSE}${TESTER_OVERRIDE_NOTE}"
   fi
 
   # Upload screenshots als attachments naar de JIRA-story. Geen
