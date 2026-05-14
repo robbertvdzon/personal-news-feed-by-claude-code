@@ -23,6 +23,7 @@ COPY requirements.txt /app/
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY poller.py /app/
+COPY factory-schema.sql /app/
 
 RUN useradd -u 1001 -g 0 -m -d /home/poller poller \
     && chown -R 1001:0 /app
