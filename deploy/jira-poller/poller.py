@@ -311,12 +311,20 @@ def spawn_runner_job(
         {"name": "JIRA_BASE_URL", "value": JIRA_BASE_URL},
         {"name": "JIRA_EMAIL", "value": JIRA_EMAIL},
         {"name": "JIRA_REVIEW_STATUS", "value": JIRA_REVIEW_STATUS},
+        # Runner-auth via Claude Code OAuth-token (1 jaar geldig, gegenereerd
+        # met `claude setup-token` op de laptop). Voordeel: usage gaat tegen
+        # het Max-abonnementsquotum i.p.v. per-token API-billing. Belangrijk:
+        # ANTHROPIC_API_KEY NIET óók meegeven — die zou de OAuth-route
+        # overschrijven en je krijgt stilletjes weer API-billing.
+        # De backend zelf gebruikt nog wél PNF_ANTHROPIC_API_KEY voor de
+        # RSS-samenvattingen; dat is bewust, want backend-traffic zou anders
+        # het 5-uurs-quotum met de runner delen.
         {
-            "name": "ANTHROPIC_API_KEY",
+            "name": "CLAUDE_CODE_OAUTH_TOKEN",
             "valueFrom": {
                 "secretKeyRef": {
                     "name": "newsfeed-api-keys",
-                    "key": "PNF_ANTHROPIC_API_KEY",
+                    "key": "CLAUDE_CODE_OAUTH_TOKEN",
                 }
             },
         },

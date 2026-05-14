@@ -18,6 +18,21 @@ mobile, geen preview-deploys — alleen "geef een story, krijg een PR".
 5. Claude maakt code-wijzigingen + commits (regels in de system-prompt)
 6. Pod pusht de branch en opent een PR
 
+## Auth
+
+De runner authentiseert tegen Claude via een **Claude Code OAuth-token**
+(`CLAUDE_CODE_OAUTH_TOKEN`), gegenereerd met `claude setup-token` op de
+laptop. Het token is ~1 jaar geldig en gekoppeld aan het Max-abonnement;
+runner-usage gaat tegen het Max-quotum in plaats van per-token API-billing.
+
+Het token zit in de sealed secret onder key `CLAUDE_CODE_OAUTH_TOKEN`. Na
+~11 maanden roteren: `claude setup-token` opnieuw draaien,
+`deploy/secrets-cluster.env` bijwerken, `./deploy/seal-secrets.sh`,
+commit + push, ArgoCD synct.
+
+**Niet** `ANTHROPIC_API_KEY` óók meegeven — die zou de OAuth-route
+overschrijven en je krijgt stilletjes weer API-billing.
+
 ## Setup (&eacute;&eacute;nmalig)
 
 ### 1. GitHub PAT aanmaken
