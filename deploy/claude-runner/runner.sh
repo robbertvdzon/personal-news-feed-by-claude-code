@@ -119,17 +119,35 @@ else
   git checkout -b "$BRANCH"
 fi
 
-# ---------- diff voor reviewer ----------
-# Reviewer leest geen werk-tree maar de PR-diff. We schrijven 'm vooraf
-# naar een bestand zodat Claude 'm via Read kan oppakken. Het kloon-pad
-# heeft inmiddels zowel main als de ai/-branch lokaal.
-if [[ "${AGENT_ROLE:-developer}" == "reviewer" ]]; then
+# ---------- diff voor reviewer / tester ----------
+# Reviewer leest geen werk-tree maar de PR-diff. Tester leest 'm ook,
+# om te zien wat 'r te testen valt. We schrijven 'm vooraf naar een
+# bestand zodat Claude 'm via Read kan oppakken. Het kloon-pad heeft
+# inmiddels zowel main als de ai/-branch lokaal.
+if [[ "${AGENT_ROLE:-developer}" == "reviewer" || "${AGENT_ROLE:-developer}" == "tester" ]]; then
   # Zorg dat we main als ref hebben — shallow clone heeft 'm via origin/main.
   git fetch --depth=50 origin "$BASE_BRANCH" 2>/dev/null || true
   # Diff tussen merge-base en HEAD = 'wat zou er in de PR komen'.
   git diff "origin/${BASE_BRANCH}...HEAD" > /work/repo/.pr-diff.txt 2>/dev/null || true
   diff_bytes=$(wc -c < /work/repo/.pr-diff.txt 2>/dev/null || echo 0)
-  echo "[runner] reviewer-mode: PR-diff geschreven naar /work/repo/.pr-diff.txt (${diff_bytes} bytes)"
+  echo "[runner] ${AGENT_ROLE}-mode: PR-diff geschreven naar /work/repo/.pr-diff.txt (${diff_bytes} bytes)"
+fi
+
+# ---------- preview-URL voor tester ----------
+# Tester moet de live preview-deploy weten. We leiden 'm af uit de PR
+# die bij deze ai/-branch hoort. Faalt veilig: lege PREVIEW_URL =
+# tester valt terug op alleen diff + repo-inspectie.
+if [[ "${AGENT_ROLE:-developer}" == "tester" ]]; then
+  PR_NUM_FOR_PREVIEW=$(gh pr list --head "${BRANCH}" --json number --jq '.[0].number // ""' 2>/dev/null || echo "")
+  if [[ -n "$PR_NUM_FOR_PREVIEW" ]]; then
+    PREVIEW_URL="${PREVIEW_URL_FORMAT:-https://pnf-pr-{pr}.vdzonsoftware.nl}"
+    PREVIEW_URL="${PREVIEW_URL/\{pr\}/$PR_NUM_FOR_PREVIEW}"
+    export PREVIEW_URL
+    export PR_NUMBER="$PR_NUM_FOR_PREVIEW"
+    echo "[runner] tester-mode: PREVIEW_URL=$PREVIEW_URL (PR #$PR_NUM_FOR_PREVIEW)"
+  else
+    echo "[runner] tester-mode: kon PR-number niet vinden voor branch $BRANCH — geen PREVIEW_URL"
+  fi
 fi
 
 # ---------- Claude draaien ----------
@@ -268,6 +286,77 @@ als alles OK is, OF:
 {\"phase\": \"reviewed-changes\"}
 
 als er wijzigingen nodig zijn. Geen extra tekst NA dit JSON-object."
+    ;;
+
+  tester)
+    SYSTEM_PROMPT="Je bent een tester-agent voor de software-factory.
+Je doel: vaststellen of de PR mergebaar is op basis van de live
+preview-deploy + de wijziging zelf. Een reviewer-agent heeft al gekeken
+naar code-kwaliteit; jij kijkt naar 'werkt 't?'.
+
+Regels (CRUCIAAL — niet onderhandelbaar):
+- Je schrijft GEEN code, doet GEEN commits, wijzigt geen bestanden.
+- Je raakt GEEN infrastructuur aan: geen oc apply, kubectl apply, geen
+  pod-restarts, geen secret-edits, geen DB-mutaties, geen git push.
+- Je mag wél: curl van URL's, gh-comments lezen, repo-bestanden lezen.
+
+Beschikbare info:
+- /work/repo/.task.md — story + comment-thread (refiner-aannames,
+  developer 'Gedaan:' + 'Niet gedaan:', reviewer-bevindingen).
+- /work/repo/.pr-diff.txt — unified diff van de PR.
+- env-var PREVIEW_URL — live preview-deploy van deze PR (kan leeg zijn
+  als de PR-detectie faalde — werk dan zonder preview-check).
+
+Werkwijze:
+1. Lees task.md + diff om te begrijpen WAT er getest moet worden.
+2. Als PREVIEW_URL gezet is: curl 'm (curl -I voor headers + curl voor
+   body) en check status-code + dat de pagina geen build-error toont.
+3. Beoordeel of de developer-claim ('Gedaan:'-bullets) overeenkomt met
+   wat de diff laat zien.
+4. Beslis: lijkt 't merge-baar, of zit er een evidente fout in?
+
+Realisme — wij testen een Flutter-app via de SSR-shell, dus echte
+UI-regressies kun je niet via curl detecteren (de DOM is grotendeels
+JS-gehydrateerd). Focus op:
+- HTTP-status van preview-URL (200/3xx vs 4xx/5xx)
+- Geen overduidelijke build-error-pagina in de response
+- Consistentie tussen diff en developer-'Gedaan:'-bullets
+- Bestanden in diff die nieuwe runtime-fouten zouden kunnen veroorzaken
+
+Bevindingen-rubriek (zelfde prefixes als reviewer):
+- [blocker]   — preview is down (5xx), build-error, deploy-kapot
+- [bug]       — gedrag wijkt aantoonbaar af van de story
+- [info]      — observatie / vraag voor de menselijke tester
+
+Antwoordformaat — vier koppen exact zo gespeld op een eigen regel:
+
+Samenvatting:
+2-4 regels prose over wat je hebt gecheckt en je overall-indruk.
+
+Getest:
+- bullet per check (bv. 'curl -I PREVIEW_URL → 200 OK')
+- noem URL's, status-codes, file-paths concreet
+
+Resultaat per test:
+- match per bullet uit Getest: 'OK' of '[bug] uitleg'
+
+Opvallend voor mens:
+- bullets met dingen die je niet kunt automatiseren maar de mens wél
+  moet checken (UI-pixel-perfect, gebruikersflow, animaties)
+- voor onze Flutter-app: minstens '- UI handmatig openen via preview
+  en de gewijzigde flow doorklikken'.
+
+DAARNA op de LAATSTE regel EXACT één JSON-object, op ÉÉN regel,
+ZONDER markdown code-fence:
+
+{\"phase\": \"tested-ok\"}
+
+als alles OK is (geen blockers/bugs), OF:
+
+{\"phase\": \"tested-fail\"}
+
+bij blokkerende fouten. Bij twijfel → tested-fail (veiliger; de
+developer komt dan terug om 't te fixen)."
     ;;
 
   developer|*)
@@ -723,8 +812,96 @@ else:
 fi
 
 # ─────────────────────────────────────────────────────────────────────
-# Onder dit punt: developer-flow (huidige logica). Refiner + reviewer
-# exit'ten al hierboven.
+# Tester-flow (Fase 5 MVP): curl + AI-judgment, geen code, geen push,
+# geen infra-mutaties. Eindigt met phase=tested-ok of tested-fail.
+# ─────────────────────────────────────────────────────────────────────
+if [[ "${AGENT_ROLE:-developer}" == "tester" ]]; then
+  echo "[runner] role=tester — parse outcome + post JIRA"
+
+  TESTER_FULL_TEXT=$(extract_claude_summary)
+
+  # Hergebruik dezelfde robuuste parser als reviewer/refiner.
+  OUTCOME_JSON=$(jq -r 'select(.type == "result") | .result // ""' \
+    /tmp/claude.log.jsonl 2>/dev/null | python3 -c '
+import sys, re, json
+text = sys.stdin.read()
+text = re.sub(r"```(?:json)?\s*", "", text)
+text = re.sub(r"```", "", text)
+strict_candidates = []
+lenient_blocks = []
+i = 0
+while i < len(text):
+    if text[i] == "{":
+        depth = 0
+        for j in range(i, len(text)):
+            if text[j] == "{": depth += 1
+            elif text[j] == "}":
+                depth -= 1
+                if depth == 0:
+                    candidate = text[i:j+1]
+                    try:
+                        obj = json.loads(candidate)
+                        if isinstance(obj, dict) and "phase" in obj:
+                            strict_candidates.append(json.dumps(obj))
+                    except json.JSONDecodeError:
+                        if "\"phase\"" in candidate:
+                            lenient_blocks.append(candidate)
+                    i = j
+                    break
+        else:
+            break
+    i += 1
+if strict_candidates:
+    print(strict_candidates[-1])
+elif lenient_blocks:
+    m = re.search(r"\"phase\"\s*:\s*\"([^\"]+)\"", lenient_blocks[-1])
+    if m:
+        print(json.dumps({"phase": m.group(1)}))
+    else:
+        print("")
+else:
+    print("")
+' 2>/dev/null || true)
+
+  if [[ -z "$OUTCOME_JSON" ]]; then
+    echo "[runner] geen geldige tester-outcome — default tested-fail (veiliger)"
+    OUTCOME_JSON='{"phase":"tested-fail"}'
+  fi
+
+  echo "[runner] outcome: $OUTCOME_JSON"
+  TESTER_PHASE=$(echo "$OUTCOME_JSON" | jq -r '.phase // "tested-fail"')
+  case "$TESTER_PHASE" in
+    tested-ok|tested-fail) ;;
+    *)
+      echo "[runner] onverwachte phase '$TESTER_PHASE' — degradeer naar tested-fail"
+      TESTER_PHASE="tested-fail"
+      ;;
+  esac
+
+  TESTER_PROSE=$(echo "$TESTER_FULL_TEXT" | sed '/^[[:space:]]*{.*"phase".*}[[:space:]]*$/d')
+  if [[ -z "$TESTER_PROSE" ]]; then
+    TESTER_PROSE="(Geen samenvatting beschikbaar — bekijk de log.)"
+  fi
+  post_role_jira_comment "TESTER" "$TESTER_PROSE"
+
+  # Phase op JIRA. Status blijft AI IN REVIEW.
+  if [[ -n "${JIRA_FIELD_AI_PHASE:-}" && -n "${JIRA_BASE_URL:-}" ]]; then
+    echo "[runner] JIRA: AI Phase = '$TESTER_PHASE'"
+    curl -s -m 10 -o /dev/null -w "  phase HTTP %{http_code}\n" \
+      -u "${JIRA_EMAIL}:${JIRA_API_KEY}" \
+      -H "Content-Type: application/json" \
+      -X PUT \
+      -d "{\"fields\":{\"${JIRA_FIELD_AI_PHASE}\":\"${TESTER_PHASE}\"}}" \
+      "${JIRA_BASE_URL}/rest/api/3/issue/${STORY_ID}"
+  fi
+
+  echo "[runner] tester klaar (phase=$TESTER_PHASE)."
+  exit 0
+fi
+
+# ─────────────────────────────────────────────────────────────────────
+# Onder dit punt: developer-flow (huidige logica). Refiner, reviewer
+# en tester exit'ten al hierboven.
 # ─────────────────────────────────────────────────────────────────────
 
 # ---------- verifieer dat er iets is gewijzigd ----------

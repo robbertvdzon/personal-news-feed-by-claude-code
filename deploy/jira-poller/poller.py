@@ -84,6 +84,12 @@ AGENT_LEVELS_PATH = os.environ.get(
 # 1-10 per story als die meer power verdient.
 DEFAULT_AI_LEVEL = int(os.environ.get("DEFAULT_AI_LEVEL", "0"))
 DEFAULT_TOKEN_BUDGET = int(os.environ.get("DEFAULT_TOKEN_BUDGET", "40000"))
+# Format-string voor de live preview-URL per PR. {pr} wordt door de
+# tester vervangen door het PR-nummer. Komt via env-var; default
+# matched onze huidige Cloudflare-route.
+PREVIEW_URL_FORMAT = os.environ.get(
+    "PREVIEW_URL_FORMAT", "https://pnf-pr-{pr}.vdzonsoftware.nl"
+)
 REPO_URL = os.environ.get(
     "REPO_URL",
     "https://github.com/robbertvdzon/personal-news-feed-by-claude-code.git",
@@ -599,6 +605,9 @@ def spawn_runner_job(
         {"name": "REPO_URL", "value": REPO_URL},
         {"name": "BASE_BRANCH", "value": "main"},
         {"name": "BRANCH_PREFIX", "value": "ai/"},
+        # Format-string die de tester gebruikt om de live preview-URL
+        # voor 'n PR af te leiden. {pr} wordt vervangen door het PR-nummer.
+        {"name": "PREVIEW_URL_FORMAT", "value": PREVIEW_URL_FORMAT},
         # JIRA-info zodat runner z'n eigen status-transition + comments kan
         # plaatsen (S-07). In comment-mode is de issue al in REVIEW, dus de
         # transition no-op't; comments zijn idempotent.
@@ -1229,6 +1238,38 @@ def process_one_pass() -> None:
             len(in_review_changes), active, MAX_CONCURRENT_JOBS,
         )
     for issue in in_review_changes:
+        if active >= MAX_CONCURRENT_JOBS:
+            log.info("  capacity bereikt — rest wacht op volgende poll")
+            return
+        if _claim_and_spawn(issue, role="developer", target_status=JIRA_REVIEW_STATUS):
+            active += 1
+
+    # ── Stap 2d: AI IN REVIEW + phase=reviewed-ok → tester ──────────
+    # Code-review is klaar; tijd voor de tester-agent (Fase 5 MVP).
+    # Tester gebruikt curl + AI-judgment op de live preview-deploy.
+    in_review_reviewed = fetch_in_review_with_phase("reviewed-ok")
+    if in_review_reviewed:
+        log.info(
+            "  %d issue(s) klaar voor tester (phase=reviewed-ok); active=%d/%d",
+            len(in_review_reviewed), active, MAX_CONCURRENT_JOBS,
+        )
+    for issue in in_review_reviewed:
+        if active >= MAX_CONCURRENT_JOBS:
+            log.info("  capacity bereikt — rest wacht op volgende poll")
+            return
+        if _claim_and_spawn(issue, role="tester", target_status=JIRA_REVIEW_STATUS):
+            active += 1
+
+    # ── Stap 2e: AI IN REVIEW + phase=tested-fail → developer ────────
+    # Tester-loopback: developer ziet de [TESTER]-bevindingen in de
+    # comment-thread en pakt 'm aan. Symmetrisch met Stap 2c.
+    in_review_test_fail = fetch_in_review_with_phase("tested-fail")
+    if in_review_test_fail:
+        log.info(
+            "  %d issue(s) tester-loopback (phase=tested-fail); active=%d/%d",
+            len(in_review_test_fail), active, MAX_CONCURRENT_JOBS,
+        )
+    for issue in in_review_test_fail:
         if active >= MAX_CONCURRENT_JOBS:
             log.info("  capacity bereikt — rest wacht op volgende poll")
             return
