@@ -499,6 +499,9 @@ def spawn_runner_job(
         {"name": "AI_LEVEL", "value": str(ai_level)},
         {"name": "CLAUDE_MODEL", "value": model},
         {"name": "CLAUDE_EFFORT", "value": effort},
+        # JIRA custom-field-IDs zodat de runner z'n eigen phase-update
+        # kan doen aan het einde (zonder zelf field-discovery te doen).
+        {"name": "JIRA_FIELD_AI_PHASE", "value": _ai_field("phase") or ""},
         {"name": "REPO_URL", "value": REPO_URL},
         {"name": "BASE_BRANCH", "value": "main"},
         {"name": "BRANCH_PREFIX", "value": "ai/"},
@@ -637,6 +640,22 @@ def spawn_runner_job(
         job_name, issue_key, role, ai_level, model, effort,
         "comment" if is_comment_mode else "story",
     )
+
+    # Phase op JIRA zetten zodat het dashboard direct ziet dat de
+    # bijbehorende agent draait. Mapping rol → active-phase.
+    phase_for_role = {
+        "refiner": "refining",
+        "developer": "developing",
+        "reviewer": "reviewing",
+        "tester": "testing",
+    }
+    new_phase = phase_for_role.get(role)
+    if new_phase:
+        try:
+            set_ai_fields(issue_key, {"phase": new_phase})
+        except Exception as e:
+            log.warning("kon AI Phase niet zetten op %s: %s", issue_key, e)
+
     return job_name
 
 

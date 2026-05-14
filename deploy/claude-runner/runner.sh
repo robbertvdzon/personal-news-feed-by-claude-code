@@ -467,6 +467,30 @@ jira_update() {
     -d "{\"transition\":{\"id\":\"${tr_id}\"}}" \
     "${JIRA_BASE_URL}/rest/api/3/issue/${STORY_ID}/transitions"
 
+  # AI Phase op JIRA naar de "completed"-waarde voor onze rol. Dashboard
+  # gebruikt dit voor de pipeline-balk. Field-ID komt van de poller in
+  # env-var JIRA_FIELD_AI_PHASE; lege string betekent veld niet gevonden
+  # — dan slaan we 't over.
+  if [[ -n "${JIRA_FIELD_AI_PHASE:-}" ]]; then
+    local done_phase
+    case "${AGENT_ROLE:-developer}" in
+      refiner)   done_phase="refined"        ;;
+      developer) done_phase="developed"      ;;
+      reviewer)  done_phase="reviewed-ok"    ;;  # tester-trigger is reviewed-changes vs ok
+      tester)    done_phase="tested-ok"      ;;
+      *)         done_phase=""               ;;
+    esac
+    if [[ -n "$done_phase" ]]; then
+      echo "[runner] JIRA: AI Phase = '$done_phase'"
+      curl -s -m 10 -o /dev/null -w "  phase HTTP %{http_code}\n" \
+        -u "${JIRA_EMAIL}:${JIRA_API_KEY}" \
+        -H "Content-Type: application/json" \
+        -X PUT \
+        -d "{\"fields\":{\"${JIRA_FIELD_AI_PHASE}\":\"${done_phase}\"}}" \
+        "${JIRA_BASE_URL}/rest/api/3/issue/${STORY_ID}"
+    fi
+  fi
+
   # Comment posten met PR-link + preview-URL. ADF-format vereist in v3.
   # Idempotent: check eerst of er al een comment met de PR-URL is.
   local existing
