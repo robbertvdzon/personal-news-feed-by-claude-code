@@ -18,22 +18,25 @@ De bestaande "claude-runner"-flow (één developer-agent die een JIRA "AI Ready"
 
 ## 2. De agents
 
-Vijf rollen. Vier zijn LLM-agents (Claude-pods), één is een regelaar (Python-script, geen LLM).
+Zes rollen. "Agent" gebruiken we hier los — elk **autonoom** systeemonderdeel dat zelfstandig acties onderneemt, of het nu een LLM is of niet. Vier zijn **LLM-agents** (Claude-pods met een eigen system-prompt). Twee zijn **controllers** (deterministische Python-services, geen LLM).
 
 | Rol | Type | Wat hij doet | Tools / scope |
 |---|---|---|---|
+| **Poller** | Controller | Hartslag van de factory. Pollt JIRA elke 30s, mapt elke phase naar de juiste agent, dispatcht K8s-Jobs, beheert concurrency-limieten. **De enige die `AI In Progress` mag zetten.** Singleton (1 replica). | JIRA-API + Kubernetes-API (Jobs/ConfigMaps) + GitHub-API (merge-detect) + DB |
 | **Refiner** | LLM | Leest de ruwe story, identificeert ambiguïteiten, stelt vragen aan de PO via JIRA-comments. Geen code. | Alleen JIRA-API |
 | **Developer** | LLM | Implementeert de refined story. Commits + PR. Bestaande claude-runner. | Repo + git + JIRA |
 | **Reviewer** | LLM | Leest de PR-diff, checkt code-kwaliteit + architectuur, post comments op de PR. Geen pushes. | Repo (read) + GitHub PR-API |
 | **Tester** | LLM | Test de preview-deploy met headless Chrome + DB-toegang + `oc`-commands. Rapporteert bevindingen als JIRA + PR-comments. Geen pushes, geen infra-mutaties. | Cluster-wide read, schrijven in `pnf-pr-*`, leesrechten DB, headless browser |
-| **Cost-monitor** | Regelaar | Som token-verbruik per story na elke agent-run. Bij budget-overschrijding: pauzeer. | DB + JIRA-API |
+| **Cost-monitor** | Controller | Som token-verbruik per story na elke agent-run. Bij budget-overschrijding: pauzeer en zet status op `AI Needs Info`. Draait als CronJob (elke 5 min) + reagerend op runner-POST. | DB + JIRA-API |
+
+De controllers (poller, cost-monitor) draaien continu als Deployments / CronJobs. De LLM-agents zijn **ephemerale K8s-Jobs** die per story-fase worden opgespawnd en weer verdwijnen.
 
 **Concurrency-limieten per rol** (instelbaar):
 - refiner: 5 parallel
 - developer: 2 parallel
 - reviewer: 3 parallel
 - tester: 1 parallel (browser-pods zijn zwaar)
-- cost-monitor: cron, geen concurrency-issue
+- poller, cost-monitor: singletons, geen concurrency-issue
 
 ---
 
