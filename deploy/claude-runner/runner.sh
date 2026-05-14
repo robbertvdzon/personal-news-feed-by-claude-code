@@ -144,7 +144,12 @@ if [[ "${AGENT_ROLE:-developer}" == "tester" ]]; then
   mkdir -p /tmp/screenshots
   PR_NUM_FOR_PREVIEW=$(gh pr list --head "${BRANCH}" --json number --jq '.[0].number // ""' 2>/dev/null || echo "")
   if [[ -n "$PR_NUM_FOR_PREVIEW" ]]; then
-    PREVIEW_URL="${PREVIEW_URL_FORMAT:-https://pnf-pr-{pr}.vdzonsoftware.nl}"
+    # Default-URL als losse var i.p.v. inline in ${var:-...}. Bash sluit
+    # ${...} bij de eerste }, dus 'n inline-default met {pr} erin breekt:
+    # de } van {pr} sluit de expansie te vroeg → rest van de string wordt
+    # letterlijk achter de env-var-waarde geplakt → dubbele hostname.
+    _DEFAULT_PREVIEW_URL='https://pnf-pr-{pr}.vdzonsoftware.nl'
+    PREVIEW_URL="${PREVIEW_URL_FORMAT:-$_DEFAULT_PREVIEW_URL}"
     PREVIEW_URL="${PREVIEW_URL/\{pr\}/$PR_NUM_FOR_PREVIEW}"
     export PREVIEW_URL
     export PR_NUMBER="$PR_NUM_FOR_PREVIEW"
