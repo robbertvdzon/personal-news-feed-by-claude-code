@@ -494,6 +494,36 @@ if JIRA_EMAIL and JIRA_API_KEY:
     _jira_session.headers.update({"Accept": "application/json"})
 
 
+# Custom-field-discovery — net als de poller cachen we de field-IDs
+# eenmalig zodat we de actuele AI Level + AI Phase per ticket kunnen
+# tonen. Display-namen exact zoals ze in JIRA staan.
+_AI_FIELDS = {
+    "level": "AI Level",
+    "phase": "AI Phase",
+}
+_ai_field_id_cache: dict[str, Optional[str]] = {}
+
+
+def _discover_ai_field_ids() -> None:
+    if _ai_field_id_cache or not (JIRA_BASE_URL and JIRA_EMAIL and JIRA_API_KEY):
+        return
+    try:
+        r = _jira_session.get(f"{JIRA_BASE_URL}/rest/api/3/field", timeout=10)
+        if r.status_code != 200:
+            log.warning("dashboard field-discovery -> %s", r.status_code)
+            return
+        by_name = {fld.get("name", ""): fld.get("id", "") for fld in r.json()}
+        for short, display in _AI_FIELDS.items():
+            _ai_field_id_cache[short] = by_name.get(display)
+    except Exception as e:
+        log.warning("dashboard field-discovery faalde: %s", e)
+
+
+def _ai_field_id(short: str) -> Optional[str]:
+    _discover_ai_field_ids()
+    return _ai_field_id_cache.get(short)
+
+
 def _jira_last_status_change(issue: dict) -> str:
     """
     Geef de ISO-timestamp terug van de meest recente status-veld-wisseling
@@ -531,12 +561,18 @@ def jira_search_tracked() -> list[dict]:
         f"project={JIRA_PROJECT} AND status in ({quoted}) "
         f"ORDER BY updated DESC"
     )
+    # AI custom-fields meevragen — de IDs ontdekken we lazy.
+    _discover_ai_field_ids()
+    field_list = "summary,status,updated"
+    for fid in _ai_field_id_cache.values():
+        if fid:
+            field_list += f",{fid}"
     try:
         r = _jira_session.get(
             f"{JIRA_BASE_URL}/rest/api/3/search/jql",
             params={
                 "jql": jql,
-                "fields": "summary,status,updated",
+                "fields": field_list,
                 # changelog ophalen zodat we de exacte laatste
                 # status-field-wisseling kunnen vinden. Anders zou
                 # b.v. AI IN REVIEW → AI IN PROGRESS (zelfde categorie)
@@ -594,6 +630,9 @@ class PRCard:
     tokens_output: int = 0
     tokens_cache_read: int = 0
     cost_usd: float = 0.0
+    # AI custom-fields (Fase 2 PR 3). -1 = veld niet ingevuld.
+    ai_level: int = -1
+    ai_phase: str = ""
 
 
 @dataclass
@@ -633,6 +672,9 @@ class JIRACard:
     tokens_output: int = 0
     tokens_cache_read: int = 0
     cost_usd: float = 0.0
+    # AI custom-fields (Fase 2 PR 3)
+    ai_level: int = -1
+    ai_phase: str = ""
 
 
 # ─── helpers voor fase-status afleiden ────────────────────────────────────
@@ -1081,6 +1123,17 @@ def build_state() -> dict:
                     ((issue.get("fields") or {}).get("status") or {}).get("name", "")
                 )
                 card.jira_status_age = _ago(_jira_last_status_change(issue))
+                # AI custom-fields
+                fields = issue.get("fields", {}) or {}
+                lvl_id = _ai_field_id("level")
+                phase_id = _ai_field_id("phase")
+                if lvl_id and fields.get(lvl_id) is not None:
+                    try:
+                        card.ai_level = int(fields[lvl_id])
+                    except (TypeError, ValueError):
+                        pass
+                if phase_id:
+                    card.ai_phase = fields.get(phase_id) or ""
 
     # AI bezig: filter op de active subset.
     jira_cards: list[JIRACard] = []
@@ -1104,6 +1157,16 @@ def build_state() -> dict:
             jira_url=f"{JIRA_BASE_URL}/browse/{key}" if JIRA_BASE_URL else "",
             age=_ago(status_change),
         )
+        # AI custom-fields
+        lvl_id = _ai_field_id("level")
+        phase_id = _ai_field_id("phase")
+        if lvl_id and fields.get(lvl_id) is not None:
+            try:
+                card.ai_level = int(fields[lvl_id])
+            except (TypeError, ValueError):
+                pass
+        if phase_id:
+            card.ai_phase = fields.get(phase_id) or ""
         # Job-lookup: label story-id is de lowercase-kebab key (kan-12).
         story_label = re.sub(r"[^a-z0-9-]+", "-", key.lower()).strip("-")[:30]
         matching = [
@@ -1272,7 +1335,88 @@ h1 { font-size: 18px; margin: 0 0 4px 0; }
 .closed a { color: #93c5fd; text-decoration: none; }
 .closed-list { background: #1a2029; border: 1px solid #2c3340; border-radius: 10px; padding: 10px 14px; }
 .empty { color: #8b96a8; font-style: italic; padding: 20px 0; text-align: center; }
+/* AI-fields visualisatie (Fase 2 PR 3) */
+.lvl { display: inline-block; background: #2c3340; color: #93c5fd;
+       padding: 2px 8px; border-radius: 10px; font-size: 11px;
+       margin-left: 6px; font-weight: bold; }
+.phase-pill { display: inline-block; padding: 2px 8px; border-radius: 10px;
+              font-size: 11px; margin-left: 6px; }
+.phase-pill.active   { background: #1e3a8a; color: #bfdbfe; }
+.phase-pill.done     { background: #065f46; color: #a7f3d0; }
+.phase-pill.awaiting { background: #713f12; color: #fde68a; }
+.pipeline { display: flex; gap: 4px; margin: 6px 0; align-items: center;
+            font-size: 11px; }
+.step { padding: 3px 10px; border-radius: 14px; border: 1px solid #2c3340;
+        background: #1a2029; color: #8b96a8; }
+.step.active   { background: #1e3a8a; color: #dbeafe; border-color: #1e3a8a; }
+.step.done     { background: #065f46; color: #a7f3d0; border-color: #065f46; }
+.step.failed   { background: #7f1d1d; color: #fecaca; border-color: #7f1d1d; }
+.step-sep { color: #2c3340; }
 """
+
+
+# Mapping: phase-value → (stage-step actief, stages die "done" zijn).
+# Stages-volgorde: refine, develop, review, test.
+_PIPELINE_STAGES = ["refine", "develop", "review", "test"]
+_PHASE_TO_STAGE = {
+    "refining":         ("refine",  "active"),
+    "refined":          ("refine",  "done"),
+    "developing":       ("develop", "active"),
+    "developed":        ("develop", "done"),
+    "reviewing":        ("review",  "active"),
+    "reviewed-ok":      ("review",  "done"),
+    "reviewed-changes": ("review",  "done"),   # leiding terug naar dev — laat het als done staan, dev wordt opnieuw active als 'ie opnieuw start
+    "testing":          ("test",    "active"),
+    "tested-ok":        ("test",    "done"),
+    "tested-fail":      ("test",    "failed"),
+    "awaiting-po":      (None,      None),     # geen stage-info; phase-pill toont 't apart
+}
+
+
+def _render_pipeline_bar(phase: str) -> str:
+    """Render een ◯─◯─◯─◯-balk waar de juiste stage gecolored is.
+
+    De pipeline is altijd alle 4 zichtbaar, ook al hebben we nog geen
+    reviewer/tester-agents — dat maakt 'm voorspelbaar leesbaar."""
+    if not phase or phase == "awaiting-po":
+        # Geen phase = geen invulling; toon de balk wel zodat de PR-card
+        # niet inconsistent springt qua hoogte.
+        active_stage, state = None, None
+    else:
+        active_stage, state = _PHASE_TO_STAGE.get(phase, (None, None))
+
+    active_idx = (
+        _PIPELINE_STAGES.index(active_stage) if active_stage in _PIPELINE_STAGES else -1
+    )
+    parts: list[str] = []
+    for i, stage in enumerate(_PIPELINE_STAGES):
+        cls = ""
+        if active_idx >= 0:
+            if i < active_idx:
+                cls = "done"
+            elif i == active_idx:
+                cls = state or "active"
+        parts.append(f'<span class="step {cls}">{stage}</span>')
+    return '<div class="pipeline">' + '<span class="step-sep">─</span>'.join(parts) + '</div>'
+
+
+def _render_phase_pill(phase: str) -> str:
+    if not phase:
+        return ""
+    if phase == "awaiting-po":
+        cls = "awaiting"
+    elif phase in ("refined", "developed", "reviewed-ok",
+                   "reviewed-changes", "tested-ok", "tested-fail"):
+        cls = "done"
+    else:
+        cls = "active"
+    return f'<span class="phase-pill {cls}">phase: {escape(phase)}</span>'
+
+
+def _render_level_badge(ai_level: int) -> str:
+    if ai_level < 0:
+        return ""
+    return f'<span class="lvl">L{ai_level}</span>'
 
 
 def _render_runner_row(card: PRCard) -> str:
@@ -1689,11 +1833,16 @@ def render_pr(card: PRCard) -> str:
     if fac_row:
         info_rows.append(fac_row)
 
+    level_html = _render_level_badge(card.ai_level)
+    phase_html = _render_phase_pill(card.ai_phase)
+    pipeline_html = _render_pipeline_bar(card.ai_phase)
+
     return (
         '<div class="card pr">'
         f'<div class="title"><a href="{escape(card.html_url)}" target="_blank">'
-        f"🟡 PR #{card.number} — {escape(card.title)}</a></div>"
+        f"🟡 PR #{card.number} — {escape(card.title)}</a>{level_html}{phase_html}</div>"
         f"{badge_html}"
+        f"{pipeline_html}"
         f'{"".join(info_rows)}'
         f"{phases_html}"
         f"{preview}"
@@ -1707,6 +1856,9 @@ def render_jira(card: JIRACard) -> str:
         f'<a href="{escape(card.jira_url)}" target="_blank">{title_inner}</a>'
         if card.jira_url else title_inner
     )
+    level_html = _render_level_badge(card.ai_level)
+    phase_html = _render_phase_pill(card.ai_phase)
+    pipeline_html = _render_pipeline_bar(card.ai_phase)
     # Bouw de meta-regel: status (sinds X) · job-info (indien aanwezig).
     # Bij een actieve/recente Job hangt er een "Log →"-link aan zodat je
     # kan meekijken vóórdat de PR überhaupt bestaat.
@@ -1735,7 +1887,8 @@ def render_jira(card: JIRACard) -> str:
         )
     return (
         f'<div class="card jira">'
-        f'<div class="title">{title}</div>'
+        f'<div class="title">{title}{level_html}{phase_html}</div>'
+        f"{pipeline_html}"
         f'<div class="meta">{meta}</div>'
         f"{fac_html}"
         f"</div>"
