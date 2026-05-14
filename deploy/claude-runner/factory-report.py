@@ -82,6 +82,10 @@ def main() -> int:
     cost_usd = 0.0
     num_turns = 0
     duration_ms = 0
+    # Samenvatting = de finale assistant-tekst (`result.result`).
+    # Wordt door runner.sh ook gebruikt als JIRA-comment, hier voor
+    # DB-opslag zodat dashboard 'm zonder JSONB-uitpluis kan tonen.
+    summary_text = ""
     outcome = os.environ.get("RUNNER_OUTCOME", "success")
 
     try:
@@ -116,6 +120,7 @@ def main() -> int:
                         cost_usd = 0.0
                     num_turns   = int(payload.get("num_turns", 0) or 0)
                     duration_ms = int(payload.get("duration_ms", 0) or 0)
+                    summary_text = (payload.get("result") or "").strip()
                     subtype = payload.get("subtype")
                     if subtype and outcome == "success":
                         outcome = subtype  # bv. 'success', 'error_max_turns', ...
@@ -141,6 +146,7 @@ def main() -> int:
         "cost_usd": cost_usd,
         "num_turns": num_turns,
         "duration_ms": duration_ms,
+        "summary_text": redact(summary_text),
         "events": events,
     }
 
