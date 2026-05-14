@@ -354,13 +354,24 @@ def fetch_ai_ready_issues() -> list[dict]:
 def fetch_queued_with_phase(phase: str) -> list[dict]:
     """Stories in 'AI Queued' met `AI Phase = <phase>`. Voor de
     dispatcher die de volgende agent uitkiest na een afgeronde fase."""
+    return _fetch_status_with_phase("AI Queued", phase)
+
+
+def fetch_in_review_with_phase(phase: str) -> list[dict]:
+    """Stories in 'AI IN REVIEW' met `AI Phase = <phase>`. Voor de
+    Fase 4+ dispatcher die reviewer/tester op een gepubliceerde PR
+    zet (status blijft AI IN REVIEW zolang de PR open is)."""
+    return _fetch_status_with_phase(JIRA_REVIEW_STATUS, phase)
+
+
+def _fetch_status_with_phase(status: str, phase: str) -> list[dict]:
     phase_field_id = _ai_field("phase")
     if not phase_field_id:
         return []
     # JIRA-JQL voor custom fields: cf[<id-zonder-prefix>] = "value"
     cf_num = phase_field_id.replace("customfield_", "")
     jql = (
-        f'project={JIRA_PROJECT} AND status="AI Queued" '
+        f'project={JIRA_PROJECT} AND status="{status}" '
         f'AND cf[{cf_num}] = "{phase}" ORDER BY updated ASC'
     )
     r = jira(
@@ -369,7 +380,8 @@ def fetch_queued_with_phase(phase: str) -> list[dict]:
         params={"jql": jql, "fields": _ai_fields_param()},
     )
     if r.status_code != 200:
-        log.warning("queued-search faalde: %s %s", r.status_code, r.text[:200])
+        log.warning("status-phase-search (%s/%s) faalde: %s %s",
+                    status, phase, r.status_code, r.text[:200])
         return []
     return r.json().get("issues", [])
 
@@ -1186,6 +1198,43 @@ def process_one_pass() -> None:
         if _claim_and_spawn(issue, role="developer"):
             active += 1
 
+    # ── Stap 2b: AI IN REVIEW + phase=developed → reviewer ──────────
+    # Na een succesvolle developer-run staat de story op AI IN REVIEW
+    # met phase=developed. Pak 'm direct op voor code-review. Status
+    # blijft AI IN REVIEW (PR is open). Reviewer doet géén code-changes
+    # — alleen JIRA-comment + phase=reviewed-ok of reviewed-changes.
+    in_review_developed = fetch_in_review_with_phase("developed")
+    if in_review_developed:
+        log.info(
+            "  %d issue(s) klaar voor reviewer (phase=developed); active=%d/%d",
+            len(in_review_developed), active, MAX_CONCURRENT_JOBS,
+        )
+    for issue in in_review_developed:
+        if active >= MAX_CONCURRENT_JOBS:
+            log.info("  capacity bereikt — rest wacht op volgende poll")
+            return
+        if _claim_and_spawn(issue, role="reviewer", target_status=JIRA_REVIEW_STATUS):
+            active += 1
+
+    # ── Stap 2c: AI IN REVIEW + phase=reviewed-changes → developer ───
+    # Reviewer-loopback. Developer leest de comment-thread (incl. de
+    # [REVIEWER]-bevindingen) uit task.md, pakt de bestaande branch op
+    # en pusht een nieuwe commit. PR-update is idempotent: gh pr view
+    # vóór create. Na de developer-run staat 'ie weer op phase=developed
+    # en pakt Stap 2b 'm op voor een tweede review-ronde.
+    in_review_changes = fetch_in_review_with_phase("reviewed-changes")
+    if in_review_changes:
+        log.info(
+            "  %d issue(s) reviewer-loopback (phase=reviewed-changes); active=%d/%d",
+            len(in_review_changes), active, MAX_CONCURRENT_JOBS,
+        )
+    for issue in in_review_changes:
+        if active >= MAX_CONCURRENT_JOBS:
+            log.info("  capacity bereikt — rest wacht op volgende poll")
+            return
+        if _claim_and_spawn(issue, role="developer", target_status=JIRA_REVIEW_STATUS):
+            active += 1
+
     # ── Stap 3: AI Queued + phase=awaiting-po → resume agent ─────────
     # PO heeft een vraag beantwoord en de story op AI Queued gezet. We
     # lezen `AI Resume Phase` (welke agent stond stil) en spawnen die
@@ -1221,9 +1270,17 @@ def process_one_pass() -> None:
             active += 1
 
 
-def _claim_and_spawn(issue: dict, role: str) -> bool:
-    """Lees fields + schrijf defaults + transition → AI In Progress +
-    spawn runner-Job met de juiste rol. Returnt True bij succes."""
+def _claim_and_spawn(
+    issue: dict, role: str, target_status: Optional[str] = None,
+) -> bool:
+    """Lees fields + schrijf defaults + transition → target_status +
+    spawn runner-Job met de juiste rol. Returnt True bij succes.
+
+    `target_status=None` (default) gebruikt JIRA_TARGET_STATUS (AI In
+    Progress) als claim-state. Voor reviewer-spawns geef expliciet de
+    huidige status mee zodat de transition een no-op wordt — een PR
+    blijft op AI IN REVIEW staan zolang de reviewer/tester eraan werkt.
+    """
     key = issue["key"]
     log.info("  oppakken: %s als %s", key, role)
 
@@ -1244,11 +1301,17 @@ def _claim_and_spawn(issue: dict, role: str) -> bool:
 
     level = max(0, min(10, ai["level"]))
 
-    # Atomic claim: transition naar AI In Progress (als 'er een race is
-    # wint slechts één).
-    if not transition_issue(key, JIRA_TARGET_STATUS):
-        log.warning("  transition voor %s faalde — skip deze ronde", key)
-        return False
+    # Atomic claim: transition naar target_status. Default = AI In
+    # Progress. Voor reviewer/tester wordt huidige status (AI IN REVIEW)
+    # gepasseerd zodat geen transitie nodig is.
+    effective_target = target_status or JIRA_TARGET_STATUS
+    current_status = (issue.get("fields", {}).get("status") or {}).get("name") or ""
+    if current_status != effective_target:
+        if not transition_issue(key, effective_target):
+            log.warning("  transition voor %s faalde — skip deze ronde", key)
+            return False
+    else:
+        log.info("  %s al in %s — geen transitie nodig", key, effective_target)
 
     task_md = issue_to_task_md(issue)
     job_name = spawn_runner_job(key, task_md, role=role, ai_level=level)
