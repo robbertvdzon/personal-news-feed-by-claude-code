@@ -387,25 +387,32 @@ Werk in plaats daarvan zo:
    focusable elementen te lopen, of klik op coördinaten als je weet
    waar 'n knop zit (uit eerder screenshot).
 
-4. **Login** als de app dat vereist:
-   - Stap 1: registreer een wegwerp-testgebruiker via de backend-API
-     (POST naar \`/api/auth/register\` met JSON body \`{username, password}\`).
-     De backend maakt 't account aan in z'n DB. Antwoord = 200 + JWT.
-   - Stap 2: doe de echte login via de UI-form, NIET via localStorage.
-     Flutter Web overlay't TextField-widgets als verborgen \`<input>\`-
-     elementen in de DOM — Playwright kan die WEL targetten ondanks
-     dat de visuele rendering canvas is. Voor onze app:
+4. **Login** als de app dat vereist — gebruik PURE UI, geen API-call:
+   - De Personal News Feed login-page heeft een 'Account aanmaken'-
+     toggle (TextButton) die het formulier omschakelt naar register-
+     modus. Submit in die modus roept register() aan; de app logt
+     automatisch in bij succes, geen aparte login-stap nodig.
+   - Wegwerp-account per run: \`tester_<timestamp>\` + 'P@ss1234!'.
+   - Schakel naar register-modus via keyboard Tab-volgorde:
+       Tab 1×: focus Gebruikersnaam (input nth 0)
+       Tab 2×: focus Wachtwoord    (input nth 1)
+       Tab 3×: focus show/hide-pw-icoon
+       Tab 4×: focus 'Inloggen'-button
+       Tab 5×: focus 'Account aanmaken'-toggle  ← druk Enter
+     Volgorde kan veranderen als de UI wijzigt — eerst een screenshot
+     van het login-scherm, dan met Read inspecteren waar de toggle
+     staat. Bij twijfel: gebruik coord-click via
+     \`page.mouse.click(x, y)\` op basis van wat je op de screenshot ziet.
+   - Vul daarna username + password in en submit:
          await page.locator('input').nth(0).fill(username);
          await page.locator('input').nth(1).fill(password);
-         await page.keyboard.press('Tab');
-         await page.keyboard.press('Enter'); // submit
-     De app doet dan zelf de auth-call + bewaart de JWT correct in
-     SharedPreferences (Flutter-specifieke serialisatie).
-   - DOE NIET: localStorage.setItem('token', X) of vergelijkbaar.
-     Flutter web slaat tokens op met prefix \`flutter.token\` en met
-     een eigen type-encoding; handmatig injecteren faalt stilletjes
-     (tester ziet '401' of blijft op login-scherm). Login-via-form
-     is de enige betrouwbare route.
+         await page.keyboard.press('Enter');  // onSubmitted-trigger
+     Flutter doet dan zelf register() + state-update + SharedPreferences-
+     write.
+   - DOE NIET: localStorage.setItem('token', X) of \`/api/auth/register\`
+     callen vanuit Node. Beide werken NIET (Flutter slaat tokens onder
+     \`flutter.token\` met eigen serialisatie, API-tokens raken zoek).
+     Pure UI-flow is de enige robuuste route.
 
 5. **Verdict op screenshots**, niet op DOM-content. Als je op de
    screenshots 'Settings' duidelijk ziet → \`tested-ok\`. Geen DOM-match
@@ -458,35 +465,28 @@ Werkwijze:
              console.log(\`STEP \${num} FAIL \${name} :: \${e.message}\`);
            }
          }
-         await step(1, 'homepage', async () => {
+         const u = 'tester_' + Date.now();
+         const pw = 'P@ss1234!';
+         await step(1, 'login-scherm', async () => {
            await page.goto(process.env.PREVIEW_URL, {waitUntil:'load'});
            await page.waitForTimeout(5000); // Flutter-hydratie
          });
-         // Stap 2: registreer wegwerp-user via API (account in backend-DB).
-         const u = 'tester_' + Date.now();
-         const pw = 'P@ss1234!';
-         await step(2, 'register-user', async () => {
-           const r = await fetch(process.env.PREVIEW_URL + '/api/auth/register', {
-             method: 'POST',
-             headers: {'Content-Type': 'application/json'},
-             body: JSON.stringify({username: u, password: pw}),
-           });
-           if (!r.ok) throw new Error('register failed: ' + r.status);
+         // Stap 2: schakel naar register-modus (tab 5× naar de
+         // 'Account aanmaken'-toggle onderaan + Enter). Volgorde:
+         // input[user] → input[pw] → show-pw-icoon → submit-btn → toggle.
+         await step(2, 'naar-register-modus', async () => {
+           for (let i = 0; i < 5; i++) await page.keyboard.press('Tab');
+           await page.keyboard.press('Enter');
+           await page.waitForTimeout(1000);
          });
-         // Stap 3: login via de UI-form (Flutter <input>-overlay targetten).
-         //   - locator('input').nth(0) = Gebruikersnaam
-         //   - locator('input').nth(1) = Wachtwoord
-         // Geen localStorage-hack — Flutter SharedPreferences werkt
-         // alleen als de app zelf authenticeert via z'n login-call.
-         await step(3, 'login-via-form', async () => {
+         // Stap 3: vul + submit. App registreert + logt automatisch in.
+         await step(3, 'registreer-en-login', async () => {
            await page.locator('input').nth(0).fill(u);
            await page.locator('input').nth(1).fill(pw);
            await page.keyboard.press('Enter');
-           await page.waitForTimeout(4000); // wacht op auth-roundtrip + UI-overgang
+           await page.waitForTimeout(4000); // auth-roundtrip + UI-overgang
          });
-         // Stap 4: navigeer naar de relevante tab. Flutter heeft een
-         // BottomNavigationBar — gebruik keyboard (Tab + Enter) of
-         // coördinaat-click op basis van eerdere screenshot.
+         // Stap 4: navigeer naar de relevante tab (BottomNavigationBar).
          await step(4, 'navigate-settings', async () => {
            for (let i = 0; i < 4; i++) await page.keyboard.press('Tab');
            await page.keyboard.press('Enter');
