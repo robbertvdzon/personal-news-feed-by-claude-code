@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: jira-poller
-  namespace: personal-news-feed
+  namespace: pnf-software-factory
   labels:
     app: jira-poller
 spec:
@@ -61,7 +61,7 @@ spec:
             - name: CLAUDE_RUNNER_IMAGE
               value: "ghcr.io/robbertvdzon/claude-runner:main"
             - name: RUNNER_NAMESPACE
-              value: "personal-news-feed"
+              value: "pnf-software-factory"
             - name: REPO_URL
               value: "https://github.com/robbertvdzon/personal-news-feed-by-claude-code.git"
           resources:

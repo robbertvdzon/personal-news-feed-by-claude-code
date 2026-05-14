@@ -9,7 +9,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: status-dashboard
-  namespace: personal-news-feed
+  namespace: pnf-software-factory
   labels:
     app: status-dashboard
 spec:
@@ -46,6 +46,10 @@ spec:
               value: "argocd"
             - name: PROD_NS
               value: "personal-news-feed"
+            # FACTORY_NS = waar de claude-runner Jobs draaien. Sinds de
+            # namespace-split is dat een eigen pnf-software-factory.
+            - name: FACTORY_NS
+              value: "pnf-software-factory"
             - name: APP_BASE_URL
               value: "https://vdzonsoftware.nl"
             - name: PREVIEW_URL_FORMAT
@@ -91,7 +95,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: status-dashboard
-  namespace: personal-news-feed
+  namespace: pnf-software-factory
   labels:
     app: status-dashboard
 spec:

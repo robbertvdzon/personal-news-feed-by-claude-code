@@ -23,9 +23,11 @@ spec:
     path: deploy/tooling
   destination:
     server: https://kubernetes.default.svc
-    # Default-namespace voor resources zonder expliciete namespace; de
-    # poller en dashboard hebben 'm beide al expliciet op personal-news-feed.
-    namespace: personal-news-feed
+    # Default-namespace voor resources zonder expliciete namespace. Sinds
+    # Fase 0 (zie specs/software-factory-implementation.md) leeft alle
+    # factory-tooling in pnf-software-factory, los van de app-namespace
+    # personal-news-feed waar frontend/backend/tunnel draaien.
+    namespace: pnf-software-factory
   syncPolicy:
     automated:
       prune: false

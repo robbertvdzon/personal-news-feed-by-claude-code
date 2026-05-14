@@ -41,6 +41,7 @@ DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$DEPLOY_DIR/.." && pwd)"
 
 NAMESPACE="personal-news-feed"
+FACTORY_NS="pnf-software-factory"
 ARGOCD_NS="argocd"
 LOCAL_PATH_NS="local-path-storage"
 LOCAL_PATH_SA="local-path-provisioner-service-account"
@@ -211,11 +212,16 @@ echo "[6/15] Reflector ($REFLECTOR_VERSION)"
 oc apply -f "https://github.com/emberstack/kubernetes-reflector/releases/download/${REFLECTOR_VERSION}/reflector.yaml"
 oc rollout status -n kube-system deploy/reflector --timeout=120s
 
-# ─── 7. Namespace met argocd managed-by label ─────────────────────────
+# ─── 7. Namespaces (app + factory) met argocd managed-by label ────────
+# personal-news-feed = de applicatie zelf
+# pnf-software-factory = poller, dashboard en alle runner-Jobs
 echo
-echo "[7/15] Namespace $NAMESPACE met argocd-label"
-oc create namespace "$NAMESPACE" --dry-run=client -o yaml | oc apply -f -
-oc label namespace "$NAMESPACE" "argocd.argoproj.io/managed-by=$ARGOCD_NS" --overwrite
+echo "[7/15] Namespaces met argocd-label"
+for ns in "$NAMESPACE" "$FACTORY_NS"; do
+  echo "       $ns"
+  oc create namespace "$ns" --dry-run=client -o yaml | oc apply -f -
+  oc label namespace "$ns" "argocd.argoproj.io/managed-by=$ARGOCD_NS" --overwrite
+done
 
 # ─── 8. ApplicationSet-controller idempotency-check ───────────────────
 # De ArgoCD CR (stap 2) zet `applicationSet: {}` al; deze patch is een
@@ -286,15 +292,14 @@ oc apply -f "$DEPLOY_DIR/status-dashboard/rbac.yaml"
 
 # ─── 15. Tooling-Application (poller + dashboard Deployments) ────────
 # ArgoCD synct deploy/tooling/ — bevat de Deployments voor poller en
-# dashboard. Image-tags worden door GitHub Actions auto-gebumpt
-# (zie .github/workflows/{jira-poller,status-dashboard}-image.yml).
-# Hierdoor zijn 'oc rollout restart'-shuffles na een merge niet meer
-# nodig.
+# dashboard, beide in pnf-software-factory. Image-tags worden door
+# GitHub Actions auto-gebumpt (zie .github/workflows/{jira-poller,
+# status-dashboard}-image.yml). Geen handmatige rollout-restart meer.
 echo
 echo "[15/15] Tooling-Application (poller + dashboard via ArgoCD)"
 oc apply -n "$ARGOCD_NS" -f "$DEPLOY_DIR/tooling-application.yaml"
-oc rollout status -n "$NAMESPACE" deploy/jira-poller --timeout=120s 2>/dev/null || true
-oc rollout status -n "$NAMESPACE" deploy/status-dashboard --timeout=120s 2>/dev/null || true
+oc rollout status -n "$FACTORY_NS" deploy/jira-poller --timeout=120s 2>/dev/null || true
+oc rollout status -n "$FACTORY_NS" deploy/status-dashboard --timeout=120s 2>/dev/null || true
 
 echo
 echo "[bootstrap] klaar."
