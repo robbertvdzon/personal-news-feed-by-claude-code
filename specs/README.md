@@ -45,6 +45,7 @@ personal-news-feed/
 | [`openapi.yaml`](./openapi.yaml) | Alle REST-endpoints met paden, methoden, parameters, request/response-bodies en dataschema's. Dit is de **source of truth** voor de API-interface tussen backend en frontend. |
 | [`e2e.md`](./e2e.md) | Pointer naar `/e2e/readme.md` met de end-to-end-test scenario's, runner-procedure en testrun-administratie. |
 | [`software-factory.md`](./software-factory.md) | Het ontwerp van de **software factory** — de pipeline van LLM-agents (refiner / developer / reviewer / tester / cost-monitor) die JIRA-stories autonoom verwerkt. Bouwt voort op `ai-pipeline-roadmap.md`. |
+| [`software-factory-implementation.md`](./software-factory-implementation.md) | Stappenplan voor het bouwen van de software factory uit `software-factory.md`. Per fase: wat ik doe (PRs), wat jij doet (JIRA/RBAC), dashboard-uitbreiding, acceptatie. |
 
 ---
 

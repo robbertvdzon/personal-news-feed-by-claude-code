@@ -32,9 +32,9 @@ Zes rollen. "Agent" gebruiken we hier los — elk **autonoom** systeemonderdeel 
 De controllers (poller, cost-monitor) draaien continu als Deployments / CronJobs. De LLM-agents zijn **ephemerale K8s-Jobs** die per story-fase worden opgespawnd en weer verdwijnen.
 
 **Concurrency-limieten per rol** (instelbaar):
-- refiner: 5 parallel
+- refiner: 1 parallel
 - developer: 2 parallel
-- reviewer: 3 parallel
+- reviewer: 2 parallel
 - tester: 1 parallel (browser-pods zijn zwaar)
 - poller, cost-monitor: singletons, geen concurrency-issue
 
@@ -545,9 +545,9 @@ Drie namespaces, duidelijk gescheiden:
 Per rol een eigen cap. Standaardinstelling in poller-config:
 
 ```
-MAX_PARALLEL_REFINER=5
+MAX_PARALLEL_REFINER=1
 MAX_PARALLEL_DEVELOPER=2
-MAX_PARALLEL_REVIEWER=3
+MAX_PARALLEL_REVIEWER=2
 MAX_PARALLEL_TESTER=1
 ```
 
