@@ -527,8 +527,19 @@ rm -f /work/repo/.task.md
 # Gebruikt door zowel refiner als developer om een JIRA-summary-comment
 # te bouwen.
 extract_claude_summary() {
-  jq -r 'select(.type == "result") | .result // ""' \
-    /tmp/claude.log.jsonl 2>/dev/null | tail -1
+  # Pak de LAATSTE result-event uit het Claude-stream-json log en geef
+  # z'n `.result` string terug (met al z'n newlines intact).
+  #
+  # Vorige versie deed `... | tail -1` op de jq-output, maar `tail -1`
+  # werkt op output-regels, niet op jq-records. Een multi-line summary
+  # werd dan op één regel weggegooid → alleen de slot-JSON-regel bleef
+  # over → sed strip die ook → leeg → "(Geen samenvatting)"-fallback.
+  #
+  # Correcte aanpak: slurp alle events in een array, filter result-
+  # events, pak de laatste, return z'n .result string ongebroken.
+  jq -r -s \
+    '[.[] | select(.type == "result") | (.result // "")] | last // ""' \
+    /tmp/claude.log.jsonl 2>/dev/null
 }
 
 # Helper: post een JIRA-comment met [ROLE]-prefix. Eerste arg = rol-label
