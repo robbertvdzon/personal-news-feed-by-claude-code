@@ -59,6 +59,7 @@ class _NewsFeedAppState extends ConsumerState<NewsFeedApp>
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.yellow),
+        scaffoldBackgroundColor: Colors.yellow,
         useMaterial3: true,
       ),
       builder: (context, child) {
