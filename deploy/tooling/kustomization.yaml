@@ -39,16 +39,16 @@ resources:
 # /etc/factory/agent-levels.yaml. `disableNameSuffixHash` houdt de
 # naam stabiel zodat de volume-mount statisch kan blijven.
 configMapGenerator:
-- name: agent-levels
-  files:
+- files:
   - agent-levels.yaml
+  name: agent-levels
   options:
     disableNameSuffixHash: true
 
 images:
 - name: ghcr.io/robbertvdzon/jira-poller
   newName: ghcr.io/robbertvdzon/jira-poller
-  newTag: sha-415ad09
+  newTag: sha-a8d1d9d
 - name: ghcr.io/robbertvdzon/status-dashboard
   newName: ghcr.io/robbertvdzon/status-dashboard
   newTag: sha-4adfe19
