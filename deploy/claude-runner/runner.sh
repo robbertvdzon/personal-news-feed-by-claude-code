@@ -133,11 +133,15 @@ if [[ "${AGENT_ROLE:-developer}" == "reviewer" || "${AGENT_ROLE:-developer}" == 
   echo "[runner] ${AGENT_ROLE}-mode: PR-diff geschreven naar /work/repo/.pr-diff.txt (${diff_bytes} bytes)"
 fi
 
-# ---------- preview-URL voor tester ----------
+# ---------- preview-URL + screenshot-dir voor tester ----------
 # Tester moet de live preview-deploy weten. We leiden 'm af uit de PR
 # die bij deze ai/-branch hoort. Faalt veilig: lege PREVIEW_URL =
 # tester valt terug op alleen diff + repo-inspectie.
+#
+# /tmp/screenshots/ is de afgesproken dropzone — alles wat de tester
+# daar achterlaat wordt na de Claude-run als JIRA-attachment geüpload.
 if [[ "${AGENT_ROLE:-developer}" == "tester" ]]; then
+  mkdir -p /tmp/screenshots
   PR_NUM_FOR_PREVIEW=$(gh pr list --head "${BRANCH}" --json number --jq '.[0].number // ""' 2>/dev/null || echo "")
   if [[ -n "$PR_NUM_FOR_PREVIEW" ]]; then
     PREVIEW_URL="${PREVIEW_URL_FORMAT:-https://pnf-pr-{pr}.vdzonsoftware.nl}"
@@ -311,9 +315,17 @@ Werkwijze:
 1. Lees task.md + diff om te begrijpen WAT er getest moet worden.
 2. Als PREVIEW_URL gezet is: curl 'm (curl -I voor headers + curl voor
    body) en check status-code + dat de pagina geen build-error toont.
-3. Beoordeel of de developer-claim ('Gedaan:'-bullets) overeenkomt met
-   wat de diff laat zien.
-4. Beslis: lijkt 't merge-baar, of zit er een evidente fout in?
+3. **Maak screenshots** van de live preview-deploy met:
+       take-screenshot.sh URL OUTPUT.png [WIDTHxHEIGHT]
+   Sla 'm op in /tmp/screenshots/. Geef beschrijvende bestandsnamen
+   (bv. home.png, feed.png, settings.png). Maak minstens één screenshot
+   van de homepage als PREVIEW_URL beschikbaar is — de mens ziet 'm
+   straks als attachment op de JIRA-story. Voor onze Flutter-app duurt
+   de hydratie even; de wrapper wacht al 5s. Indien je meer routes
+   wilt testen: één screenshot per route in /tmp/screenshots/.
+4. Beoordeel of de developer-claim ('Gedaan:'-bullets) overeenkomt met
+   wat de diff laat zien en wat je op de screenshots ziet.
+5. Beslis: lijkt 't merge-baar, of zit er een evidente fout in?
 
 Realisme — wij testen een Flutter-app via de SSR-shell, dus echte
 UI-regressies kun je niet via curl detecteren (de DOM is grotendeels
@@ -882,6 +894,41 @@ else:
   if [[ -z "$TESTER_PROSE" ]]; then
     TESTER_PROSE="(Geen samenvatting beschikbaar — bekijk de log.)"
   fi
+
+  # Upload screenshots als attachments naar de JIRA-story. Geen
+  # show-stopper bij faal — we loggen en gaan door zodat de
+  # [TESTER]-comment + phase-update altijd plaatsvinden.
+  upload_screenshots() {
+    local dir="/tmp/screenshots"
+    [[ -d "$dir" ]] || return 0
+    local uploaded=()
+    shopt -s nullglob
+    for png in "$dir"/*.png; do
+      [[ -f "$png" ]] || continue
+      local fname
+      fname=$(basename "$png")
+      echo "[runner] upload screenshot: $fname"
+      if curl -s -m 30 -o /dev/null -w "  attach HTTP %{http_code}\n" \
+           -u "${JIRA_EMAIL}:${JIRA_API_KEY}" \
+           -H "X-Atlassian-Token: no-check" \
+           -F "file=@${png}" \
+           "${JIRA_BASE_URL}/rest/api/3/issue/${STORY_ID}/attachments"; then
+        uploaded+=("$fname")
+      fi
+    done
+    shopt -u nullglob
+    if (( ${#uploaded[@]} > 0 )); then
+      # Hang de file-namen achter de tester-prose zodat de mens in
+      # één blik ziet wat 'r aan attachments hangt.
+      TESTER_PROSE="${TESTER_PROSE}
+
+📸 Screenshots toegevoegd aan deze story:
+$(printf -- '- %s\n' "${uploaded[@]}")"
+      echo "[runner] ${#uploaded[@]} screenshot(s) geüpload."
+    fi
+  }
+  upload_screenshots
+
   post_role_jira_comment "TESTER" "$TESTER_PROSE"
 
   # Phase op JIRA. Status blijft AI IN REVIEW.
