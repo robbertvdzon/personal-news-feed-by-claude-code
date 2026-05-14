@@ -326,23 +326,50 @@ def set_ai_fields(issue_key: str, updates: dict) -> bool:
     return False
 
 
-def fetch_ai_ready_issues() -> list[dict]:
-    """Geef alle issues in source-status terug — key + summary + description
-    + custom fields. Custom-field-IDs worden lazy gediscovered."""
+def _ai_fields_param() -> str:
+    """Standaard-fields + alle bekende AI-custom-field-IDs voor JIRA-zoek."""
     _discover_field_ids()
-    # Bouw de field-set: standaard + alle bekende AI-field-IDs.
     fields_param = "summary,description,status"
     for fid in _field_id_cache.values():
         if fid:
             fields_param += f",{fid}"
+    return fields_param
+
+
+def fetch_ai_ready_issues() -> list[dict]:
+    """Geef alle issues in source-status terug — key + summary + description
+    + custom fields."""
     jql = f'project={JIRA_PROJECT} AND status="{JIRA_SOURCE_STATUS}" ORDER BY created ASC'
     r = jira(
         "GET",
         "/rest/api/3/search/jql",
-        params={"jql": jql, "fields": fields_param},
+        params={"jql": jql, "fields": _ai_fields_param()},
     )
     if r.status_code != 200:
         log.warning("search faalde: %s %s", r.status_code, r.text[:200])
+        return []
+    return r.json().get("issues", [])
+
+
+def fetch_queued_with_phase(phase: str) -> list[dict]:
+    """Stories in 'AI Queued' met `AI Phase = <phase>`. Voor de
+    dispatcher die de volgende agent uitkiest na een afgeronde fase."""
+    phase_field_id = _ai_field("phase")
+    if not phase_field_id:
+        return []
+    # JIRA-JQL voor custom fields: cf[<id-zonder-prefix>] = "value"
+    cf_num = phase_field_id.replace("customfield_", "")
+    jql = (
+        f'project={JIRA_PROJECT} AND status="AI Queued" '
+        f'AND cf[{cf_num}] = "{phase}" ORDER BY updated ASC'
+    )
+    r = jira(
+        "GET",
+        "/rest/api/3/search/jql",
+        params={"jql": jql, "fields": _ai_fields_param()},
+    )
+    if r.status_code != 200:
+        log.warning("queued-search faalde: %s %s", r.status_code, r.text[:200])
         return []
     return r.json().get("issues", [])
 
@@ -502,6 +529,7 @@ def spawn_runner_job(
         # JIRA custom-field-IDs zodat de runner z'n eigen phase-update
         # kan doen aan het einde (zonder zelf field-discovery te doen).
         {"name": "JIRA_FIELD_AI_PHASE", "value": _ai_field("phase") or ""},
+        {"name": "JIRA_FIELD_AI_RESUME_PHASE", "value": _ai_field("resume_phase") or ""},
         {"name": "REPO_URL", "value": REPO_URL},
         {"name": "BASE_BRANCH", "value": "main"},
         {"name": "BRANCH_PREFIX", "value": "ai/"},
@@ -1072,62 +1100,80 @@ def process_one_pass() -> None:
     except Exception as e:
         log.exception("pr-comment loop faalde: %s", e)
 
-    issues = fetch_ai_ready_issues()
-    if not issues:
-        return
-
+    # Capacity-check is globaal (alle rollen samen tellen mee tegen
+    # MAX_CONCURRENT_JOBS). Wordt later per-rol als de matrix groeit.
     active = count_active_runner_jobs()
-    log.info(
-        "found %d %r issue(s); active runner-jobs: %d/%d",
-        len(issues),
-        JIRA_SOURCE_STATUS,
-        active,
-        MAX_CONCURRENT_JOBS,
-    )
 
-    for issue in issues:
+    # ── Stap 1: AI Ready → refiner ───────────────────────────────────
+    ready = fetch_ai_ready_issues()
+    if ready:
+        log.info(
+            "  %d %r issue(s) klaar voor refiner; active=%d/%d",
+            len(ready), JIRA_SOURCE_STATUS, active, MAX_CONCURRENT_JOBS,
+        )
+    for issue in ready:
         if active >= MAX_CONCURRENT_JOBS:
-            log.info("capacity bereikt, rest wacht op volgende poll")
+            log.info("  capacity bereikt — rest wacht op volgende poll")
             return
-        key = issue["key"]
-        log.info("  oppakken: %s", key)
+        if _claim_and_spawn(issue, role="refiner"):
+            active += 1
 
-        # Lees AI-fields. Lege velden → fall back op defaults, en
-        # schrijf die defaults meteen terug zodat ze in de UI verschijnen
-        # (anders ziet de PO leeg en weet 'ie niet dat ze invulbaar zijn).
-        ai = get_ai_fields(issue)
-        write_back: dict = {}
-        if ai["level"] is None:
-            ai["level"] = DEFAULT_AI_LEVEL
-            write_back["level"] = DEFAULT_AI_LEVEL
-        if ai["token_budget"] is None:
-            ai["token_budget"] = DEFAULT_TOKEN_BUDGET
-            write_back["token_budget"] = DEFAULT_TOKEN_BUDGET
-        if ai["tokens_used"] is None:
-            write_back["tokens_used"] = 0
-        if write_back:
-            set_ai_fields(key, write_back)
-            log.info("  defaults geschreven voor %s: %s", key, write_back)
+    # ── Stap 2: AI Queued + phase=refined → developer ────────────────
+    queued_for_dev = fetch_queued_with_phase("refined")
+    if queued_for_dev:
+        log.info(
+            "  %d issue(s) klaar voor developer (phase=refined); active=%d/%d",
+            len(queued_for_dev), active, MAX_CONCURRENT_JOBS,
+        )
+    for issue in queued_for_dev:
+        if active >= MAX_CONCURRENT_JOBS:
+            log.info("  capacity bereikt — rest wacht op volgende poll")
+            return
+        if _claim_and_spawn(issue, role="developer"):
+            active += 1
 
-        # Clamp level naar 0-10 (PO kan typo'en).
-        level = max(0, min(10, ai["level"]))
 
-        # Atomic claim: transition (als 'er een race is wint slechts één).
-        if not transition_issue(key, JIRA_TARGET_STATUS):
-            log.warning("  transition voor %s faalde — skip deze ronde", key)
-            continue
+def _claim_and_spawn(issue: dict, role: str) -> bool:
+    """Lees fields + schrijf defaults + transition → AI In Progress +
+    spawn runner-Job met de juiste rol. Returnt True bij succes."""
+    key = issue["key"]
+    log.info("  oppakken: %s als %s", key, role)
 
-        task_md = issue_to_task_md(issue)
-        job_name = spawn_runner_job(key, task_md, role="developer", ai_level=level)
-        if not job_name:
-            log.error(
-                "  spawn faalde voor %s — issue staat nu in %s; manueel terugzetten",
-                key,
-                JIRA_TARGET_STATUS,
-            )
-            continue
+    # Lees AI-fields; schrijf defaults terug zodat de PO ze in JIRA ziet.
+    ai = get_ai_fields(issue)
+    write_back: dict = {}
+    if ai["level"] is None:
+        ai["level"] = DEFAULT_AI_LEVEL
+        write_back["level"] = DEFAULT_AI_LEVEL
+    if ai["token_budget"] is None:
+        ai["token_budget"] = DEFAULT_TOKEN_BUDGET
+        write_back["token_budget"] = DEFAULT_TOKEN_BUDGET
+    if ai["tokens_used"] is None:
+        write_back["tokens_used"] = 0
+    if write_back:
+        set_ai_fields(key, write_back)
+        log.info("  defaults geschreven voor %s: %s", key, write_back)
 
-        # JIRA-comment: "in progress" met klikbare links naar branch + logs
+    level = max(0, min(10, ai["level"]))
+
+    # Atomic claim: transition naar AI In Progress (als 'er een race is
+    # wint slechts één).
+    if not transition_issue(key, JIRA_TARGET_STATUS):
+        log.warning("  transition voor %s faalde — skip deze ronde", key)
+        return False
+
+    task_md = issue_to_task_md(issue)
+    job_name = spawn_runner_job(key, task_md, role=role, ai_level=level)
+    if not job_name:
+        log.error(
+            "  spawn faalde voor %s — issue staat nu in %s; manueel terugzetten",
+            key, JIRA_TARGET_STATUS,
+        )
+        return False
+
+    # JIRA-comment alleen bij developer-spawn (refiner is een quick check,
+    # die maakt z'n eigen comment-output).
+    if role == "developer":
         branch_url = (
             f"https://github.com/{GITHUB_OWNER}/{GITHUB_REPO}/tree/ai/{key}"
             if (GITHUB_OWNER and GITHUB_REPO) else ""
@@ -1136,7 +1182,6 @@ def process_one_pass() -> None:
             f"https://{OPENSHIFT_CONSOLE_HOST}/k8s/ns/{RUNNER_NAMESPACE}/jobs/{job_name}/logs"
             if OPENSHIFT_CONSOLE_HOST else ""
         )
-
         paragraphs = [
             adf_paragraph(adf_text("🤖 Claude is begonnen aan de implementatie.")),
         ]
@@ -1159,7 +1204,7 @@ def process_one_pass() -> None:
         except Exception as e:
             log.warning("kon AI-IN-PROGRESS-comment niet plaatsen voor %s: %s", key, e)
 
-        active += 1
+    return True
 
 
 # ─── HTTP-app voor agent-run-rapportage (Fase 1) ─────────────────────────
