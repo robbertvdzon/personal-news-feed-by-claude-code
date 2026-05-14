@@ -38,6 +38,7 @@ import time
 from typing import Optional
 
 import requests
+import yaml
 from flask import Flask, jsonify, request as flask_request
 
 # psycopg v3 voor de factory-DB (Fase 1). Import is "soft" — als de
@@ -72,6 +73,16 @@ RUNNER_NAMESPACE = os.environ.get("RUNNER_NAMESPACE", "personal-news-feed")
 # `/agent-run/complete` beschreven; lege string betekent niet-
 # geconfigureerd en de endpoint geeft 503.
 FACTORY_DATABASE_URL = os.environ.get("FACTORY_DATABASE_URL", "")
+
+# Level-matrix (Fase 2). Path naar de ConfigMap-mount; resolver gebruikt
+# 'm bij elke spawn opnieuw zodat tunen zonder image-rebuild werkt.
+AGENT_LEVELS_PATH = os.environ.get(
+    "AGENT_LEVELS_PATH", "/etc/factory/agent-levels.yaml"
+)
+# Default-level voor stories zonder expliciete `AI Level`-veld. Staat
+# voor Fase 2 PR 1 nog op 5 (huidig Sonnet-gedrag); zakt naar 0 zodra
+# JIRA-AI-Level integratie live is (Fase 2 PR 2).
+DEFAULT_AI_LEVEL = int(os.environ.get("DEFAULT_AI_LEVEL", "5"))
 REPO_URL = os.environ.get(
     "REPO_URL",
     "https://github.com/robbertvdzon/personal-news-feed-by-claude-code.git",
@@ -281,21 +292,67 @@ def sanitize_id(issue_key: str) -> str:
     return s[:30] or "job"
 
 
+def resolve_model_effort(level: int, role: str) -> tuple[str, str]:
+    """Lees agent-levels.yaml en geef (model, effort) voor (level, role).
+
+    Bij ontbrekende file, ongeldige YAML, missende level of rol: geef
+    een safe fallback (haiku quick = goedkoopste). Logged een warning
+    zodat 't zichtbaar is.
+    """
+    try:
+        with open(AGENT_LEVELS_PATH, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+    except (OSError, yaml.YAMLError) as e:
+        log.warning(
+            "agent-levels.yaml onleesbaar (%s) — val terug op haiku/quick",
+            e,
+        )
+        return ("claude-haiku-4-5", "quick")
+
+    models = data.get("models") or {}
+    levels = data.get("levels") or {}
+
+    # YAML parsed int-keys; sommige tools maken er strings van.
+    level_entry = levels.get(level) or levels.get(str(level))
+    if not isinstance(level_entry, dict):
+        log.warning("level %d onbekend in agent-levels.yaml — fallback", level)
+        return ("claude-haiku-4-5", "quick")
+
+    bucket = level_entry.get(role) or level_entry.get("developer")
+    if not isinstance(bucket, str):
+        log.warning("rol %r onbekend op level %d — fallback", role, level)
+        return ("claude-haiku-4-5", "quick")
+
+    spec = models.get(bucket) or {}
+    model = spec.get("model") or "claude-haiku-4-5"
+    effort = spec.get("effort") or "quick"
+    return (model, effort)
+
+
 def spawn_runner_job(
     issue_key: str,
     task_md: str,
     pr_number: Optional[int] = None,
     trigger_comment_id: Optional[int] = None,
+    role: str = "developer",
+    ai_level: Optional[int] = None,
 ) -> Optional[str]:
     """Maak ConfigMap + Job voor één issue. Returns job-name of None bij failure.
 
     Comment-mode (S-09): als pr_number én trigger_comment_id meegegeven worden,
     krijgt het Job die env-vars zodat de runner na z'n push een 'rocket'-reactie
-    plaatst op het trigger-comment (op faal: 'confused')."""
+    plaatst op het trigger-comment (op faal: 'confused').
+
+    `role` + `ai_level` bepalen via de level-matrix welk model+effort
+    de runner gebruikt. Default-level = DEFAULT_AI_LEVEL (Fase 2 PR 1)."""
     short = sanitize_id(issue_key)
     stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
     job_name = f"claude-run-{short}-{stamp}"
     cm_name = f"{job_name}-task"
+
+    if ai_level is None:
+        ai_level = DEFAULT_AI_LEVEL
+    model, effort = resolve_model_effort(ai_level, role)
 
     # ConfigMap met task.md
     task_b64 = base64.b64encode(task_md.encode("utf-8")).decode("ascii")
@@ -323,6 +380,13 @@ def spawn_runner_job(
         # URL waar de runner z'n usage-record POST't aan het einde.
         # In-cluster service-DNS.
         {"name": "FACTORY_POLLER_URL", "value": "http://jira-poller.pnf-software-factory.svc.cluster.local:8080"},
+        # Rol + level + resolved (model, effort). Runner gebruikt deze
+        # voor de claude-CLI-aanroep; ze worden ook door factory-report.py
+        # in het usage-record meegenomen voor latere analyse.
+        {"name": "AGENT_ROLE", "value": role},
+        {"name": "AI_LEVEL", "value": str(ai_level)},
+        {"name": "CLAUDE_MODEL", "value": model},
+        {"name": "CLAUDE_EFFORT", "value": effort},
         {"name": "REPO_URL", "value": REPO_URL},
         {"name": "BASE_BRANCH", "value": "main"},
         {"name": "BRANCH_PREFIX", "value": "ai/"},
@@ -457,9 +521,8 @@ def spawn_runner_job(
             log.warning("ownerRef-patch op CM %s faalde: %s", cm_name, p_out.stderr[:200])
 
     log.info(
-        "spawned Job %s voor %s (mode=%s)",
-        job_name,
-        issue_key,
+        "spawned Job %s voor %s (role=%s level=%d model=%s effort=%s mode=%s)",
+        job_name, issue_key, role, ai_level, model, effort,
         "comment" if is_comment_mode else "story",
     )
     return job_name

@@ -154,6 +154,41 @@ opmerking concreet, maar wijzig niets dat niet expliciet gevraagd wordt.
 De vorige implementatie staat al op deze branch — bouw daarop voort."
 fi
 
+# Effort-niveau via system-prompt-instructie (Fase 2). De Claude CLI
+# heeft geen directe --thinking-budget-flag in --print-mode, dus we
+# sturen via tekst. Mapping:
+#   quick   → kort overwegen, geen extended thinking
+#   default → normaal
+#   deep    → uitgebreid hardop denken voor je een tool-call kiest
+if [[ -n "${CLAUDE_EFFORT:-}" ]]; then
+  case "$CLAUDE_EFFORT" in
+    quick)
+      SYSTEM_PROMPT+="
+
+EFFORT-NIVEAU: quick. Denk kort, voer snel uit. Geen lange overwegingen
+vooraf — vertrouw op je eerste oordeel en corrigeer waar nodig."
+      ;;
+    deep)
+      SYSTEM_PROMPT+="
+
+EFFORT-NIVEAU: deep. Denk uitgebreid hardop over de aanpak vóór je
+tool-calls maakt. Overweeg alternatieven, edge-cases, en motiveer
+non-triviale beslissingen."
+      ;;
+    *)
+      :  # default — geen extra instructie
+      ;;
+  esac
+fi
+
+# Optionele --model flag. Lege string = laat de CLI z'n eigen default
+# kiezen (backwards-compat).
+CLAUDE_MODEL_FLAGS=()
+if [[ -n "${CLAUDE_MODEL:-}" ]]; then
+  CLAUDE_MODEL_FLAGS=(--model "$CLAUDE_MODEL")
+  echo "[runner] model: $CLAUDE_MODEL · effort: ${CLAUDE_EFFORT:-default}"
+fi
+
 # Story-bestand inkopiëren zodat Claude 'm met Read kan lezen
 cp /task/task.md /work/repo/.task.md
 
@@ -193,6 +228,7 @@ def trim($n): if . == null then "" else (tostring) | if length > $n then "\(.[0:
 echo "[runner] Claude start..."
 set +e
 claude \
+  "${CLAUDE_MODEL_FLAGS[@]}" \
   --append-system-prompt "$SYSTEM_PROMPT" \
   --permission-mode bypassPermissions \
   --verbose \
@@ -327,6 +363,7 @@ EOF
 
   set +e
   claude \
+    "${CLAUDE_MODEL_FLAGS[@]}" \
     --append-system-prompt "$SYSTEM_PROMPT" \
     --permission-mode bypassPermissions \
     --verbose \

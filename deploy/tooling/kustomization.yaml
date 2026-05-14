@@ -34,6 +34,17 @@ resources:
 # init-Job + ConfigMap + ArgoCD-PreSync-hook, en de DDL is idempotent
 # dus runs-on-every-restart is goedkoop.
 
+# Level-matrix ConfigMap: per AI Level (0-10) welke model+effort elke
+# rol gebruikt. Wordt in de poller-Deployment als file gemount op
+# /etc/factory/agent-levels.yaml. `disableNameSuffixHash` houdt de
+# naam stabiel zodat de volume-mount statisch kan blijven.
+configMapGenerator:
+- name: agent-levels
+  files:
+  - agent-levels.yaml
+  options:
+    disableNameSuffixHash: true
+
 images:
 - name: ghcr.io/robbertvdzon/jira-poller
   newName: ghcr.io/robbertvdzon/jira-poller
