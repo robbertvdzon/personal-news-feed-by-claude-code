@@ -57,25 +57,9 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install kustomize
+      - name: Bump image tag in deploy/tooling
         run: |
-          curl -fsSL https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh | bash
-          sudo mv kustomize /usr/local/bin/
-
-      - name: Update image tag in deploy/tooling
-        working-directory: deploy/tooling
-        run: |
-          kustomize edit set image \
-            ghcr.io/robbertvdzon/jira-poller=ghcr.io/robbertvdzon/jira-poller:${{ needs.build.outputs.tag }}
-
-      - name: Commit and push
-        run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet; then
-            echo "No manifest changes"
-            exit 0
-          fi
-          git add deploy/tooling/kustomization.yaml
-          git commit -m "ci: bump jira-poller to ${{ needs.build.outputs.tag }}"
-          git push
+          .github/scripts/bump-images.sh \
+            deploy/tooling \
+            "ci: bump jira-poller to ${{ needs.build.outputs.tag }}" \
+            "ghcr.io/robbertvdzon/jira-poller=ghcr.io/robbertvdzon/jira-poller:${{ needs.build.outputs.tag }}"

@@ -140,26 +140,10 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install kustomize
+      - name: Bump image tags in deploy/base
         run: |
-          curl -fsSL https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh | bash
-          sudo mv kustomize /usr/local/bin/
-
-      - name: Update image tags in kustomization
-        working-directory: deploy/base
-        run: |
-          kustomize edit set image \
-            backend=${BACKEND_IMAGE}:${{ needs.build-backend.outputs.tag }} \
-            frontend=${FRONTEND_IMAGE}:${{ needs.build-frontend.outputs.tag }}
-
-      - name: Commit and push
-        run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet; then
-            echo "No manifest changes"
-            exit 0
-          fi
-          git add deploy/base/kustomization.yaml
-          git commit -m "ci: bump images to ${{ needs.build-backend.outputs.tag }}"
-          git push
+          .github/scripts/bump-images.sh \
+            deploy/base \
+            "ci: bump images to ${{ needs.build-backend.outputs.tag }}" \
+            "backend=${BACKEND_IMAGE}:${{ needs.build-backend.outputs.tag }}" \
+            "frontend=${FRONTEND_IMAGE}:${{ needs.build-frontend.outputs.tag }}"
