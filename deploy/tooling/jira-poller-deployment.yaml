@@ -40,8 +40,11 @@ spec:
               value: "AI IN PROGRESS"
             - name: JIRA_REVIEW_STATUS
               value: "AI IN REVIEW"
+            # NB: Atlassian toont 'GEREED' in de UI maar de stored
+            # name (zoals de API 'm teruggeeft) is 'Gereed'. De Engelse
+            # workflow-pagina noemt 't 'DONE' = de status-category.
             - name: JIRA_DONE_STATUS
-              value: "Klaar"
+              value: "Gereed"
             # GITHUB_TOKEN nodig voor merge-detectie (S-07): zoekt PR's
             # bij issues in AI IN REVIEW en checkt of ze gemerged zijn.
             - name: GITHUB_TOKEN
