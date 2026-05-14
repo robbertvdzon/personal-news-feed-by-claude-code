@@ -1,13 +1,14 @@
 name: Build claude-tester image
 
 # Bouwt het claude-tester-image (claude-runner + Playwright + Chromium)
-# en pusht naar ghcr.io. Trigger: pushes naar main waar
-# deploy/claude-tester/** is gewijzigd, plus handmatige dispatch.
+# en pusht naar ghcr.io.
 #
-# Let op: de FROM-clausule wijst naar claude-runner:main, dus dit image
-# herbouwt automatisch als de runner-image is bijgewerkt — maar alleen
-# als er ook een claude-tester-trigger is. Handmatige bump via
-# workflow_dispatch is dan handig.
+# Triggers:
+#   * push naar main op deploy/claude-tester/** — eigen image-changes
+#   * workflow_run na "Build claude-runner image" — automatisch
+#     herbouwen wanneer de base (FROM claude-runner:main) is vernieuwd,
+#     zodat tester-pods altijd de nieuwste runner.sh + helpers hebben.
+#   * workflow_dispatch — handmatige rebuild
 
 on:
   push:
@@ -15,6 +16,10 @@ on:
     paths:
       - 'deploy/claude-tester/**'
       - '.github/workflows/tester-image.yml'
+  workflow_run:
+    workflows: ["Build claude-runner image"]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -27,6 +32,9 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Bij workflow_run-trigger: alleen rebuilden als de upstream run
+    # geslaagd is. Bij andere triggers (push/dispatch): altijd draaien.
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     steps:
       - uses: actions/checkout@v4
 
