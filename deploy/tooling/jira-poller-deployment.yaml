@@ -64,10 +64,50 @@ spec:
               value: "pnf-software-factory"
             - name: REPO_URL
               value: "https://github.com/robbertvdzon/personal-news-feed-by-claude-code.git"
+            # Factory-DB voor agent-run-rapportage (Fase 1). Connection-
+            # string in postgresql:// form (geen jdbc:-prefix). Leeg
+            # laten betekent: HTTP-endpoint geeft 503 maar polling-loop
+            # blijft draaien.
+            - name: FACTORY_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: newsfeed-api-keys
+                  key: FACTORY_DATABASE_URL
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 30
           resources:
             requests:
               cpu: 20m
-              memory: 64Mi
+              memory: 128Mi
             limits:
               cpu: 200m
-              memory: 256Mi
+              memory: 384Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jira-poller
+  namespace: pnf-software-factory
+  labels:
+    app: jira-poller
+spec:
+  selector:
+    app: jira-poller
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+  type: ClusterIP

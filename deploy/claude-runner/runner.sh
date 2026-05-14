@@ -76,6 +76,15 @@ on_exit() {
     # Subshell zodat een gefaalde curl/gh niet de exit-code overschrijft.
     (react_to_trigger "confused") || true
   fi
+  # Factory-rapportage: POST usage + events naar de poller. Best-effort —
+  # script eindigt altijd op 0, dus exit-code-bewaring is gewaarborgd.
+  if [[ -f /usr/local/bin/factory-report.py ]]; then
+    export RUNNER_OUTCOME
+    if (( rc != 0 )) && [[ -z "${RUNNER_OUTCOME:-}" ]]; then
+      RUNNER_OUTCOME="failed"
+    fi
+    (python3 /usr/local/bin/factory-report.py) || true
+  fi
 }
 trap on_exit EXIT
 

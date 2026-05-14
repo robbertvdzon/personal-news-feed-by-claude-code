@@ -15,9 +15,11 @@ FROM eclipse-temurin:21-jdk-jammy
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# OS deps — basis tooling
+# OS deps — basis tooling.
+# python3 erbij voor factory-report.py (post usage naar de poller na
+# een claude-run; alleen stdlib gebruikt, geen pip-installs).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates curl gnupg git jq maven \
+        ca-certificates curl gnupg git jq maven python3 \
     && rm -rf /var/lib/apt/lists/*
 
 # Node 22 LTS (voor Claude Code)
@@ -42,9 +44,10 @@ RUN mkdir -p /work /home/runner /opt/m2 \
     && chgrp -R 0 /work /home/runner /opt/m2 \
     && chmod -R g=u /work /home/runner /opt/m2
 
-# Runner-script
+# Runner-scripts
 COPY runner.sh /usr/local/bin/runner.sh
-RUN chmod +x /usr/local/bin/runner.sh
+COPY factory-report.py /usr/local/bin/factory-report.py
+RUN chmod +x /usr/local/bin/runner.sh /usr/local/bin/factory-report.py
 
 ENV HOME=/home/runner \
     MAVEN_CONFIG=/opt/m2 \
