@@ -361,6 +361,45 @@ rapporteer 'tested-fail' met als bevinding [blocker] 'kon Playwright
 niet draaien op X (zie log)'. VAL NIET TERUG OP CODE-REVIEW als
 alternatief — die heeft de reviewer al gedaan. Geen browser = fail.
 
+CRUCIALE REGEL — Flutter Web verifieer je VISUEEL, niet via DOM:
+
+Onze app is **Flutter Web**. Flutter rendert de hele UI in een
+\`<canvas>\`-element, NIET in normale HTML/DOM. Concreet:
+- \`page.locator('text=Settings')\` werkt NIET (er staat geen tekst
+  in de DOM, alleen pixels op canvas).
+- \`page.getByRole('button', { name: ... })\` werkt meestal NIET tenzij
+  Flutter's semantics-tree actief is (lazy, alleen bij assistive tech).
+- HTML-content-checks ('does the page contain word X') geven false
+  negatives.
+
+Werk in plaats daarvan zo:
+1. **Screenshots maken** (page.screenshot) op elk relevant moment.
+2. **Screenshots terug-lezen met je Read-tool** — jij bent multimodaal,
+   je kunt PNG-bestanden inhoudelijk bekijken. Een screenshot is je
+   bewijsmateriaal, niet de DOM-text. Voorbeeld na een screenshot:
+
+       Read('/tmp/screenshots/02-settings-tab.png')
+
+   Beoordeel daarna in prose: 'Op 02-settings-tab.png is de tab-bar
+   met label \"Settings\" zichtbaar (niet \"instellingen\")'.
+
+3. **Navigatie**: gebruik \`page.keyboard.press('Tab')\` + \`Enter\` om door
+   focusable elementen te lopen, of klik op coördinaten als je weet
+   waar 'n knop zit (uit eerder screenshot).
+
+4. **Login** als de app dat vereist: registreer een testgebruiker via
+   de API (POST naar /api/auth/register of vergelijkbaar in de
+   preview-backend), zet de JWT in localStorage via
+   \`page.addInitScript()\`, reload, screenshot. Het tester-image heeft
+   geen vaste credentials — een wegwerp-account per run werkt prima.
+
+5. **Verdict op screenshots**, niet op DOM-content. Als je op de
+   screenshots 'Settings' duidelijk ziet → \`tested-ok\`. Geen DOM-match
+   nodig.
+
+In je rapport verwijs je expliciet naar de screenshots: 'Zie
+attachment 02-settings.png — label \"Settings\" zichtbaar op de tab-bar'.
+
 Werkwijze:
 1. Lees task.md + diff om te begrijpen WAT er getest moet worden. Maak
    een lijst van logische STAPPEN UIT GEBRUIKERS-PERSPECTIEF (browser-
@@ -405,20 +444,47 @@ Werkwijze:
              console.log(\`STEP \${num} FAIL \${name} :: \${e.message}\`);
            }
          }
-         await step(1, 'homepage', async () => { await page.goto(process.env.PREVIEW_URL, {waitUntil:'load'}); await page.waitForTimeout(4000); });
-         await step(2, 'klik-login',  async () => { await page.locator('text=Login').click(); await page.waitForTimeout(1500); });
-         // … vul aan voor de specifieke flow
+         await step(1, 'homepage', async () => {
+           await page.goto(process.env.PREVIEW_URL, {waitUntil:'load'});
+           await page.waitForTimeout(5000); // Flutter-hydratie
+         });
+         // Login via API (Flutter app heeft geen test-creds; registreer
+         // wegwerp-gebruiker en zet JWT vóór je de app reload't).
+         await step(2, 'login-en-reload', async () => {
+           const u = 'tester_' + Date.now();
+           const reg = await fetch(process.env.PREVIEW_URL + '/api/auth/register', {
+             method: 'POST',
+             headers: {'Content-Type': 'application/json'},
+             body: JSON.stringify({username: u, password: 'P@ss1234'}),
+           }).then(r => r.json());
+           const token = reg.token;
+           await page.addInitScript(t => localStorage.setItem('jwt', t), token);
+           await page.reload({waitUntil: 'load'});
+           await page.waitForTimeout(5000);
+         });
+         // Navigeer naar de relevante tab via keyboard (Flutter heeft
+         // geen klikbare text-elementen in DOM).
+         await step(3, 'navigate-settings', async () => {
+           await page.keyboard.press('Tab');
+           await page.keyboard.press('Tab');
+           await page.keyboard.press('Tab');
+           await page.keyboard.press('Enter');
+           await page.waitForTimeout(3000);
+         });
          await browser.close();
          require('fs').writeFileSync('/tmp/flow-steps.json', JSON.stringify(steps, null, 2));
        })();
        JS
        node /tmp/flow.js
 
-4. Als de UI een login vereist en er zijn geen testgebruikers: documenteer
-   dat eerlijk in het rapport en stop bij het inlogscherm. Verzin geen
-   credentials.
-5. Beoordeel of de developer-claim ('Gedaan:'-bullets) overeenkomt met
-   wat de diff + de doorlopen flow laten zien.
+4. Na elke screenshot: gebruik je Read-tool om 'm te bekijken. Jij
+   bent multimodaal; visuele inspectie is je primaire bewijs. NIET
+   vertrouwen op page.content() of locator-text-match — Flutter
+   rendert naar canvas, daar staat niets in de DOM.
+
+5. Beoordeel op basis van de screenshots of de developer-claim
+   ('Gedaan:'-bullets) klopt. Als je 'Settings' op de juiste plek ziet
+   staan → tested-ok, ook al gaf locator('text=Settings') 0 hits.
 
 Realisme — Flutter-web rendert pas na hydratie. Wacht 3-5s na elke
 navigatie (waitForTimeout) voordat je een screenshot maakt. Locators
