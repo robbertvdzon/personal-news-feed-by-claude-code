@@ -19,14 +19,23 @@ USER root
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Playwright global + Chromium met system-deps. `--with-deps` installeert
-# alle OS-libs die Chromium nodig heeft (libnss3, libatk, libcairo, etc.)
-# via apt-get; vereist root. Browser-binaries onder een globaal pad dat
-# voor OpenShift's random-UID-met-GID-0 leesbaar blijft.
+# Playwright global + browser-binaries. `--with-deps` installeert alle
+# OS-libs die Chromium nodig heeft (libnss3, libatk, libcairo, etc.) via
+# apt-get; vereist root. We installeren ZOWEL chromium (volledige variant)
+# ALS chromium-headless-shell — recente Playwright-API's gebruiken die
+# laatste als default voor headless launch. Browser-binaries onder een
+# globaal pad dat voor OpenShift's random-UID-met-GID-0 leesbaar blijft.
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/pw-cache
+
+# NODE_PATH=/usr/lib/node_modules zodat `require('playwright')` werkt
+# ongeacht de CWD van het script. Zonder dit faalt elke ad-hoc /tmp/flow.js
+# met "Cannot find module 'playwright'" omdat Node niet in de global
+# npm-prefix kijkt by default.
+ENV NODE_PATH=/usr/lib/node_modules
+
 RUN apt-get update \
     && npm install -g playwright \
-    && PLAYWRIGHT_BROWSERS_PATH=/opt/pw-cache npx playwright install --with-deps chromium \
+    && PLAYWRIGHT_BROWSERS_PATH=/opt/pw-cache npx playwright install --with-deps chromium chromium-headless-shell \
     && chgrp -R 0 /opt/pw-cache \
     && chmod -R g=u /opt/pw-cache \
     && rm -rf /var/lib/apt/lists/*
