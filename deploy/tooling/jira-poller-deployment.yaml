@@ -63,6 +63,10 @@ spec:
               value: "2"
             - name: CLAUDE_RUNNER_IMAGE
               value: "ghcr.io/robbertvdzon/claude-runner:main"
+            # Tester-image (Fase 5 — Playwright + Chromium voor
+            # screenshots). Alleen role=tester Jobs gebruiken 'm.
+            - name: CLAUDE_TESTER_IMAGE
+              value: "ghcr.io/robbertvdzon/claude-tester:main"
             - name: RUNNER_NAMESPACE
               value: "pnf-software-factory"
             - name: REPO_URL

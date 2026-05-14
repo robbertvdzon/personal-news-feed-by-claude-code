@@ -67,6 +67,12 @@ MAX_CONCURRENT_JOBS = int(os.environ.get("MAX_CONCURRENT_JOBS", "2"))
 CLAUDE_RUNNER_IMAGE = os.environ.get(
     "CLAUDE_RUNNER_IMAGE", "ghcr.io/robbertvdzon/claude-runner:main"
 )
+# Tester-image — claude-runner + Playwright + Chromium voor screenshots
+# (Fase 5). Alleen tester-Jobs gebruiken 'm; andere rollen blijven op
+# claude-runner zodat ze geen ~300MB extra hoeven te pullen.
+CLAUDE_TESTER_IMAGE = os.environ.get(
+    "CLAUDE_TESTER_IMAGE", "ghcr.io/robbertvdzon/claude-tester:main"
+)
 RUNNER_NAMESPACE = os.environ.get("RUNNER_NAMESPACE", "personal-news-feed")
 # DB voor de factory-observability (Fase 1). Bevat schema `factory` met
 # story_runs / agent_runs / agent_events. Wordt door de HTTP-endpoint
@@ -674,7 +680,10 @@ def spawn_runner_job(
                     "containers": [
                         {
                             "name": "runner",
-                            "image": CLAUDE_RUNNER_IMAGE,
+                            # Tester gebruikt 't bredere image
+                            # (Playwright + Chromium); andere rollen
+                            # blijven op het lichte claude-runner image.
+                            "image": CLAUDE_TESTER_IMAGE if role == "tester" else CLAUDE_RUNNER_IMAGE,
                             "imagePullPolicy": "Always",
                             "env": env,
                             "volumeMounts": [
