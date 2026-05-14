@@ -34,16 +34,16 @@ resources:
 # houdt de naam stabiel (`factory-schema-sql`) zodat de Job-volumeMount
 # in factory-db-init-job.yaml er statisch naar kan verwijzen.
 configMapGenerator:
-- name: factory-schema-sql
-  files:
+- files:
   - factory-schema.sql
+  name: factory-schema-sql
   options:
     disableNameSuffixHash: true
 
 images:
 - name: ghcr.io/robbertvdzon/jira-poller
   newName: ghcr.io/robbertvdzon/jira-poller
-  newTag: sha-8bf52a0
+  newTag: sha-4efff0b
 - name: ghcr.io/robbertvdzon/status-dashboard
   newName: ghcr.io/robbertvdzon/status-dashboard
   newTag: sha-8bf52a0
