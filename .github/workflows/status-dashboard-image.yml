@@ -1,8 +1,8 @@
 name: Build status-dashboard image
 
-# Bouwt het status-dashboard-image en pusht naar ghcr.io. Trigger: pushes
-# naar main waar deploy/status-dashboard/** is gewijzigd, plus handmatige
-# dispatch.
+# Bouwt het status-dashboard-image, pusht naar ghcr.io en update de
+# image-tag in deploy/tooling/kustomization.yaml. ArgoCD synct daarna
+# automatisch — geen handmatige rollout-restart meer nodig.
 
 on:
   push:
@@ -13,8 +13,8 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  packages: write
+  contents: write    # nodig voor de auto-commit van kustomization.yaml
+  packages: write    # push naar ghcr.io
 
 env:
   IMAGE: ghcr.io/robbertvdzon/status-dashboard
@@ -22,6 +22,8 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.sha.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
 
@@ -46,3 +48,34 @@ jobs:
             ${{ env.IMAGE }}:main
           cache-from: type=gha,scope=status-dashboard
           cache-to: type=gha,mode=max,scope=status-dashboard
+
+  bump-manifests:
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install kustomize
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh | bash
+          sudo mv kustomize /usr/local/bin/
+
+      - name: Update image tag in deploy/tooling
+        working-directory: deploy/tooling
+        run: |
+          kustomize edit set image \
+            ghcr.io/robbertvdzon/status-dashboard=ghcr.io/robbertvdzon/status-dashboard:${{ needs.build.outputs.tag }}
+
+      - name: Commit and push
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet; then
+            echo "No manifest changes"
+            exit 0
+          fi
+          git add deploy/tooling/kustomization.yaml
+          git commit -m "ci: bump status-dashboard to ${{ needs.build.outputs.tag }}"
+          git push
