@@ -4,8 +4,10 @@
 # wijziging op een feature-branch en opent een PR.
 #
 # Verwachte env-vars:
-#   ANTHROPIC_API_KEY    secret
-#   GITHUB_TOKEN         secret (PAT met `repo`-scope)
+#   CLAUDE_CODE_OAUTH_TOKEN  secret — Claude Code OAuth-token van
+#                            `claude setup-token`, ~1 jaar geldig, billed
+#                            tegen het Max-abonnement i.p.v. API-quota
+#   GITHUB_TOKEN             secret (PAT met `repo`-scope)
 #   REPO_URL             https://github.com/<owner>/<repo>.git
 #   BRANCH_PREFIX        bv. "ai/" — branchnaam wordt <prefix><STORY_ID>
 #   STORY_ID             logische ID, bv. "PNF-42" of "poc-001"
@@ -18,7 +20,7 @@
 set -euo pipefail
 
 # ---------- pre-flight ----------
-for v in ANTHROPIC_API_KEY GITHUB_TOKEN REPO_URL STORY_ID; do
+for v in CLAUDE_CODE_OAUTH_TOKEN GITHUB_TOKEN REPO_URL STORY_ID; do
   if [[ -z "${!v:-}" ]]; then
     echo "FATAL: env $v is leeg" >&2; exit 1
   fi
