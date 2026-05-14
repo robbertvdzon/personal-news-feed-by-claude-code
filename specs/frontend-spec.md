@@ -241,7 +241,7 @@ Zolang een of meer podcasts de status `PENDING`, `DETERMINING_TOPICS`, `GENERATI
 
 ---
 
-## 9. Instellingen-tab (Tab 3)
+## 9. Settings-tab (Tab 3)
 
 ### Account
 - Gebruikersnaam weergeven
