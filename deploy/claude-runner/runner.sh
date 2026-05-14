@@ -148,19 +148,53 @@ fi
 # Story-bestand inkopiëren zodat Claude 'm met Read kan lezen
 cp /task/task.md /work/repo/.task.md
 
-# Niet-interactief: --print mode, één keer draaien, output naar log.
-# --output-format stream-json zou parsing makkelijker maken; voor PoC
-# is platte tekst genoeg.
+# Niet-interactief: --print + --output-format stream-json. Elke regel is
+# één JSON-event (system-init, assistant-text, tool_use, tool_result,
+# result). We pipen door een jq-prettyprinter zodat de pod-log leesbaar
+# is; de ruwe events blijven op /tmp/claude.log.jsonl voor diepgaander
+# debuggen vanuit de pod.
+#
+# `try fromjson catch null` retourneert null bij een onleesbare regel;
+# die vallen dan in de `(raw)`-tak en breken de pipeline niet.
+JQ_PRETTY='
+def trim($n): if . == null then "" else (tostring) | if length > $n then "\(.[0:$n])…" else . end end;
+. as $raw
+| (try fromjson catch null) as $e
+| if $e == null then "(raw) " + ($raw | trim(200))
+  elif $e.type == "system" and $e.subtype == "init" then
+    "🛠  init session=\($e.session_id // "?") model=\($e.model // "?")"
+  elif $e.type == "assistant" then
+    ($e.message.content // []) | map(
+      if .type == "text" then ("💬 " + (.text // "" | trim(800)))
+      elif .type == "tool_use" then ("→ " + .name + " " + ((.input // {}) | tostring | trim(220)))
+      else ("· a." + .type) end
+    ) | join("\n")
+  elif $e.type == "user" then
+    ($e.message.content // []) | map(
+      if .type == "tool_result" then
+        ("← " + ((.content // "" | if type=="array" then map(.text // "") | join("") else tostring end) | trim(220)))
+      else ("· u." + .type) end
+    ) | join("\n")
+  elif $e.type == "result" then
+    "✅ done " + ((($e.duration_ms // 0)/1000) | floor | tostring) + "s in=" + (($e.usage.input_tokens // 0) | tostring) + " out=" + (($e.usage.output_tokens // 0) | tostring)
+  else ("· " + ($e.type // "?"))
+  end
+'
+
 echo "[runner] Claude start..."
 set +e
 claude \
   --append-system-prompt "$SYSTEM_PROMPT" \
   --permission-mode bypassPermissions \
   --verbose \
+  --output-format stream-json \
   --print \
   "Implementeer de story uit .task.md. Volg de regels uit de system prompt." \
-  2>&1 | tee /tmp/claude.log
-CLAUDE_EXIT=$?
+  2>&1 \
+  | tee /tmp/claude.log.jsonl \
+  | jq -rR --unbuffered "$JQ_PRETTY"
+# PIPESTATUS[0] = claude zelf; tee + jq's exit-codes negeren we.
+CLAUDE_EXIT=${PIPESTATUS[0]}
 set -e
 
 echo "[runner] Claude exit=$CLAUDE_EXIT"
@@ -287,9 +321,12 @@ EOF
     --append-system-prompt "$SYSTEM_PROMPT" \
     --permission-mode bypassPermissions \
     --verbose \
+    --output-format stream-json \
     --print \
     "Fix de CI-fout zoals beschreven in /work/repo/.fix-task.md." \
-    2>&1 | tee -a /tmp/claude.log
+    2>&1 \
+    | tee -a /tmp/claude.log.jsonl \
+    | jq -rR --unbuffered "$JQ_PRETTY"
   set -e
   rm -f /work/repo/.fix-task.md
 
