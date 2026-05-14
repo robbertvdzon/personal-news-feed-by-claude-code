@@ -985,6 +985,14 @@ def agent_run_complete():
     job_name = data.get("job_name", "")
     input_tokens = int(data.get("input_tokens", 0) or 0)
     output_tokens = int(data.get("output_tokens", 0) or 0)
+    cache_read = int(data.get("cache_read_input_tokens", 0) or 0)
+    cache_creation = int(data.get("cache_creation_input_tokens", 0) or 0)
+    try:
+        cost_usd = float(data.get("cost_usd", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        cost_usd = 0.0
+    num_turns = int(data.get("num_turns", 0) or 0)
+    duration_ms = int(data.get("duration_ms", 0) or 0)
 
     try:
         with psycopg.connect(FACTORY_DATABASE_URL) as conn, conn.cursor() as cur:
@@ -1008,8 +1016,12 @@ def agent_run_complete():
             cur.execute(
                 """INSERT INTO factory.agent_runs
                    (story_run_id, role, job_name, model, effort, level,
-                    ended_at, outcome, input_tokens, output_tokens)
-                   VALUES (%s, %s, %s, %s, %s, %s, now(), %s, %s, %s)
+                    ended_at, outcome,
+                    input_tokens, output_tokens,
+                    cache_read_input_tokens, cache_creation_input_tokens,
+                    cost_usd_est, num_turns, duration_ms)
+                   VALUES (%s, %s, %s, %s, %s, %s, now(), %s,
+                           %s, %s, %s, %s, %s, %s, %s)
                    RETURNING id""",
                 (
                     story_run_id, role, job_name,
@@ -1018,6 +1030,8 @@ def agent_run_complete():
                     int(data.get("level", 0) or 0),
                     data.get("outcome", ""),
                     input_tokens, output_tokens,
+                    cache_read, cache_creation,
+                    cost_usd, num_turns, duration_ms,
                 ),
             )
             agent_run_id = cur.fetchone()[0]
@@ -1044,18 +1058,25 @@ def agent_run_complete():
             # Story-totals bijwerken (cost-monitor leest deze sommen).
             cur.execute(
                 """UPDATE factory.story_runs
-                   SET total_input_tokens  = total_input_tokens  + %s,
-                       total_output_tokens = total_output_tokens + %s
+                   SET total_input_tokens          = total_input_tokens          + %s,
+                       total_output_tokens         = total_output_tokens         + %s,
+                       total_cache_read_tokens     = total_cache_read_tokens     + %s,
+                       total_cache_creation_tokens = total_cache_creation_tokens + %s,
+                       total_cost_usd_est          = total_cost_usd_est          + %s
                    WHERE id = %s""",
-                (input_tokens, output_tokens, story_run_id),
+                (input_tokens, output_tokens, cache_read, cache_creation,
+                 cost_usd, story_run_id),
             )
 
             conn.commit()
 
         log.info(
-            "recorded agent_run %d (story=%s role=%s tokens=%d→%d events=%d)",
+            "recorded agent_run %d (story=%s role=%s tokens=%d→%d "
+            "cache_r=%d cache_c=%d cost=$%.4f turns=%d events=%d)",
             agent_run_id, story_key, role,
-            input_tokens, output_tokens, len(event_rows),
+            input_tokens, output_tokens,
+            cache_read, cache_creation, cost_usd, num_turns,
+            len(event_rows),
         )
         return jsonify({
             "ok": True,

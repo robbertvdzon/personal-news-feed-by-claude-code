@@ -73,8 +73,15 @@ def main() -> int:
         return 0
 
     events: list[dict] = []
+    # Velden uit het terminal `result`-event. Initialiseer op 0 zodat
+    # afwezige velden gewoon als 0 doorkomen in de DB.
     total_input = 0
     total_output = 0
+    cache_read = 0
+    cache_creation = 0
+    cost_usd = 0.0
+    num_turns = 0
+    duration_ms = 0
     outcome = os.environ.get("RUNNER_OUTCOME", "success")
 
     try:
@@ -96,11 +103,19 @@ def main() -> int:
                 kind = payload.get("type", "unknown") if isinstance(payload, dict) else "unknown"
                 events.append({"kind": kind, "payload": payload})
 
-                # Token-counts uit het terminal `result`-event.
+                # Token-counts + cost + meta uit het terminal `result`-event.
                 if isinstance(payload, dict) and payload.get("type") == "result":
                     usage = payload.get("usage") or {}
-                    total_input = int(usage.get("input_tokens", 0) or 0)
-                    total_output = int(usage.get("output_tokens", 0) or 0)
+                    total_input    = int(usage.get("input_tokens", 0) or 0)
+                    total_output   = int(usage.get("output_tokens", 0) or 0)
+                    cache_read     = int(usage.get("cache_read_input_tokens", 0) or 0)
+                    cache_creation = int(usage.get("cache_creation_input_tokens", 0) or 0)
+                    try:
+                        cost_usd = float(payload.get("total_cost_usd", 0.0) or 0.0)
+                    except (TypeError, ValueError):
+                        cost_usd = 0.0
+                    num_turns   = int(payload.get("num_turns", 0) or 0)
+                    duration_ms = int(payload.get("duration_ms", 0) or 0)
                     subtype = payload.get("subtype")
                     if subtype and outcome == "success":
                         outcome = subtype  # bv. 'success', 'error_max_turns', ...
@@ -121,6 +136,11 @@ def main() -> int:
         "outcome": outcome,
         "input_tokens": total_input,
         "output_tokens": total_output,
+        "cache_read_input_tokens": cache_read,
+        "cache_creation_input_tokens": cache_creation,
+        "cost_usd": cost_usd,
+        "num_turns": num_turns,
+        "duration_ms": duration_ms,
         "events": events,
     }
 
@@ -134,7 +154,9 @@ def main() -> int:
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT_SEC) as resp:
             print(f"[factory-report] OK ({resp.status}) — story={story_key} "
-                  f"tokens={total_input}→{total_output} events={len(events)}")
+                  f"tokens={total_input}→{total_output} cache_r={cache_read} "
+                  f"cache_c={cache_creation} cost=${cost_usd:.4f} "
+                  f"turns={num_turns} events={len(events)}")
         return 0
     except urllib.error.HTTPError as e:
         print(f"[factory-report] HTTP {e.code}: {e.reason}", file=sys.stderr)
