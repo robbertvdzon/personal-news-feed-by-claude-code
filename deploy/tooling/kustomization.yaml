@@ -37,7 +37,7 @@ resources:
 images:
 - name: ghcr.io/robbertvdzon/jira-poller
   newName: ghcr.io/robbertvdzon/jira-poller
-  newTag: sha-1dd097a
+  newTag: sha-415ad09
 - name: ghcr.io/robbertvdzon/status-dashboard
   newName: ghcr.io/robbertvdzon/status-dashboard
   newTag: sha-8bf52a0
