@@ -1132,6 +1132,40 @@ def process_one_pass() -> None:
         if _claim_and_spawn(issue, role="developer"):
             active += 1
 
+    # ── Stap 3: AI Queued + phase=awaiting-po → resume agent ─────────
+    # PO heeft een vraag beantwoord en de story op AI Queued gezet. We
+    # lezen `AI Resume Phase` (welke agent stond stil) en spawnen die
+    # opnieuw. Op dit moment is alleen 'refining' een resumebare phase
+    # — andere agents zetten geen awaiting-po (nog) — maar de mapping
+    # is generiek zodat reviewer/tester later vanzelf werken.
+    resume_map = {
+        "refining":  "refiner",
+        "developing": "developer",
+        "reviewing": "reviewer",
+        "testing":   "tester",
+    }
+    resumed = fetch_queued_with_phase("awaiting-po")
+    if resumed:
+        log.info(
+            "  %d issue(s) hervatten na PO-antwoord; active=%d/%d",
+            len(resumed), active, MAX_CONCURRENT_JOBS,
+        )
+    for issue in resumed:
+        if active >= MAX_CONCURRENT_JOBS:
+            log.info("  capacity bereikt — rest wacht op volgende poll")
+            return
+        ai = get_ai_fields(issue)
+        resume_phase = (ai.get("resume_phase") or "").strip()
+        role = resume_map.get(resume_phase)
+        if not role:
+            log.warning(
+                "  %s: phase=awaiting-po maar resume_phase=%r onbekend — skip",
+                issue["key"], resume_phase,
+            )
+            continue
+        if _claim_and_spawn(issue, role=role):
+            active += 1
+
 
 def _claim_and_spawn(issue: dict, role: str) -> bool:
     """Lees fields + schrijf defaults + transition → AI In Progress +

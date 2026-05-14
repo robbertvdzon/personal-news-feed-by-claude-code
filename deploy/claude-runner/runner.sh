@@ -150,17 +150,21 @@ Regels:
 - Geen vragen waar het antwoord 'zoals de bestaande feature X werkt' zou
   zijn — bouw die kennis zelf op door het repo te lezen.
 
-Antwoordformaat — schrijf op de LAATSTE regel van je antwoord EXACT één
-van deze twee JSON-objecten:
+Antwoordformaat — schrijf EERST 3-6 regels platte tekst die uitleggen
+WAAROM je deze keuze maakt (welke context heb je bekeken, welke
+aannames doe je, etc.). Die prose wordt als JIRA-comment getoond.
 
-  {\"phase\": \"refined\"}
+DAARNA op de LAATSTE regel EXACT één van deze twee JSON-objecten,
+op ÉÉN regel, ZONDER markdown code-fence (geen \`\`\`json):
+
+{\"phase\": \"refined\"}
 
 als alles helder is, OF:
 
-  {\"phase\": \"awaiting-po\", \"questions\": [\"vraag 1\", \"vraag 2\"]}
+{\"phase\": \"awaiting-po\", \"questions\": [\"vraag 1\", \"vraag 2\"]}
 
-bij open vragen. Geen extra tekst NA dit JSON-object. Daarboven mag je
-kort motiveren waarom je deze keuze maakt."
+bij open vragen. Geen extra tekst NA dit JSON-object. Géén newlines
+binnen het JSON-object. Geen indent. Plain one-liner."
     ;;
 
   developer|*)
@@ -292,10 +296,46 @@ rm -f /work/repo/.task.md
 if [[ "${AGENT_ROLE:-developer}" == "refiner" ]]; then
   echo "[runner] role=refiner — parse outcome + post JIRA"
 
-  # De refiner-system-prompt eindigt met een JSON-object op de laatste
-  # regel van het terminal `result`-event. We extraheren 'm met jq.
+  # De refiner-system-prompt eindigt met een JSON-object met 'phase'.
+  # Extractie is bewust robuust: we accepteren multi-line JSON, JSON
+  # binnen ```json-code-fences, en nemen het LAATSTE valide object met
+  # 'phase'-veld als de echte outcome. Python doet de brace-matching
+  # en json.loads-validatie.
+  #
+  # `|| true` bovenop de pipe: ook bij parse-failure mag de runner
+  # niet uit set -euo pipefail dood gaan. Lege output → fallback hieronder.
   OUTCOME_JSON=$(jq -r 'select(.type == "result") | .result // ""' \
-    /tmp/claude.log.jsonl 2>/dev/null | tail -1 | grep -oE '\{[^}]*"phase"[^}]*\}' | tail -1)
+    /tmp/claude.log.jsonl 2>/dev/null | python3 -c '
+import sys, re, json
+text = sys.stdin.read()
+# Strip eventuele ```json/``` code-fences.
+text = re.sub(r"```(?:json)?\s*", "", text)
+text = re.sub(r"```", "", text)
+# Vind alle balanced { … } objecten en pak de laatste met "phase".
+candidates = []
+i = 0
+while i < len(text):
+    if text[i] == "{":
+        depth = 0
+        for j in range(i, len(text)):
+            if text[j] == "{": depth += 1
+            elif text[j] == "}":
+                depth -= 1
+                if depth == 0:
+                    candidate = text[i:j+1]
+                    try:
+                        obj = json.loads(candidate)
+                        if isinstance(obj, dict) and "phase" in obj:
+                            candidates.append(json.dumps(obj))
+                    except json.JSONDecodeError:
+                        pass
+                    i = j
+                    break
+        else:
+            break
+    i += 1
+print(candidates[-1] if candidates else "")
+' 2>/dev/null || true)
 
   if [[ -z "$OUTCOME_JSON" ]]; then
     echo "[runner] geen geldig JSON-outcome gevonden — markeer als awaiting-po met fallback-vraag"
