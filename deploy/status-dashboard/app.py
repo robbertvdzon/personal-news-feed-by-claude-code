@@ -30,7 +30,7 @@ from html import escape
 from typing import Optional
 
 import requests
-from flask import Flask, Response
+from flask import Flask, Response, redirect, request
 
 # psycopg v3 voor de factory-DB (token/cost-lookups, timeline-page).
 # Soft import zodat dashboard ook draait als pakket-build nog niet door is.
@@ -1905,6 +1905,44 @@ def _render_story_page(
     links_html += '</div>'
     links_html += '</div>'
 
+    # Commando-knoppen — schrijven een @claude:command:<cmd> comment naar
+    # JIRA; de poller voert 't binnen één tick (30s) uit. Delete + re-
+    # implement zijn destructief, dus die hebben een JS-confirm.
+    def _btn(cmd: str, label: str, danger: bool, confirm: bool) -> str:
+        confirm_attr = ""
+        if confirm:
+            msg = f"Weet je zeker dat je &apos;{cmd}&apos; wilt uitvoeren op {key}? Dit is niet ongedaan te maken."
+            confirm_attr = f' onsubmit="return confirm(\'{msg}\');"'
+        klass = "cmd-btn danger" if danger else "cmd-btn"
+        return (
+            f'<form method="POST" action="/story/{escape(key)}/cmd/{cmd}" '
+            f'style="display:inline"{confirm_attr}>'
+            f'<button class="{klass}" type="submit">{escape(label)}</button>'
+            f'</form>'
+        )
+
+    cmd_banner = ""
+    flash_cmd = request.args.get("cmd") if request else None
+    if flash_cmd:
+        cmd_banner = (
+            f'<div class="cmd-flash">Commando &apos;{escape(flash_cmd)}&apos; '
+            f'gepost naar JIRA — poller pakt het op in de volgende tick.</div>'
+        )
+    cmds_html = (
+        '<div class="commands-card">'
+        f'{cmd_banner}'
+        '<div class="commands-title">@claude:command — handmatige acties</div>'
+        f'{_btn("pause", "⏸ Pause", danger=False, confirm=False)} '
+        f'{_btn("merge", "✓ Merge (squash)", danger=False, confirm=True)} '
+        f'{_btn("delete", "🗑 Delete (cancel)", danger=True, confirm=True)} '
+        f'{_btn("re-implement", "↻ Re-implement", danger=True, confirm=True)}'
+        '<div class="commands-hint">'
+        'Je kunt deze ook in JIRA als comment posten: '
+        '<code>@claude:command:&lt;cmd&gt; - optionele uitleg</code>'
+        '</div>'
+        '</div>'
+    )
+
     # PR's
     prs = prs or []
     if prs:
@@ -1983,12 +2021,30 @@ def _render_story_page(
                               font-size: 14px; }}
     .links-card a {{ color: #4a9eff; text-decoration: none; }}
     .links-card a:hover {{ text-decoration: underline; }}
+    .commands-card {{ background: #1a2029; border: 1px solid #2c3340;
+                      border-radius: 8px; padding: 12px 16px; margin: 12px 0; }}
+    .commands-title {{ font-size: 14px; color: #8b96a8; margin-bottom: 8px; }}
+    .cmd-btn {{ background: #2c3340; color: #e4e6eb;
+                border: 1px solid #3a414f; border-radius: 6px;
+                padding: 6px 12px; font-size: 13px; cursor: pointer;
+                margin-right: 4px; }}
+    .cmd-btn:hover {{ background: #3a414f; }}
+    .cmd-btn.danger {{ background: #3a1a1a; border-color: #7f1d1d;
+                       color: #fecaca; }}
+    .cmd-btn.danger:hover {{ background: #7f1d1d; }}
+    .commands-hint {{ font-size: 12px; color: #6f7a8a; margin-top: 8px; }}
+    .commands-hint code {{ background: #11151c; padding: 2px 5px;
+                            border-radius: 3px; }}
+    .cmd-flash {{ background: #052e16; color: #a7f3d0;
+                  border: 1px solid #065f46; border-radius: 6px;
+                  padding: 8px 12px; margin-bottom: 10px; font-size: 13px; }}
   </style>
 </head>
 <body>
   <h1>Story {escape(key)}</h1>
   <p><a href="/">← dashboard</a> · <a href="/stories">alle stories →</a></p>
   {links_html}
+  {cmds_html}
   <div class="meta">
     Gestart: {escape(_fmt_ts(data["started_at"]))}
     · Final status: <strong>{escape(final)}</strong>
@@ -2698,6 +2754,56 @@ def _jira_fetch_issue_title(key: str) -> str:
         return (r.json().get("fields") or {}).get("summary") or ""
     except requests.RequestException:
         return ""
+
+
+_VALID_COMMANDS = {"delete", "merge", "pause", "re-implement"}
+
+
+def _post_jira_command_comment(key: str, command: str) -> bool:
+    """Post een @claude:command:<cmd>-comment naar JIRA. De poller pikt
+    'm op in de volgende tick en voert 't commando uit."""
+    if not (JIRA_BASE_URL and JIRA_EMAIL and JIRA_API_KEY):
+        return False
+    body_text = f"@claude:command:{command} (via dashboard)"
+    adf = {
+        "body": {
+            "type": "doc",
+            "version": 1,
+            "content": [{
+                "type": "paragraph",
+                "content": [{"type": "text", "text": body_text}],
+            }],
+        }
+    }
+    try:
+        r = _jira_session.post(
+            f"{JIRA_BASE_URL}/rest/api/3/issue/{key}/comment",
+            json=adf,
+            headers={"Content-Type": "application/json"},
+            timeout=10,
+        )
+    except requests.RequestException as e:
+        log.warning("post command-comment %s/%s faalde: %s", key, command, e)
+        return False
+    return r.status_code in (200, 201)
+
+
+@app.route("/story/<key>/cmd/<command>", methods=["POST"])
+def story_command(key: str, command: str) -> Response:
+    """Schrijf een @claude:command:<cmd>-comment in de JIRA-story zodat
+    de poller 't oppakt. Geen directe actie hier — alle execution loopt
+    via de poller (single path)."""
+    if not _STORY_KEY_RE.match(key):
+        return Response("Ongeldige story-key.", status=400, mimetype="text/plain")
+    if command not in _VALID_COMMANDS:
+        return Response(f"Onbekend commando: {command}", status=400, mimetype="text/plain")
+    if not _post_jira_command_comment(key, command):
+        return Response(
+            f"Comment-post voor commando '{command}' faalde. Check de log.",
+            status=502, mimetype="text/plain",
+        )
+    # Terug naar de detail-page met een banner-flag.
+    return redirect(f"/story/{key}?cmd={command}", code=303)
 
 
 @app.route("/story/<key>/handover")

@@ -416,6 +416,7 @@ def fetch_jira_comments(issue_key: str, limit: int = 50) -> list[dict]:
     out: list[dict] = []
     for c in r.json().get("comments", []):
         out.append({
+            "id":      c.get("id") or "",
             "author":  (c.get("author") or {}).get("displayName") or "?",
             "created": c.get("created") or "",
             "text":    adf_to_markdown(c.get("body")).strip(),
@@ -1114,6 +1115,269 @@ def process_pr_comments() -> None:
 # ─── Merge-check (AI IN REVIEW → Klaar) ───────────────────────────────────
 
 
+# ─── @claude:command:* — handmatige acties via JIRA-comments ──────────
+#
+# PO kan vanuit een story-comment een actie triggeren door
+# '@claude:command:<cmd>' (gevolgd door spatie of einde-tekst) te
+# plaatsen. Vier commando's:
+#   delete       : kill jobs, sluit PR + branch, delete pnf-pr-namespace,
+#                  prepend '(CANCELLED) ' aan title, status → Gereed
+#   merge        : merge PR squash, kill jobs, delete namespace
+#                  (status volgt via bestaande merge-detect)
+#   pause        : kill jobs, status → AI Paused
+#   re-implement : kill jobs, sluit PR + branch, delete namespace,
+#                  delete bot-comments, status → To Do
+#
+# Idempotency: na uitvoering appenden we '_[factory] commando uitgevoerd_'
+# aan de comment-body. Comments met die marker worden geskipt.
+
+CMD_PATTERN = re.compile(r"@claude:command:([\w-]+)(?:\s|$)")
+CMD_DONE_MARKER = "_[factory] commando uitgevoerd_"
+VALID_COMMANDS = {"delete", "merge", "pause", "re-implement"}
+BOT_COMMENT_PATTERNS = (
+    re.compile(r"^\s*\[(REFINER|DEVELOPER|REVIEWER|TESTER)\]"),
+    re.compile(r"^\s*🤖"),
+    re.compile(r"^\s*✅"),
+    re.compile(r"^\s*📸"),
+)
+
+
+def _is_bot_comment(text: str) -> bool:
+    head = text.strip()
+    return any(p.match(head) for p in BOT_COMMENT_PATTERNS)
+
+
+def kill_runner_jobs_for_story(story_key: str) -> int:
+    """Hard-kill alle nog-lopende runner-Jobs voor een story.
+    Returns aantal verwijderde Jobs (best-effort)."""
+    short = sanitize_id(story_key)
+    out = kubectl(
+        "delete", "jobs",
+        "-n", RUNNER_NAMESPACE,
+        "-l", f"app=claude-runner,story-id={short}",
+        "--ignore-not-found=true",
+        check=False,
+    )
+    return out.stdout.count("deleted") if out.stdout else 0
+
+
+def close_pr_for_story(story_key: str) -> Optional[int]:
+    """Sluit de PR voor ai/<key> + verwijder branch (best-effort).
+    Returns PR-number of None (geen PR / al gesloten)."""
+    branch = f"ai/{story_key}"
+    pr = github_pr_for_branch(branch)
+    if not pr:
+        return None
+    num = pr["number"]
+    if pr.get("state") == "closed":
+        return num
+    r = gh_request(
+        "PATCH",
+        f"/repos/{GITHUB_OWNER}/{GITHUB_REPO}/pulls/{num}",
+        json_body={"state": "closed"},
+    )
+    if r and r.status_code in (200, 201):
+        # Branch ook verwijderen (best-effort).
+        gh_request(
+            "DELETE",
+            f"/repos/{GITHUB_OWNER}/{GITHUB_REPO}/git/refs/heads/{branch}",
+        )
+    return num
+
+
+def merge_pr_for_story(story_key: str) -> Optional[int]:
+    """Squash-merge de PR voor ai/<key> + verwijder branch. Returns
+    PR-number of None bij faal/no-PR."""
+    branch = f"ai/{story_key}"
+    pr = github_pr_for_branch(branch)
+    if not pr:
+        return None
+    num = pr["number"]
+    if pr.get("merged_at"):
+        return num  # idempotent
+    r = gh_request(
+        "PUT",
+        f"/repos/{GITHUB_OWNER}/{GITHUB_REPO}/pulls/{num}/merge",
+        json_body={"merge_method": "squash"},
+    )
+    if not r or r.status_code not in (200,):
+        log.warning("merge #%d faalde: %s", num, getattr(r, "status_code", "no-resp"))
+        return None
+    gh_request(
+        "DELETE",
+        f"/repos/{GITHUB_OWNER}/{GITHUB_REPO}/git/refs/heads/{branch}",
+    )
+    return num
+
+
+def delete_preview_namespace(pr_number: int) -> None:
+    """oc delete namespace pnf-pr-N (best-effort, --ignore-not-found)."""
+    ns = f"pnf-pr-{pr_number}"
+    kubectl(
+        "delete", "namespace", ns,
+        "--ignore-not-found=true",
+        "--wait=false",
+        check=False,
+    )
+
+
+def prepend_cancelled_to_title(issue_key: str) -> None:
+    """Voeg '(CANCELLED) '-prefix toe aan de issue-titel (idempotent)."""
+    r = jira("GET", f"/rest/api/3/issue/{issue_key}",
+             params={"fields": "summary"})
+    if r.status_code != 200:
+        return
+    current = (r.json().get("fields") or {}).get("summary") or ""
+    if current.startswith("(CANCELLED) "):
+        return
+    jira(
+        "PUT",
+        f"/rest/api/3/issue/{issue_key}",
+        json={"fields": {"summary": "(CANCELLED) " + current}},
+        headers={"Content-Type": "application/json"},
+    )
+
+
+def delete_bot_comments(issue_key: str) -> int:
+    """Verwijder alle bot-comments (refiner/developer/reviewer/tester +
+    🤖/✅/📸). Returns aantal verwijderd."""
+    comments = fetch_jira_comments(issue_key, limit=100)
+    deleted = 0
+    for c in comments:
+        if not _is_bot_comment(c.get("text", "")):
+            continue
+        cid = c.get("id")
+        if not cid:
+            continue
+        r = jira("DELETE", f"/rest/api/3/issue/{issue_key}/comment/{cid}")
+        if r.status_code in (200, 204):
+            deleted += 1
+    return deleted
+
+
+def mark_command_handled(issue_key: str, comment_id: str, body: str) -> None:
+    """Append marker aan comment-body via PUT zodat we niet 2× verwerken."""
+    new_body = body.rstrip() + f"\n\n{CMD_DONE_MARKER}"
+    r = jira(
+        "PUT",
+        f"/rest/api/3/issue/{issue_key}/comment/{comment_id}",
+        json={"body": {
+            "type": "doc",
+            "version": 1,
+            "content": [adf_paragraph(adf_text(new_body))],
+        }},
+        headers={"Content-Type": "application/json"},
+    )
+    if r.status_code not in (200, 201):
+        log.warning("kon comment %s niet markeren: %s", comment_id, r.status_code)
+
+
+def execute_story_command(issue_key: str, command: str) -> str:
+    """Voer één commando uit. Returnt korte resultaat-string voor de log."""
+    log.info("[cmd] %s: %s", issue_key, command)
+
+    if command == "pause":
+        killed = kill_runner_jobs_for_story(issue_key)
+        transition_issue(issue_key, "AI Paused")
+        return f"jobs={killed}, status → AI Paused"
+
+    if command == "delete":
+        killed = kill_runner_jobs_for_story(issue_key)
+        pr_num = close_pr_for_story(issue_key)
+        if pr_num:
+            delete_preview_namespace(pr_num)
+        prepend_cancelled_to_title(issue_key)
+        jira_post_comment(issue_key, "canceled by user")
+        transition_issue(issue_key, JIRA_DONE_STATUS)
+        return (
+            f"jobs={killed}, pr={pr_num or '-'}, ns gewist, "
+            f"title prefix, status → {JIRA_DONE_STATUS}"
+        )
+
+    if command == "merge":
+        # Merge eerst (mocht 't falen, willen we niet alvast jobs killen +
+        # namespace deleten en met half resultaat eindigen).
+        pr_num = merge_pr_for_story(issue_key)
+        if pr_num is None:
+            return "merge faalde / geen PR — geen verdere actie"
+        killed = kill_runner_jobs_for_story(issue_key)
+        delete_preview_namespace(pr_num)
+        return (
+            f"pr #{pr_num} merged squash, jobs={killed}, ns gewist "
+            "(status volgt via merge-detect)"
+        )
+
+    if command == "re-implement":
+        killed = kill_runner_jobs_for_story(issue_key)
+        pr_num = close_pr_for_story(issue_key)
+        if pr_num:
+            delete_preview_namespace(pr_num)
+        deleted_comments = delete_bot_comments(issue_key)
+        transition_issue(issue_key, "To Do")
+        return (
+            f"jobs={killed}, pr={pr_num or '-'}, ns gewist, "
+            f"bot-comments verwijderd={deleted_comments}, status → To Do"
+        )
+
+    return f"onbekend commando: {command}"
+
+
+def process_story_commands() -> None:
+    """Scan alle stories op @claude:command-comments en voer uit.
+
+    Idempotent: comments met CMD_DONE_MARKER worden geskipt. Een
+    bevestigings-comment '[factory] commando uitgevoerd: <result>' wordt
+    naast de marker geplakt zodat de PO de bevestiging ziet.
+    """
+    # Welke statussen scannen we? Alles wat niet 'Gereed' is — een
+    # gemergede story kan nog een laat commando hebben maar dat is
+    # zeldzaam; voor v1 scannen we alleen actieve issues.
+    statuses = ",".join(
+        f'"{s}"'
+        for s in (
+            "AI Ready", "AI Queued", "AI IN PROGRESS",
+            "AI IN REVIEW", "AI Needs Info", "AI Paused",
+            "To Do",
+        )
+    )
+    jql = f"project={JIRA_PROJECT} AND status in ({statuses})"
+    r = jira(
+        "GET", "/rest/api/3/search/jql",
+        params={"jql": jql, "fields": "summary", "maxResults": "100"},
+    )
+    if r.status_code != 200:
+        return
+    for issue in r.json().get("issues", []):
+        key = issue["key"]
+        try:
+            comments = fetch_jira_comments(key, limit=100)
+        except Exception as e:
+            log.warning("comment-fetch %s faalde: %s", key, e)
+            continue
+        for c in comments:
+            text = c.get("text", "")
+            if CMD_DONE_MARKER in text:
+                continue
+            m = CMD_PATTERN.search(text)
+            if not m:
+                continue
+            cmd = m.group(1).lower()
+            if cmd not in VALID_COMMANDS:
+                continue
+            try:
+                result = execute_story_command(key, cmd)
+            except Exception as e:
+                log.exception("commando %s op %s faalde: %s", cmd, key, e)
+                result = f"FOUT: {e}"
+            mark_command_handled(key, c["id"], text)
+            try:
+                jira_post_comment(
+                    key, f"[factory] commando '{cmd}' uitgevoerd: {result}"
+                )
+            except Exception:
+                pass
+
+
 def check_review_for_merges() -> None:
     """
     Loop over alle issues in `JIRA_REVIEW_STATUS`. Voor elk:
@@ -1172,7 +1436,15 @@ def check_review_for_merges() -> None:
 
 
 def process_one_pass() -> None:
-    # Eerst: AI IN REVIEW → kijken of er gemergede PR's zijn (cheap call).
+    # Allereerst: handmatige @claude:command:*-acties uit JIRA-comments.
+    # Doen we vóór alle andere stappen zodat een 'pause' of 'delete'
+    # niet daarna nog een spawn triggert in dezelfde tick.
+    try:
+        process_story_commands()
+    except Exception as e:
+        log.exception("command-processor faalde: %s", e)
+
+    # AI IN REVIEW → kijken of er gemergede PR's zijn (cheap call).
     try:
         check_review_for_merges()
     except Exception as e:
