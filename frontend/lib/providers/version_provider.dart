@@ -18,6 +18,8 @@ import 'auth_provider.dart';
 ///   waarde.
 @immutable
 class VersionState {
+  static const Object _unset = Object();
+
   final VersionInfo frontend;
   final VersionInfo? backend;
   final String? bundleBackendSha;
@@ -34,14 +36,14 @@ class VersionState {
   VersionState copyWith({
     VersionInfo? backend,
     String? bundleBackendSha,
-    String? dismissedSha,
+    Object? dismissedSha = _unset,
     bool? updateAvailable,
   }) =>
       VersionState(
         frontend: frontend,
         backend: backend ?? this.backend,
         bundleBackendSha: bundleBackendSha ?? this.bundleBackendSha,
-        dismissedSha: dismissedSha ?? this.dismissedSha,
+        dismissedSha: dismissedSha == _unset ? this.dismissedSha : dismissedSha as String?,
         updateAvailable: updateAvailable ?? this.updateAvailable,
       );
 }
