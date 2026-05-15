@@ -195,42 +195,61 @@ class _LinksRow extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Eerste open PR voor preview-URL.
     final pr = prs.isNotEmpty ? prs.first : null;
     final prNum = pr?['number'];
     final previewUrl = prNum != null
         ? 'https://pnf-pr-$prNum.vdzonsoftware.nl'
         : null;
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: [
-        OutlinedButton.icon(
-          icon: const Icon(Icons.open_in_new, size: 16),
-          label: const Text('JIRA'),
-          onPressed: () => launchUrl(
-              Uri.parse('https://vdzon.atlassian.net/browse/$storyKey')),
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'LINKS',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.4,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.open_in_new, size: 16),
+                  label: const Text('JIRA'),
+                  onPressed: () => launchUrl(
+                      Uri.parse('https://vdzon.atlassian.net/browse/$storyKey')),
+                ),
+                if (pr != null)
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.merge_type, size: 16),
+                    label: Text('PR #${pr['number']}'),
+                    onPressed: () => launchUrl(Uri.parse(pr['html_url'] as String)),
+                  ),
+                if (previewUrl != null)
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.science, size: 16),
+                    label: const Text('Test op preview'),
+                    onPressed: () => launchUrl(Uri.parse(previewUrl)),
+                  ),
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.assignment_outlined, size: 16),
+                  label: const Text('Briefing'),
+                  onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => StoryHandoverScreen(storyKey: storyKey),
+                  )),
+                ),
+              ],
+            ),
+          ],
         ),
-        if (pr != null)
-          OutlinedButton.icon(
-            icon: const Icon(Icons.merge_type, size: 16),
-            label: Text('PR #${pr['number']}'),
-            onPressed: () => launchUrl(Uri.parse(pr['html_url'] as String)),
-          ),
-        if (previewUrl != null)
-          FilledButton.icon(
-            icon: const Icon(Icons.science, size: 16),
-            label: const Text('Test op preview'),
-            onPressed: () => launchUrl(Uri.parse(previewUrl)),
-          ),
-        OutlinedButton.icon(
-          icon: const Icon(Icons.assignment_outlined, size: 16),
-          label: const Text('Briefing'),
-          onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-            builder: (_) => StoryHandoverScreen(storyKey: storyKey),
-          )),
-        ),
-      ],
+      ),
     );
   }
 }
