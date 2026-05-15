@@ -19,6 +19,7 @@ class StoryDetailScreen extends ConsumerWidget {
     final asyncDetail = ref.watch(storyDetailProvider(storyKey));
     final asyncActive = ref.watch(activeJobProvider(storyKey));
     final asyncQuestion = ref.watch(poQuestionProvider(storyKey));
+    final asyncHome = ref.watch(homeStateProvider);
     return Scaffold(
       appBar: AppBar(
         title: Text(storyKey),
@@ -35,6 +36,7 @@ class StoryDetailScreen extends ConsumerWidget {
             onPressed: () {
               ref.invalidate(storyDetailProvider(storyKey));
               ref.invalidate(poQuestionProvider(storyKey));
+              ref.invalidate(homeStateProvider);
             },
           ),
         ],
@@ -45,9 +47,22 @@ class StoryDetailScreen extends ConsumerWidget {
         data: (detail) {
           final activeJob = asyncActive.maybeWhen(data: (a) => a, orElse: () => null);
           final question = asyncQuestion.maybeWhen(data: (q) => q, orElse: () => null);
+          final home = asyncHome.maybeWhen(data: (h) => h, orElse: () => null);
+          // Pipeline-phases zitten op de PrCard in home-state; matchen op
+          // PR-nummer uit detail.prs.first.
+          PrCard? prCard;
+          if (home != null && detail.prs.isNotEmpty) {
+            final prNum = (detail.prs.first['number'] as num?)?.toInt();
+            if (prNum != null) {
+              for (final p in home.openPrs) {
+                if (p.number == prNum) { prCard = p; break; }
+              }
+            }
+          }
           return _DetailBody(
             storyKey: storyKey, detail: detail, ref: ref,
             activeJob: activeJob, question: question,
+            prCard: prCard,
           );
         },
       ),
@@ -62,12 +77,14 @@ class _DetailBody extends StatelessWidget {
   final WidgetRef ref;
   final ActiveAgentJob? activeJob;
   final PoQuestion? question;
+  final PrCard? prCard;
   const _DetailBody({
     required this.storyKey,
     required this.detail,
     required this.ref,
     required this.activeJob,
     required this.question,
+    required this.prCard,
   });
 
   @override
@@ -107,6 +124,11 @@ class _DetailBody extends StatelessWidget {
         _LinksRow(storyKey: storyKey, prs: detail.prs),
         const SizedBox(height: 16),
         _CommandsCard(storyKey: storyKey, ref: ref),
+        const SizedBox(height: 16),
+        _DeployCard(
+          prCard: prCard,
+          latestCommit: detail.commits.isNotEmpty ? detail.commits.first : null,
+        ),
         const SizedBox(height: 16),
         InfoTable(
           title: 'OVERZICHT',
@@ -615,6 +637,228 @@ class _AgentRunTile extends StatelessWidget {
                 builder: (_) => RunnerLogScreen(jobName: run.jobName),
               )),
             ),
+    );
+  }
+}
+
+class _DeployCard extends StatelessWidget {
+  final PrCard? prCard;
+  final Map<String, dynamic>? latestCommit;
+  const _DeployCard({required this.prCard, required this.latestCommit});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'DEPLOY',
+              style: TextStyle(
+                color: scheme.onSurfaceVariant,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.4,
+              ),
+            ),
+            const SizedBox(height: 10),
+            if (latestCommit != null) _LatestCommitRow(commit: latestCommit!),
+            if (latestCommit != null) const SizedBox(height: 10),
+            if (prCard == null || prCard!.phases.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Text(
+                  prCard == null
+                      ? 'Geen open PR gevonden (al gemerged of nog niet aangemaakt).'
+                      : 'Pipeline-status nog niet beschikbaar.',
+                  style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant),
+                ),
+              )
+            else
+              _PhasesTable(phases: prCard!.phases),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LatestCommitRow extends StatelessWidget {
+  final Map<String, dynamic> commit;
+  const _LatestCommitRow({required this.commit});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final fullSha = commit['sha'] as String? ?? '';
+    final sha = fullSha.length >= 7 ? fullSha.substring(0, 7) : fullSha;
+    final commitData = (commit['commit'] as Map?) ?? {};
+    final msg = (commitData['message'] as String? ?? '').split('\n').first;
+    final when = ((commitData['author'] as Map?) ?? {})['date'] as String? ?? '';
+    final url = commit['html_url']?.toString() ?? '';
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: url.isEmpty ? null : () => launchUrl(Uri.parse(url)),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+        child: Row(
+          children: [
+            Icon(Icons.commit, size: 18, color: scheme.onSurfaceVariant),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Laatste commit',
+                      style: TextStyle(
+                          fontSize: 11,
+                          color: scheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.3)),
+                  Text(msg.isEmpty ? '—' : msg,
+                      style: const TextStyle(fontSize: 13),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis),
+                  Text(
+                    sha.isEmpty ? formatTs(when) : '$sha · ${formatTs(when)}',
+                    style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
+                  ),
+                ],
+              ),
+            ),
+            if (url.isNotEmpty)
+              Icon(Icons.open_in_new, size: 14, color: scheme.onSurfaceVariant),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PhasesTable extends StatelessWidget {
+  final List<Map<String, dynamic>> phases;
+  const _PhasesTable({required this.phases});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: scheme.outlineVariant),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+            child: Row(
+              children: const [
+                Expanded(flex: 3, child: _ColHdr('Onderdeel')),
+                Expanded(flex: 2, child: _ColHdr('Status')),
+                Expanded(flex: 3, child: _ColHdr('Detail')),
+                Expanded(flex: 2, child: _ColHdr('Sinds')),
+              ],
+            ),
+          ),
+          Divider(height: 1, color: scheme.outlineVariant),
+          for (int i = 0; i < phases.length; i++) ...[
+            if (i > 0) Divider(height: 1, color: scheme.outlineVariant),
+            _PhaseRow(phase: phases[i]),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _ColHdr extends StatelessWidget {
+  final String text;
+  const _ColHdr(this.text);
+  @override
+  Widget build(BuildContext context) {
+    return Text(text.toUpperCase(),
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+          letterSpacing: 0.4,
+        ));
+  }
+}
+
+class _PhaseRow extends StatelessWidget {
+  final Map<String, dynamic> phase;
+  const _PhaseRow({required this.phase});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final label = (phase['label'] as String?) ?? '';
+    final status = (phase['status'] as String?) ?? '';
+    final detail = (phase['detail'] as String?) ?? '';
+    final since = (phase['since'] as String?) ?? '';
+    final link = (phase['link'] as String?) ?? '';
+    final ok = status == 'pass';
+    final running = status == 'running';
+    final fail = status == 'fail';
+    final color = ok
+        ? const Color(0xFF1E6B3E)
+        : (running
+            ? const Color(0xFF1E40AF)
+            : (fail ? const Color(0xFF991B1B) : const Color(0xFF6B7280)));
+    final icon = ok
+        ? Icons.check_circle_outline
+        : (running
+            ? Icons.sync
+            : (fail ? Icons.error_outline : Icons.radio_button_unchecked));
+    return InkWell(
+      onTap: link.isEmpty ? null : () => launchUrl(Uri.parse(link)),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+        child: Row(
+          children: [
+            Expanded(
+              flex: 3,
+              child: Text(label,
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+            ),
+            Expanded(
+              flex: 2,
+              child: Row(
+                children: [
+                  Icon(icon, size: 14, color: color),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      ok ? 'Pass' : (running ? 'Running' : (fail ? 'Failed' : 'Pending')),
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: color),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              flex: 3,
+              child: Text(
+                detail.isEmpty ? '—' : detail,
+                style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            Expanded(
+              flex: 2,
+              child: Text(
+                since.isEmpty ? '—' : '$since geleden',
+                style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

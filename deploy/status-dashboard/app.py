@@ -3382,6 +3382,7 @@ def _pr_card_to_dict(c) -> dict:
         "number": c.number, "title": c.title, "html_url": c.html_url,
         "branch": c.branch, "head_sha": c.head_sha, "author": c.author,
         "updated_age": c.updated_age, "preview_url": c.preview_url,
+        "last_commit_age": c.last_commit_age,
         "phases": [_phase_to_dict(p) for p in c.phases],
         "jira_status": c.jira_status,
         "ai_phase": c.ai_phase,
