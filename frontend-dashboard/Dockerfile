@@ -27,6 +27,18 @@ RUN flutter build web --release \
       --dart-define=API_BASE_URL=${API_BASE_URL} \
       --dart-define=BUILD_SHA=${BUILD_SHA}
 
+# Content-hash main.dart.js zodat browser-/CDN-cache nooit oude versie
+# blijft serveren bij een nieuwe deploy. flutter_bootstrap.js verwijst
+# naar main.dart.js — we patchen die referentie naar de gehashte naam.
+# index.html zelf blijft no-cache (door nginx); de hashed main.dart.js
+# kan dan immutable-cache krijgen.
+RUN cd build/web \
+    && HASH=$(sha1sum main.dart.js | cut -c1-12) \
+    && mv main.dart.js "main.${HASH}.dart.js" \
+    && sed -i "s|main\.dart\.js|main.${HASH}.dart.js|g" flutter_bootstrap.js \
+    && sed -i "s|main\.dart\.js|main.${HASH}.dart.js|g" flutter_service_worker.js \
+    && echo "main.dart.js hashed to main.${HASH}.dart.js"
+
 # APK build — debug-signed (default Flutter debug-key). Voldoende voor
 # 'install via Unknown Sources' op je eigen toestel.
 RUN flutter build apk --debug \
