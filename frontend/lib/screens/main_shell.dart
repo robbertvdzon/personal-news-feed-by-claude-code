@@ -26,7 +26,7 @@ class _MainShellState extends ConsumerState<MainShell> {
     NavigationDestination(icon: Icon(Icons.dynamic_feed), label: 'Feed'),
     NavigationDestination(icon: Icon(Icons.rss_feed), label: 'RSS'),
     NavigationDestination(icon: Icon(Icons.podcasts), label: 'Podcast'),
-    NavigationDestination(icon: Icon(Icons.settings), label: 'Settings'),
+    NavigationDestination(icon: Icon(Icons.settings), label: 'instellingen'),
   ];
 
   @override

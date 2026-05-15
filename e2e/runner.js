@@ -153,7 +153,7 @@ async function startScenario(app, api) {
 
     // Settings-tab — bevat ook de "Achtergrond-taken"-sectie waar de hourly
     // update handmatig getriggerd kan worden (er is geen Queue-tab meer).
-    await gotoTab(app, 'Settings');
+    await gotoTab(app, 'instellingen');
     await app.shot('start-05-settings');
 
     // Trigger uurlijkse update via REST: vind het hourly-request en rerun.
@@ -257,7 +257,7 @@ async function samenvattingScenario(app, api) {
   try {
     // De handmatige trigger zit nu onder Settings → Achtergrond-taken;
     // de actie zelf gaat via REST, de tab-switch is alleen voor screenshot.
-    await gotoTab(app, 'Settings');
+    await gotoTab(app, 'instellingen');
     await app.shot('summary-01-settings');
 
     const requests = await api.listNewsRequests();
