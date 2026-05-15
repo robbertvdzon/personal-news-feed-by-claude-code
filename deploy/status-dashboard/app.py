@@ -751,6 +751,16 @@ class ClosedCard:
     title: str
     html_url: str
     merged_age: str
+    branch: str = ""
+    merged_at: str = ""           # ISO-timestamp
+    head_sha: str = ""
+    story_key: str = ""           # leeg als branch geen ai/<KEY> patroon volgt
+    # Factory-DB totalen (alleen ingevuld als story_key matcht):
+    tokens_input: int = 0
+    tokens_output: int = 0
+    tokens_cache_read: int = 0
+    cost_usd: float = 0.0
+    run_count: int = 0
 
 
 @dataclass
@@ -1348,14 +1358,33 @@ def build_state() -> dict:
     # Recent gemerged (laatste 24u)
     closed_cards: list[ClosedCard] = []
     for pr in gh_list_recent_closed_prs(10):
+        branch = (pr.get("head") or {}).get("ref", "")
+        m = _JIRA_BRANCH_RE.match(branch)
+        story_key = m.group(1) if m else ""
         closed_cards.append(
             ClosedCard(
                 number=pr["number"],
                 title=pr.get("title", ""),
                 html_url=pr.get("html_url", ""),
                 merged_age=_ago(pr.get("merged_at", "")),
+                branch=branch,
+                merged_at=pr.get("merged_at", "") or "",
+                head_sha=(pr.get("head") or {}).get("sha", ""),
+                story_key=story_key,
             )
         )
+    # Factory-DB totalen ophalen voor closed-PR story-keys + verrijken.
+    closed_keys = sorted({c.story_key for c in closed_cards if c.story_key})
+    if closed_keys:
+        closed_totals = factory_totals_by_story(closed_keys)
+        for c in closed_cards:
+            if c.story_key in closed_totals:
+                t = closed_totals[c.story_key]
+                c.tokens_input = t["input"]
+                c.tokens_output = t["output"]
+                c.tokens_cache_read = t["cache_read"]
+                c.cost_usd = t["cost_usd"]
+                c.run_count = t.get("run_count", 0)
 
     state = {
         "main": main_card,
@@ -3342,8 +3371,17 @@ def _state_to_dict(state: dict) -> dict:
         "ai_active": [_jira_card_to_dict(c) for c in state.get("ai_active", [])],
         "open_prs":  [_pr_card_to_dict(c)   for c in state.get("open_prs", [])],
         "closed_prs": [
-            {"number": c.number, "title": c.title,
-             "html_url": c.html_url, "merged_age": c.merged_age}
+            {
+                "number": c.number, "title": c.title,
+                "html_url": c.html_url, "merged_age": c.merged_age,
+                "branch": c.branch, "merged_at": c.merged_at,
+                "head_sha": c.head_sha, "story_key": c.story_key,
+                "tokens_input": c.tokens_input,
+                "tokens_output": c.tokens_output,
+                "tokens_cache_read": c.tokens_cache_read,
+                "cost_usd": c.cost_usd,
+                "run_count": c.run_count,
+            }
             for c in state.get("closed_prs", [])
         ],
     }

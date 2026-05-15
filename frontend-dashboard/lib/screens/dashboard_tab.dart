@@ -35,7 +35,7 @@ class DashboardTab extends ConsumerWidget {
 
 class _ProductionCard extends StatelessWidget {
   final MainBuild main;
-  final Map<String, dynamic>? lastMerged;
+  final ClosedPr? lastMerged;
   const _ProductionCard({required this.main, required this.lastMerged});
 
   @override
@@ -107,15 +107,15 @@ class _SubHeader extends StatelessWidget {
 }
 
 class _LastMergeRow extends StatelessWidget {
-  final Map<String, dynamic> pr;
+  final ClosedPr pr;
   const _LastMergeRow({required this.pr});
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final number = pr['number']?.toString() ?? '';
-    final title = pr['title']?.toString() ?? '';
-    final age = pr['merged_age']?.toString() ?? '';
-    final url = pr['html_url']?.toString() ?? '';
+    final number = pr.number.toString();
+    final title = pr.title;
+    final age = pr.mergedAge;
+    final url = pr.htmlUrl;
     return InkWell(
       borderRadius: BorderRadius.circular(8),
       onTap: url.isEmpty ? null : () => launchUrl(Uri.parse(url)),

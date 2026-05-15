@@ -71,6 +71,12 @@ class StoryDetailScreen extends ConsumerWidget {
 }
 
 
+bool _isStoryDone(String jiraStatus) {
+  // JIRA-werkflow-namen die "afgerond" betekenen. Bevat NL + EN varianten.
+  const done = {'Gereed', 'Klaar', 'Done', 'Closed'};
+  return done.contains(jiraStatus);
+}
+
 class _DetailBody extends StatelessWidget {
   final String storyKey;
   final StoryDetail detail;
@@ -123,8 +129,12 @@ class _DetailBody extends StatelessWidget {
         ],
         _LinksRow(storyKey: storyKey, prs: detail.prs),
         const SizedBox(height: 16),
-        _CommandsCard(storyKey: storyKey, ref: ref),
-        const SizedBox(height: 16),
+        // Commands maken alleen zin voor stories die nog actief zijn —
+        // niet voor reeds gemergede (Gereed/Klaar/Done). Hide ze daar.
+        if (!_isStoryDone(detail.jiraStatus)) ...[
+          _CommandsCard(storyKey: storyKey, ref: ref),
+          const SizedBox(height: 16),
+        ],
         _DeployCard(
           prCard: prCard,
           latestCommit: detail.commits.isNotEmpty ? detail.commits.first : null,
