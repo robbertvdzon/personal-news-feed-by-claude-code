@@ -2787,19 +2787,38 @@ def _jira_fetch_issue_title(key: str) -> str:
     """Eén losse JIRA-call om de issue-titel te krijgen. Best-effort —
     op fout geven we gewoon "" terug zodat de handover-pagina alsnog
     rendert met alleen de KAN-key als kop."""
+    meta = _jira_fetch_issue_meta(key)
+    return meta.get("title", "")
+
+
+def _jira_fetch_issue_meta(key: str) -> dict:
+    """Eén JIRA-call die summary + status + ai-phase ophaalt. Output:
+    {title, status, ai_phase}. Best-effort: lege strings op fout."""
+    out = {"title": "", "status": "", "ai_phase": ""}
     if not (JIRA_BASE_URL and JIRA_EMAIL and JIRA_API_KEY):
-        return ""
+        return out
+    # AI Phase-custom-field-ID lazy-resolven (één keer per process).
+    _discover_ai_field_ids()
+    phase_field_id = _ai_field_id_cache.get("phase")
+    fields_param = "summary,status"
+    if phase_field_id:
+        fields_param += f",{phase_field_id}"
     try:
         r = _jira_session.get(
             f"{JIRA_BASE_URL}/rest/api/3/issue/{key}",
-            params={"fields": "summary"},
+            params={"fields": fields_param},
             timeout=5,
         )
-        if r.status_code != 200:
-            return ""
-        return (r.json().get("fields") or {}).get("summary") or ""
     except requests.RequestException:
-        return ""
+        return out
+    if r.status_code != 200:
+        return out
+    f = (r.json().get("fields") or {})
+    out["title"] = f.get("summary") or ""
+    out["status"] = ((f.get("status") or {}).get("name")) or ""
+    if phase_field_id:
+        out["ai_phase"] = f.get(phase_field_id) or ""
+    return out
 
 
 _VALID_COMMANDS = {"delete", "merge", "pause", "re-implement"}
@@ -3093,9 +3112,12 @@ def api_story_detail(key: str) -> Response:
     data = factory_story_timeline(key)
     if data is None:
         return jsonify(error="not found"), 404
+    meta = _jira_fetch_issue_meta(key)
     return jsonify({
         "story": _story_timeline_to_dict(data),
-        "jira_title": _jira_fetch_issue_title(key),
+        "jira_title": meta.get("title", ""),
+        "jira_status": meta.get("status", ""),
+        "ai_phase": meta.get("ai_phase", ""),
         "prs": gh_prs_for_branch(f"ai/{key}"),
         "commits": gh_commits_for_branch(f"ai/{key}", limit=30),
     })

@@ -115,6 +115,8 @@ class StoryDetail {
   final Map<String, dynamic> totals;
   final List<AgentRun> runs;
   final String jiraTitle;
+  final String jiraStatus;
+  final String aiPhase;
   final List<Map<String, dynamic>> prs;
   final List<Map<String, dynamic>> commits;
 
@@ -127,6 +129,8 @@ class StoryDetail {
     required this.totals,
     required this.runs,
     required this.jiraTitle,
+    required this.jiraStatus,
+    required this.aiPhase,
     required this.prs,
     required this.commits,
   });
@@ -144,6 +148,8 @@ class StoryDetail {
           .map((r) => AgentRun.fromJson(Map<String, dynamic>.from(r as Map)))
           .toList(),
       jiraTitle: j['jira_title'] as String? ?? '',
+      jiraStatus: j['jira_status'] as String? ?? '',
+      aiPhase: j['ai_phase'] as String? ?? '',
       prs: (j['prs'] as List? ?? [])
           .map((p) => Map<String, dynamic>.from(p as Map))
           .toList(),

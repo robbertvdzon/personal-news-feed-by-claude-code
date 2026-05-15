@@ -19,9 +19,6 @@ class StoryDetailScreen extends ConsumerWidget {
     final asyncDetail = ref.watch(storyDetailProvider(storyKey));
     final asyncActive = ref.watch(activeJobProvider(storyKey));
     final asyncQuestion = ref.watch(poQuestionProvider(storyKey));
-    // We hebben de huidige status nodig uit de homeStateProvider om de
-    // status-banner correct te tonen (detail-API kent geen JIRA-status).
-    final asyncHome = ref.watch(homeStateProvider);
     return Scaffold(
       appBar: AppBar(
         title: Text(storyKey),
@@ -48,13 +45,9 @@ class StoryDetailScreen extends ConsumerWidget {
         data: (detail) {
           final activeJob = asyncActive.maybeWhen(data: (a) => a, orElse: () => null);
           final question = asyncQuestion.maybeWhen(data: (q) => q, orElse: () => null);
-          final jiraCard = asyncHome.maybeWhen(
-            data: (s) => s.aiActive.where((c) => c.key == storyKey).firstOrNull,
-            orElse: () => null,
-          );
           return _DetailBody(
             storyKey: storyKey, detail: detail, ref: ref,
-            activeJob: activeJob, question: question, jiraCard: jiraCard,
+            activeJob: activeJob, question: question,
           );
         },
       ),
@@ -69,14 +62,12 @@ class _DetailBody extends StatelessWidget {
   final WidgetRef ref;
   final ActiveAgentJob? activeJob;
   final PoQuestion? question;
-  final JiraCard? jiraCard;
   const _DetailBody({
     required this.storyKey,
     required this.detail,
     required this.ref,
     required this.activeJob,
     required this.question,
-    required this.jiraCard,
   });
 
   @override
@@ -104,7 +95,8 @@ class _DetailBody extends StatelessWidget {
           ),
         _StatusBanner(
           storyKey: storyKey,
-          jiraCard: jiraCard,
+          status: detail.jiraStatus,
+          aiPhase: detail.aiPhase,
           activeJob: activeJob,
         ),
         const SizedBox(height: 12),
@@ -245,15 +237,20 @@ class _LinksRow extends ConsumerWidget {
 
 class _StatusBanner extends StatelessWidget {
   final String storyKey;
-  final JiraCard? jiraCard;
+  final String status;
+  final String aiPhase;
   final ActiveAgentJob? activeJob;
-  const _StatusBanner({required this.storyKey, required this.jiraCard, required this.activeJob});
+  const _StatusBanner({
+    required this.storyKey,
+    required this.status,
+    required this.aiPhase,
+    required this.activeJob,
+  });
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final status = jiraCard?.status ?? '(status onbekend — story niet meer in actief-overzicht)';
-    final phase = jiraCard?.aiPhase ?? '';
+    final phase = aiPhase;
     final running = activeJob != null;
     final needsInfo = status == 'AI Needs Info';
     final bg = running
