@@ -1,8 +1,16 @@
 # RBAC voor de JIRA-poller.
 #
-# Heeft toegang tot:
-#   * Jobs + ConfigMaps in de pnf-software-factory namespace (read + create)
-#   * (Geen cluster-scope nodig — leeft binnen z'n eigen namespace)
+# Namespace-scope (pnf-software-factory):
+#   * Jobs:       get/list/watch/create/delete  (spawnt runner-Jobs +
+#                 kill-jobs bij re-implement/delete/pause)
+#   * ConfigMaps: get/list/create/patch/update/delete
+#                 (delete is nodig voor OpenShift's admission om een
+#                 ownerRef op een CM te zetten — anders 403)
+#   * Pods:       get/list (log-overview voor het dashboard)
+#
+# Cluster-scope:
+#   * Namespaces: get/list/delete (delete is nodig om bij re-implement
+#                 een pnf-pr-N preview-namespace op te ruimen)
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -17,10 +25,10 @@ metadata:
 rules:
   - apiGroups: ["batch"]
     resources: ["jobs"]
-    verbs: ["get", "list", "watch", "create"]
+    verbs: ["get", "list", "watch", "create", "delete"]
   - apiGroups: [""]
     resources: ["configmaps"]
-    verbs: ["get", "list", "create", "patch", "update"]
+    verbs: ["get", "list", "create", "patch", "update", "delete"]
   - apiGroups: [""]
     resources: ["pods", "pods/log"]
     verbs: ["get", "list"]
@@ -38,3 +46,29 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
   name: jira-poller
+---
+# Cluster-scope: namespace-delete voor preview-cleanup bij re-implement.
+# Geen resourceNames-filter mogelijk voor dynamische pnf-pr-N namen, dus
+# we accepteren dat de poller cluster-breed namespaces kan verwijderen.
+# Risico beperkt: alleen aangeroepen vanuit re-implement/delete-cmd-pad.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: jira-poller-ns-cleanup
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: jira-poller-ns-cleanup
+subjects:
+  - kind: ServiceAccount
+    name: jira-poller
+    namespace: pnf-software-factory
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: jira-poller-ns-cleanup
