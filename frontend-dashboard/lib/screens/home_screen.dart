@@ -58,16 +58,26 @@ class _HomeBody extends ConsumerWidget {
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert),
             onSelected: (v) {
-              if (v == 'apk') {
+              if (v == 'apk-dashboard') {
                 _launchUrl('/download/dashboard.apk');
+              } else if (v == 'apk-pnf') {
+                _launchUrl('https://github.com/robbertvdzon/personal-news-feed-by-claude-code/releases/latest/download/app-release.apk');
               }
             },
             itemBuilder: (_) => const [
               PopupMenuItem(
-                value: 'apk',
+                value: 'apk-dashboard',
                 child: ListTile(
                   leading: Icon(Icons.android),
-                  title: Text('Android APK downloaden'),
+                  title: Text('Dashboard APK'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              PopupMenuItem(
+                value: 'apk-pnf',
+                child: ListTile(
+                  leading: Icon(Icons.android),
+                  title: Text('PNF-app APK (laatste main-build)'),
                   contentPadding: EdgeInsets.zero,
                 ),
               ),
@@ -83,6 +93,11 @@ class _HomeBody extends ConsumerWidget {
           child: ListView(
             padding: const EdgeInsets.all(16),
             children: [
+              if (state.main.sha.isNotEmpty) ...[
+                const SectionHeader(title: 'Production', subtitle: 'main-branch'),
+                _MainBuildCard(main: state.main),
+                const SizedBox(height: 8),
+              ],
               SectionHeader(
                   title: '🤖 AI bezig',
                   subtitle: '${state.aiActive.length} '
@@ -202,12 +217,19 @@ class _AiCard extends StatelessWidget {
                   ],
                 ],
               ),
-              if (card.tokensInput > 0 || card.costUsd > 0) ...[
+              if (card.tokensInput > 0 || card.costUsd > 0 || card.runCount > 0) ...[
                 const SizedBox(height: 10),
                 Wrap(
                   spacing: 6,
                   runSpacing: 6,
                   children: [
+                    if (card.runCount > 0)
+                      TokenChip(
+                          icon: card.runCount > 10
+                              ? Icons.warning_amber_outlined
+                              : Icons.smart_toy_outlined,
+                          label: 'agents',
+                          value: '${card.runCount}'),
                     TokenChip(label: 'in', value: formatTokens(card.tokensInput)),
                     TokenChip(label: 'out', value: formatTokens(card.tokensOutput)),
                     TokenChip(
@@ -217,6 +239,28 @@ class _AiCard extends StatelessWidget {
                         label: 'cost',
                         value: '\$${card.costUsd.toStringAsFixed(4)}'),
                   ],
+                ),
+              ],
+              if (card.runCount > 10) ...[
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.errorContainer,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.warning_amber_outlined,
+                          size: 14, color: Theme.of(context).colorScheme.onErrorContainer),
+                      const SizedBox(width: 6),
+                      Text('Veel runs — mogelijke loop',
+                          style: TextStyle(
+                              fontSize: 11,
+                              color: Theme.of(context).colorScheme.onErrorContainer,
+                              fontWeight: FontWeight.w600)),
+                    ],
+                  ),
                 ),
               ],
             ],
@@ -231,24 +275,143 @@ class _PrCardWidget extends StatelessWidget {
   final PrCard pr;
   const _PrCardWidget({required this.pr});
 
+  static final _branchRe = RegExp(r'^ai/([A-Z][A-Z0-9]+-[0-9]+)$');
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final keyMatch = _branchRe.firstMatch(pr.branch);
+    final storyKey = keyMatch?.group(1);
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('#${pr.number} — ${pr.title}',
-                style: const TextStyle(
-                    fontSize: 14, fontWeight: FontWeight.w600)),
-            const SizedBox(height: 4),
-            Text(
-                '${pr.author} · ${pr.branch} · updated ${pr.updatedAge}',
-                style:
-                    TextStyle(color: scheme.onSurfaceVariant, fontSize: 12)),
-          ],
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: storyKey != null
+            ? () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => StoryDetailScreen(storyKey: storyKey),
+                  ),
+                )
+            : () => _launchUrl(pr.htmlUrl),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text('#${pr.number} — ${pr.title}',
+                        style: const TextStyle(
+                            fontSize: 14, fontWeight: FontWeight.w600)),
+                  ),
+                  if (storyKey != null)
+                    StatusPill(
+                      label: storyKey,
+                      bg: scheme.tertiaryContainer,
+                      fg: scheme.onTertiaryContainer,
+                    ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                  '${pr.author} · ${pr.branch} · updated ${pr.updatedAge}',
+                  style:
+                      TextStyle(color: scheme.onSurfaceVariant, fontSize: 12)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MainBuildCard extends StatelessWidget {
+  final MainBuild main;
+  const _MainBuildCard({required this.main});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final phasesOk = main.phases.where((p) => p['status'] == 'pass').length;
+    final phasesTotal = main.phases.length;
+    final allGreen = phasesTotal > 0 && phasesOk == phasesTotal;
+    return Card(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: main.previewUrl.isNotEmpty ? () => _launchUrl(main.previewUrl) : null,
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 32,
+                    height: 32,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: allGreen ? scheme.tertiaryContainer : scheme.secondaryContainer,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(
+                      allGreen ? Icons.check_circle : Icons.build_circle_outlined,
+                      color: allGreen ? scheme.onTertiaryContainer : scheme.onSecondaryContainer,
+                      size: 18,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(main.sha.isNotEmpty ? main.sha : '—',
+                            style: const TextStyle(
+                                fontSize: 14, fontWeight: FontWeight.w700, fontFamily: 'monospace')),
+                        Text(main.shaAge.isNotEmpty ? '${main.shaAge} geleden' : 'unknown age',
+                            style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12)),
+                      ],
+                    ),
+                  ),
+                  if (phasesTotal > 0)
+                    StatusPill(
+                      label: '$phasesOk/$phasesTotal groen',
+                      bg: allGreen ? scheme.tertiaryContainer : scheme.errorContainer,
+                      fg: allGreen ? scheme.onTertiaryContainer : scheme.onErrorContainer,
+                    ),
+                ],
+              ),
+              if (main.phases.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: main.phases.map((p) {
+                    final s = (p['status'] as String?) ?? '';
+                    final ok = s == 'pass';
+                    final running = s == 'running';
+                    return Chip(
+                      visualDensity: VisualDensity.compact,
+                      label: Text(
+                        '${p['label']}',
+                        style: const TextStyle(fontSize: 11),
+                      ),
+                      avatar: Icon(
+                        ok ? Icons.check : (running ? Icons.sync : Icons.error_outline),
+                        size: 14,
+                        color: ok
+                            ? scheme.onTertiaryContainer
+                            : (running ? scheme.onSecondaryContainer : scheme.onErrorContainer),
+                      ),
+                      backgroundColor: ok
+                          ? scheme.tertiaryContainer
+                          : (running ? scheme.secondaryContainer : scheme.errorContainer),
+                    );
+                  }).toList(),
+                ),
+              ],
+            ],
+          ),
         ),
       ),
     );

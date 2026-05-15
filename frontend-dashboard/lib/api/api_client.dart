@@ -94,4 +94,24 @@ class ApiClient {
     final r = await _send('GET', '/api/v1/runner/$jobName/log');
     return Map<String, dynamic>.from(r as Map);
   }
+
+  Future<ActiveAgentJob?> activeJob(String key) async {
+    final r = await _send('GET', '/api/v1/stories/$key/active-job');
+    final m = Map<String, dynamic>.from(r as Map);
+    final a = m['active'];
+    if (a == null) return null;
+    return ActiveAgentJob.fromJson(Map<String, dynamic>.from(a as Map));
+  }
+
+  Future<PoQuestion?> poQuestion(String key) async {
+    final r = await _send('GET', '/api/v1/stories/$key/po-question');
+    final m = Map<String, dynamic>.from(r as Map);
+    final q = m['question'];
+    if (q == null) return null;
+    return PoQuestion.fromJson(Map<String, dynamic>.from(q as Map));
+  }
+
+  Future<void> sendPoAnswer(String key, String text) async {
+    await _send('POST', '/api/v1/stories/$key/po-answer', body: {'text': text});
+  }
 }

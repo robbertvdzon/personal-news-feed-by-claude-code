@@ -204,6 +204,7 @@ class JiraCard {
   final double costUsd;
   final int aiLevel;
   final String aiPhase;
+  final int runCount;
 
   JiraCard({
     required this.key,
@@ -220,6 +221,7 @@ class JiraCard {
     required this.costUsd,
     required this.aiLevel,
     required this.aiPhase,
+    required this.runCount,
   });
 
   factory JiraCard.fromJson(Map<String, dynamic> j) => JiraCard(
@@ -237,7 +239,53 @@ class JiraCard {
         costUsd: (j['cost_usd'] as num?)?.toDouble() ?? 0.0,
         aiLevel: (j['ai_level'] as num?)?.toInt() ?? -1,
         aiPhase: j['ai_phase'] as String? ?? '',
+        runCount: (j['run_count'] as num?)?.toInt() ?? 0,
       );
+}
+
+class ActiveAgentJob {
+  final int id;
+  final String role;
+  final String jobName;
+  final String? startedAt;
+  ActiveAgentJob({required this.id, required this.role, required this.jobName, required this.startedAt});
+  factory ActiveAgentJob.fromJson(Map<String, dynamic> j) => ActiveAgentJob(
+        id: (j['id'] as num?)?.toInt() ?? 0,
+        role: j['role'] as String? ?? '',
+        jobName: j['job_name'] as String? ?? '',
+        startedAt: j['started_at'] as String?,
+      );
+}
+
+class PoQuestion {
+  final String commentId;
+  final String text;
+  final String? created;
+  PoQuestion({required this.commentId, required this.text, required this.created});
+  factory PoQuestion.fromJson(Map<String, dynamic> j) => PoQuestion(
+        commentId: j['comment_id'] as String? ?? '',
+        text: j['text'] as String? ?? '',
+        created: j['created'] as String?,
+      );
+}
+
+class MainBuild {
+  final String sha;
+  final String shaAge;
+  final String previewUrl;
+  final List<Map<String, dynamic>> phases;
+  MainBuild({required this.sha, required this.shaAge, required this.previewUrl, required this.phases});
+  factory MainBuild.fromJson(Map<String, dynamic>? j) {
+    if (j == null) return MainBuild(sha: '', shaAge: '', previewUrl: '', phases: []);
+    return MainBuild(
+      sha: j['sha'] as String? ?? '',
+      shaAge: j['sha_age'] as String? ?? '',
+      previewUrl: j['preview_url'] as String? ?? '',
+      phases: (j['phases'] as List? ?? [])
+          .map((p) => Map<String, dynamic>.from(p as Map))
+          .toList(),
+    );
+  }
 }
 
 class PrCard {
@@ -272,12 +320,14 @@ class PrCard {
 
 class HomeState {
   final String fetchedAt;
+  final MainBuild main;
   final List<JiraCard> aiActive;
   final List<PrCard> openPrs;
   final List<Map<String, dynamic>> closedPrs;
 
   HomeState({
     required this.fetchedAt,
+    required this.main,
     required this.aiActive,
     required this.openPrs,
     required this.closedPrs,
@@ -285,6 +335,7 @@ class HomeState {
 
   factory HomeState.fromJson(Map<String, dynamic> j) => HomeState(
         fetchedAt: j['fetched_at'] as String? ?? '',
+        main: MainBuild.fromJson(j['main'] as Map<String, dynamic>?),
         aiActive: (j['ai_active'] as List? ?? [])
             .map((c) => JiraCard.fromJson(Map<String, dynamic>.from(c as Map)))
             .toList(),

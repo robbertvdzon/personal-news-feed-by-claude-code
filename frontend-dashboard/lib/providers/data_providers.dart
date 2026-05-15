@@ -1,4 +1,5 @@
 import 'dart:async';
+// ignore_for_file: unused_import
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../api/api_client.dart';
 import '../api/models.dart';
@@ -27,6 +28,17 @@ final storyHandoverProvider = FutureProvider.family<HandoverData, String>(
 
 final runnerLogProvider = FutureProvider.family<Map<String, dynamic>, String>(
   (ref, jobName) => ref.read(apiProvider).runnerLog(jobName),
+);
+
+final activeJobProvider = StreamProvider.family<ActiveAgentJob?, String>(
+  (ref, key) async* {
+    final api = ref.read(apiProvider);
+    yield* _poll(() => api.activeJob(key), interval: const Duration(seconds: 10));
+  },
+);
+
+final poQuestionProvider = FutureProvider.family<PoQuestion?, String>(
+  (ref, key) => ref.read(apiProvider).poQuestion(key),
 );
 
 Stream<T> _poll<T>(Future<T> Function() fn,
