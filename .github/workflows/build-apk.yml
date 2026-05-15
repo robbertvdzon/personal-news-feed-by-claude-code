@@ -71,6 +71,9 @@ jobs:
           tag="apk-${ts}-${sha}"
           mkdir -p artifacts
           cp frontend/build/app/outputs/flutter-apk/app-release.apk "artifacts/${filename}"
+          # Stabiele kopie zodat releases/latest/download/personal-news-feed.apk
+          # blijft werken voor de dashboard-Downloads-tab.
+          cp frontend/build/app/outputs/flutter-apk/app-release.apk artifacts/personal-news-feed.apk
           ls -la artifacts/
           echo "filename=${filename}" >> "$GITHUB_OUTPUT"
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
@@ -88,6 +91,8 @@ jobs:
             Build-time: `${{ steps.stage.outputs.ts }}` UTC
 
             Download het `.apk`-bestand hieronder en sideload op je Android.
-          files: artifacts/${{ steps.stage.outputs.filename }}
+          files: |
+            artifacts/${{ steps.stage.outputs.filename }}
+            artifacts/personal-news-feed.apk
           make_latest: true
           generate_release_notes: false
