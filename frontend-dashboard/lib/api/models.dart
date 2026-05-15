@@ -160,13 +160,45 @@ class StoryDetail {
   }
 }
 
+/// Eén iteratie van een agent met eindconclusie. De backend stuurt deze
+/// los van [AgentRun]'s full model — alleen wat de briefing nodig heeft.
+class HandoverRun {
+  final int id;
+  final String role;
+  final String? startedAt;
+  final String? endedAt;
+  final String outcome;
+  final String summaryText;
+  final String verdict;  // 'OK' / 'CHANGES' / 'PASS' / 'FAIL' / ''
+
+  HandoverRun({
+    required this.id,
+    required this.role,
+    required this.startedAt,
+    required this.endedAt,
+    required this.outcome,
+    required this.summaryText,
+    required this.verdict,
+  });
+
+  factory HandoverRun.fromJson(Map<String, dynamic> j) => HandoverRun(
+        id: (j['id'] as num?)?.toInt() ?? 0,
+        role: j['role'] as String? ?? '',
+        startedAt: j['started_at'] as String?,
+        endedAt: j['ended_at'] as String?,
+        outcome: j['outcome'] as String? ?? '',
+        summaryText: j['summary_text'] as String? ?? '',
+        verdict: j['verdict'] as String? ?? '',
+      );
+}
+
 class HandoverData {
   final String storyKey;
   final String jiraTitle;
-  final AgentRun? refiner;
-  final AgentRun? developer;
-  final AgentRun? reviewer;
-  final AgentRun? tester;
+  final List<HandoverRun> refiner;
+  final List<HandoverRun> developer;
+  final List<HandoverRun> reviewer;
+  final List<HandoverRun> tester;
 
   HandoverData({
     required this.storyKey,
@@ -178,21 +210,51 @@ class HandoverData {
   });
 
   factory HandoverData.fromJson(Map<String, dynamic> j) {
-    AgentRun? agent(String key) {
+    List<HandoverRun> runs(String key) {
       final raw = j[key];
-      if (raw == null) return null;
-      return AgentRun.fromJson(Map<String, dynamic>.from(raw as Map));
+      if (raw is! List) return [];
+      return raw
+          .map((r) => HandoverRun.fromJson(Map<String, dynamic>.from(r as Map)))
+          .toList();
     }
 
     return HandoverData(
       storyKey: j['story_key'] as String? ?? '',
       jiraTitle: j['jira_title'] as String? ?? '',
-      refiner: agent('refiner'),
-      developer: agent('developer'),
-      reviewer: agent('reviewer'),
-      tester: agent('tester'),
+      refiner: runs('refiner'),
+      developer: runs('developer'),
+      reviewer: runs('reviewer'),
+      tester: runs('tester'),
     );
   }
+}
+
+class ApkInfo {
+  final ApkEntry pnf;
+  final ApkEntry dashboard;
+  ApkInfo({required this.pnf, required this.dashboard});
+
+  factory ApkInfo.fromJson(Map<String, dynamic> j) => ApkInfo(
+        pnf: ApkEntry.fromJson(
+            Map<String, dynamic>.from(j['pnf'] as Map? ?? {})),
+        dashboard: ApkEntry.fromJson(
+            Map<String, dynamic>.from(j['dashboard'] as Map? ?? {})),
+      );
+}
+
+class ApkEntry {
+  final String url;
+  final String? builtAt;     // ISO timestamp, of null als onbekend
+  final int size;            // bytes
+  final String tag;          // bv. 'apk-20260515-...' voor PNF
+  ApkEntry({required this.url, this.builtAt, this.size = 0, this.tag = ''});
+
+  factory ApkEntry.fromJson(Map<String, dynamic> j) => ApkEntry(
+        url: j['url'] as String? ?? '',
+        builtAt: j['built_at'] as String?,
+        size: (j['size'] as num?)?.toInt() ?? 0,
+        tag: j['tag'] as String? ?? '',
+      );
 }
 
 class JiraCard {

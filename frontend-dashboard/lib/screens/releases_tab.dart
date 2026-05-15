@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../api/models.dart';
 import '../providers/data_providers.dart';
 import '../widgets/section_header.dart';
+import 'pr_detail_screen.dart';
 import 'story_detail_screen.dart';
 
 class ReleasesTab extends ConsumerWidget {
@@ -157,14 +157,13 @@ class _ClosedRowWidget extends StatelessWidget {
     final shortTitle = title.length > 40 ? '${title.substring(0, 40)}…' : title;
     return InkWell(
       onTap: () {
-        if (hasStoryKey) {
-          Navigator.of(context).push(
-            MaterialPageRoute(
-                builder: (_) => StoryDetailScreen(storyKey: row.storyKey)),
-          );
-        } else {
-          launchUrl(Uri.parse(row.htmlUrl));
-        }
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => hasStoryKey
+                ? StoryDetailScreen(storyKey: row.storyKey)
+                : PrDetailScreen(pr: row),
+          ),
+        );
       },
       child: Padding(
         padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
@@ -223,11 +222,7 @@ class _ClosedRowWidget extends StatelessWidget {
                 style: const TextStyle(fontSize: 13),
               ),
             ),
-            Icon(
-              hasStoryKey ? Icons.chevron_right : Icons.open_in_new,
-              color: scheme.onSurfaceVariant,
-              size: 18,
-            ),
+            Icon(Icons.chevron_right, color: scheme.onSurfaceVariant, size: 18),
           ],
         ),
       ),
