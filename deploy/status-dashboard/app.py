@@ -140,12 +140,18 @@ def gh_prs_for_branch(branch: str) -> list[dict]:
 
 
 def gh_commits_for_branch(branch: str, limit: int = 30) -> list[dict]:
-    """Recente commits op een branch (chronologisch nieuwste eerst)."""
+    """Commits op een branch DIE NIET OOK OP MAIN STAAN. Gebruikt
+    GitHub's compare-API i.p.v. /commits, anders krijg je ook de
+    main-historie mee. Nieuwste eerst."""
     data = gh(
-        f"/repos/{GITHUB_OWNER}/{GITHUB_REPO}/commits",
-        params={"sha": branch, "per_page": str(limit)},
+        f"/repos/{GITHUB_OWNER}/{GITHUB_REPO}/compare/main...{branch}",
     )
-    return data or []
+    if not data:
+        return []
+    commits = data.get("commits", []) or []
+    # GitHub compare-API geeft oudste eerst; wij willen nieuwste eerst.
+    commits.reverse()
+    return commits[:limit]
 
 
 def gh_list_open_prs() -> list[dict]:
@@ -3372,6 +3378,11 @@ def _pr_card_to_dict(c) -> dict:
         "branch": c.branch, "head_sha": c.head_sha, "author": c.author,
         "updated_age": c.updated_age, "preview_url": c.preview_url,
         "phases": [_phase_to_dict(p) for p in c.phases],
+        "jira_status": c.jira_status,
+        "ai_phase": c.ai_phase,
+        "runner_state": c.runner_state,
+        "runner_text": c.runner_text,
+        "runner_job_name": c.runner_job_name,
     }
 
 
