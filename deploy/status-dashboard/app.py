@@ -30,7 +30,7 @@ from html import escape
 from typing import Optional
 
 import requests
-from flask import Flask, Response, redirect, request
+from flask import Flask, Response, jsonify, redirect, request
 
 # psycopg v3 voor de factory-DB (token/cost-lookups, timeline-page).
 # Soft import zodat dashboard ook draait als pakket-build nog niet door is.
@@ -2940,6 +2940,332 @@ def runner_log(job_name: str) -> Response:
         ),
         mimetype="text/html; charset=utf-8",
     )
+
+
+# ─── JSON API (Fase 1 — Flutter-dashboard backend) ────────────────────────
+#
+# Naast de bestaande HTML-routes geven we de state ook als JSON terug op
+# /api/v1/*. CORS is open voor de Flutter-dashboard-origin (default
+# https://dashboard.vdzonsoftware.nl). Auth via simpele JWT met één user
+# 'admin' (wachtwoord in DASHBOARD_ADMIN_PASSWORD env-var).
+#
+# Bewust geen externe deps (PyJWT etc.) — minimale HS256-implementatie
+# in <30 regels met hmac/json/base64.
+
+import functools
+import hashlib
+import hmac
+import secrets as _secrets
+
+DASHBOARD_ADMIN_PASSWORD = os.environ.get("DASHBOARD_ADMIN_PASSWORD", "")
+DASHBOARD_CORS_ORIGIN = os.environ.get(
+    "DASHBOARD_CORS_ORIGIN", "https://dashboard.vdzonsoftware.nl"
+)
+# JWT-signing-key: random per pod-start, niet uit een env-var. Pod-
+# restart = alle clients moeten opnieuw inloggen — acceptabel voor één
+# admin-user. Vermijdt 'lekken via env-vars' en herstart-na-incident-edges.
+_JWT_SECRET = _secrets.token_hex(32)
+JWT_TTL_SEC = int(os.environ.get("DASHBOARD_JWT_TTL_SEC", str(7 * 24 * 3600)))
+
+
+def _b64url(b: bytes) -> str:
+    return base64.urlsafe_b64encode(b).rstrip(b"=").decode()
+
+
+def _b64url_decode(s: str) -> bytes:
+    return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
+
+
+def jwt_sign(payload: dict) -> str:
+    """HS256-JWT met _JWT_SECRET. payload['exp'] in seconds-since-epoch."""
+    header = _b64url(json.dumps({"alg": "HS256", "typ": "JWT"},
+                                separators=(",", ":")).encode())
+    body = _b64url(json.dumps(payload, separators=(",", ":")).encode())
+    sig = _b64url(hmac.new(_JWT_SECRET.encode(),
+                           f"{header}.{body}".encode(),
+                           hashlib.sha256).digest())
+    return f"{header}.{body}.{sig}"
+
+
+def jwt_verify(token: str) -> Optional[dict]:
+    """Verifieer + decode. Returnt payload of None bij ongeldig/expired."""
+    try:
+        h, b, s = token.split(".")
+    except ValueError:
+        return None
+    expected = _b64url(hmac.new(_JWT_SECRET.encode(),
+                                f"{h}.{b}".encode(),
+                                hashlib.sha256).digest())
+    if not hmac.compare_digest(s, expected):
+        return None
+    try:
+        payload = json.loads(_b64url_decode(b))
+    except (ValueError, json.JSONDecodeError):
+        return None
+    if payload.get("exp", 0) < time.time():
+        return None
+    return payload
+
+
+def _add_cors_headers(resp: Response) -> Response:
+    resp.headers["Access-Control-Allow-Origin"] = DASHBOARD_CORS_ORIGIN
+    resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    resp.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type"
+    resp.headers["Access-Control-Max-Age"] = "600"
+    resp.headers["Vary"] = "Origin"
+    return resp
+
+
+@app.after_request
+def _maybe_attach_cors(resp: Response) -> Response:
+    """CORS-headers alleen op /api/*-routes; HTML-pagina's blijven onveranderd."""
+    if request.path.startswith("/api/"):
+        _add_cors_headers(resp)
+    return resp
+
+
+def require_jwt(fn):
+    """Decorator: 401 als de Authorization-header geen geldige JWT bevat."""
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        auth = request.headers.get("Authorization", "")
+        if not auth.startswith("Bearer "):
+            return jsonify(error="missing bearer token"), 401
+        if jwt_verify(auth[7:]) is None:
+            return jsonify(error="invalid or expired token"), 401
+        return fn(*args, **kwargs)
+    return wrapper
+
+
+@app.route("/api/v1/auth/login", methods=["POST", "OPTIONS"])
+def api_login() -> Response:
+    if request.method == "OPTIONS":
+        return _add_cors_headers(Response("", status=204))
+    if not DASHBOARD_ADMIN_PASSWORD:
+        return jsonify(error="dashboard auth not configured (no DASHBOARD_ADMIN_PASSWORD)"), 503
+    data = request.get_json(silent=True) or {}
+    username = (data.get("username") or "").strip()
+    password = data.get("password") or ""
+    # Constant-time vergelijking voor wachtwoord.
+    if username != "admin" or not hmac.compare_digest(password, DASHBOARD_ADMIN_PASSWORD):
+        return jsonify(error="invalid credentials"), 401
+    exp = int(time.time()) + JWT_TTL_SEC
+    token = jwt_sign({"sub": "admin", "exp": exp})
+    return jsonify(token=token, expires_at=exp, username="admin")
+
+
+@app.route("/api/v1/state", methods=["GET", "OPTIONS"])
+@require_jwt
+def api_state() -> Response:
+    try:
+        state = build_state()
+    except Exception as e:
+        log.exception("api_state faalde: %s", e)
+        return jsonify(error=str(e)), 500
+    return jsonify(_state_to_dict(state))
+
+
+@app.route("/api/v1/stories", methods=["GET", "OPTIONS"])
+@require_jwt
+def api_stories() -> Response:
+    return jsonify(stories=[_story_row_to_dict(r) for r in factory_all_stories()])
+
+
+@app.route("/api/v1/stories/<key>", methods=["GET", "OPTIONS"])
+@require_jwt
+def api_story_detail(key: str) -> Response:
+    if not _STORY_KEY_RE.match(key):
+        return jsonify(error="bad key"), 400
+    data = factory_story_timeline(key)
+    if data is None:
+        return jsonify(error="not found"), 404
+    return jsonify({
+        "story": _story_timeline_to_dict(data),
+        "jira_title": _jira_fetch_issue_title(key),
+        "prs": gh_prs_for_branch(f"ai/{key}"),
+        "commits": gh_commits_for_branch(f"ai/{key}", limit=30),
+    })
+
+
+@app.route("/api/v1/stories/<key>/handover", methods=["GET", "OPTIONS"])
+@require_jwt
+def api_story_handover(key: str) -> Response:
+    if not _STORY_KEY_RE.match(key):
+        return jsonify(error="bad key"), 400
+    data = factory_story_timeline(key)
+    if data is None:
+        return jsonify(error="not found"), 404
+    return jsonify({
+        "story_key": key,
+        "jira_title": _jira_fetch_issue_title(key),
+        "refiner":   _agent_summary_dict(_latest_run_by_role(data["runs"], "refiner")),
+        "developer": _agent_summary_dict(_latest_run_by_role(data["runs"], "developer")),
+        "reviewer":  _agent_summary_dict(_latest_run_by_role(data["runs"], "reviewer")),
+        "tester":    _agent_summary_dict(_latest_run_by_role(data["runs"], "tester")),
+    })
+
+
+@app.route("/api/v1/stories/<key>/cmd/<command>", methods=["POST", "OPTIONS"])
+@require_jwt
+def api_story_command(key: str, command: str) -> Response:
+    if request.method == "OPTIONS":
+        return _add_cors_headers(Response("", status=204))
+    if not _STORY_KEY_RE.match(key):
+        return jsonify(error="bad key"), 400
+    if command not in _VALID_COMMANDS:
+        return jsonify(error="unknown command"), 400
+    if not _post_jira_command_comment(key, command):
+        return jsonify(error="comment-post failed"), 502
+    return jsonify(ok=True, command=command, key=key)
+
+
+@app.route("/api/v1/runner/<job_name>/log", methods=["GET", "OPTIONS"])
+@require_jwt
+def api_runner_log(job_name: str) -> Response:
+    if not _JOB_NAME_RE.match(job_name):
+        return jsonify(error="bad job name"), 400
+    log_text, status_int = _fetch_pod_log_text(job_name)
+    return jsonify(job=job_name, log=log_text, status=status_int)
+
+
+@app.route("/api/v1/healthz", methods=["GET"])
+def api_healthz() -> Response:
+    return jsonify(ok=True)
+
+
+# ─── JSON-serialisatie helpers voor de API ────────────────────────────────
+
+
+def _state_to_dict(state: dict) -> dict:
+    """Plat de top-level state-dict af naar JSON-vriendelijke vorm."""
+    return {
+        "fetched_at": state.get("fetched_at", ""),
+        "main": _main_card_to_dict(state.get("main")),
+        "ai_active": [_jira_card_to_dict(c) for c in state.get("ai_active", [])],
+        "open_prs":  [_pr_card_to_dict(c)   for c in state.get("open_prs", [])],
+        "closed_prs": [
+            {"number": c.number, "title": c.title,
+             "html_url": c.html_url, "merged_age": c.merged_age}
+            for c in state.get("closed_prs", [])
+        ],
+    }
+
+
+def _main_card_to_dict(m) -> Optional[dict]:
+    if m is None:
+        return None
+    return {
+        "sha": getattr(m, "sha", ""),
+        "sha_age": getattr(m, "sha_age", ""),
+        "preview_url": getattr(m, "preview_url", ""),
+        "phases": [_phase_to_dict(p) for p in getattr(m, "phases", [])],
+    }
+
+
+def _phase_to_dict(p) -> dict:
+    return {"label": p.label, "status": p.status,
+            "detail": p.detail, "link": p.link, "since": p.since}
+
+
+def _jira_card_to_dict(c) -> dict:
+    return {
+        "key": c.key, "title": c.title, "status": c.status,
+        "jira_url": c.jira_url, "age": c.age,
+        "job_state": c.job_state, "job_status": c.job_status, "job_name": c.job_name,
+        "tokens_input": c.tokens_input, "tokens_output": c.tokens_output,
+        "tokens_cache_read": c.tokens_cache_read, "cost_usd": c.cost_usd,
+        "ai_level": c.ai_level, "ai_phase": c.ai_phase,
+    }
+
+
+def _pr_card_to_dict(c) -> dict:
+    return {
+        "number": c.number, "title": c.title, "html_url": c.html_url,
+        "branch": c.branch, "head_sha": c.head_sha, "author": c.author,
+        "updated_age": c.updated_age, "preview_url": c.preview_url,
+        "phases": [_phase_to_dict(p) for p in c.phases],
+    }
+
+
+def _story_row_to_dict(r: dict) -> dict:
+    """Eén rij uit factory_all_stories() naar JSON-vriendelijk dict."""
+    return {
+        "id": r["id"],
+        "story_key": r["story_key"],
+        "started_at": _iso(r.get("started_at")),
+        "ended_at":   _iso(r.get("ended_at")),
+        "final_status": r["final_status"],
+        "input": r["input"], "output": r["output"],
+        "cache_read": r["cache_read"], "cache_creation": r["cache_creation"],
+        "cost_usd": r["cost_usd"],
+        "run_count": r["run_count"],
+        "duration_ms_sum": r["duration_ms_sum"],
+    }
+
+
+def _story_timeline_to_dict(data: dict) -> dict:
+    """De volledige timeline (story_run + agent_runs)."""
+    return {
+        "id": data["id"],
+        "story_key": data["story_key"],
+        "started_at": _iso(data["started_at"]),
+        "ended_at":   _iso(data.get("ended_at")),
+        "final_status": data.get("final_status"),
+        "totals": data["totals"],
+        "runs": [_agent_run_to_dict(r) for r in data["runs"]],
+    }
+
+
+def _agent_run_to_dict(r: dict) -> dict:
+    return {
+        "id": r["id"], "role": r["role"], "job_name": r["job_name"],
+        "model": r["model"], "effort": r["effort"], "level": r["level"],
+        "started_at": _iso(r.get("started_at")),
+        "ended_at":   _iso(r.get("ended_at")),
+        "outcome": r["outcome"],
+        "input": r["input"], "output": r["output"],
+        "cache_read": r["cache_read"], "cache_creation": r["cache_creation"],
+        "cost_usd": r["cost_usd"],
+        "num_turns": r["num_turns"], "duration_ms": r["duration_ms"],
+        "summary_text": r.get("summary_text", ""),
+    }
+
+
+def _agent_summary_dict(r: Optional[dict]) -> Optional[dict]:
+    if r is None:
+        return None
+    return {
+        "role": r["role"], "started_at": _iso(r.get("started_at")),
+        "outcome": r["outcome"], "summary_text": r.get("summary_text", ""),
+    }
+
+
+def _iso(ts) -> Optional[str]:
+    if ts is None:
+        return None
+    return ts.isoformat() if hasattr(ts, "isoformat") else str(ts)
+
+
+def _fetch_pod_log_text(job_name: str) -> tuple[str, int]:
+    """Pak de Pod van een runner-Job + pak de logs. Returnt (text, status_code).
+    Gebruikt door zowel HTML-route als API-route."""
+    try:
+        pods = kubectl_json("get", "pod", "-n", FACTORY_NS,
+                             "-l", f"job-name={job_name}", "-o", "json")
+    except Exception:
+        return ("(pod fetch faalde)", 502)
+    items = (pods or {}).get("items", []) or []
+    if not items:
+        return ("(geen pod gevonden voor deze job)", 404)
+    pod_name = items[0]["metadata"]["name"]
+    try:
+        out = subprocess.run(
+            ["oc", "logs", pod_name, "-n", FACTORY_NS, "--tail=2000"],
+            capture_output=True, text=True, timeout=15,
+        )
+        return (out.stdout or out.stderr, 0 if out.returncode == 0 else out.returncode)
+    except Exception as e:
+        return (f"(log fetch faalde: {e})", 502)
 
 
 if __name__ == "__main__":
