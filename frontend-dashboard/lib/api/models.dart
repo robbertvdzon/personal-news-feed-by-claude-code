@@ -304,6 +304,9 @@ class PrCard {
   final String previewUrl;
   final String jiraStatus;
   final String aiPhase;
+  final List<Map<String, dynamic>> phases;
+  final String lastCommitAge;
+  final String headSha;
 
   PrCard({
     required this.number,
@@ -315,6 +318,9 @@ class PrCard {
     required this.previewUrl,
     required this.jiraStatus,
     required this.aiPhase,
+    required this.phases,
+    required this.lastCommitAge,
+    required this.headSha,
   });
 
   factory PrCard.fromJson(Map<String, dynamic> j) => PrCard(
@@ -327,6 +333,11 @@ class PrCard {
         previewUrl: j['preview_url'] as String? ?? '',
         jiraStatus: j['jira_status'] as String? ?? '',
         aiPhase: j['ai_phase'] as String? ?? '',
+        phases: (j['phases'] as List? ?? [])
+            .map((p) => Map<String, dynamic>.from(p as Map))
+            .toList(),
+        lastCommitAge: j['last_commit_age'] as String? ?? '',
+        headSha: j['head_sha'] as String? ?? '',
       );
 }
 
