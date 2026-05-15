@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'providers/auth_provider.dart';
 import 'screens/login_screen.dart';
-import 'screens/home_screen.dart';
+import 'screens/app_shell.dart';
 import 'theme.dart';
 
 void main() {
@@ -35,7 +35,7 @@ class _DashboardAppState extends ConsumerState<DashboardApp> {
       // Altijd light — past bij de witte stijl van de PNF-feed-app.
       themeMode: ThemeMode.light,
       theme: AppTheme.light(),
-      home: auth.isAuthenticated ? const HomeShell() : const LoginScreen(),
+      home: auth.isAuthenticated ? const AppShell() : const LoginScreen(),
     );
   }
 }
