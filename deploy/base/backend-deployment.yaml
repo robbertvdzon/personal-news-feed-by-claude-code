@@ -28,6 +28,10 @@ spec:
             - name: http
               containerPort: 8080
           env:
+            # JVM-tijdzone voor @Scheduled crons (en logs). Cron
+            # "0 0 6 * * *" hoort op 06:00 lokaal te vuren, niet 06:00 UTC.
+            - name: TZ
+              value: Europe/Amsterdam
             - name: APP_DATA_DIR
               value: /data
             # Alle secrets uit de SealedSecret. Spring Boot accepteert
