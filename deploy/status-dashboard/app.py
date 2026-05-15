@@ -1238,11 +1238,15 @@ def build_state() -> dict:
     # AI bezig: filter op de active subset.
     jira_cards: list[JIRACard] = []
     active_jobs = k8s_jobs(FACTORY_NS, label_selector="app=claude-runner")
+    # Tracked = active + PR-statussen (AI IN REVIEW). Reden: een story die
+    # in AI IN REVIEW staat zonder open PR (PR al gemerged, JIRA-transitie
+    # naar Done nog niet gebeurd) viel anders uit de stories-tab.
+    tracked_for_cards = JIRA_ACTIVE_STATUSES + JIRA_PR_STATUSES
     for issue in all_tracked:
         key = issue.get("key", "")
         fields = issue.get("fields", {}) or {}
         status_name = (fields.get("status") or {}).get("name", "")
-        if status_name not in JIRA_ACTIVE_STATUSES:
+        if status_name not in tracked_for_cards:
             continue
         # Accurate "sinds wanneer in deze status": uit de changelog
         # halen. Fallback naar fields.updated (= laatste activiteit op
