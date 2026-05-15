@@ -326,14 +326,16 @@ Knop "Artikelen opruimen" opent CleanupDialog:
 
 ### Beheer (alleen admins)
 
-Onderaan het instellingen-scherm verschijnt een extra sectie **"Beheer"** die alleen zichtbaar is voor gebruikers met de rol `admin`.
+Onderaan het instellingen-scherm verschijnt een extra sectie **"Beheer"** die alleen zichtbaar is voor gebruikers met de rol `admin`. De sectie bevat twee navigatietegels:
 
-- **Adminpaneel-tegel:** navigeert via `Navigator.push` naar AdminScreen.
+- **Gebruikers-tegel** (Icons.person): navigeert via `Navigator.push` naar AdminScreen.
   - AdminScreen toont alle gebruikers met hun rollen.
   - Per gebruiker: wachtwoord resetten, promoveren naar admin, degraderen naar user, verwijderen.
-  - Vanuit AdminScreen is er een navigatieknop naar AdminCostsScreen (kosten-overzicht).
 
-Er is geen aparte Admin-tab in de bottom navigation bar — alle admin-functionaliteit zit achter de Beheer-tegel in Settings.
+- **Kosten-tegel** (Icons.payments): navigeert via `Navigator.push` naar AdminCostsScreen.
+  - AdminCostsScreen toont het kostengegevens-overzicht.
+
+Er is geen aparte Admin-tab in de bottom navigation bar — alle admin-functionaliteit zit achter de twee Beheer-tegels in Settings.
 
 ---
 
