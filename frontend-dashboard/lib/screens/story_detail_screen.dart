@@ -17,6 +17,11 @@ class StoryDetailScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final asyncDetail = ref.watch(storyDetailProvider(storyKey));
+    final asyncActive = ref.watch(activeJobProvider(storyKey));
+    final asyncQuestion = ref.watch(poQuestionProvider(storyKey));
+    // We hebben de huidige status nodig uit de homeStateProvider om de
+    // status-banner correct te tonen (detail-API kent geen JIRA-status).
+    final asyncHome = ref.watch(homeStateProvider);
     return Scaffold(
       appBar: AppBar(
         title: Text(storyKey),
@@ -30,24 +35,49 @@ class StoryDetailScreen extends ConsumerWidget {
           ),
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: () => ref.invalidate(storyDetailProvider(storyKey)),
+            onPressed: () {
+              ref.invalidate(storyDetailProvider(storyKey));
+              ref.invalidate(poQuestionProvider(storyKey));
+            },
           ),
         ],
       ),
       body: asyncDetail.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('Fout: $e')),
-        data: (detail) => _DetailBody(storyKey: storyKey, detail: detail, ref: ref),
+        data: (detail) {
+          final activeJob = asyncActive.maybeWhen(data: (a) => a, orElse: () => null);
+          final question = asyncQuestion.maybeWhen(data: (q) => q, orElse: () => null);
+          final jiraCard = asyncHome.maybeWhen(
+            data: (s) => s.aiActive.where((c) => c.key == storyKey).firstOrNull,
+            orElse: () => null,
+          );
+          return _DetailBody(
+            storyKey: storyKey, detail: detail, ref: ref,
+            activeJob: activeJob, question: question, jiraCard: jiraCard,
+          );
+        },
       ),
     );
   }
 }
 
+
 class _DetailBody extends StatelessWidget {
   final String storyKey;
   final StoryDetail detail;
   final WidgetRef ref;
-  const _DetailBody({required this.storyKey, required this.detail, required this.ref});
+  final ActiveAgentJob? activeJob;
+  final PoQuestion? question;
+  final JiraCard? jiraCard;
+  const _DetailBody({
+    required this.storyKey,
+    required this.detail,
+    required this.ref,
+    required this.activeJob,
+    required this.question,
+    required this.jiraCard,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -72,7 +102,17 @@ class _DetailBody extends StatelessWidget {
                 style: const TextStyle(
                     fontSize: 18, fontWeight: FontWeight.w700)),
           ),
-        _LinksRow(storyKey: storyKey),
+        _StatusBanner(
+          storyKey: storyKey,
+          jiraCard: jiraCard,
+          activeJob: activeJob,
+        ),
+        const SizedBox(height: 12),
+        if (question != null) ...[
+          _PoQuestionCard(storyKey: storyKey, question: question!, ref: ref),
+          const SizedBox(height: 12),
+        ],
+        _LinksRow(storyKey: storyKey, prs: detail.prs),
         const SizedBox(height: 16),
         _CommandsCard(storyKey: storyKey, ref: ref),
         const SizedBox(height: 16),
@@ -158,20 +198,39 @@ class _DetailBody extends StatelessWidget {
 
 class _LinksRow extends ConsumerWidget {
   final String storyKey;
-  const _LinksRow({required this.storyKey});
+  final List<Map<String, dynamic>> prs;
+  const _LinksRow({required this.storyKey, required this.prs});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Eerste open PR voor preview-URL.
+    final pr = prs.isNotEmpty ? prs.first : null;
+    final prNum = pr?['number'];
+    final previewUrl = prNum != null
+        ? 'https://pnf-pr-$prNum.vdzonsoftware.nl'
+        : null;
     return Wrap(
       spacing: 8,
       runSpacing: 8,
       children: [
         OutlinedButton.icon(
           icon: const Icon(Icons.open_in_new, size: 16),
-          label: const Text('JIRA-ticket'),
+          label: const Text('JIRA'),
           onPressed: () => launchUrl(
               Uri.parse('https://vdzon.atlassian.net/browse/$storyKey')),
         ),
+        if (pr != null)
+          OutlinedButton.icon(
+            icon: const Icon(Icons.merge_type, size: 16),
+            label: Text('PR #${pr['number']}'),
+            onPressed: () => launchUrl(Uri.parse(pr['html_url'] as String)),
+          ),
+        if (previewUrl != null)
+          FilledButton.icon(
+            icon: const Icon(Icons.science, size: 16),
+            label: const Text('Test op preview'),
+            onPressed: () => launchUrl(Uri.parse(previewUrl)),
+          ),
         OutlinedButton.icon(
           icon: const Icon(Icons.assignment_outlined, size: 16),
           label: const Text('Briefing'),
@@ -180,6 +239,209 @@ class _LinksRow extends ConsumerWidget {
           )),
         ),
       ],
+    );
+  }
+}
+
+class _StatusBanner extends StatelessWidget {
+  final String storyKey;
+  final JiraCard? jiraCard;
+  final ActiveAgentJob? activeJob;
+  const _StatusBanner({required this.storyKey, required this.jiraCard, required this.activeJob});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final status = jiraCard?.status ?? '(status onbekend — story niet meer in actief-overzicht)';
+    final phase = jiraCard?.aiPhase ?? '';
+    final running = activeJob != null;
+    final needsInfo = status == 'AI Needs Info';
+    final bg = running
+        ? scheme.primaryContainer
+        : (needsInfo ? scheme.errorContainer : scheme.secondaryContainer);
+    final fg = running
+        ? scheme.onPrimaryContainer
+        : (needsInfo ? scheme.onErrorContainer : scheme.onSecondaryContainer);
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                running
+                    ? Icons.sync
+                    : (needsInfo ? Icons.help_outline : Icons.info_outline),
+                color: fg,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  status,
+                  style: TextStyle(
+                      color: fg, fontSize: 17, fontWeight: FontWeight.w700),
+                ),
+              ),
+              if (phase.isNotEmpty)
+                StatusPill(label: phase, bg: scheme.surface, fg: scheme.onSurface),
+            ],
+          ),
+          if (running) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: scheme.surface,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.smart_toy_outlined,
+                      color: scheme.onSurfaceVariant, size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(activeJob!.role.toUpperCase(),
+                            style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: scheme.onSurfaceVariant)),
+                        Text(activeJob!.jobName,
+                            style: const TextStyle(
+                                fontSize: 11, fontFamily: 'monospace'),
+                            overflow: TextOverflow.ellipsis),
+                      ],
+                    ),
+                  ),
+                  FilledButton.tonalIcon(
+                    icon: const Icon(Icons.description_outlined, size: 16),
+                    label: const Text('Live log'),
+                    onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => RunnerLogScreen(jobName: activeJob!.jobName),
+                    )),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _PoQuestionCard extends ConsumerStatefulWidget {
+  final String storyKey;
+  final PoQuestion question;
+  final WidgetRef ref;
+  const _PoQuestionCard({required this.storyKey, required this.question, required this.ref});
+
+  @override
+  ConsumerState<_PoQuestionCard> createState() => _PoQuestionCardState();
+}
+
+class _PoQuestionCardState extends ConsumerState<_PoQuestionCard> {
+  final _ctrl = TextEditingController();
+  bool _busy = false;
+  String? _result;
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _send() async {
+    final text = _ctrl.text.trim();
+    if (text.isEmpty) return;
+    setState(() => _busy = true);
+    try {
+      await ref.read(apiProvider).sendPoAnswer(widget.storyKey, text);
+      setState(() {
+        _busy = false;
+        _result = 'Antwoord verstuurd. Status → AI Queued; poller pakt op binnen 30s.';
+      });
+      ref.invalidate(poQuestionProvider(widget.storyKey));
+      ref.invalidate(homeStateProvider);
+    } on ApiException catch (e) {
+      setState(() {
+        _busy = false;
+        _result = 'Fout: ${e.statusCode} ${e.body}';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.help_outline, color: scheme.error),
+                const SizedBox(width: 8),
+                Text('Vraag van de agent',
+                    style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: scheme.onSurface)),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: scheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: SelectableText(widget.question.text.trim(),
+                  style: const TextStyle(fontSize: 13, height: 1.45)),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _ctrl,
+              maxLines: 4,
+              minLines: 2,
+              decoration: const InputDecoration(
+                labelText: 'Jouw antwoord',
+                hintText: 'Beantwoord hier; wordt direct als JIRA-comment geplaatst.',
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                if (_result != null)
+                  Expanded(
+                    child: Text(_result!,
+                        style: TextStyle(
+                            color: _result!.startsWith('Fout')
+                                ? scheme.error
+                                : scheme.primary,
+                            fontSize: 12)),
+                  )
+                else
+                  const Spacer(),
+                FilledButton.icon(
+                  icon: const Icon(Icons.send, size: 16),
+                  label: const Text('Verstuur'),
+                  onPressed: _busy ? null : _send,
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

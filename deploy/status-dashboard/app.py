@@ -339,24 +339,32 @@ def _factory_db_available() -> bool:
 def factory_totals_by_story(story_keys: list[str]) -> dict[str, dict]:
     """Geef per story_key de totalen van de meest recente story_run.
 
-    Returnt {story_key: {input, output, cache_read, cache_creation, cost_usd}}.
-    Stories zonder rij in de DB komen niet voor in het resultaat.
-    Faalt 't (DB onbereikbaar): lege dict, dashboard blijft werken.
+    Returnt {story_key: {input, output, cache_read, cache_creation, cost_usd,
+    run_count}}. Run_count = aantal agent_runs voor de laatste story_run,
+    handig om loop-detectie te doen (>10 = waarschijnlijk vast). Stories
+    zonder rij in de DB komen niet voor in het resultaat.
     """
     if not _factory_db_available() or not story_keys:
         return {}
     try:
         with psycopg.connect(FACTORY_DATABASE_URL) as conn, conn.cursor() as cur:
             # DISTINCT ON pakt per story_key de meest recente story_run.
+            # LATERAL join voor de agent_runs-count per dat story_run.
             cur.execute(
-                """SELECT DISTINCT ON (story_key)
-                          story_key,
-                          total_input_tokens, total_output_tokens,
-                          total_cache_read_tokens, total_cache_creation_tokens,
-                          total_cost_usd_est
-                   FROM factory.story_runs
-                   WHERE story_key = ANY(%s)
-                   ORDER BY story_key, started_at DESC""",
+                """SELECT DISTINCT ON (sr.story_key)
+                          sr.story_key,
+                          sr.total_input_tokens, sr.total_output_tokens,
+                          sr.total_cache_read_tokens, sr.total_cache_creation_tokens,
+                          sr.total_cost_usd_est,
+                          COALESCE(ar.cnt, 0)
+                   FROM factory.story_runs sr
+                   LEFT JOIN LATERAL (
+                       SELECT COUNT(*)::int AS cnt
+                       FROM factory.agent_runs
+                       WHERE story_run_id = sr.id
+                   ) ar ON true
+                   WHERE sr.story_key = ANY(%s)
+                   ORDER BY sr.story_key, sr.started_at DESC""",
                 (list(story_keys),),
             )
             return {
@@ -366,6 +374,7 @@ def factory_totals_by_story(story_keys: list[str]) -> dict[str, dict]:
                     "cache_read": row[3] or 0,
                     "cache_creation": row[4] or 0,
                     "cost_usd": float(row[5] or 0),
+                    "run_count": row[6] or 0,
                 }
                 for row in cur.fetchall()
             }
@@ -757,6 +766,9 @@ class JIRACard:
     # AI custom-fields (Fase 2 PR 3)
     ai_level: int = -1
     ai_phase: str = ""
+    # Hoeveel agent-runs heeft deze story al gehad? Hoog aantal = mogelijke
+    # loop (dev↔reviewer pingpong of tester die maar niet OK krijgt).
+    run_count: int = 0
 
 
 # ─── helpers voor fase-status afleiden ────────────────────────────────────
@@ -1317,6 +1329,7 @@ def build_state() -> dict:
             c.tokens_output = t["output"]
             c.tokens_cache_read = t["cache_read"]
             c.cost_usd = t["cost_usd"]
+            c.run_count = t.get("run_count", 0)
 
     # Sorteer: IN PROGRESS bovenaan, daarna AI Ready, beide op leeftijd.
     status_rank = {s: i for i, s in enumerate(JIRA_ACTIVE_STATUSES[::-1])}
@@ -3120,6 +3133,157 @@ def api_story_command(key: str, command: str) -> Response:
     return jsonify(ok=True, command=command, key=key)
 
 
+@app.route("/api/v1/stories/<key>/active-job", methods=["GET", "OPTIONS"])
+@require_jwt
+def api_story_active_job(key: str) -> Response:
+    """Geef de huidig-lopende agent-run voor een story terug (als die er
+    is). Bron: factory.agent_runs WHERE ended_at IS NULL voor de
+    laatste story_run.
+    """
+    if not _STORY_KEY_RE.match(key):
+        return jsonify(error="bad key"), 400
+    if not _factory_db_available():
+        return jsonify(active=None)
+    try:
+        with psycopg.connect(FACTORY_DATABASE_URL) as conn, conn.cursor() as cur:
+            cur.execute(
+                """SELECT ar.id, ar.role, ar.job_name, ar.started_at
+                   FROM factory.agent_runs ar
+                   JOIN factory.story_runs sr ON sr.id = ar.story_run_id
+                   WHERE sr.story_key = %s AND ar.ended_at IS NULL
+                   ORDER BY ar.started_at DESC LIMIT 1""",
+                (key,),
+            )
+            r = cur.fetchone()
+    except Exception as e:
+        log.warning("active-job lookup faalde: %s", e)
+        return jsonify(active=None)
+    if not r:
+        return jsonify(active=None)
+    return jsonify(active={
+        "id": r[0], "role": r[1], "job_name": r[2], "started_at": _iso(r[3]),
+    })
+
+
+# Patroon voor [REFINER]/[REVIEWER]/[TESTER]-vragen-comments — de
+# laatste daarvan is de PO-vraag waar nu op gewacht wordt.
+_PO_QUESTION_RE = re.compile(r"^\[(REFINER|REVIEWER|TESTER)\]\s+Vragen|^\[(REFINER|REVIEWER|TESTER)\]", re.MULTILINE)
+
+
+@app.route("/api/v1/stories/<key>/po-question", methods=["GET", "OPTIONS"])
+@require_jwt
+def api_story_po_question(key: str) -> Response:
+    """Geef de laatste agent-vraag terug uit de JIRA-comment-thread.
+    Returnt null als er geen actieve vraag is."""
+    if not _STORY_KEY_RE.match(key):
+        return jsonify(error="bad key"), 400
+    if not (JIRA_BASE_URL and JIRA_EMAIL and JIRA_API_KEY):
+        return jsonify(question=None)
+    try:
+        r = _jira_session.get(
+            f"{JIRA_BASE_URL}/rest/api/3/issue/{key}/comment",
+            params={"maxResults": "100", "orderBy": "-created"},
+            timeout=10,
+        )
+    except requests.RequestException:
+        return jsonify(question=None)
+    if r.status_code != 200:
+        return jsonify(question=None)
+    # Loop nieuwste-eerst tot we een agent-comment met "Vragen voor" vinden.
+    for c in r.json().get("comments", []):
+        body = c.get("body")
+        text = _adf_to_plain(body) if body else ""
+        if _PO_QUESTION_RE.search(text) and "Vragen" in text:
+            return jsonify(question={
+                "comment_id": c.get("id"),
+                "text": text,
+                "created": c.get("created"),
+            })
+    return jsonify(question=None)
+
+
+def _adf_to_plain(node) -> str:
+    """Vlak een Atlassian-Document-Format-tree naar plain text."""
+    if node is None:
+        return ""
+    if isinstance(node, list):
+        return "".join(_adf_to_plain(c) for c in node)
+    if isinstance(node, dict):
+        if node.get("type") == "text":
+            return node.get("text") or ""
+        content = node.get("content")
+        out = _adf_to_plain(content) if content else ""
+        t = node.get("type")
+        if t == "paragraph":
+            out += "\n"
+        elif t == "hardBreak":
+            out += "\n"
+        return out
+    return ""
+
+
+@app.route("/api/v1/stories/<key>/po-answer", methods=["POST", "OPTIONS"])
+@require_jwt
+def api_story_po_answer(key: str) -> Response:
+    """Plaats een PO-antwoord-comment + transition naar AI Queued.
+    Body: {"text": "..."}. De poller pakt de story dan op via
+    Stap 3 (AI Queued + phase=awaiting-po → resume_phase)."""
+    if request.method == "OPTIONS":
+        return _add_cors_headers(Response("", status=204))
+    if not _STORY_KEY_RE.match(key):
+        return jsonify(error="bad key"), 400
+    data = request.get_json(silent=True) or {}
+    text = (data.get("text") or "").strip()
+    if not text:
+        return jsonify(error="text is required"), 400
+    if not (JIRA_BASE_URL and JIRA_EMAIL and JIRA_API_KEY):
+        return jsonify(error="JIRA not configured"), 503
+    # 1. Post comment
+    body = {
+        "body": {
+            "type": "doc", "version": 1,
+            "content": [{
+                "type": "paragraph",
+                "content": [{"type": "text", "text": text}],
+            }],
+        }
+    }
+    try:
+        rc = _jira_session.post(
+            f"{JIRA_BASE_URL}/rest/api/3/issue/{key}/comment",
+            json=body, headers={"Content-Type": "application/json"},
+            timeout=10,
+        )
+    except requests.RequestException as e:
+        return jsonify(error=f"comment post failed: {e}"), 502
+    if rc.status_code not in (200, 201):
+        return jsonify(error="comment post failed", status=rc.status_code), 502
+
+    # 2. Transition naar AI Queued (als er een transition naar dat target is).
+    try:
+        tr = _jira_session.get(
+            f"{JIRA_BASE_URL}/rest/api/3/issue/{key}/transitions", timeout=10,
+        ).json()
+        target_name = "AI Queued"
+        tr_id = next(
+            (t["id"] for t in tr.get("transitions", [])
+             if (t.get("to") or {}).get("name") == target_name),
+            None,
+        )
+        if tr_id:
+            _jira_session.post(
+                f"{JIRA_BASE_URL}/rest/api/3/issue/{key}/transitions",
+                json={"transition": {"id": tr_id}},
+                headers={"Content-Type": "application/json"},
+                timeout=10,
+            )
+    except Exception as e:
+        log.warning("po-answer transition faalde: %s", e)
+        # Comment is wel geplaatst — niet fataal.
+
+    return jsonify(ok=True)
+
+
 @app.route("/api/v1/runner/<job_name>/log", methods=["GET", "OPTIONS"])
 @require_jwt
 def api_runner_log(job_name: str) -> Response:
@@ -3176,6 +3340,7 @@ def _jira_card_to_dict(c) -> dict:
         "tokens_input": c.tokens_input, "tokens_output": c.tokens_output,
         "tokens_cache_read": c.tokens_cache_read, "cost_usd": c.cost_usd,
         "ai_level": c.ai_level, "ai_phase": c.ai_phase,
+        "run_count": c.run_count,
     }
 
 
