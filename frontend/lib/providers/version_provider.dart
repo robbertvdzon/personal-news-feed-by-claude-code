@@ -18,26 +18,32 @@ import 'auth_provider.dart';
 ///   waarde.
 @immutable
 class VersionState {
+  static const Object _unset = Object();
+
   final VersionInfo frontend;
   final VersionInfo? backend;
   final String? bundleBackendSha;
+  final String? dismissedSha;
   final bool updateAvailable;
   const VersionState({
     required this.frontend,
     this.backend,
     this.bundleBackendSha,
+    this.dismissedSha,
     this.updateAvailable = false,
   });
 
   VersionState copyWith({
     VersionInfo? backend,
     String? bundleBackendSha,
+    Object? dismissedSha = _unset,
     bool? updateAvailable,
   }) =>
       VersionState(
         frontend: frontend,
         backend: backend ?? this.backend,
         bundleBackendSha: bundleBackendSha ?? this.bundleBackendSha,
+        dismissedSha: dismissedSha == _unset ? this.dismissedSha : dismissedSha as String?,
         updateAvailable: updateAvailable ?? this.updateAvailable,
       );
 }
@@ -75,11 +81,29 @@ class VersionNotifier extends StateNotifier<VersionState> {
     final mismatch = backend.sha != 'unknown' &&
         bundleSha != 'unknown' &&
         backend.sha != bundleSha;
+    // Banner tonen als er een mismatch is, maar niet als deze SHA al
+    // is genegeerd. Als backend-SHA verandert (nieuwere versie), reset
+    // de genegeerde SHA zodat de banner weer verschijnt.
+    final shouldShow = mismatch && backend.sha != state.dismissedSha;
+    final resetDismissed =
+        mismatch && state.dismissedSha != null && backend.sha != state.dismissedSha;
     state = state.copyWith(
       backend: backend,
       bundleBackendSha: bundleSha,
-      updateAvailable: mismatch,
+      dismissedSha: resetDismissed ? null : state.dismissedSha,
+      updateAvailable: shouldShow,
     );
+  }
+
+  /// Markeer huidige backend-versie als genegeerd. De banner verdwijnt
+  /// tot er een nieuwere versie binnenkomt.
+  void dismiss() {
+    if (state.backend != null && state.backend!.sha != 'unknown') {
+      state = state.copyWith(
+        dismissedSha: state.backend!.sha,
+        updateAvailable: false,
+      );
+    }
   }
 }
 
