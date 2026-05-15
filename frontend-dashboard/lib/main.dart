@@ -32,9 +32,9 @@ class _DashboardAppState extends ConsumerState<DashboardApp> {
     return MaterialApp(
       title: 'PNF Dashboard',
       debugShowCheckedModeBanner: false,
-      themeMode: ThemeMode.system,
+      // Altijd light — past bij de witte stijl van de PNF-feed-app.
+      themeMode: ThemeMode.light,
       theme: AppTheme.light(),
-      darkTheme: AppTheme.dark(),
       home: auth.isAuthenticated ? const HomeShell() : const LoginScreen(),
     );
   }
