@@ -3171,13 +3171,20 @@ def api_story_handover(key: str) -> Response:
     data = factory_story_timeline(key)
     if data is None:
         return jsonify(error="not found"), 404
+    runs = data["runs"]
+
+    def all_by_role(role: str) -> list[dict]:
+        return [d for d in (_agent_summary_dict(r) for r in runs if r.get("role") == role) if d]
+
     return jsonify({
         "story_key": key,
         "jira_title": _jira_fetch_issue_title(key),
-        "refiner":   _agent_summary_dict(_latest_run_by_role(data["runs"], "refiner")),
-        "developer": _agent_summary_dict(_latest_run_by_role(data["runs"], "developer")),
-        "reviewer":  _agent_summary_dict(_latest_run_by_role(data["runs"], "reviewer")),
-        "tester":    _agent_summary_dict(_latest_run_by_role(data["runs"], "tester")),
+        # Alle runs per rol (oudst eerst), zodat een story die heen-en-weer
+        # ging tussen developer ↔ reviewer alle iteraties laat zien.
+        "refiner":   all_by_role("refiner"),
+        "developer": all_by_role("developer"),
+        "reviewer":  all_by_role("reviewer"),
+        "tester":    all_by_role("tester"),
     })
 
 
@@ -3360,6 +3367,50 @@ def api_healthz() -> Response:
     return jsonify(ok=True)
 
 
+@app.route("/api/v1/apks", methods=["GET", "OPTIONS"])
+@require_jwt
+def api_apks() -> Response:
+    """Build-info voor de twee APKs in de Downloads-tab.
+    - personal-news-feed: via GH releases API (latest release's
+      personal-news-feed.apk asset → updated_at + size)
+    - dashboard: HEAD op de cdn-URL → Last-Modified + content-length
+    Geen failure-modes: ontbrekende data → leeg veld."""
+    pnf = {"url": "https://github.com/robbertvdzon/personal-news-feed-by-claude-code/releases/latest/download/personal-news-feed.apk"}
+    dash = {"url": "https://dashboard.vdzonsoftware.nl/download/dashboard.apk"}
+    # PNF: GH releases/latest
+    try:
+        r = gh(f"/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest")
+        if r:
+            asset = next(
+                (a for a in r.get("assets", [])
+                 if a.get("name") == "personal-news-feed.apk"),
+                None,
+            )
+            if asset:
+                pnf["built_at"] = asset.get("updated_at", "")
+                pnf["size"] = asset.get("size", 0)
+            pnf["tag"] = r.get("tag_name", "")
+    except Exception:
+        pass
+    # Dashboard: HEAD op de eigen URL (Last-Modified komt uit nginx)
+    try:
+        resp = requests.head(dash["url"], timeout=5, allow_redirects=True)
+        lm = resp.headers.get("Last-Modified", "")
+        if lm:
+            # RFC 1123 → ISO. Voorbeeld: 'Fri, 15 May 2026 14:57:33 GMT'
+            from email.utils import parsedate_to_datetime
+            try:
+                dash["built_at"] = parsedate_to_datetime(lm).isoformat()
+            except (TypeError, ValueError):
+                dash["built_at"] = lm
+        cl = resp.headers.get("Content-Length")
+        if cl and cl.isdigit():
+            dash["size"] = int(cl)
+    except Exception:
+        pass
+    return jsonify(pnf=pnf, dashboard=dash)
+
+
 # ─── JSON-serialisatie helpers voor de API ────────────────────────────────
 
 
@@ -3478,9 +3529,39 @@ def _agent_summary_dict(r: Optional[dict]) -> Optional[dict]:
     if r is None:
         return None
     return {
+        "id": r.get("id"),
         "role": r["role"], "started_at": _iso(r.get("started_at")),
+        "ended_at": _iso(r.get("ended_at")),
         "outcome": r["outcome"], "summary_text": r.get("summary_text", ""),
+        "verdict": _extract_verdict(r.get("role", ""), r.get("summary_text", "")),
     }
+
+
+def _extract_verdict(role: str, summary: str) -> str:
+    """Eindconclusie per agent. Reviewer: 'OK' / 'CHANGES'. Tester: 'PASS' /
+    'FAIL' uit ai_phase-mapping. Refiner/Developer: leeg (geen ja/nee-oordeel)."""
+    if not summary:
+        return ""
+    if role == "reviewer":
+        # Zoek 'Verdict: OK' of 'Verdict: CHANGES …' onder de Verdict-heading.
+        for line in summary.splitlines():
+            line = line.strip()
+            if line.lower().startswith("verdict:"):
+                rest = line.split(":", 1)[1].strip()
+                if rest.upper().startswith("OK"):
+                    return "OK"
+                if rest:
+                    return "CHANGES"
+    if role == "tester":
+        # Tester eindigt vaak met '{"phase": "tested-ok"}' of '"tested-fail"'.
+        # Daarnaast: 'Resultaat: PASS' of 'Resultaat: FAIL'.
+        if '"phase": "tested-ok"' in summary or "tested-ok" in summary.lower():
+            if '"phase": "tested-fail"' in summary:
+                return "FAIL"
+            return "PASS"
+        if '"phase": "tested-fail"' in summary or "tested-fail" in summary.lower():
+            return "FAIL"
+    return ""
 
 
 def _iso(ts) -> Optional[str]:

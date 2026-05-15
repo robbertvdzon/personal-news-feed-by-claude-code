@@ -28,6 +28,10 @@ final storyHandoverProvider = FutureProvider.family<HandoverData, String>(
   (ref, key) => ref.read(apiProvider).storyHandover(key),
 );
 
+final apksProvider = FutureProvider<ApkInfo>(
+  (ref) => ref.read(apiProvider).apks(),
+);
+
 final runnerLogProvider = FutureProvider.family<Map<String, dynamic>, String>(
   (ref, jobName) => ref.read(apiProvider).runnerLog(jobName),
 );
