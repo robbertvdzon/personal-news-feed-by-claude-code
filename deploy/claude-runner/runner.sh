@@ -392,7 +392,15 @@ Werk in plaats daarvan zo:
      toggle (TextButton) die het formulier omschakelt naar register-
      modus. Submit in die modus roept register() aan; de app logt
      automatisch in bij succes, geen aparte login-stap nodig.
-   - Wegwerp-account per run: \`tester_<timestamp>\` + 'P@ss1234!'.
+   - **Vaste username per story**: \`tester_<lowercase-KAN-key>\` (bv.
+     \`tester_kan-36\`). NIET \`tester_<timestamp>\` — dat geeft DB-
+     explosie omdat elke run een nieuwe user laat staan.
+   - Probeer eerst te **LOGGEN**. Slaagt → ingelogd, geen register
+     nodig (user bestaat van vorige run). Faalt → schakel naar
+     register-modus + register met dezelfde creds.
+   - Aan het EIND van de test (na navigate + screenshots): roep
+     DELETE /api/account/me aan met de JWT uit localStorage —
+     verwijdert de test-account zodat de DB schoon blijft.
    - Schakel naar register-modus via keyboard Tab-volgorde:
        Tab 1×: focus Gebruikersnaam (input nth 0)
        Tab 2×: focus Wachtwoord    (input nth 1)
@@ -465,32 +473,68 @@ Werkwijze:
              console.log(\`STEP \${num} FAIL \${name} :: \${e.message}\`);
            }
          }
-         const u = 'tester_' + Date.now();
+         // Vaste testgebruiker per story (lowercase KAN-key). Niet
+         // 'tester_' + Date.now() — dat geeft DB-explosie. Eén user
+         // per story, hergebruikt over re-tests. Aan het einde van de
+         // run DELETE'n we 'm via /api/account/me zodat de DB schoon
+         // blijft.
+         const u = 'tester_' + (process.env.STORY_ID || 'unknown').toLowerCase();
          const pw = 'P@ss1234!';
          await step(1, 'login-scherm', async () => {
            await page.goto(process.env.PREVIEW_URL, {waitUntil:'load'});
            await page.waitForTimeout(5000); // Flutter-hydratie
          });
-         // Stap 2: schakel naar register-modus (tab 5× naar de
-         // 'Account aanmaken'-toggle onderaan + Enter). Volgorde:
-         // input[user] → input[pw] → show-pw-icoon → submit-btn → toggle.
-         await step(2, 'naar-register-modus', async () => {
-           for (let i = 0; i < 5; i++) await page.keyboard.press('Tab');
-           await page.keyboard.press('Enter');
-           await page.waitForTimeout(1000);
-         });
-         // Stap 3: vul + submit. App registreert + logt automatisch in.
-         await step(3, 'registreer-en-login', async () => {
+         // Stap 2: probeer eerst te LOGGEN (user kan van vorige run
+         // bestaan). Slaagt → door naar stap 4. Faalt → stap 3 schakelt
+         // naar register-modus en maakt 'm aan.
+         await step(2, 'login-poging', async () => {
            await page.locator('input').nth(0).fill(u);
            await page.locator('input').nth(1).fill(pw);
            await page.keyboard.press('Enter');
-           await page.waitForTimeout(4000); // auth-roundtrip + UI-overgang
+           await page.waitForTimeout(4000);
          });
+         // Bepaal of we ingelogd zijn. Probeer 'n GET op /api/user/me
+         // (of vergelijkbaar) — bij 200 zijn we binnen, anders register.
+         // Pragmatisch: tel inputs op de pagina. Login-scherm heeft 2,
+         // home-scherm heeft 0 zichtbare TextField-overlays.
+         const stillOnLogin = await page.locator('input').count();
+         if (stillOnLogin >= 2) {
+           // Stap 3: schakel naar register-modus + registreer.
+           await step(3, 'registreer-nieuwe-user', async () => {
+             for (let i = 0; i < 5; i++) await page.keyboard.press('Tab');
+             await page.keyboard.press('Enter');
+             await page.waitForTimeout(1000);
+             await page.locator('input').nth(0).fill(u);
+             await page.locator('input').nth(1).fill(pw);
+             await page.keyboard.press('Enter');
+             await page.waitForTimeout(4000);
+           });
+         } else {
+           steps.push({num: 3, name: 'login-geslaagd-skip-register', ok: true});
+         }
          // Stap 4: navigeer naar de relevante tab (BottomNavigationBar).
          await step(4, 'navigate-settings', async () => {
            for (let i = 0; i < 4; i++) await page.keyboard.press('Tab');
            await page.keyboard.press('Enter');
            await page.waitForTimeout(3000);
+         });
+         // Stap 5: cleanup — verwijder de test-account via /api/account/me.
+         // De JWT zit in localStorage onder Flutter's SharedPreferences-key.
+         await step(5, 'cleanup-delete-account', async () => {
+           const token = await page.evaluate(() => {
+             // Flutter SharedPreferences web-key is 'flutter.token'.
+             const raw = localStorage.getItem('flutter.token');
+             if (!raw) return null;
+             // Recente shared_preferences_web slaat als plain string op;
+             // oudere versies prefixen 'String:'. Strip beide.
+             return raw.replace(/^String:/, '');
+           });
+           if (!token) throw new Error('geen JWT in localStorage; kan niet opruimen');
+           const r = await fetch(process.env.PREVIEW_URL + '/api/account/me', {
+             method: 'DELETE',
+             headers: {'Authorization': 'Bearer ' + token},
+           });
+           if (!r.ok) throw new Error('delete /api/account/me → HTTP ' + r.status);
          });
          await browser.close();
          require('fs').writeFileSync('/tmp/flow-steps.json', JSON.stringify(steps, null, 2));

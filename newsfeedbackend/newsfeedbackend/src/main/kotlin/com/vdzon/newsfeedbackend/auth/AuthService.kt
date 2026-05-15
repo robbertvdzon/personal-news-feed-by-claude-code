@@ -14,6 +14,14 @@ interface AuthService {
      * weet (bv. een gestolen device) kan het wachtwoord dus niet veranderen.
      */
     fun changePassword(username: String, currentPassword: String, newPassword: String)
+
+    /**
+     * Verwijdert het account van de ingelogde user. Authenticatie via JWT
+     * is bewijs genoeg — geen password-verify (zou test-scripts complex
+     * maken die zichzelf opruimen). Idempotent: dubbele delete is geen
+     * fout, returnt of er iets is verwijderd.
+     */
+    fun deleteOwnAccount(username: String): Boolean
 }
 
 data class AuthToken(val token: String, val username: String, val role: String)
