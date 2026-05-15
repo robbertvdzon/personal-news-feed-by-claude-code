@@ -47,12 +47,12 @@ configMapGenerator:
     disableNameSuffixHash: true
 
 images:
+- name: ghcr.io/robbertvdzon/dashboard-frontend
+  newName: ghcr.io/robbertvdzon/dashboard-frontend
+  newTag: main
 - name: ghcr.io/robbertvdzon/jira-poller
   newName: ghcr.io/robbertvdzon/jira-poller
   newTag: sha-361e700
 - name: ghcr.io/robbertvdzon/status-dashboard
   newName: ghcr.io/robbertvdzon/status-dashboard
-  newTag: sha-0781950
-- name: ghcr.io/robbertvdzon/dashboard-frontend
-  newName: ghcr.io/robbertvdzon/dashboard-frontend
-  newTag: main
+  newTag: sha-9030b68
