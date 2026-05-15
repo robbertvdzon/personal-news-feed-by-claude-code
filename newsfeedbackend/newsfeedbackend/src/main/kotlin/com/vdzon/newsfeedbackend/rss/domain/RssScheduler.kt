@@ -9,6 +9,7 @@ import com.vdzon.newsfeedbackend.request.RequestService
 import com.vdzon.newsfeedbackend.request.RequestStatus
 import com.vdzon.newsfeedbackend.rss.RssService
 import com.vdzon.newsfeedbackend.rss.infrastructure.RssItemRepository
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock
 import org.slf4j.LoggerFactory
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
@@ -28,6 +29,7 @@ class RssScheduler(
     private val log = LoggerFactory.getLogger(javaClass)
 
     @Scheduled(cron = "0 0 * * * *")
+    @SchedulerLock(name = "hourlyRefresh", lockAtMostFor = "59m", lockAtLeastFor = "1m")
     fun hourlyRefresh() {
         for (username in auth.listUsernames()) {
             log.info("[Scheduler] hourly refresh -> {}", username)
@@ -36,6 +38,7 @@ class RssScheduler(
     }
 
     @Scheduled(cron = "0 0 6 * * *")
+    @SchedulerLock(name = "dailySummary", lockAtMostFor = "4h", lockAtLeastFor = "1m")
     fun dailySummary() {
         for (username in auth.listUsernames()) {
             try {
