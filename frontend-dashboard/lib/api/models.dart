@@ -1,0 +1,298 @@
+/// Domain-modellen, plat geserialiseerd vanaf de JSON-API
+/// (zie deploy/status-dashboard/app.py — /api/v1/*).
+///
+/// Bewust losse fromJson-factories i.p.v. een codegen-laag — kleiner +
+/// makkelijk te lezen voor zes schermen.
+
+class StoryRow {
+  final String storyKey;
+  final String? startedAt;
+  final String? endedAt;
+  final String finalStatus;
+  final int runCount;
+  final int durationMsSum;
+  final int input;
+  final int output;
+  final int cacheRead;
+  final int cacheCreation;
+  final double costUsd;
+
+  StoryRow({
+    required this.storyKey,
+    required this.startedAt,
+    required this.endedAt,
+    required this.finalStatus,
+    required this.runCount,
+    required this.durationMsSum,
+    required this.input,
+    required this.output,
+    required this.cacheRead,
+    required this.cacheCreation,
+    required this.costUsd,
+  });
+
+  factory StoryRow.fromJson(Map<String, dynamic> j) => StoryRow(
+        storyKey: j['story_key'] as String? ?? '',
+        startedAt: j['started_at'] as String?,
+        endedAt: j['ended_at'] as String?,
+        finalStatus: j['final_status'] as String? ?? '',
+        runCount: (j['run_count'] as num?)?.toInt() ?? 0,
+        durationMsSum: (j['duration_ms_sum'] as num?)?.toInt() ?? 0,
+        input: (j['input'] as num?)?.toInt() ?? 0,
+        output: (j['output'] as num?)?.toInt() ?? 0,
+        cacheRead: (j['cache_read'] as num?)?.toInt() ?? 0,
+        cacheCreation: (j['cache_creation'] as num?)?.toInt() ?? 0,
+        costUsd: (j['cost_usd'] as num?)?.toDouble() ?? 0.0,
+      );
+}
+
+class AgentRun {
+  final int id;
+  final String role;
+  final String jobName;
+  final String model;
+  final String effort;
+  final int? level;
+  final String? startedAt;
+  final String? endedAt;
+  final String outcome;
+  final int input;
+  final int output;
+  final int cacheRead;
+  final int cacheCreation;
+  final double costUsd;
+  final int numTurns;
+  final int durationMs;
+  final String summaryText;
+
+  AgentRun({
+    required this.id,
+    required this.role,
+    required this.jobName,
+    required this.model,
+    required this.effort,
+    required this.level,
+    required this.startedAt,
+    required this.endedAt,
+    required this.outcome,
+    required this.input,
+    required this.output,
+    required this.cacheRead,
+    required this.cacheCreation,
+    required this.costUsd,
+    required this.numTurns,
+    required this.durationMs,
+    required this.summaryText,
+  });
+
+  factory AgentRun.fromJson(Map<String, dynamic> j) => AgentRun(
+        id: (j['id'] as num?)?.toInt() ?? 0,
+        role: j['role'] as String? ?? '',
+        jobName: j['job_name'] as String? ?? '',
+        model: j['model'] as String? ?? '',
+        effort: j['effort'] as String? ?? '',
+        level: (j['level'] as num?)?.toInt(),
+        startedAt: j['started_at'] as String?,
+        endedAt: j['ended_at'] as String?,
+        outcome: j['outcome'] as String? ?? '',
+        input: (j['input'] as num?)?.toInt() ?? 0,
+        output: (j['output'] as num?)?.toInt() ?? 0,
+        cacheRead: (j['cache_read'] as num?)?.toInt() ?? 0,
+        cacheCreation: (j['cache_creation'] as num?)?.toInt() ?? 0,
+        costUsd: (j['cost_usd'] as num?)?.toDouble() ?? 0.0,
+        numTurns: (j['num_turns'] as num?)?.toInt() ?? 0,
+        durationMs: (j['duration_ms'] as num?)?.toInt() ?? 0,
+        summaryText: j['summary_text'] as String? ?? '',
+      );
+}
+
+class StoryDetail {
+  final int id;
+  final String storyKey;
+  final String? startedAt;
+  final String? endedAt;
+  final String? finalStatus;
+  final Map<String, dynamic> totals;
+  final List<AgentRun> runs;
+  final String jiraTitle;
+  final List<Map<String, dynamic>> prs;
+  final List<Map<String, dynamic>> commits;
+
+  StoryDetail({
+    required this.id,
+    required this.storyKey,
+    required this.startedAt,
+    required this.endedAt,
+    required this.finalStatus,
+    required this.totals,
+    required this.runs,
+    required this.jiraTitle,
+    required this.prs,
+    required this.commits,
+  });
+
+  factory StoryDetail.fromJson(Map<String, dynamic> j) {
+    final story = (j['story'] as Map?) ?? {};
+    return StoryDetail(
+      id: (story['id'] as num?)?.toInt() ?? 0,
+      storyKey: story['story_key'] as String? ?? '',
+      startedAt: story['started_at'] as String?,
+      endedAt: story['ended_at'] as String?,
+      finalStatus: story['final_status'] as String?,
+      totals: Map<String, dynamic>.from(story['totals'] as Map? ?? {}),
+      runs: (story['runs'] as List? ?? [])
+          .map((r) => AgentRun.fromJson(Map<String, dynamic>.from(r as Map)))
+          .toList(),
+      jiraTitle: j['jira_title'] as String? ?? '',
+      prs: (j['prs'] as List? ?? [])
+          .map((p) => Map<String, dynamic>.from(p as Map))
+          .toList(),
+      commits: (j['commits'] as List? ?? [])
+          .map((c) => Map<String, dynamic>.from(c as Map))
+          .toList(),
+    );
+  }
+}
+
+class HandoverData {
+  final String storyKey;
+  final String jiraTitle;
+  final AgentRun? refiner;
+  final AgentRun? developer;
+  final AgentRun? reviewer;
+  final AgentRun? tester;
+
+  HandoverData({
+    required this.storyKey,
+    required this.jiraTitle,
+    required this.refiner,
+    required this.developer,
+    required this.reviewer,
+    required this.tester,
+  });
+
+  factory HandoverData.fromJson(Map<String, dynamic> j) {
+    AgentRun? agent(String key) {
+      final raw = j[key];
+      if (raw == null) return null;
+      return AgentRun.fromJson(Map<String, dynamic>.from(raw as Map));
+    }
+
+    return HandoverData(
+      storyKey: j['story_key'] as String? ?? '',
+      jiraTitle: j['jira_title'] as String? ?? '',
+      refiner: agent('refiner'),
+      developer: agent('developer'),
+      reviewer: agent('reviewer'),
+      tester: agent('tester'),
+    );
+  }
+}
+
+class JiraCard {
+  final String key;
+  final String title;
+  final String status;
+  final String jiraUrl;
+  final String age;
+  final String jobState;
+  final String jobStatus;
+  final String jobName;
+  final int tokensInput;
+  final int tokensOutput;
+  final int tokensCacheRead;
+  final double costUsd;
+  final int aiLevel;
+  final String aiPhase;
+
+  JiraCard({
+    required this.key,
+    required this.title,
+    required this.status,
+    required this.jiraUrl,
+    required this.age,
+    required this.jobState,
+    required this.jobStatus,
+    required this.jobName,
+    required this.tokensInput,
+    required this.tokensOutput,
+    required this.tokensCacheRead,
+    required this.costUsd,
+    required this.aiLevel,
+    required this.aiPhase,
+  });
+
+  factory JiraCard.fromJson(Map<String, dynamic> j) => JiraCard(
+        key: j['key'] as String? ?? '',
+        title: j['title'] as String? ?? '',
+        status: j['status'] as String? ?? '',
+        jiraUrl: j['jira_url'] as String? ?? '',
+        age: j['age'] as String? ?? '',
+        jobState: j['job_state'] as String? ?? '',
+        jobStatus: j['job_status'] as String? ?? '',
+        jobName: j['job_name'] as String? ?? '',
+        tokensInput: (j['tokens_input'] as num?)?.toInt() ?? 0,
+        tokensOutput: (j['tokens_output'] as num?)?.toInt() ?? 0,
+        tokensCacheRead: (j['tokens_cache_read'] as num?)?.toInt() ?? 0,
+        costUsd: (j['cost_usd'] as num?)?.toDouble() ?? 0.0,
+        aiLevel: (j['ai_level'] as num?)?.toInt() ?? -1,
+        aiPhase: j['ai_phase'] as String? ?? '',
+      );
+}
+
+class PrCard {
+  final int number;
+  final String title;
+  final String htmlUrl;
+  final String branch;
+  final String author;
+  final String updatedAge;
+  final String previewUrl;
+
+  PrCard({
+    required this.number,
+    required this.title,
+    required this.htmlUrl,
+    required this.branch,
+    required this.author,
+    required this.updatedAge,
+    required this.previewUrl,
+  });
+
+  factory PrCard.fromJson(Map<String, dynamic> j) => PrCard(
+        number: (j['number'] as num?)?.toInt() ?? 0,
+        title: j['title'] as String? ?? '',
+        htmlUrl: j['html_url'] as String? ?? '',
+        branch: j['branch'] as String? ?? '',
+        author: j['author'] as String? ?? '',
+        updatedAge: j['updated_age'] as String? ?? '',
+        previewUrl: j['preview_url'] as String? ?? '',
+      );
+}
+
+class HomeState {
+  final String fetchedAt;
+  final List<JiraCard> aiActive;
+  final List<PrCard> openPrs;
+  final List<Map<String, dynamic>> closedPrs;
+
+  HomeState({
+    required this.fetchedAt,
+    required this.aiActive,
+    required this.openPrs,
+    required this.closedPrs,
+  });
+
+  factory HomeState.fromJson(Map<String, dynamic> j) => HomeState(
+        fetchedAt: j['fetched_at'] as String? ?? '',
+        aiActive: (j['ai_active'] as List? ?? [])
+            .map((c) => JiraCard.fromJson(Map<String, dynamic>.from(c as Map)))
+            .toList(),
+        openPrs: (j['open_prs'] as List? ?? [])
+            .map((c) => PrCard.fromJson(Map<String, dynamic>.from(c as Map)))
+            .toList(),
+        closedPrs: (j['closed_prs'] as List? ?? [])
+            .map((c) => Map<String, dynamic>.from(c as Map))
+            .toList(),
+      );
+}

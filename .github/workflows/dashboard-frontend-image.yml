@@ -1,0 +1,66 @@
+name: Build dashboard-frontend image
+
+# Bouwt het Flutter-dashboard (web + APK in één image) en pusht naar
+# ghcr.io. Trigger: pushes naar main die frontend-dashboard/** raken.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'frontend-dashboard/**'
+      - '.github/workflows/dashboard-frontend-image.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write    # bump-manifests stap mag commit pushen
+  packages: write    # push naar ghcr.io
+
+env:
+  IMAGE: ghcr.io/robbertvdzon/dashboard-frontend
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.sha.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Short SHA
+        id: sha
+        run: echo "tag=sha-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: frontend-dashboard
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.sha.outputs.tag }}
+            ${{ env.IMAGE }}:main
+          build-args: |
+            BUILD_SHA=${{ steps.sha.outputs.tag }}
+          cache-from: type=gha,scope=dashboard-frontend
+          cache-to: type=gha,mode=max,scope=dashboard-frontend
+
+  bump-manifests:
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Bump image tag in deploy/tooling
+        run: |
+          .github/scripts/bump-images.sh \
+            deploy/tooling \
+            "ci: bump dashboard-frontend to ${{ needs.build.outputs.tag }}" \
+            "ghcr.io/robbertvdzon/dashboard-frontend=ghcr.io/robbertvdzon/dashboard-frontend:${{ needs.build.outputs.tag }}"
