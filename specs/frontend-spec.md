@@ -57,8 +57,8 @@ AuthGate
             └── dialog → EditCategoryDialog
             └── dialog → AddCategoryDialog
             └── dialog → CleanupDialog
-            └── navigeer naar → AdminScreen          (alleen voor admins, via "Beheer"-sectie)
-                    └── navigeer naar → AdminCostsScreen
+            └── navigeer naar → AdminScreen          (alleen voor admins, via "Beheer gebruikers"-knop)
+            └── navigeer naar → AdminCostsScreen     (alleen voor admins, via "Beheer kosten"-knop)
 ```
 
 **Belangrijk:** Alle tabs blijven in leven bij tab-wisseling (geen rebuild bij terugkeer).
@@ -328,12 +328,14 @@ Knop "Artikelen opruimen" opent CleanupDialog:
 
 Onderaan het instellingen-scherm verschijnt een extra sectie **"Beheer"** die alleen zichtbaar is voor gebruikers met de rol `admin`.
 
-- **Adminpaneel-tegel:** navigeert via `Navigator.push` naar AdminScreen.
+- **Beheer gebruikers-knop:** navigeert via `Navigator.push` naar AdminScreen.
   - AdminScreen toont alle gebruikers met hun rollen.
   - Per gebruiker: wachtwoord resetten, promoveren naar admin, degraderen naar user, verwijderen.
-  - Vanuit AdminScreen is er een navigatieknop naar AdminCostsScreen (kosten-overzicht).
 
-Er is geen aparte Admin-tab in de bottom navigation bar — alle admin-functionaliteit zit achter de Beheer-tegel in Settings.
+- **Beheer kosten-knop:** navigeert via `Navigator.push` naar AdminCostsScreen.
+  - AdminCostsScreen toont kostenoverzichten per dag, per gebruiker en gedetailleerd logboek van externe API-calls.
+
+Er is geen aparte Admin-tab in de bottom navigation bar — alle admin-functionaliteit zit achter de twee Beheer-knoppen in Settings.
 
 ---
 
