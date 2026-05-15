@@ -87,9 +87,8 @@ class _NewsFeedAppState extends ConsumerState<NewsFeedApp>
   }
 }
 
-/// Persistente snackbar onderin: blijft staan tot de gebruiker op
-/// "Nu vernieuwen" tikt (of zelf herlaadt). Geen timeout — anders kan de
-/// gebruiker hem op een mobiel scherm makkelijk missen.
+/// Persistente snackbar onderin: toont bij een versie-mismatch, kan
+/// weggeswipet worden, en verschijnt opnieuw als er een nieuwere versie komt.
 class _UpdateAvailableBanner extends ConsumerWidget {
   const _UpdateAvailableBanner();
 
@@ -103,27 +102,32 @@ class _UpdateAvailableBanner extends ConsumerWidget {
       top: false,
       child: Padding(
         padding: EdgeInsets.fromLTRB(12, 0, 12, 12 + bottomInset),
-        child: Material(
-          elevation: 6,
-          borderRadius: BorderRadius.circular(8),
-          color: theme.colorScheme.inverseSurface,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
-            child: Row(children: [
-              Expanded(
-                child: Text(
-                  'Er is een nieuwe versie beschikbaar.',
-                  style: TextStyle(color: theme.colorScheme.onInverseSurface),
+        child: Dismissible(
+          key: ValueKey(v.backend?.sha ?? 'unknown'),
+          direction: DismissDirection.down,
+          onDismissed: (_) => ref.read(versionProvider.notifier).dismiss(),
+          child: Material(
+            elevation: 6,
+            borderRadius: BorderRadius.circular(8),
+            color: theme.colorScheme.inverseSurface,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
+              child: Row(children: [
+                Expanded(
+                  child: Text(
+                    'Er is een nieuwe versie beschikbaar.',
+                    style: TextStyle(color: theme.colorScheme.onInverseSurface),
+                  ),
                 ),
-              ),
-              TextButton(
-                onPressed: () => hardReload(),
-                style: TextButton.styleFrom(
-                  foregroundColor: theme.colorScheme.inversePrimary,
+                TextButton(
+                  onPressed: () => hardReload(),
+                  style: TextButton.styleFrom(
+                    foregroundColor: theme.colorScheme.inversePrimary,
+                  ),
+                  child: const Text('Nu vernieuwen'),
                 ),
-                child: const Text('Nu vernieuwen'),
-              ),
-            ]),
+              ]),
+            ),
           ),
         ),
       ),
