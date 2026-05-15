@@ -729,6 +729,9 @@ def spawn_runner_job(
         job_uid = None
 
     if job_uid:
+        # blockOwnerDeletion bewust uitgelaten: dat zou 'update finalizers'
+        # op jobs vereisen (privilege escalation-check). We hoeven de Job-
+        # delete NIET te blokkeren — we willen juist dat de CM mee-GC't.
         patch = {
             "metadata": {
                 "ownerReferences": [{
@@ -736,7 +739,6 @@ def spawn_runner_job(
                     "kind": "Job",
                     "name": job_name,
                     "uid": job_uid,
-                    "blockOwnerDeletion": True,
                 }]
             }
         }
