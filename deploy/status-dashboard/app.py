@@ -1445,6 +1445,16 @@ h1 { font-size: 18px; margin: 0 0 4px 0; }
 .handover-banner-card .hb-cta { display: inline-block;
   color: #4ade80; text-decoration: none; font-weight: 600; font-size: 13px; }
 .handover-banner-card .hb-cta:hover { text-decoration: underline; }
+.card-actions { display: flex; gap: 8px; margin-top: 10px;
+                padding-top: 10px; border-top: 1px solid #2c3340; }
+.card-btn { display: inline-block; padding: 6px 14px; font-size: 13px;
+            font-weight: 600; border-radius: 6px;
+            background: #2c3340; color: #e4e6eb; text-decoration: none;
+            border: 1px solid #3a414f; }
+.card-btn:hover { background: #3a414f; }
+.card-btn.primary { background: #1e3a8a; color: #dbeafe;
+                    border-color: #1e3a8a; }
+.card-btn.primary:hover { background: #1e40af; }
 """
 
 
@@ -1548,7 +1558,7 @@ def _render_factory_row(story_key: str, card) -> str:
         f"cache-read {_fmt_tokens(card.tokens_cache_read)} · "
         f"≈ ${card.cost_usd:.4f}"
     )
-    timeline_link = f' <a href="/story/{escape(story_key)}">Timeline →</a>'
+    timeline_link = f' <a href="/story/{escape(story_key)}">Details →</a>'
     return (
         f'<div class="info-row">'
         f'<span class="label">factory</span>'
@@ -2038,6 +2048,18 @@ def _render_story_page(
     .cmd-flash {{ background: #052e16; color: #a7f3d0;
                   border: 1px solid #065f46; border-radius: 6px;
                   padding: 8px 12px; margin-bottom: 10px; font-size: 13px; }}
+    table.overview-mini {{ width: auto; min-width: 320px; max-width: 600px;
+                            margin: 12px 0; border-collapse: collapse;
+                            background: #1a2029; border: 1px solid #2c3340;
+                            border-radius: 8px; overflow: hidden; }}
+    table.overview-mini th {{ text-align: left; padding: 6px 12px;
+                               background: #11151c; color: #8b96a8;
+                               font-weight: normal; font-size: 12px;
+                               width: 180px; }}
+    table.overview-mini td {{ padding: 6px 12px; font-size: 13px;
+                               color: #e4e6eb; }}
+    table.overview-mini tr + tr th, table.overview-mini tr + tr td {{
+        border-top: 1px solid #2c3340; }}
   </style>
 </head>
 <body>
@@ -2045,18 +2067,20 @@ def _render_story_page(
   <p><a href="/">← dashboard</a> · <a href="/stories">alle stories →</a></p>
   {links_html}
   {cmds_html}
-  <div class="meta">
-    Gestart: {escape(_fmt_ts(data["started_at"]))}
-    · Final status: <strong>{escape(final)}</strong>
-    · Totale duur agent-runs: {escape(_fmt_seconds(duration_total // 1000))}
-  </div>
 
-  <div class="totals">
-    <strong>Totalen:</strong>
-    {_fmt_tokens(t["input"])} in / {_fmt_tokens(t["output"])} out ·
-    cache-read {_fmt_tokens(t["cache_read"])} · cache-creation {_fmt_tokens(t["cache_creation"])} ·
-    geschatte kosten <strong>${t["cost_usd"]:.4f}</strong>
-  </div>
+  <table class="overview-mini">
+    <tr><th>Gestart</th><td>{escape(_fmt_ts(data["started_at"]))}</td></tr>
+    <tr><th>Geëindigd</th><td>{escape(_fmt_ts(data.get("ended_at")))}</td></tr>
+    <tr><th>Final status</th><td><strong>{escape(final)}</strong></td></tr>
+    <tr><th>Aantal agent-runs</th><td>{len(runs)}</td></tr>
+    <tr><th>Agent-tijd (CPU)</th><td>{escape(_fmt_seconds(duration_total // 1000))}</td></tr>
+    <tr><th>Wallclock</th><td>{escape(_fmt_seconds(int((data["ended_at"] - data["started_at"]).total_seconds())) if data.get("ended_at") and data.get("started_at") else "—")}</td></tr>
+    <tr><th>Input tokens</th><td>{_fmt_tokens(t["input"])}</td></tr>
+    <tr><th>Output tokens</th><td>{_fmt_tokens(t["output"])}</td></tr>
+    <tr><th>Cache-read tokens</th><td>{_fmt_tokens(t["cache_read"])}</td></tr>
+    <tr><th>Cache-creation tokens</th><td>{_fmt_tokens(t["cache_creation"])}</td></tr>
+    <tr><th>Geschatte kosten</th><td><strong>${t["cost_usd"]:.4f}</strong></td></tr>
+  </table>
 
   <h2>Agent-runs ({len(runs)})</h2>
   <table>
@@ -2574,7 +2598,7 @@ def render_jira(card: JIRACard) -> str:
     elif card.status == "AI Ready":
         parts.append("wacht op poller (≤ 30s)")
     meta = " · ".join(parts)
-    # Factory-row (tokens + cost + timeline-link) als er DB-data is.
+    # Factory-row (alleen tokens + cost) als er DB-data is.
     fac_html = ""
     if card.tokens_input or card.tokens_output or card.tokens_cache_read or card.cost_usd:
         fac_detail = (
@@ -2584,16 +2608,24 @@ def render_jira(card: JIRACard) -> str:
             f"≈ ${card.cost_usd:.4f}"
         )
         fac_html = (
-            f'<div class="meta">factory: {escape(fac_detail)} '
-            f'<a href="/story/{escape(card.key)}">Timeline →</a> · '
-            f'<a href="/story/{escape(card.key)}/handover">Briefing →</a></div>'
+            f'<div class="meta">factory: {escape(fac_detail)}</div>'
         )
+    # Duidelijke knop onderin de kaart — was vroeger een inline 'Timeline →'-
+    # link in de factory-row, nu een prominente 'Details'-knop. Briefing
+    # blijft als secundaire knop ernaast.
+    details_btns = (
+        f'<div class="card-actions">'
+        f'<a class="card-btn primary" href="/story/{escape(card.key)}">Details →</a>'
+        f'<a class="card-btn" href="/story/{escape(card.key)}/handover">Briefing →</a>'
+        f'</div>'
+    )
     return (
         f'<div class="card jira">'
         f'<div class="title">{title}{level_html}{phase_html}</div>'
         f"{pipeline_html}"
         f'<div class="meta">{meta}</div>'
         f"{fac_html}"
+        f"{details_btns}"
         f"</div>"
     )
 
