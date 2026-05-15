@@ -697,8 +697,12 @@ if [[ -n "${CLAUDE_MODEL:-}" ]]; then
   echo "[runner] model: $CLAUDE_MODEL · effort: ${CLAUDE_EFFORT:-default}"
 fi
 
-# Story-bestand inkopiëren zodat Claude 'm met Read kan lezen
+# Story-bestand inkopiëren zodat Claude 'm met Read kan lezen.
+# Tegelijk in .git/info/exclude zetten — dat is lokale-only gitignore
+# die OOK 'git add .task.md' van Claude tegenhoudt. De .gitignore in
+# main heeft 't ook, maar dat helpt alleen tegen 'git add -A'.
 cp /task/task.md /work/repo/.task.md
+echo ".task.md" >> /work/repo/.git/info/exclude
 
 # Niet-interactief: --print + --output-format stream-json. Elke regel is
 # één JSON-event (system-init, assistant-text, tool_use, tool_result,
