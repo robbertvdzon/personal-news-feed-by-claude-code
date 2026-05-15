@@ -312,7 +312,23 @@ class _PrCardWidget extends StatelessWidget {
                     ),
                 ],
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 6),
+              if (pr.jiraStatus.isNotEmpty || pr.aiPhase.isNotEmpty)
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    if (pr.jiraStatus.isNotEmpty)
+                      StatusPill(label: pr.jiraStatus),
+                    if (pr.aiPhase.isNotEmpty)
+                      StatusPill(
+                        label: pr.aiPhase,
+                        bg: scheme.tertiaryContainer,
+                        fg: scheme.onTertiaryContainer,
+                      ),
+                  ],
+                ),
+              const SizedBox(height: 6),
               Text(
                   '${pr.author} · ${pr.branch} · updated ${pr.updatedAge}',
                   style:

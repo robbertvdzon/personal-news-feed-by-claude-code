@@ -302,6 +302,8 @@ class PrCard {
   final String author;
   final String updatedAge;
   final String previewUrl;
+  final String jiraStatus;
+  final String aiPhase;
 
   PrCard({
     required this.number,
@@ -311,6 +313,8 @@ class PrCard {
     required this.author,
     required this.updatedAge,
     required this.previewUrl,
+    required this.jiraStatus,
+    required this.aiPhase,
   });
 
   factory PrCard.fromJson(Map<String, dynamic> j) => PrCard(
@@ -321,6 +325,8 @@ class PrCard {
         author: j['author'] as String? ?? '',
         updatedAge: j['updated_age'] as String? ?? '',
         previewUrl: j['preview_url'] as String? ?? '',
+        jiraStatus: j['jira_status'] as String? ?? '',
+        aiPhase: j['ai_phase'] as String? ?? '',
       );
 }
 
