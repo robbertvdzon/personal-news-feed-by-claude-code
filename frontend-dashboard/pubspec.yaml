@@ -20,14 +20,6 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
-  flutter_launcher_icons: ^0.14.1
 
 flutter:
   uses-material-design: true
-
-flutter_launcher_icons:
-  android: true
-  ios: false
-  image_path: "icons/launcher.png"
-  adaptive_icon_background: "#EADDFF"
-  adaptive_icon_foreground: "icons/launcher_fg.png"
