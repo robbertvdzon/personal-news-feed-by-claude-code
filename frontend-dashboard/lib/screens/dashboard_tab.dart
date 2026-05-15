@@ -22,7 +22,10 @@ class DashboardTab extends ConsumerWidget {
           padding: const EdgeInsets.fromLTRB(24, 8, 24, 80),
           children: [
             const SectionHeader(title: 'Production', subtitle: 'main-branch'),
-            _ProductionCard(main: s.main),
+            _ProductionCard(
+              main: s.main,
+              lastMerged: s.closedPrs.isNotEmpty ? s.closedPrs.first : null,
+            ),
           ],
         ),
       ),
@@ -32,7 +35,8 @@ class DashboardTab extends ConsumerWidget {
 
 class _ProductionCard extends StatelessWidget {
   final MainBuild main;
-  const _ProductionCard({required this.main});
+  final Map<String, dynamic>? lastMerged;
+  const _ProductionCard({required this.main, required this.lastMerged});
 
   @override
   Widget build(BuildContext context) {
@@ -41,69 +45,237 @@ class _ProductionCard extends StatelessWidget {
     final phasesTotal = main.phases.length;
     final allGreen = phasesTotal > 0 && phasesOk == phasesTotal;
     return Card(
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: main.previewUrl.isNotEmpty ? () => launchUrl(Uri.parse(main.previewUrl)) : null,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  StatusPill(
-                    label: allGreen ? '● Healthy' : '$phasesOk / $phasesTotal groen',
-                    bg: allGreen ? const Color(0xFFE6F7EC) : const Color(0xFFFFF4E5),
-                    fg: allGreen ? const Color(0xFF1E6B3E) : const Color(0xFF8A5A0B),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                StatusPill(
+                  label: allGreen ? '● Healthy' : '$phasesOk / $phasesTotal groen',
+                  bg: allGreen ? const Color(0xFFE6F7EC) : const Color(0xFFFFF4E5),
+                  fg: allGreen ? const Color(0xFF1E6B3E) : const Color(0xFF8A5A0B),
+                ),
+                const Spacer(),
+                if (main.previewUrl.isNotEmpty)
+                  TextButton.icon(
+                    icon: const Icon(Icons.open_in_new, size: 14),
+                    label: const Text('Preview'),
+                    onPressed: () => launchUrl(Uri.parse(main.previewUrl)),
                   ),
-                  const Spacer(),
-                  Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(main.sha.isNotEmpty ? main.sha : '—',
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 13)),
+            Text(main.shaAge.isNotEmpty ? '${main.shaAge} geleden' : 'unknown age',
+                style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12)),
+            const SizedBox(height: 16),
+            _SubHeader(text: 'Laatste merge naar main'),
+            const SizedBox(height: 6),
+            if (lastMerged == null)
+              Text('—', style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13))
+            else
+              _LastMergeRow(pr: lastMerged!),
+            if (main.phases.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              _SubHeader(text: 'Builds & services'),
+              const SizedBox(height: 6),
+              _PhasesTable(phases: main.phases),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SubHeader extends StatelessWidget {
+  final String text;
+  const _SubHeader({required this.text});
+  @override
+  Widget build(BuildContext context) {
+    return Text(text.toUpperCase(),
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+          letterSpacing: 0.4,
+        ));
+  }
+}
+
+class _LastMergeRow extends StatelessWidget {
+  final Map<String, dynamic> pr;
+  const _LastMergeRow({required this.pr});
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final number = pr['number']?.toString() ?? '';
+    final title = pr['title']?.toString() ?? '';
+    final age = pr['merged_age']?.toString() ?? '';
+    final url = pr['html_url']?.toString() ?? '';
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: url.isEmpty ? null : () => launchUrl(Uri.parse(url)),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Row(
+          children: [
+            Container(
+              width: 28, height: 28,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: scheme.tertiaryContainer,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Icon(Icons.merge_type, size: 16, color: scheme.onTertiaryContainer),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('#$number — $title',
+                      style: const TextStyle(fontSize: 14),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis),
+                  Text(age.isEmpty ? '—' : '$age geleden',
+                      style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
                 ],
               ),
-              const SizedBox(height: 12),
-              Text(main.sha.isNotEmpty ? main.sha : '—',
-                  style: const TextStyle(
-                      fontFamily: 'monospace', fontSize: 13)),
-              Text(main.shaAge.isNotEmpty ? '${main.shaAge} geleden' : 'unknown age',
-                  style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12)),
-              if (main.phases.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: main.phases.map((p) {
-                    final s = (p['status'] as String?) ?? '';
-                    final ok = s == 'pass';
-                    final running = s == 'running';
-                    final fail = s == 'fail';
-                    final color = ok
-                        ? const Color(0xFFE6F7EC)
-                        : (running ? const Color(0xFFE5F0FE) : (fail ? const Color(0xFFFDECEC) : const Color(0xFFF1F3F8)));
-                    final iconColor = ok
-                        ? const Color(0xFF1E6B3E)
-                        : (running ? const Color(0xFF1E40AF) : (fail ? const Color(0xFF991B1B) : const Color(0xFF6B7280)));
-                    return Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                          color: color, borderRadius: BorderRadius.circular(8)),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            ok ? Icons.check_circle_outline
-                              : (running ? Icons.sync : (fail ? Icons.error_outline : Icons.radio_button_unchecked)),
-                            size: 13, color: iconColor,
-                          ),
-                          const SizedBox(width: 6),
-                          Text('${p['label']}', style: TextStyle(fontSize: 12, color: iconColor, fontWeight: FontWeight.w600)),
-                        ],
-                      ),
-                    );
-                  }).toList(),
-                ),
+            ),
+            if (url.isNotEmpty)
+              Icon(Icons.open_in_new, size: 14, color: scheme.onSurfaceVariant),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PhasesTable extends StatelessWidget {
+  final List<Map<String, dynamic>> phases;
+  const _PhasesTable({required this.phases});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: scheme.outlineVariant),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        children: [
+          // Header
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+            child: Row(
+              children: const [
+                Expanded(flex: 3, child: _ColHdr('Onderdeel')),
+                Expanded(flex: 2, child: _ColHdr('Status')),
+                Expanded(flex: 3, child: _ColHdr('Detail')),
+                Expanded(flex: 2, child: _ColHdr('Sinds')),
               ],
-            ],
+            ),
           ),
+          Divider(height: 1, color: scheme.outlineVariant),
+          for (int i = 0; i < phases.length; i++) ...[
+            if (i > 0) Divider(height: 1, color: scheme.outlineVariant),
+            _PhaseRow(phase: phases[i]),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _ColHdr extends StatelessWidget {
+  final String text;
+  const _ColHdr(this.text);
+  @override
+  Widget build(BuildContext context) {
+    return Text(text.toUpperCase(),
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+          letterSpacing: 0.4,
+        ));
+  }
+}
+
+class _PhaseRow extends StatelessWidget {
+  final Map<String, dynamic> phase;
+  const _PhaseRow({required this.phase});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final label = (phase['label'] as String?) ?? '';
+    final status = (phase['status'] as String?) ?? '';
+    final detail = (phase['detail'] as String?) ?? '';
+    final since = (phase['since'] as String?) ?? '';
+    final link = (phase['link'] as String?) ?? '';
+    final ok = status == 'pass';
+    final running = status == 'running';
+    final fail = status == 'fail';
+    final color = ok
+        ? const Color(0xFF1E6B3E)
+        : (running
+            ? const Color(0xFF1E40AF)
+            : (fail ? const Color(0xFF991B1B) : const Color(0xFF6B7280)));
+    final icon = ok
+        ? Icons.check_circle_outline
+        : (running
+            ? Icons.sync
+            : (fail ? Icons.error_outline : Icons.radio_button_unchecked));
+    return InkWell(
+      onTap: link.isEmpty ? null : () => launchUrl(Uri.parse(link)),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Expanded(
+              flex: 3,
+              child: Text(label,
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+            ),
+            Expanded(
+              flex: 2,
+              child: Row(
+                children: [
+                  Icon(icon, size: 14, color: color),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      ok ? 'Pass' : (running ? 'Running' : (fail ? 'Failed' : 'Pending')),
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: color),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              flex: 3,
+              child: Text(
+                detail.isEmpty ? '—' : detail,
+                style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            Expanded(
+              flex: 2,
+              child: Text(
+                since.isEmpty ? '—' : '$since geleden',
+                style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+              ),
+            ),
+          ],
         ),
       ),
     );
