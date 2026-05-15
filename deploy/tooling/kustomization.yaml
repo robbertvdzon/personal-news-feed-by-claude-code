@@ -28,6 +28,7 @@ namespace: pnf-software-factory
 resources:
 - jira-poller-deployment.yaml
 - status-dashboard-deployment.yaml
+- dashboard-frontend-deployment.yaml
 
 # Schema-init voor de factory-DB gebeurt in de poller zelf bij startup
 # (zie poller.py, `init_schema()`). Dat is eenvoudiger dan een aparte
@@ -52,3 +53,6 @@ images:
 - name: ghcr.io/robbertvdzon/status-dashboard
   newName: ghcr.io/robbertvdzon/status-dashboard
   newTag: sha-0781950
+- name: ghcr.io/robbertvdzon/dashboard-frontend
+  newName: ghcr.io/robbertvdzon/dashboard-frontend
+  newTag: main

@@ -2697,7 +2697,7 @@ def render_page(state: dict) -> str:
 </head>
 <body>
   <h1>Personal News Feed — status</h1>
-  <div class="sub">Auto-refresh elke {REFRESH_SEC}s · cache {CACHE_TTL_SEC}s · fetched at {escape(state['fetched_at'])} · <a href="/stories">alle stories →</a></div>
+  <div class="sub">Auto-refresh elke {REFRESH_SEC}s · cache {CACHE_TTL_SEC}s · fetched at {escape(state['fetched_at'])} · <a href="/stories">alle stories →</a> · <a href="https://dashboard.vdzonsoftware.nl">nieuwe dashboard-app →</a> · <a href="https://dashboard.vdzonsoftware.nl/download/dashboard.apk">📱 Android APK</a></div>
 
   {main_html}
 

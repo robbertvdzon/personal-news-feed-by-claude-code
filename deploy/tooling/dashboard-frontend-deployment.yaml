@@ -1,0 +1,64 @@
+# Dashboard-frontend (Flutter web + APK-download via nginx).
+#
+# Bevindt zich in pnf-software-factory en proxy't /api/* naar de
+# status-dashboard service in dezelfde namespace. Externe toegang via
+# Cloudflare-tunnel-route op dashboard.vdzonsoftware.nl →
+# http://dashboard-frontend.pnf-software-factory.svc.cluster.local:80
+#
+# (Cloudflare-tunnel target-port is 80 — onze service luistert intern
+# op 80 en routert dat naar de pod-poort 8080 van nginx-unprivileged.)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dashboard-frontend
+  namespace: pnf-software-factory
+  labels:
+    app: dashboard-frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dashboard-frontend
+  template:
+    metadata:
+      labels:
+        app: dashboard-frontend
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/robbertvdzon/dashboard-frontend:main
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dashboard-frontend
+  namespace: pnf-software-factory
+spec:
+  selector:
+    app: dashboard-frontend
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+  type: ClusterIP
