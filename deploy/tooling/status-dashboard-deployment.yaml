@@ -87,6 +87,14 @@ spec:
                 secretKeyRef:
                   name: newsfeed-api-keys
                   key: DASHBOARD_ADMIN_PASSWORD
+            # JWT-signing-key (stabiel over pod-restarts). Zonder deze
+            # genereert app.py een random secret per pod-start, met als
+            # gevolg dat elke deploy alle clients uitlogt.
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: newsfeed-api-keys
+                  key: JWT_SECRET
             # CORS-origin voor de Flutter-dashboard-app.
             - name: DASHBOARD_CORS_ORIGIN
               value: "https://dashboard.vdzonsoftware.nl"

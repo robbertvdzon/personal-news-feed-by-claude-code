@@ -3004,10 +3004,11 @@ DASHBOARD_ADMIN_PASSWORD = os.environ.get("DASHBOARD_ADMIN_PASSWORD", "")
 DASHBOARD_CORS_ORIGIN = os.environ.get(
     "DASHBOARD_CORS_ORIGIN", "https://dashboard.vdzonsoftware.nl"
 )
-# JWT-signing-key: random per pod-start, niet uit een env-var. Pod-
-# restart = alle clients moeten opnieuw inloggen — acceptabel voor één
-# admin-user. Vermijdt 'lekken via env-vars' en herstart-na-incident-edges.
-_JWT_SECRET = _secrets.token_hex(32)
+# JWT-signing-key: bij voorkeur uit JWT_SECRET (sealed-secret), valt
+# terug op een random secret als de env-var ontbreekt. Random-fallback =
+# clients loggen na pod-restart opnieuw in; met de env-var blijven ze
+# ingelogd over restarts heen.
+_JWT_SECRET = os.environ.get("JWT_SECRET") or _secrets.token_hex(32)
 JWT_TTL_SEC = int(os.environ.get("DASHBOARD_JWT_TTL_SEC", str(7 * 24 * 3600)))
 
 
