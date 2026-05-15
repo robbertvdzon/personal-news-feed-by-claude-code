@@ -9,16 +9,20 @@ WORKDIR /src
 
 COPY pubspec.yaml ./
 # pubspec.lock niet committen-vereist; pub get genereert 'm.
-RUN --mount=type=cache,target=/root/.pub-cache flutter pub get
+# GEEN cache-mount op /root/.pub-cache: de packages moeten ook in de
+# layer staan zodat de latere apk-build ze kan lezen. Een cache-mount
+# zou de pub-cache verbergen achter een (mogelijk lege) volume.
+RUN flutter pub get
 
 # Scaffolding-bestanden (android/, web/-defaults, etc.) genereren als
 # ze niet in git zitten. Idempotent: bestaande lib/main.dart blijft.
 RUN flutter create --platforms=android,web --org com.vdzonsoftware --project-name pnf_dashboard . || true
 
-# Launcher-icoon genereren VOOR de APK-build. flutter_launcher_icons
-# schrijft naar android/app/src/main/res/mipmap-*. Bron-PNG in icons/.
-COPY icons/ ./icons/
-RUN --mount=type=cache,target=/root/.pub-cache dart run flutter_launcher_icons
+# Launcher-icoon: voorgegenereerde mipmaps + adaptive-icon XML rechtstreeks
+# kopiëren over de defaults die `flutter create` plaatste. Eerdere poging
+# met flutter_launcher_icons leverde lege icons op in de APK — keten van
+# Gradle-resource-merging gaf de defaults voorrang. Pre-baken is bombproof.
+COPY icons/res/ android/app/src/main/res/
 
 COPY analysis_options.yaml ./
 COPY lib/ ./lib/
@@ -34,14 +38,12 @@ RUN flutter build web --release \
 
 # APK build — debug-signed (default Flutter debug-key). Voldoende voor
 # 'install via Unknown Sources' op je eigen toestel.
-# LET OP: doet 'flutter build apk' ook iets met build/web? Sommige Flutter-
-# versies regenereren shared artifacts. We doen 'm dus VOOR de
-# hashing-stap, zodat de hashing 't laatste woord heeft.
-# Gradle-deps (~500MB) + build-cache via BuildKit-mounts → herhaalde
-# builds hergebruiken downloads. cache-to: type=gha,mode=max in de
-# workflow exporteert deze mount-caches mee.
+# Geen pub-cache mount hier: de layer bevat al alles uit `flutter pub get`
+# (zonder cache-mount); een mount zou de pub-cache-dir overlayen met een
+# lege volume → 'No such file or directory' op alle packages.
+# Gradle-deps via /root/.gradle + /src/android/.gradle cache mounts blijven
+# wel zinvol (~500MB Android deps).
 RUN --mount=type=cache,target=/root/.gradle \
-    --mount=type=cache,target=/root/.pub-cache \
     --mount=type=cache,target=/src/android/.gradle \
     flutter build apk --debug \
       --dart-define=API_BASE_URL=${API_BASE_URL:-https://status.vdzonsoftware.nl} \
