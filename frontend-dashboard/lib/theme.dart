@@ -19,13 +19,16 @@ class AppTheme {
   }
 
   static ThemeData _base(ColorScheme scheme) {
+    final isLight = scheme.brightness == Brightness.light;
     return ThemeData(
       colorScheme: scheme,
       useMaterial3: true,
       visualDensity: VisualDensity.adaptivePlatformDensity,
-      scaffoldBackgroundColor: scheme.surface,
+      // Witte achtergrond in light-mode (zoals PNF-feed-app),
+      // surface-color in dark-mode.
+      scaffoldBackgroundColor: isLight ? Colors.white : scheme.surface,
       appBarTheme: AppBarTheme(
-        backgroundColor: scheme.surface,
+        backgroundColor: isLight ? Colors.white : scheme.surface,
         foregroundColor: scheme.onSurface,
         elevation: 0,
         scrolledUnderElevation: 1,
@@ -37,7 +40,9 @@ class AppTheme {
         ),
       ),
       cardTheme: CardThemeData(
-        color: scheme.surfaceContainerLow,
+        // In light-mode geven cards een subtiele tint t.o.v. de witte
+        // achtergrond zodat ze 'zweven'. In dark-mode container-color.
+        color: isLight ? const Color(0xFFF6F7FB) : scheme.surfaceContainerLow,
         elevation: 0,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         margin: EdgeInsets.zero,
@@ -56,7 +61,7 @@ class AppTheme {
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: scheme.surfaceContainerHighest,
+        fillColor: isLight ? const Color(0xFFF1F3F8) : scheme.surfaceContainerHighest,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide.none,

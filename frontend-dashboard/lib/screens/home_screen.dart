@@ -48,7 +48,26 @@ class _HomeBody extends ConsumerWidget {
     final stateAsync = ref.watch(homeStateProvider);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Software Factory'),
+        titleSpacing: 12,
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 32,
+              height: 32,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primaryContainer,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(Icons.precision_manufacturing,
+                  size: 18,
+                  color: Theme.of(context).colorScheme.onPrimaryContainer),
+            ),
+            const SizedBox(width: 10),
+            const Text('Software Factory'),
+          ],
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.logout),
