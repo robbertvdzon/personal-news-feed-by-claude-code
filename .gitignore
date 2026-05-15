@@ -48,3 +48,8 @@ deploy/secrets-cluster.env
 # Lokale kubeconfig om vanuit devcontainer met cluster te praten.
 # Bevat cluster-admin token — NOOIT committen.
 .kubeconfig
+
+# Runtime-bestand dat de claude-runner cp't vanuit /task/task.md
+# naar /work/repo/.task.md. Hoort NOOIT in een commit te belanden
+# (zou anders in elke PR meegaan).
+.task.md
