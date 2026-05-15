@@ -8,6 +8,7 @@ import '../providers/auth_provider.dart';
 import '../providers/data_providers.dart';
 import '../providers/version_provider.dart';
 import '../widgets/app_logo.dart';
+import 'admin_costs_screen.dart';
 import 'admin_screen.dart';
 import 'api_log_screen.dart';
 
@@ -121,11 +122,19 @@ class SettingsScreen extends ConsumerWidget {
           const Divider(),
           Text('Beheer', style: Theme.of(context).textTheme.titleLarge),
           ListTile(
-            leading: const Icon(Icons.admin_panel_settings),
-            title: const Text('Adminpaneel'),
+            leading: const Icon(Icons.person_search),
+            title: const Text('Gebruikers'),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(builder: (_) => const AdminScreen()),
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.payments),
+            title: const Text('Kosten'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const AdminCostsScreen()),
             ),
           ),
         ],
