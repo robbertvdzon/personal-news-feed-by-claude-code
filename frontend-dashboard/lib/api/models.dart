@@ -341,12 +341,60 @@ class PrCard {
       );
 }
 
+class ClosedPr {
+  final int number;
+  final String title;
+  final String htmlUrl;
+  final String branch;
+  final String mergedAge;
+  final String mergedAt;
+  final String headSha;
+  final String storyKey;     // leeg = niet-AI-PR (ci-bumps etc.)
+  final int tokensInput;
+  final int tokensOutput;
+  final int tokensCacheRead;
+  final double costUsd;
+  final int runCount;
+
+  ClosedPr({
+    required this.number,
+    required this.title,
+    required this.htmlUrl,
+    required this.branch,
+    required this.mergedAge,
+    required this.mergedAt,
+    required this.headSha,
+    required this.storyKey,
+    required this.tokensInput,
+    required this.tokensOutput,
+    required this.tokensCacheRead,
+    required this.costUsd,
+    required this.runCount,
+  });
+
+  factory ClosedPr.fromJson(Map<String, dynamic> j) => ClosedPr(
+        number: (j['number'] as num?)?.toInt() ?? 0,
+        title: j['title'] as String? ?? '',
+        htmlUrl: j['html_url'] as String? ?? '',
+        branch: j['branch'] as String? ?? '',
+        mergedAge: j['merged_age'] as String? ?? '',
+        mergedAt: j['merged_at'] as String? ?? '',
+        headSha: j['head_sha'] as String? ?? '',
+        storyKey: j['story_key'] as String? ?? '',
+        tokensInput: (j['tokens_input'] as num?)?.toInt() ?? 0,
+        tokensOutput: (j['tokens_output'] as num?)?.toInt() ?? 0,
+        tokensCacheRead: (j['tokens_cache_read'] as num?)?.toInt() ?? 0,
+        costUsd: (j['cost_usd'] as num?)?.toDouble() ?? 0.0,
+        runCount: (j['run_count'] as num?)?.toInt() ?? 0,
+      );
+}
+
 class HomeState {
   final String fetchedAt;
   final MainBuild main;
   final List<JiraCard> aiActive;
   final List<PrCard> openPrs;
-  final List<Map<String, dynamic>> closedPrs;
+  final List<ClosedPr> closedPrs;
 
   HomeState({
     required this.fetchedAt,
@@ -366,7 +414,7 @@ class HomeState {
             .map((c) => PrCard.fromJson(Map<String, dynamic>.from(c as Map)))
             .toList(),
         closedPrs: (j['closed_prs'] as List? ?? [])
-            .map((c) => Map<String, dynamic>.from(c as Map))
+            .map((c) => ClosedPr.fromJson(Map<String, dynamic>.from(c as Map)))
             .toList(),
       );
 }
