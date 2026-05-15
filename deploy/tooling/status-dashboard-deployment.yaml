@@ -79,6 +79,17 @@ spec:
                 secretKeyRef:
                   name: newsfeed-api-keys
                   key: FACTORY_DATABASE_URL
+            # Admin-wachtwoord voor de /api/v1/* JSON-API (Fase 1 — Flutter
+            # dashboard backend). Eén user 'admin' met dit wachtwoord
+            # via POST /api/v1/auth/login → JWT.
+            - name: DASHBOARD_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: newsfeed-api-keys
+                  key: DASHBOARD_ADMIN_PASSWORD
+            # CORS-origin voor de Flutter-dashboard-app.
+            - name: DASHBOARD_CORS_ORIGIN
+              value: "https://dashboard.vdzonsoftware.nl"
           readinessProbe:
             httpGet:
               path: /healthz
