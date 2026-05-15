@@ -51,4 +51,4 @@ images:
   newTag: sha-361e700
 - name: ghcr.io/robbertvdzon/status-dashboard
   newName: ghcr.io/robbertvdzon/status-dashboard
-  newTag: sha-d1c0b36
+  newTag: sha-361e700
