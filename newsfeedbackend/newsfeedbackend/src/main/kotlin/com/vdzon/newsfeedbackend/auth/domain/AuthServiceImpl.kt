@@ -57,4 +57,12 @@ class AuthServiceImpl(
         users.update(user.copy(passwordHash = encoder.encode(newPassword)!!))
         log.info("User '{}' changed password", username)
     }
+
+    override fun deleteOwnAccount(username: String): Boolean {
+        val deleted = users.deleteByUsername(username)
+        if (deleted) {
+            log.info("User '{}' deleted own account", username)
+        }
+        return deleted
+    }
 }
