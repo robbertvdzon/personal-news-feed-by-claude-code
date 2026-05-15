@@ -1151,6 +1151,7 @@ def kill_runner_jobs_for_story(story_key: str) -> int:
     """Hard-kill alle nog-lopende runner-Jobs voor een story.
     Returns aantal verwijderde Jobs (best-effort)."""
     short = sanitize_id(story_key)
+    log.info("[cmd] kill_jobs %s — label app=claude-runner,story-id=%s", story_key, short)
     out = kubectl(
         "delete", "jobs",
         "-n", RUNNER_NAMESPACE,
@@ -1158,7 +1159,29 @@ def kill_runner_jobs_for_story(story_key: str) -> int:
         "--ignore-not-found=true",
         check=False,
     )
-    return out.stdout.count("deleted") if out.stdout else 0
+    killed = out.stdout.count("deleted") if out.stdout else 0
+    log.info("[cmd] kill_jobs %s → %d jobs verwijderd; stdout=%r stderr=%r",
+             story_key, killed, (out.stdout or "")[:200], (out.stderr or "")[:200])
+    return killed
+
+
+def find_preview_namespaces_for_story(story_key: str) -> list[str]:
+    """Vind alle pnf-pr-*-namespaces die mogelijk bij deze story horen.
+
+    Strategie: zoek alle PR's (open + closed) voor branch ai/<key> via
+    de GH-API. Elke PR-nummer mapped naar pnf-pr-<num>. Returnt lijst
+    namespaces (per geconstrueerde naam) — niet alle hoeven te bestaan.
+    """
+    branch = f"ai/{story_key}"
+    r = gh_request(
+        "GET",
+        f"/repos/{GITHUB_OWNER}/{GITHUB_REPO}/pulls",
+        params={"state": "all", "head": f"{GITHUB_OWNER}:{branch}", "per_page": "10"},
+    )
+    if not r or r.status_code != 200:
+        return []
+    prs = r.json()
+    return [f"pnf-pr-{p['number']}" for p in prs if p.get("number")]
 
 
 def close_pr_for_story(story_key: str) -> Optional[int]:
@@ -1210,15 +1233,27 @@ def merge_pr_for_story(story_key: str) -> Optional[int]:
     return num
 
 
-def delete_preview_namespace(pr_number: int) -> None:
-    """oc delete namespace pnf-pr-N (best-effort, --ignore-not-found)."""
+def delete_preview_namespace(pr_number: int) -> bool:
+    """oc delete namespace pnf-pr-N. Returnt True als de namespace
+    bestond + delete-call geslaagd is."""
     ns = f"pnf-pr-{pr_number}"
-    kubectl(
-        "delete", "namespace", ns,
-        "--ignore-not-found=true",
-        "--wait=false",
-        check=False,
-    )
+    return _delete_namespace_by_name(ns)
+
+
+def _delete_namespace_by_name(ns: str) -> bool:
+    log.info("[cmd] delete_namespace %s", ns)
+    # Check eerst of de namespace bestaat — anders is "--ignore-not-found"
+    # stilletjes klaar zonder dat we weten of er iets is opgeruimd.
+    check = kubectl("get", "namespace", ns, "--ignore-not-found=true",
+                    "-o", "name", check=False)
+    if not (check.stdout or "").strip():
+        log.info("[cmd] delete_namespace %s — bestond niet (geen actie)", ns)
+        return False
+    out = kubectl("delete", "namespace", ns, "--wait=false", check=False)
+    ok = out.returncode == 0
+    log.info("[cmd] delete_namespace %s → rc=%d stdout=%r stderr=%r",
+             ns, out.returncode, (out.stdout or "")[:200], (out.stderr or "")[:200])
+    return ok
 
 
 def prepend_cancelled_to_title(issue_key: str) -> None:
@@ -1278,45 +1313,92 @@ def execute_story_command(issue_key: str, command: str) -> str:
 
     if command == "pause":
         killed = kill_runner_jobs_for_story(issue_key)
-        transition_issue(issue_key, "AI Paused")
-        return f"jobs={killed}, status → AI Paused"
+        ok = transition_issue(issue_key, "AI Paused")
+        log.info("[cmd] pause %s: transition → %s", issue_key, ok)
+        status_part = "status → AI Paused" if ok else (
+            "status NIET veranderd — geen transitie naar 'AI Paused' beschikbaar"
+        )
+        return f"jobs={killed}, {status_part}"
 
     if command == "delete":
         killed = kill_runner_jobs_for_story(issue_key)
         pr_num = close_pr_for_story(issue_key)
-        if pr_num:
-            delete_preview_namespace(pr_num)
+        log.info("[cmd] delete %s: close_pr → %s", issue_key, pr_num)
+        # Ruim alle namespaces voor deze story op (ook als pr_num None is).
+        all_ns = find_preview_namespaces_for_story(issue_key)
+        if pr_num and f"pnf-pr-{pr_num}" not in all_ns:
+            all_ns.append(f"pnf-pr-{pr_num}")
+        ns_deleted = sum(1 for ns in all_ns if _delete_namespace_by_name(ns))
         prepend_cancelled_to_title(issue_key)
         jira_post_comment(issue_key, "canceled by user")
-        transition_issue(issue_key, JIRA_DONE_STATUS)
+        ok = transition_issue(issue_key, JIRA_DONE_STATUS)
+        log.info("[cmd] delete %s: transition → %s", issue_key, ok)
+        status_part = (
+            f"status → {JIRA_DONE_STATUS}" if ok
+            else f"status NIET veranderd — geen transitie naar '{JIRA_DONE_STATUS}'"
+        )
         return (
-            f"jobs={killed}, pr={pr_num or '-'}, ns gewist, "
-            f"title prefix, status → {JIRA_DONE_STATUS}"
+            f"jobs={killed}, pr={pr_num or '-'}, "
+            f"namespaces gewist={ns_deleted}/{len(all_ns)}, "
+            f"title prefix, {status_part}"
         )
 
     if command == "merge":
         # Merge eerst (mocht 't falen, willen we niet alvast jobs killen +
         # namespace deleten en met half resultaat eindigen).
         pr_num = merge_pr_for_story(issue_key)
+        log.info("[cmd] merge %s: merge_pr → %s", issue_key, pr_num)
         if pr_num is None:
             return "merge faalde / geen PR — geen verdere actie"
         killed = kill_runner_jobs_for_story(issue_key)
-        delete_preview_namespace(pr_num)
+        all_ns = find_preview_namespaces_for_story(issue_key)
+        if f"pnf-pr-{pr_num}" not in all_ns:
+            all_ns.append(f"pnf-pr-{pr_num}")
+        ns_deleted = sum(1 for ns in all_ns if _delete_namespace_by_name(ns))
         return (
-            f"pr #{pr_num} merged squash, jobs={killed}, ns gewist "
+            f"pr #{pr_num} merged squash, jobs={killed}, "
+            f"namespaces gewist={ns_deleted}/{len(all_ns)} "
             "(status volgt via merge-detect)"
         )
 
     if command == "re-implement":
+        log.info("[cmd] re-implement %s: start", issue_key)
         killed = kill_runner_jobs_for_story(issue_key)
+
+        # Sluit ÉÉN PR (via huidige helper) — kan None geven als geen PR
+        # of als hij niet meer matched.
         pr_num = close_pr_for_story(issue_key)
-        if pr_num:
-            delete_preview_namespace(pr_num)
+        log.info("[cmd] re-implement %s: close_pr → %s", issue_key, pr_num)
+
+        # Zoek álle pnf-pr-*-namespaces die ooit bij deze story
+        # hoorden (op basis van álle PR's voor ai/<key>) en delete ze.
+        # Werkt ook als de PR al gesloten/gemerged is en close_pr_for_story
+        # niets vond.
+        all_ns = find_preview_namespaces_for_story(issue_key)
+        if pr_num and f"pnf-pr-{pr_num}" not in all_ns:
+            all_ns.append(f"pnf-pr-{pr_num}")
+        ns_deleted = 0
+        for ns in all_ns:
+            if _delete_namespace_by_name(ns):
+                ns_deleted += 1
+        log.info("[cmd] re-implement %s: %d/%d namespaces verwijderd",
+                 issue_key, ns_deleted, len(all_ns))
+
         deleted_comments = delete_bot_comments(issue_key)
-        transition_issue(issue_key, "To Do")
+        log.info("[cmd] re-implement %s: %d bot-comments verwijderd",
+                 issue_key, deleted_comments)
+
+        transition_ok = transition_issue(issue_key, "To Do")
+        log.info("[cmd] re-implement %s: transition to 'To Do' → %s",
+                 issue_key, transition_ok)
+        status_part = "status → To Do" if transition_ok else (
+            "status NIET veranderd — geen transitie naar 'To Do' beschikbaar "
+            "vanuit huidige status (controleer JIRA-workflow)"
+        )
         return (
-            f"jobs={killed}, pr={pr_num or '-'}, ns gewist, "
-            f"bot-comments verwijderd={deleted_comments}, status → To Do"
+            f"jobs={killed}, pr={pr_num or '-'}, "
+            f"namespaces gewist={ns_deleted}/{len(all_ns)}, "
+            f"bot-comments verwijderd={deleted_comments}, {status_part}"
         )
 
     return f"onbekend commando: {command}"
