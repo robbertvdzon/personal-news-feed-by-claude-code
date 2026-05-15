@@ -190,7 +190,7 @@ class _StoriesTable extends StatelessWidget {
               child: Row(
                 children: [
                   const Expanded(flex: 3, child: _Hdr('Story')),
-                  Expanded(flex: 2, child: _Hdr(wide ? 'Status' : '')),
+                  if (wide) const Expanded(flex: 2, child: _Hdr('Status')),
                   const Expanded(flex: 3, child: _Hdr('Fase')),
                   if (wide) const Expanded(child: _Hdr('Runs')),
                   if (wide) const Expanded(flex: 2, child: _Hdr('Tokens')),
@@ -256,15 +256,23 @@ class _StoryRowWidget extends StatelessWidget {
                       style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
                   Text(shortTitle.isEmpty ? '—' : shortTitle,
                       style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
+                  // Op narrow: status inline onder de titel; aparte kolom
+                  // overflowt op kleine schermen (zie KAN-46 screenshot).
+                  if (!wide && row.status.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: _StatusBadge(label: row.status),
+                    ),
                 ],
               ),
             ),
-            Expanded(
-              flex: 2,
-              child: row.status.isEmpty
-                  ? const SizedBox.shrink()
-                  : _StatusBadge(label: row.status),
-            ),
+            if (wide)
+              Expanded(
+                flex: 2,
+                child: row.status.isEmpty
+                    ? const SizedBox.shrink()
+                    : _StatusBadge(label: row.status),
+              ),
             Expanded(
               flex: 3,
               child: _PhasePips(aiPhase: row.aiPhase, status: row.status),
