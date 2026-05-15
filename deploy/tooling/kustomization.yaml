@@ -52,7 +52,7 @@ images:
   newTag: sha-abbd409
 - name: ghcr.io/robbertvdzon/jira-poller
   newName: ghcr.io/robbertvdzon/jira-poller
-  newTag: sha-5cf54d0
+  newTag: sha-66506f7
 - name: ghcr.io/robbertvdzon/status-dashboard
   newName: ghcr.io/robbertvdzon/status-dashboard
   newTag: sha-a0bb00a
