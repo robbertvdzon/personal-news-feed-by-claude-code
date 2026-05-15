@@ -19,6 +19,7 @@ JavaScript, een `<meta refresh>` doet de auto-refresh. Werkt zo prima op
 elke browser én op je telefoon, ook bij krappe netwerken.
 """
 
+import base64
 import json
 import logging
 import os
