@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../api/api_client.dart';
 import '../providers/auth_provider.dart';
 import '../widgets/app_logo.dart';
-import 'admin_costs_screen.dart';
 
 /// Eenvoudig domeinmodel — klein en alleen voor het admin-scherm,
 /// dus niet in models.dart om de rest van de app niet te belasten.
@@ -68,13 +67,6 @@ class AdminScreen extends ConsumerWidget {
         leading: const AppLogo(),
         title: const Text('Admin'),
         actions: [
-          IconButton(
-            tooltip: 'Kosten-overzicht',
-            icon: const Icon(Icons.payments),
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const AdminCostsScreen()),
-            ),
-          ),
           IconButton(
             tooltip: 'Lijst herladen',
             icon: const Icon(Icons.refresh),
