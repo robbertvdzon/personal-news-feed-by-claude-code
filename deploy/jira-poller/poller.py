@@ -62,6 +62,8 @@ JIRA_SOURCE_STATUS = os.environ.get("JIRA_SOURCE_STATUS", "AI Ready")
 JIRA_TARGET_STATUS = os.environ.get("JIRA_TARGET_STATUS", "AI IN PROGRESS")
 JIRA_REVIEW_STATUS = os.environ.get("JIRA_REVIEW_STATUS", "AI IN REVIEW")
 JIRA_DONE_STATUS = os.environ.get("JIRA_DONE_STATUS", "Klaar")
+# Doel-status na re-implement. NL JIRA gebruikt 'Nog doen' i.p.v. 'To Do'.
+JIRA_TODO_STATUS = os.environ.get("JIRA_TODO_STATUS", "Nog doen")
 POLL_INTERVAL_SEC = int(os.environ.get("POLL_INTERVAL_SEC", "30"))
 MAX_CONCURRENT_JOBS = int(os.environ.get("MAX_CONCURRENT_JOBS", "2"))
 CLAUDE_RUNNER_IMAGE = os.environ.get(
@@ -1126,7 +1128,8 @@ def process_pr_comments() -> None:
 #                  (status volgt via bestaande merge-detect)
 #   pause        : kill jobs, status → AI Paused
 #   re-implement : kill jobs, sluit PR + branch, delete namespace,
-#                  delete bot-comments, status → To Do
+#                  delete bot-comments, status → JIRA_TODO_STATUS
+#                  (default 'Nog doen' voor NL workflows)
 #
 # Idempotency: na uitvoering appenden we '_[factory] commando uitgevoerd_'
 # aan de comment-body. Comments met die marker worden geskipt.
@@ -1388,12 +1391,12 @@ def execute_story_command(issue_key: str, command: str) -> str:
         log.info("[cmd] re-implement %s: %d bot-comments verwijderd",
                  issue_key, deleted_comments)
 
-        transition_ok = transition_issue(issue_key, "To Do")
-        log.info("[cmd] re-implement %s: transition to 'To Do' → %s",
-                 issue_key, transition_ok)
-        status_part = "status → To Do" if transition_ok else (
-            "status NIET veranderd — geen transitie naar 'To Do' beschikbaar "
-            "vanuit huidige status (controleer JIRA-workflow)"
+        transition_ok = transition_issue(issue_key, JIRA_TODO_STATUS)
+        log.info("[cmd] re-implement %s: transition to '%s' → %s",
+                 issue_key, JIRA_TODO_STATUS, transition_ok)
+        status_part = f"status → {JIRA_TODO_STATUS}" if transition_ok else (
+            f"status NIET veranderd — geen transitie naar '{JIRA_TODO_STATUS}' "
+            "beschikbaar vanuit huidige status (controleer JIRA-workflow)"
         )
         return (
             f"jobs={killed}, pr={pr_num or '-'}, "
@@ -1419,7 +1422,7 @@ def process_story_commands() -> None:
         for s in (
             "AI Ready", "AI Queued", "AI IN PROGRESS",
             "AI IN REVIEW", "AI Needs Info", "AI Paused",
-            "To Do",
+            JIRA_TODO_STATUS,
         )
     )
     jql = f"project={JIRA_PROJECT} AND status in ({statuses})"
