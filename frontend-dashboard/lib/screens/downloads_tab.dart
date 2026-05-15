@@ -1,6 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+// Absolute URL's: nodig zodat de Android-APK (geen webpagina-baseUrl) ze ook
+// kan openen. Relatieve paden werkten alleen in de browser.
+const _pnfApkUrl =
+    'https://github.com/robbertvdzon/personal-news-feed-by-claude-code/releases/latest/download/personal-news-feed.apk';
+const _dashboardApkUrl =
+    'https://dashboard.vdzonsoftware.nl/download/dashboard.apk';
+
+// externalApplication zorgt dat Android de system browser / download-manager
+// gebruikt i.p.v. de in-app webview, anders gebeurt er niks bij een .apk.
+Future<void> _openDownload(String url) => launchUrl(
+      Uri.parse(url),
+      mode: LaunchMode.externalApplication,
+    );
+
 class DownloadsTab extends StatelessWidget {
   const DownloadsTab({super.key});
 
@@ -31,13 +45,13 @@ class DownloadsTab extends StatelessWidget {
               _DownloadCard(
                 title: 'Personal News Feed',
                 subtitle: 'De nieuws-feed app voor je telefoon',
-                url: 'https://github.com/robbertvdzon/personal-news-feed-by-claude-code/releases/latest/download/app-release.apk',
+                url: _pnfApkUrl,
               ),
               SizedBox(height: 12),
               _DownloadCard(
                 title: 'Software Factory Dashboard',
                 subtitle: 'Dit dashboard op je telefoon',
-                url: '/download/dashboard.apk',
+                url: _dashboardApkUrl,
               ),
             ],
           ),
@@ -59,7 +73,7 @@ class _DownloadCard extends StatelessWidget {
     return Card(
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
-        onTap: () => launchUrl(Uri.parse(url)),
+        onTap: () => _openDownload(url),
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Row(
@@ -91,7 +105,7 @@ class _DownloadCard extends StatelessWidget {
               FilledButton.tonalIcon(
                 icon: const Icon(Icons.download, size: 16),
                 label: const Text('APK'),
-                onPressed: () => launchUrl(Uri.parse(url)),
+                onPressed: () => _openDownload(url),
               ),
             ],
           ),

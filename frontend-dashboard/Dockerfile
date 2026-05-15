@@ -15,6 +15,11 @@ RUN --mount=type=cache,target=/root/.pub-cache flutter pub get
 # ze niet in git zitten. Idempotent: bestaande lib/main.dart blijft.
 RUN flutter create --platforms=android,web --org com.vdzonsoftware --project-name pnf_dashboard . || true
 
+# Launcher-icoon genereren VOOR de APK-build. flutter_launcher_icons
+# schrijft naar android/app/src/main/res/mipmap-*. Bron-PNG in icons/.
+COPY icons/ ./icons/
+RUN --mount=type=cache,target=/root/.pub-cache dart run flutter_launcher_icons
+
 COPY analysis_options.yaml ./
 COPY lib/ ./lib/
 COPY web/index.html ./web/
@@ -32,7 +37,13 @@ RUN flutter build web --release \
 # LET OP: doet 'flutter build apk' ook iets met build/web? Sommige Flutter-
 # versies regenereren shared artifacts. We doen 'm dus VOOR de
 # hashing-stap, zodat de hashing 't laatste woord heeft.
-RUN flutter build apk --debug \
+# Gradle-deps (~500MB) + build-cache via BuildKit-mounts → herhaalde
+# builds hergebruiken downloads. cache-to: type=gha,mode=max in de
+# workflow exporteert deze mount-caches mee.
+RUN --mount=type=cache,target=/root/.gradle \
+    --mount=type=cache,target=/root/.pub-cache \
+    --mount=type=cache,target=/src/android/.gradle \
+    flutter build apk --debug \
       --dart-define=API_BASE_URL=${API_BASE_URL:-https://status.vdzonsoftware.nl} \
       --dart-define=BUILD_SHA=${BUILD_SHA}
 
