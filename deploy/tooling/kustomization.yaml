@@ -49,7 +49,7 @@ configMapGenerator:
 images:
 - name: ghcr.io/robbertvdzon/dashboard-frontend
   newName: ghcr.io/robbertvdzon/dashboard-frontend
-  newTag: sha-c03c7a2
+  newTag: sha-8856e44
 - name: ghcr.io/robbertvdzon/jira-poller
   newName: ghcr.io/robbertvdzon/jira-poller
   newTag: sha-361e700
