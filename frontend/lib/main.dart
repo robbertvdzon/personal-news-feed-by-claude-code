@@ -60,6 +60,7 @@ class _NewsFeedAppState extends ConsumerState<NewsFeedApp>
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
         useMaterial3: true,
+        scaffoldBackgroundColor: Colors.red,
       ),
       builder: (context, child) {
         final base = MediaQuery.of(context);

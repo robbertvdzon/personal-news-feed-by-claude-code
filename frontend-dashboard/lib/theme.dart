@@ -24,9 +24,8 @@ class AppTheme {
       colorScheme: scheme,
       useMaterial3: true,
       visualDensity: VisualDensity.adaptivePlatformDensity,
-      // Witte achtergrond in light-mode (zoals PNF-feed-app),
-      // surface-color in dark-mode.
-      scaffoldBackgroundColor: isLight ? Colors.white : scheme.surface,
+      // Rode achtergrond in zowel light als dark mode.
+      scaffoldBackgroundColor: Colors.red,
       appBarTheme: AppBarTheme(
         backgroundColor: isLight ? Colors.white : scheme.surface,
         foregroundColor: scheme.onSurface,
