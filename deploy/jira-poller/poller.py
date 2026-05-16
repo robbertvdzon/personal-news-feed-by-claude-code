@@ -39,7 +39,7 @@ from typing import Optional
 
 import requests
 import yaml
-from flask import Flask, jsonify, request as flask_request
+from flask import Flask, Response, jsonify, request as flask_request
 
 # psycopg v3 voor de factory-DB (Fase 1). Import is "soft" — als de
 # package nog niet beschikbaar is (oude image) draait de poller alsnog,
@@ -1883,6 +1883,151 @@ app = Flask(__name__)
 @app.route("/healthz", methods=["GET"])
 def healthz():
     return jsonify({"ok": True})
+
+
+# ─── Agent knowledge — tips & tricks per rol (vraag van de PO) ──────────
+#
+# Elk role-flow (refiner/developer/reviewer/tester) leest aan 't begin
+# alle tips voor die rol op uit de factory-DB en schrijft aan 't eind
+# een delta terug. Concurrency-veilig via UNIQUE (role, category, key) +
+# INSERT ... ON CONFLICT DO UPDATE (atomair in PostgreSQL).
+
+_VALID_ROLES = {"refiner", "developer", "reviewer", "tester"}
+
+
+@app.route("/agent-knowledge", methods=["GET"])
+def agent_knowledge_get():
+    """Lees alle tips voor een gegeven rol. Markdown-output ?format=md
+    (default JSON). Returnt 503 als de DB onbereikbaar is — niet kritisch."""
+    role = (flask_request.args.get("role") or "").strip()
+    if role not in _VALID_ROLES:
+        return jsonify({"error": f"role moet één van {sorted(_VALID_ROLES)} zijn"}), 400
+    if not FACTORY_DATABASE_URL or psycopg is None:
+        return jsonify({"tips": [], "warning": "factory-DB niet geconfigureerd"}), 503
+    try:
+        with psycopg.connect(FACTORY_DATABASE_URL) as conn, conn.cursor() as cur:
+            cur.execute(
+                """SELECT category, key, content, updated_at, updated_by_story
+                   FROM factory.agent_knowledge
+                   WHERE role = %s
+                   ORDER BY category, key""",
+                (role,),
+            )
+            rows = cur.fetchall()
+    except Exception as e:
+        log.exception("agent-knowledge GET %s faalde: %s", role, e)
+        return jsonify({"tips": [], "error": str(e)}), 500
+
+    tips = [
+        {
+            "category": r[0], "key": r[1], "content": r[2],
+            "updated_at": r[3].isoformat() if r[3] else None,
+            "updated_by_story": r[4],
+        }
+        for r in rows
+    ]
+    fmt = (flask_request.args.get("format") or "json").lower()
+    if fmt == "md":
+        return Response(_format_tips_as_markdown(role, tips),
+                       mimetype="text/markdown; charset=utf-8")
+    return jsonify({"role": role, "tips": tips})
+
+
+@app.route("/agent-knowledge/update", methods=["POST"])
+def agent_knowledge_update():
+    """Upsert één of meer tips. Body:
+        {"role": "tester", "story_key": "KAN-42", "tips": [
+            {"category": "login", "key": "tab-order", "content": "..."},
+            ...
+        ]}
+    Last writer wins per (role, category, key) — UNIQUE-key + ON CONFLICT.
+    Lege content of lege key wordt geskipt (silently)."""
+    if not FACTORY_DATABASE_URL or psycopg is None:
+        return jsonify({"error": "factory-DB niet geconfigureerd"}), 503
+    data = flask_request.get_json(force=True, silent=True) or {}
+    role = (data.get("role") or "").strip()
+    if role not in _VALID_ROLES:
+        return jsonify({"error": f"role moet één van {sorted(_VALID_ROLES)} zijn"}), 400
+    story_key = (data.get("story_key") or "").strip() or None
+    tips = data.get("tips") or []
+    if not isinstance(tips, list):
+        return jsonify({"error": "tips moet een lijst zijn"}), 400
+
+    written = 0
+    skipped = 0
+    try:
+        with psycopg.connect(FACTORY_DATABASE_URL) as conn, conn.cursor() as cur:
+            for t in tips:
+                if not isinstance(t, dict):
+                    skipped += 1
+                    continue
+                cat = (t.get("category") or "").strip()
+                key = (t.get("key") or "").strip()
+                content = (t.get("content") or "").strip()
+                if not cat or not key or not content:
+                    skipped += 1
+                    continue
+                # Sanity-limits: voorkomt dat een agent per ongeluk de hele
+                # output als één tip dumpt.
+                if len(content) > 8000 or len(cat) > 100 or len(key) > 200:
+                    skipped += 1
+                    continue
+                cur.execute(
+                    """INSERT INTO factory.agent_knowledge
+                          (role, category, key, content, updated_by_story)
+                       VALUES (%s, %s, %s, %s, %s)
+                       ON CONFLICT (role, category, key) DO UPDATE
+                          SET content = EXCLUDED.content,
+                              updated_at = now(),
+                              updated_by_story = EXCLUDED.updated_by_story""",
+                    (role, cat, key, content, story_key),
+                )
+                written += 1
+            conn.commit()
+    except Exception as e:
+        log.exception("agent-knowledge UPDATE %s faalde: %s", role, e)
+        return jsonify({"error": str(e)}), 500
+
+    log.info("agent-knowledge update role=%s story=%s written=%d skipped=%d",
+             role, story_key, written, skipped)
+    return jsonify({"ok": True, "written": written, "skipped": skipped})
+
+
+def _format_tips_as_markdown(role: str, tips: list[dict]) -> str:
+    """Bouw een leesbaar markdown-doc met de tips, gegroepeerd op category.
+    Lege lijst → korte placeholder. De agent ziet deze tekst als referentie-
+    materiaal en gebruikt dezelfde category-namen als 'ie nieuwe tips
+    schrijft (consistency over runs)."""
+    if not tips:
+        return (
+            f"# Tips & tricks voor de {role}-agent\n\n"
+            "_(Nog geen tips opgeslagen voor deze rol. Schrijf aan 't eind "
+            "van je run één of meer tips terug zodat toekomstige collega's "
+            "ze kunnen gebruiken.)_\n"
+        )
+    out = [f"# Tips & tricks voor de {role}-agent\n"]
+    out.append(
+        "_Tips die je rol-collega's van vorige stories hebben geleerd. "
+        "Lees deze door vóór je begint — vermijd dezelfde valkuilen. "
+        "Aan 't einde van je run kun je nieuwe of bijgewerkte tips terug-"
+        "schrijven via 't `agent_tips_update`-JSON-blok (zie je system "
+        "prompt)._\n"
+    )
+    current_cat = None
+    for t in tips:
+        if t["category"] != current_cat:
+            current_cat = t["category"]
+            out.append(f"\n## {current_cat}\n")
+        out.append(f"\n### {t['key']}\n")
+        out.append(f"\n{t['content'].strip()}\n")
+        meta = []
+        if t.get("updated_by_story"):
+            meta.append(f"by {t['updated_by_story']}")
+        if t.get("updated_at"):
+            meta.append(f"updated {t['updated_at'][:10]}")
+        if meta:
+            out.append(f"\n_({' · '.join(meta)})_\n")
+    return "".join(out)
 
 
 @app.route("/agent-run/complete", methods=["POST"])

@@ -86,3 +86,26 @@ ALTER TABLE factory.story_runs
 -- de agent op JIRA als '[ROLE] …'-comment plaatst.
 ALTER TABLE factory.agent_runs
     ADD COLUMN IF NOT EXISTS summary_text TEXT;
+
+-- 2026-05-16 — agent_knowledge: per-rol tips & tricks die agents van
+-- vorige runs leren. Wordt aan 't begin van een runner-Job opgehaald
+-- (geserialiseerd als markdown) en aan 't eind geüpdatet via een
+-- JSON-blok in de agent-output. Concurrency: UNIQUE-key + ON CONFLICT
+-- DO UPDATE — last writer wins per (role, category, key). Past bij
+-- het use-case waar twee testers gelijktijdig dezelfde tip kunnen
+-- bijwerken; inhoud overlapt meestal toch, dus laatste schrijver-
+-- wint is acceptabel.
+CREATE TABLE IF NOT EXISTS factory.agent_knowledge (
+  id                BIGSERIAL PRIMARY KEY,
+  role              TEXT NOT NULL,    -- 'refiner' | 'developer' | 'reviewer' | 'tester'
+  category          TEXT NOT NULL,    -- vrij gekozen door agent, bv. 'login' / 'screenshots'
+  key               TEXT NOT NULL,    -- slug-style unique binnen (role, category)
+  content           TEXT NOT NULL,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_by_story  TEXT,             -- laatste story_key die deze tip schreef
+  UNIQUE (role, category, key)
+);
+
+CREATE INDEX IF NOT EXISTS agent_knowledge_role_idx
+    ON factory.agent_knowledge (role, category, key);

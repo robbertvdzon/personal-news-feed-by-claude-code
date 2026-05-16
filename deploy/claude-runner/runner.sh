@@ -119,6 +119,23 @@ else
   git checkout -b "$BRANCH"
 fi
 
+# ---------- agent-knowledge: tips & tricks van vorige runs ophalen ----------
+# De poller serveert /agent-knowledge?role=<role>&format=md met alle
+# tips die rol-collega's van vorige stories hebben geleerd. Faalt
+# silent (best-effort): zonder tips draait de agent gewoon door.
+AGENT_TIPS_FILE="/work/repo/.agent-tips.md"
+if [[ -n "${FACTORY_POLLER_URL:-}" ]]; then
+  role_lc="${AGENT_ROLE:-developer}"
+  if curl -fsS -m 8 -o "$AGENT_TIPS_FILE" \
+       "${FACTORY_POLLER_URL}/agent-knowledge?role=${role_lc}&format=md" 2>/dev/null; then
+    tips_bytes=$(wc -c < "$AGENT_TIPS_FILE" 2>/dev/null || echo 0)
+    echo "[runner] agent-tips voor ${role_lc} geschreven (${tips_bytes} bytes)"
+  else
+    echo "[runner] agent-tips fetch faalde — Claude draait zonder eerdere tips"
+    rm -f "$AGENT_TIPS_FILE"
+  fi
+fi
+
 # ---------- diff voor reviewer / tester ----------
 # Reviewer leest geen werk-tree maar de PR-diff. Tester leest 'm ook,
 # om te zien wat 'r te testen valt. We schrijven 'm vooraf naar een
@@ -200,6 +217,31 @@ fi
 # `--permission-mode bypassPermissions`: pod is isolated; auto-accept
 # tool-use. NB: dit is alleen veilig binnen een runner-pod, niet voor
 # interactief gebruik.
+
+# Gedeelde tip-instructie — wordt aan elke role-prompt geappend zodat
+# alle agents bestaande tips lezen + nieuwe tips terugschrijven naar de
+# factory-DB via /agent-knowledge/update. Concurrency: upsert per
+# (role, category, key), last writer wins — twee gelijktijdige runs
+# kunnen elkaar overschrijven maar nooit corrupteren.
+AGENT_TIPS_PROMPT='
+
+Tips & tricks van vorige runs:
+Lees /work/repo/.agent-tips.md vóór je begint. Daar staan tips die je
+rol-collega'\''s van eerdere stories hebben geleerd (bv. valkuilen in
+de codebase, succesvolle login-flows, handige psql-queries). Geen
+bestand of leeg = nog niets opgeschreven; gewoon doorgaan.
+
+Aan het einde van je run: deel je eigen lessen terug. Voeg op een
+eigen regel (NIET binnen een markdown-code-fence) één JSON-blok toe:
+
+  {"agent_tips_update": [{"category": "...", "key": "...", "content": "..."}]}
+
+Per tip: category = vrij gekozen groep (bv. "login", "screenshots",
+"gotchas", "codebase"); key = slug die jezelf later kunt herkennen
+(bv. "register-tab-order"); content = 1-15 regels markdown.
+Last writer wins per (role, category, key) — overschrijf gerust een
+oudere tip als je iets beters hebt geleerd. Lege agent_tips_update []
+is prima als je niets nieuws geleerd hebt.'
 
 # System-prompt per rol. Default = developer (huidig gedrag); refiner
 # krijgt een fundamenteel andere instructie (lezen + vragen, geen code).
@@ -359,7 +401,7 @@ Cluster + DB-tools (KAN-44):
 - \`oc logs deploy/backend -n pnf-pr-\$PR_NUMBER --tail=50\` — last 50
   lines van een Deployment's pods (handig om HTTP 500 te traceren).
 - \`oc describe pod <name> -n pnf-pr-\$PR_NUMBER\` — events bij crash-loop.
-- \`psql "\$PREVIEW_DB_URL" -c "SELECT count(*) FROM users"\` — data-
+- \`psql \"\$PREVIEW_DB_URL\" -c 'SELECT count(*) FROM users'\` — data-
   integriteit-check (alleen SELECT — nooit INSERT/UPDATE/DELETE).
 
 Geen \`oc patch\`, \`oc apply\`, \`oc exec\`, of \`oc delete\` — de
@@ -668,6 +710,9 @@ Geen markdown-headers (geen \`#\`), geen herhaling van de story-tekst."
     ;;
 esac
 
+# Append de gedeelde tip-instructie aan elke role-prompt.
+SYSTEM_PROMPT="${SYSTEM_PROMPT}${AGENT_TIPS_PROMPT}"
+
 # Extra context als dit een iteratie op een bestaande PR is (S-09).
 # Alleen developer-mode pakt dat op; refiner werkt nooit op PR-iteraties.
 if [[ "${AGENT_ROLE:-developer}" == "developer" && -n "$TRIGGER_COMMENT_ID" ]]; then
@@ -797,6 +842,64 @@ extract_claude_summary() {
   jq -r -s \
     '[.[] | select(.type == "result") | (.result // "")] | last // ""' \
     /tmp/claude.log.jsonl 2>/dev/null
+}
+
+# Helper: pak het laatste `agent_tips_update`-JSON-blok uit de Claude-
+# samenvatting en POST 'm naar /agent-knowledge/update. Best-effort: bij
+# parse-faal of HTTP-fout loggen we 't maar gooien de runner niet om.
+push_agent_tips() {
+  [[ -z "${FACTORY_POLLER_URL:-}" ]] && return 0
+  local summary
+  summary=$(extract_claude_summary)
+  [[ -z "$summary" ]] && return 0
+  local role_lc="${AGENT_ROLE:-developer}"
+  local payload
+  payload=$(printf '%s' "$summary" | python3 - "$role_lc" "${STORY_ID:-}" <<'EOF' 2>/dev/null
+import json, re, sys
+text = sys.stdin.read()
+role, story_key = sys.argv[1], sys.argv[2]
+
+# Zoek alle JSON-objecten die "agent_tips_update" als top-level key bevatten.
+# Walk depth-balanced zodat geneste objecten {...} niet voortijdig sluiten.
+candidates = []
+i = 0
+while i < len(text):
+    if text[i] == "{":
+        depth = 0
+        for j in range(i, len(text)):
+            if text[j] == "{": depth += 1
+            elif text[j] == "}":
+                depth -= 1
+                if depth == 0:
+                    blob = text[i:j+1]
+                    if '"agent_tips_update"' in blob:
+                        try:
+                            obj = json.loads(blob)
+                            tips = obj.get("agent_tips_update")
+                            if isinstance(tips, list):
+                                candidates.append(tips)
+                        except Exception:
+                            pass
+                    i = j
+                    break
+        else:
+            break
+    i += 1
+if not candidates:
+    sys.exit(0)
+out = {"role": role, "story_key": story_key, "tips": candidates[-1]}
+print(json.dumps(out))
+EOF
+)
+  if [[ -z "$payload" ]]; then
+    return 0
+  fi
+  local resp
+  resp=$(curl -fsS -m 10 -X POST \
+    -H "Content-Type: application/json" \
+    -d "$payload" \
+    "${FACTORY_POLLER_URL}/agent-knowledge/update" 2>&1 || echo "(curl-fout)")
+  echo "[runner] agent-tips push: $resp"
 }
 
 # Helper: post een JIRA-comment met [ROLE]-prefix. Eerste arg = rol-label
@@ -992,6 +1095,7 @@ else:
   fi
 
   echo "[runner] refiner klaar."
+  push_agent_tips || true
   exit 0
 fi
 
@@ -1088,6 +1192,7 @@ else:
   # Sla 'update_jira_after_run' over — die zou anders status overrulen.
   # Markeer dit explicitiet zodat de developer-end-of-script niet draait.
   echo "[runner] reviewer klaar (phase=$REVIEWER_PHASE)."
+  push_agent_tips || true
   exit 0
 fi
 
@@ -1230,6 +1335,7 @@ $(printf -- '- %s\n' "${uploaded[@]}")"
   fi
 
   echo "[runner] tester klaar (phase=$TESTER_PHASE)."
+  push_agent_tips || true
   exit 0
 fi
 
@@ -1560,5 +1666,6 @@ jira_update() {
 }
 
 jira_update || echo "[runner] (JIRA-update faalde — niet kritiek, PR werkt)"
+push_agent_tips || true
 
 echo "[runner] klaar."
