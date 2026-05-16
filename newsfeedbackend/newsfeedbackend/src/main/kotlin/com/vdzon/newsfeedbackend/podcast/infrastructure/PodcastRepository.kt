@@ -43,6 +43,7 @@ class PodcastRepository(
         scriptText = rs.getString("script_text"),
         topics = json.readList(rs, "topics", String::class.java),
         audioPath = rs.getString("audio_path"),
+        audioData = rs.getBytes("audio_data"),
         durationSeconds = rs.getObject("duration_seconds") as? Int,
         customTopics = json.readList(rs, "custom_topics", String::class.java),
         ttsProvider = TtsProvider.valueOf(rs.getString("tts_provider")),
@@ -62,6 +63,7 @@ class PodcastRepository(
         .addValue("script_text", p.scriptText)
         .addValue("topics", json.toJsonb(p.topics))
         .addValue("audio_path", p.audioPath)
+        .addValue("audio_data", p.audioData)
         .addValue("duration_seconds", p.durationSeconds)
         .addValue("custom_topics", json.toJsonb(p.customTopics))
         .addValue("tts_provider", p.ttsProvider.name)
@@ -99,12 +101,12 @@ class PodcastRepository(
             INSERT INTO podcasts (
                 username, id, title, period_description, period_days,
                 duration_minutes, status, created_at, script_text, topics,
-                audio_path, duration_seconds, custom_topics, tts_provider,
+                audio_path, audio_data, duration_seconds, custom_topics, tts_provider,
                 podcast_number, generation_seconds
             ) VALUES (
                 :username, :id, :title, :period_description, :period_days,
                 :duration_minutes, :status, :created_at, :script_text, :topics,
-                :audio_path, :duration_seconds, :custom_topics, :tts_provider,
+                :audio_path, :audio_data, :duration_seconds, :custom_topics, :tts_provider,
                 :podcast_number, :generation_seconds
             )
             ON CONFLICT (username, id) DO UPDATE SET
@@ -117,6 +119,7 @@ class PodcastRepository(
                 script_text        = EXCLUDED.script_text,
                 topics             = EXCLUDED.topics,
                 audio_path         = EXCLUDED.audio_path,
+                audio_data         = EXCLUDED.audio_data,
                 duration_seconds   = EXCLUDED.duration_seconds,
                 custom_topics      = EXCLUDED.custom_topics,
                 tts_provider       = EXCLUDED.tts_provider,
