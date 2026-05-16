@@ -3323,32 +3323,83 @@ def api_story_command(key: str, command: str) -> Response:
     return jsonify(ok=True, command=command, key=key)
 
 
-@app.route("/api/v1/stories/<key>/budget-resume", methods=["POST", "OPTIONS"])
+@app.route("/api/v1/stories/<key>/resume", methods=["POST", "OPTIONS"])
 @require_jwt
-def api_story_budget_resume(key: str) -> Response:
-    """Post een CONTINUE-of-BUDGET=N-comment naar JIRA. De poller
-    ([[kan-40]]) pikt 'm op en hervat de story als die in awaiting-po
-    staat. Body: {"value": <int>} → "BUDGET=<value>"; geen body of
-    geen value → "CONTINUE" (+50% bovenop huidig budget)."""
+def api_story_resume(key: str) -> Response:
+    """Hervat een gepauzeerde story door 'm direct naar AI Queued te
+    transitioneren — werkt ongeacht de reden van de pauze (manueel
+    via @claude:command:pause, budget-overschrijding, PO-vraag). De
+    poller pikt 'm in z'n volgende tick op en bepaalt o.b.v. de huidige
+    AI Phase wie er moet draaien.
+
+    Optioneel body {"budget_value": <int>}: zet AI Token Budget op die
+    waarde voor we resumen (handig om in één klik 'set budget + resume'
+    te doen). Geen comment, geen +50%-magie.
+    """
     if request.method == "OPTIONS":
         return _add_cors_headers(Response("", status=204))
     if not _STORY_KEY_RE.match(key):
         return jsonify(error="bad key"), 400
+    if not (JIRA_BASE_URL and JIRA_EMAIL and JIRA_API_KEY):
+        return jsonify(error="JIRA not configured"), 503
+
     data = request.get_json(silent=True) or {}
-    raw = data.get("value")
-    if raw is None:
-        text = "CONTINUE"
-    else:
+    budget_set = None
+    raw = data.get("budget_value")
+    if raw is not None:
         try:
-            n = int(raw)
+            budget_set = int(raw)
         except (TypeError, ValueError):
-            return jsonify(error="value moet een int zijn"), 400
-        if n <= 0:
-            return jsonify(error="value moet > 0 zijn"), 400
-        text = f"BUDGET={n}"
-    if not _post_jira_raw_comment(key, text):
-        return jsonify(error="comment-post failed"), 502
-    return jsonify(ok=True, posted=text, key=key)
+            return jsonify(error="budget_value moet een int zijn"), 400
+        if budget_set <= 0:
+            return jsonify(error="budget_value moet > 0 zijn"), 400
+
+    # Stap 1: optioneel budget bumpen (direct via custom-field, geen comment).
+    if budget_set is not None:
+        _discover_ai_field_ids()
+        bid = _ai_field_id_cache.get("token_budget")
+        if not bid:
+            return jsonify(error="AI Token Budget custom-field niet gevonden"), 500
+        try:
+            r = _jira_session.put(
+                f"{JIRA_BASE_URL}/rest/api/3/issue/{key}",
+                json={"fields": {bid: budget_set}},
+                headers={"Content-Type": "application/json"},
+                timeout=10,
+            )
+        except requests.RequestException as e:
+            return jsonify(error=f"budget-set faalde: {e}"), 502
+        if r.status_code not in (200, 204):
+            return jsonify(error=f"budget-set HTTP {r.status_code}"), 502
+
+    # Stap 2: transitie naar AI Queued. Lookup transition-id dynamisch want
+    # de cache leeft pod-locaal en zou stale kunnen zijn na workflow-edit.
+    try:
+        tr = _jira_session.get(
+            f"{JIRA_BASE_URL}/rest/api/3/issue/{key}/transitions", timeout=10,
+        ).json()
+    except requests.RequestException as e:
+        return jsonify(error=f"transitions lookup faalde: {e}"), 502
+    target_id = None
+    for t in tr.get("transitions", []):
+        if (t.get("to") or {}).get("name") == "AI Queued":
+            target_id = t.get("id")
+            break
+    if not target_id:
+        return jsonify(error="transitie naar AI Queued niet beschikbaar"), 409
+    try:
+        rt = _jira_session.post(
+            f"{JIRA_BASE_URL}/rest/api/3/issue/{key}/transitions",
+            json={"transition": {"id": target_id}},
+            headers={"Content-Type": "application/json"},
+            timeout=10,
+        )
+    except requests.RequestException as e:
+        return jsonify(error=f"transitie faalde: {e}"), 502
+    if rt.status_code not in (200, 204):
+        return jsonify(error=f"transitie HTTP {rt.status_code}"), 502
+    return jsonify(ok=True, key=key, budget_set=budget_set,
+                  transitioned_to="AI Queued")
 
 
 @app.route("/api/v1/stories/<key>/active-job", methods=["GET", "OPTIONS"])

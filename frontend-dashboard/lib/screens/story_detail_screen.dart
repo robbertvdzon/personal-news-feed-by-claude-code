@@ -576,31 +576,31 @@ class _CommandsCard extends StatelessWidget {
     }
   }
 
-  Future<void> _sendBudgetResume(BuildContext context, {int? value}) async {
+  Future<void> _resume(BuildContext context, {int? budgetValue}) async {
     try {
-      await ref.read(apiProvider).sendBudgetResume(storyKey, value: value);
+      await ref.read(apiProvider).resumeStory(storyKey, budgetValue: budgetValue);
       if (context.mounted) {
-        final what = value == null ? 'CONTINUE (+50%)' : 'BUDGET=$value';
+        final suffix = budgetValue == null
+            ? ''
+            : ' (budget→$budgetValue)';
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(
-              "$what gepost — poller hervat de story binnen ~30s als 'ie op "
-              "awaiting-po stond."),
+          content: Text("Status → AI Queued$suffix. Poller pakt 'm op binnen ~30s."),
         ));
       }
     } on ApiException catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Budget-resume fout: ${e.statusCode}')));
+            content: Text('Resume fout: ${e.statusCode} ${e.body}')));
       }
     }
   }
 
-  Future<void> _askBudgetValue(BuildContext context) async {
+  Future<void> _askBudgetAndResume(BuildContext context) async {
     final ctrl = TextEditingController();
     final v = await showDialog<int>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Nieuw budget in tokens'),
+        title: const Text('Budget instellen + hervatten'),
         content: TextField(
           controller: ctrl,
           autofocus: true,
@@ -626,7 +626,7 @@ class _CommandsCard extends StatelessWidget {
       ),
     );
     if (v != null && context.mounted) {
-      await _sendBudgetResume(context, value: v);
+      await _resume(context, budgetValue: v);
     }
   }
 
@@ -680,18 +680,18 @@ class _CommandsCard extends StatelessWidget {
                   ),
                   onPressed: () => _send(context, 're-implement', confirm: true),
                 ),
-                // Continue (+50% budget) — werkt alleen op awaiting-po
-                // (budget-pauze of PO-vraag). Niet-toepasselijk = poller
-                // negeert en bevestigt dat via comment, dus altijd zichtbaar.
+                // Continue: directe status-transitie naar AI Queued.
+                // Werkt voor manuele pauze, budget-pauze én PO-vraag —
+                // poller bepaalt vervolg o.b.v. de huidige AI Phase.
                 OutlinedButton.icon(
                   icon: const Icon(Icons.play_arrow, size: 16),
-                  label: const Text('Continue (+50% budget)'),
-                  onPressed: () => _sendBudgetResume(context),
+                  label: const Text('Continue'),
+                  onPressed: () => _resume(context),
                 ),
                 OutlinedButton.icon(
                   icon: const Icon(Icons.account_balance_wallet_outlined, size: 16),
-                  label: const Text('Set budget…'),
-                  onPressed: () => _askBudgetValue(context),
+                  label: const Text('Set budget + continue…'),
+                  onPressed: () => _askBudgetAndResume(context),
                 ),
               ],
             ),

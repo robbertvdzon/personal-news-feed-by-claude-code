@@ -115,11 +115,15 @@ class ApiClient {
     await _send('POST', '/api/v1/stories/$key/po-answer', body: {'text': text});
   }
 
-  /// Continue (geen value) of BUDGET=value voor budget-paused story.
-  /// De poller pikt de comment op binnen 30s.
-  Future<void> sendBudgetResume(String key, {int? value}) async {
-    final body = value == null ? <String, dynamic>{} : {'value': value};
-    await _send('POST', '/api/v1/stories/$key/budget-resume', body: body);
+  /// Resume gepauzeerde story door direct naar AI Queued te
+  /// transitioneren. Werkt voor manuele pauze, budget-pauze én
+  /// PO-vraag. Optioneel [budgetValue] zet eerst AI Token Budget op
+  /// die waarde.
+  Future<void> resumeStory(String key, {int? budgetValue}) async {
+    final body = budgetValue == null
+        ? <String, dynamic>{}
+        : {'budget_value': budgetValue};
+    await _send('POST', '/api/v1/stories/$key/resume', body: body);
   }
 
   Future<ApkInfo> apks() async {
