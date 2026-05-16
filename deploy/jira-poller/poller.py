@@ -1139,6 +1139,14 @@ def process_pr_comments() -> None:
 CMD_PATTERN = re.compile(r"@claude:command:([\w-]+)(?:\s|$)")
 CMD_DONE_MARKER = "_[factory] commando uitgevoerd_"
 VALID_COMMANDS = {"delete", "merge", "pause", "re-implement"}
+
+# Budget-triggers (KAN-40). Geplaatst door de PO in een JIRA-comment om
+# een gepauzeerde-op-budget story te hervatten. Match aan begin van een
+# regel zodat platte tekst zoals 'we hebben een nieuw BUDGET=5k afgesproken'
+# niet per ongeluk triggert.
+BUDGET_SET_PATTERN = re.compile(r"^\s*BUDGET\s*=\s*(\d+)\s*$", re.MULTILINE)
+BUDGET_CONTINUE_PATTERN = re.compile(r"^\s*CONTINUE\s*$",
+                                     re.MULTILINE | re.IGNORECASE)
 BOT_COMMENT_PATTERNS = (
     re.compile(r"^\s*\[(REFINER|DEVELOPER|REVIEWER|TESTER)\]"),
     re.compile(r"^\s*🤖"),
@@ -1409,6 +1417,53 @@ def execute_story_command(issue_key: str, command: str) -> str:
     return f"onbekend commando: {command}"
 
 
+def execute_budget_command(issue_key: str, comment_text: str) -> Optional[str]:
+    """Verwerk BUDGET=N / CONTINUE-commands uit een JIRA-comment. Returnt
+    None als geen budget-pattern matcht, anders een korte resultaat-
+    string voor de bevestigingscomment.
+
+    Werkt alleen op stories met phase=awaiting-po — andere stories
+    krijgen 'genegeerd: niet gepauzeerd op budget' terug zodat de PO
+    ziet dat de comment is opgemerkt maar niet relevant is.
+    """
+    m_set = BUDGET_SET_PATTERN.search(comment_text)
+    m_cont = BUDGET_CONTINUE_PATTERN.search(comment_text)
+    if not m_set and not m_cont:
+        return None
+
+    # Eerst de huidige issue-state ophalen. We hebben phase + budget nodig.
+    r = jira("GET", f"/rest/api/3/issue/{issue_key}",
+             params={"fields": _ai_fields_param()})
+    if r.status_code != 200:
+        return f"FOUT: kon issue niet ophalen ({r.status_code})"
+    issue = r.json()
+    ai = get_ai_fields(issue)
+    phase = (ai.get("phase") or "").strip()
+    if phase != "awaiting-po":
+        return f"genegeerd: phase={phase or '?'} (alleen awaiting-po)"
+
+    current_budget = ai.get("token_budget")
+    if current_budget is None or current_budget <= 0:
+        current_budget = DEFAULT_TOKEN_BUDGET
+
+    if m_set:
+        new_budget = int(m_set.group(1))
+        if new_budget <= 0:
+            return f"FOUT: ongeldige BUDGET={m_set.group(1)}"
+        action = f"BUDGET={new_budget}"
+    else:
+        # CONTINUE = +50%. Rond af op duizendtallen voor leesbaarheid.
+        new_budget = int(current_budget * 1.5)
+        action = f"CONTINUE (+50% → {new_budget})"
+
+    set_ai_fields(issue_key, {"token_budget": new_budget})
+    ok = transition_issue(issue_key, "AI Queued")
+    if not ok:
+        return (f"FOUT: budget gezet op {new_budget} maar transitie naar "
+                "AI Queued faalde")
+    return f"{action}, status → AI Queued (was {current_budget}, nu {new_budget})"
+
+
 def process_story_commands() -> None:
     """Scan alle stories op @claude:command-comments en voer uit.
 
@@ -1445,21 +1500,38 @@ def process_story_commands() -> None:
             text = c.get("text", "")
             if CMD_DONE_MARKER in text:
                 continue
+            # 1) Bestaande @claude:command:*-pattern
             m = CMD_PATTERN.search(text)
-            if not m:
+            if m:
+                cmd = m.group(1).lower()
+                if cmd not in VALID_COMMANDS:
+                    continue
+                try:
+                    result = execute_story_command(key, cmd)
+                except Exception as e:
+                    log.exception("commando %s op %s faalde: %s", cmd, key, e)
+                    result = f"FOUT: {e}"
+                mark_command_handled(key, c["id"], text)
+                try:
+                    jira_post_comment(
+                        key, f"[factory] commando '{cmd}' uitgevoerd: {result}"
+                    )
+                except Exception:
+                    pass
                 continue
-            cmd = m.group(1).lower()
-            if cmd not in VALID_COMMANDS:
-                continue
+            # 2) Budget-triggers (KAN-40) — BUDGET=N / CONTINUE op een
+            # gepauzeerde-op-budget story.
             try:
-                result = execute_story_command(key, cmd)
+                budget_result = execute_budget_command(key, text)
             except Exception as e:
-                log.exception("commando %s op %s faalde: %s", cmd, key, e)
-                result = f"FOUT: {e}"
+                log.exception("budget-cmd op %s faalde: %s", key, e)
+                budget_result = f"FOUT: {e}"
+            if budget_result is None:
+                continue
             mark_command_handled(key, c["id"], text)
             try:
                 jira_post_comment(
-                    key, f"[factory] commando '{cmd}' uitgevoerd: {result}"
+                    key, f"[factory] budget-commando uitgevoerd: {budget_result}"
                 )
             except Exception:
                 pass
