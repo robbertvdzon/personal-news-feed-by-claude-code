@@ -115,6 +115,13 @@ class ApiClient {
     await _send('POST', '/api/v1/stories/$key/po-answer', body: {'text': text});
   }
 
+  /// Continue (geen value) of BUDGET=value voor budget-paused story.
+  /// De poller pikt de comment op binnen 30s.
+  Future<void> sendBudgetResume(String key, {int? value}) async {
+    final body = value == null ? <String, dynamic>{} : {'value': value};
+    await _send('POST', '/api/v1/stories/$key/budget-resume', body: body);
+  }
+
   Future<ApkInfo> apks() async {
     final r = await _send('GET', '/api/v1/apks');
     return ApkInfo.fromJson(Map<String, dynamic>.from(r as Map));

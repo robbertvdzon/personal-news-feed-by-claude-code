@@ -2911,19 +2911,17 @@ def _jira_fetch_issue_meta(key: str) -> dict:
 _VALID_COMMANDS = {"delete", "merge", "pause", "re-implement"}
 
 
-def _post_jira_command_comment(key: str, command: str) -> bool:
-    """Post een @claude:command:<cmd>-comment naar JIRA. De poller pikt
-    'm op in de volgende tick en voert 't commando uit."""
+def _post_jira_raw_comment(key: str, text: str) -> bool:
+    """Post een vrije-tekst comment naar JIRA. Gebruikt door alle
+    command/budget-flows hier."""
     if not (JIRA_BASE_URL and JIRA_EMAIL and JIRA_API_KEY):
         return False
-    body_text = f"@claude:command:{command} (via dashboard)"
     adf = {
         "body": {
-            "type": "doc",
-            "version": 1,
+            "type": "doc", "version": 1,
             "content": [{
                 "type": "paragraph",
-                "content": [{"type": "text", "text": body_text}],
+                "content": [{"type": "text", "text": text}],
             }],
         }
     }
@@ -2935,9 +2933,15 @@ def _post_jira_command_comment(key: str, command: str) -> bool:
             timeout=10,
         )
     except requests.RequestException as e:
-        log.warning("post command-comment %s/%s faalde: %s", key, command, e)
+        log.warning("post-comment %s faalde: %s", key, e)
         return False
     return r.status_code in (200, 201)
+
+
+def _post_jira_command_comment(key: str, command: str) -> bool:
+    """Post een @claude:command:<cmd>-comment naar JIRA. De poller pikt
+    'm op in de volgende tick en voert 't commando uit."""
+    return _post_jira_raw_comment(key, f"@claude:command:{command} (via dashboard)")
 
 
 @app.route("/story/<key>/cmd/<command>", methods=["POST"])
@@ -3317,6 +3321,34 @@ def api_story_command(key: str, command: str) -> Response:
     if not _post_jira_command_comment(key, command):
         return jsonify(error="comment-post failed"), 502
     return jsonify(ok=True, command=command, key=key)
+
+
+@app.route("/api/v1/stories/<key>/budget-resume", methods=["POST", "OPTIONS"])
+@require_jwt
+def api_story_budget_resume(key: str) -> Response:
+    """Post een CONTINUE-of-BUDGET=N-comment naar JIRA. De poller
+    ([[kan-40]]) pikt 'm op en hervat de story als die in awaiting-po
+    staat. Body: {"value": <int>} → "BUDGET=<value>"; geen body of
+    geen value → "CONTINUE" (+50% bovenop huidig budget)."""
+    if request.method == "OPTIONS":
+        return _add_cors_headers(Response("", status=204))
+    if not _STORY_KEY_RE.match(key):
+        return jsonify(error="bad key"), 400
+    data = request.get_json(silent=True) or {}
+    raw = data.get("value")
+    if raw is None:
+        text = "CONTINUE"
+    else:
+        try:
+            n = int(raw)
+        except (TypeError, ValueError):
+            return jsonify(error="value moet een int zijn"), 400
+        if n <= 0:
+            return jsonify(error="value moet > 0 zijn"), 400
+        text = f"BUDGET={n}"
+    if not _post_jira_raw_comment(key, text):
+        return jsonify(error="comment-post failed"), 502
+    return jsonify(ok=True, posted=text, key=key)
 
 
 @app.route("/api/v1/stories/<key>/active-job", methods=["GET", "OPTIONS"])

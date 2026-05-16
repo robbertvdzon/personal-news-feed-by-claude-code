@@ -576,6 +576,60 @@ class _CommandsCard extends StatelessWidget {
     }
   }
 
+  Future<void> _sendBudgetResume(BuildContext context, {int? value}) async {
+    try {
+      await ref.read(apiProvider).sendBudgetResume(storyKey, value: value);
+      if (context.mounted) {
+        final what = value == null ? 'CONTINUE (+50%)' : 'BUDGET=$value';
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+              "$what gepost — poller hervat de story binnen ~30s als 'ie op "
+              "awaiting-po stond."),
+        ));
+      }
+    } on ApiException catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Budget-resume fout: ${e.statusCode}')));
+      }
+    }
+  }
+
+  Future<void> _askBudgetValue(BuildContext context) async {
+    final ctrl = TextEditingController();
+    final v = await showDialog<int>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Nieuw budget in tokens'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: 'Aantal tokens',
+            hintText: 'bv. 120000',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Annuleren'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final n = int.tryParse(ctrl.text.trim());
+              if (n != null && n > 0) Navigator.pop(context, n);
+            },
+            child: const Text('Bevestig'),
+          ),
+        ],
+      ),
+    );
+    if (v != null && context.mounted) {
+      await _sendBudgetResume(context, value: v);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Card(
@@ -625,6 +679,19 @@ class _CommandsCard extends StatelessWidget {
                     foregroundColor: Theme.of(context).colorScheme.onErrorContainer,
                   ),
                   onPressed: () => _send(context, 're-implement', confirm: true),
+                ),
+                // Continue (+50% budget) — werkt alleen op awaiting-po
+                // (budget-pauze of PO-vraag). Niet-toepasselijk = poller
+                // negeert en bevestigt dat via comment, dus altijd zichtbaar.
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.play_arrow, size: 16),
+                  label: const Text('Continue (+50% budget)'),
+                  onPressed: () => _sendBudgetResume(context),
+                ),
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.account_balance_wallet_outlined, size: 16),
+                  label: const Text('Set budget…'),
+                  onPressed: () => _askBudgetValue(context),
                 ),
               ],
             ),
