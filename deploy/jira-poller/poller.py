@@ -1898,6 +1898,13 @@ def agent_run_complete():
             cache_read, cache_creation, cost_usd, num_turns,
             len(event_rows),
         )
+        # Story 1 (KAN-39): realtime budget-check. Idempotent — bestaande
+        # [COST-MONITOR]-markers voorkomen dubbele comments op dezelfde
+        # drempel. Bij >=100% pauzeert de story (AI Needs Info + awaiting-po).
+        try:
+            check_budget_and_act(story_key, story_run_id, role)
+        except Exception as bex:
+            log.exception("budget-check faalde voor %s: %s", story_key, bex)
         return jsonify({
             "ok": True,
             "agent_run_id": agent_run_id,
@@ -1906,6 +1913,104 @@ def agent_run_complete():
     except Exception as e:
         log.exception("agent-run-complete schrijven faalde: %s", e)
         return jsonify({"error": str(e)}), 500
+
+
+# ─── Budget-monitor (KAN-39) ──────────────────────────────────────────────
+#
+# Aan het einde van elke agent-run wordt /agent-run/complete aangeroepen.
+# Daar checken we 't cumulatieve token-gebruik tegen 't AI Token Budget en
+# zetten markers + pauze. Eigen pure-functie zodat de cost-monitor-CronJob
+# (KAN-41) dezelfde logica kan hergebruiken.
+
+# Marker-strings die in de JIRA-comments staan; dezelfde tekst dient als
+# idempotency-check (jira_has_comment_containing).
+_BUDGET_MARKER_75 = "[COST-MONITOR] 75%"
+_BUDGET_MARKER_90 = "[COST-MONITOR] 90%"
+_BUDGET_MARKER_100 = "[COST-MONITOR] 100%"
+
+# role → resume_phase mapping voor de awaiting-po-flow. Komt overeen met
+# de resume_map in process_one_pass (omgekeerd).
+_ROLE_TO_RESUME_PHASE = {
+    "refiner":   "refining",
+    "developer": "developing",
+    "reviewer":  "reviewing",
+    "tester":    "testing",
+}
+
+
+def check_budget_and_act(story_key: str, story_run_id: int, role: str) -> None:
+    """Vergelijk cumulatieve tokens met 't AI Token Budget en post markers
+    + pauzeer indien nodig. Idempotent op marker-niveau.
+
+    Cumulatief tokens = total_input_tokens + total_output_tokens van de
+    huidige story_run (cache-tokens tellen niet mee — matched [[kan-42]]).
+    """
+    if not FACTORY_DATABASE_URL or psycopg is None:
+        return
+    with psycopg.connect(FACTORY_DATABASE_URL) as conn, conn.cursor() as cur:
+        cur.execute(
+            """SELECT total_input_tokens + total_output_tokens
+               FROM factory.story_runs WHERE id = %s""",
+            (story_run_id,),
+        )
+        row = cur.fetchone()
+    tokens_used = int(row[0]) if row and row[0] is not None else 0
+
+    # Budget + huidige phase uit JIRA halen.
+    r = jira("GET", f"/rest/api/3/issue/{story_key}",
+             params={"fields": _ai_fields_param()})
+    if r.status_code != 200:
+        log.warning("budget-check: issue lookup %s -> %s", story_key, r.status_code)
+        return
+    issue = r.json()
+    ai = get_ai_fields(issue)
+    budget = ai.get("token_budget")
+    if budget is None or budget <= 0:
+        budget = DEFAULT_TOKEN_BUDGET
+    pct = (tokens_used * 100) // budget if budget > 0 else 0
+    log.info("budget-check %s: used=%d budget=%d pct=%d (role=%s)",
+             story_key, tokens_used, budget, pct, role)
+
+    # Tokens-used-field bijwerken voor 't dashboard. Best effort.
+    set_ai_fields(story_key, {"tokens_used": tokens_used})
+
+    if pct >= 100:
+        if jira_has_comment_containing(story_key, _BUDGET_MARKER_100):
+            return  # al gepauzeerd op deze drempel — niks doen
+        resume_phase = _ROLE_TO_RESUME_PHASE.get(role, ai.get("phase") or "")
+        updates = {"phase": "awaiting-po"}
+        if resume_phase:
+            updates["resume_phase"] = resume_phase
+        set_ai_fields(story_key, updates)
+        transition_issue(story_key, "AI Needs Info")
+        jira_post_comment(
+            story_key,
+            f"{_BUDGET_MARKER_100} — budget bereikt "
+            f"({tokens_used}/{budget} tokens). Story is gepauzeerd op "
+            f"phase={resume_phase or '?'}.\n\n"
+            "Om door te gaan, plaats één van deze comments:\n"
+            "  BUDGET=120000   (zet nieuw absoluut budget in tokens)\n"
+            "  CONTINUE        (verhoog huidig budget met +50%)\n",
+        )
+        return
+
+    if pct >= 90:
+        if not jira_has_comment_containing(story_key, _BUDGET_MARKER_90):
+            jira_post_comment(
+                story_key,
+                f"{_BUDGET_MARKER_90} — bijna op "
+                f"({tokens_used}/{budget} tokens). Bij 100% wordt de "
+                "story automatisch gepauzeerd.",
+            )
+        return
+
+    if pct >= 75:
+        if not jira_has_comment_containing(story_key, _BUDGET_MARKER_75):
+            jira_post_comment(
+                story_key,
+                f"{_BUDGET_MARKER_75} van budget bereikt "
+                f"({tokens_used}/{budget} tokens).",
+            )
 
 
 # ─── Background polling thread ───────────────────────────────────────────
