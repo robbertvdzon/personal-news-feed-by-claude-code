@@ -1,0 +1,67 @@
+# Cost-monitor CronJob — sanity-net voor budget-overrun (KAN-41).
+#
+# Draait elke 5 minuten. Eén Job per tick, geen overlap (concurrency
+# Forbid). Geen retries bij failures — de volgende tick pakt 't anders
+# vanzelf op.
+#
+# Dedicated ServiceAccount, alleen voor audit-zichtbaarheid; geen Role/
+# Binding nodig — de monitor praat alleen met de factory-DB (Postgres)
+# en JIRA (HTTPS). Namespaced resource → ArgoCD synct 'm mee.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cost-monitor
+  namespace: pnf-software-factory
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cost-monitor
+  namespace: pnf-software-factory
+  labels:
+    app: cost-monitor
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 60
+  jobTemplate:
+    spec:
+      backoffLimit: 0          # one-shot — geen retries
+      ttlSecondsAfterFinished: 600
+      template:
+        metadata:
+          labels:
+            app: cost-monitor
+        spec:
+          serviceAccountName: cost-monitor
+          restartPolicy: Never
+          containers:
+            - name: monitor
+              image: ghcr.io/robbertvdzon/cost-monitor:main
+              imagePullPolicy: Always
+              env:
+                - name: JIRA_BASE_URL
+                  value: "https://vdzon.atlassian.net"
+                - name: JIRA_EMAIL
+                  value: "robbert@vdzon.com"
+                - name: JIRA_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: newsfeed-api-keys
+                      key: ATLASSIAN_API_KEY
+                - name: FACTORY_DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: newsfeed-api-keys
+                      key: FACTORY_DATABASE_URL
+                - name: DEFAULT_TOKEN_BUDGET
+                  value: "40000"
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 64Mi
+                limits:
+                  cpu: 100m
+                  memory: 128Mi

@@ -29,6 +29,7 @@ resources:
 - jira-poller-deployment.yaml
 - status-dashboard-deployment.yaml
 - dashboard-frontend-deployment.yaml
+- cost-monitor-cronjob.yaml
 
 # Schema-init voor de factory-DB gebeurt in de poller zelf bij startup
 # (zie poller.py, `init_schema()`). Dat is eenvoudiger dan een aparte
@@ -56,3 +57,6 @@ images:
 - name: ghcr.io/robbertvdzon/status-dashboard
   newName: ghcr.io/robbertvdzon/status-dashboard
   newTag: sha-1f2dd1d
+- name: ghcr.io/robbertvdzon/cost-monitor
+  newName: ghcr.io/robbertvdzon/cost-monitor
+  newTag: main
