@@ -40,9 +40,14 @@ class _AppShellState extends ConsumerState<AppShell> {
 
   @override
   Widget build(BuildContext context) {
+    // Phones (shortestSide < 600 = Material's phone-vs-tablet grens)
+    // krijgen ALTIJD het hamburger-menu, ook in landscape — anders past
+    // de sidebar naast de content niet meer comfortabel. Tablets/desktop
+    // zien de sidebar zodra de width breed genoeg is.
+    final phone = MediaQuery.sizeOf(context).shortestSide < 600;
     return LayoutBuilder(
       builder: (context, constraints) {
-        final wide = constraints.maxWidth >= 720;
+        final wide = !phone && constraints.maxWidth >= 720;
         return wide ? _wideLayout(context) : _narrowLayout(context);
       },
     );

@@ -6,7 +6,7 @@ import '../widgets/section_header.dart';
 
 /// Chronologische timeline van alle agent-iteraties, nieuwste boven.
 /// Per iteratie: welke rol, hoeveelste keer voor die rol, eindverdict +
-/// outcome, en de samenvatting.
+/// outcome, en de samenvatting. Onderaan: PO-dialoog (vragen + antwoorden).
 class StoryHandoverScreen extends ConsumerWidget {
   final String storyKey;
   const StoryHandoverScreen({super.key, required this.storyKey});
@@ -48,6 +48,14 @@ class StoryHandoverScreen extends ConsumerWidget {
                   _TimelineCard(entry: entry),
                   const SizedBox(height: 12),
                 ],
+              if (data.poDialogue.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                const SectionHeader(
+                  title: 'PO-dialoog',
+                  subtitle: 'Vragen van de agents en jouw antwoorden',
+                ),
+                for (final entry in data.poDialogue) _PoDialogueCard(entry: entry),
+              ],
               const SizedBox(height: 40),
             ],
           );
@@ -144,6 +152,16 @@ class _TimelineCard extends StatelessWidget {
               runSpacing: 6,
               children: [
                 if (run.verdict.isNotEmpty) _VerdictPill(verdict: run.verdict),
+                if (run.hadQuestion)
+                  // Maakt zichtbaar dat de agent de iteratie afsloot met een
+                  // PO-vraag — outcome 'success' zegt dan niet dat de story
+                  // verder kan, maar dat de agent z'n actie netjes voltooid
+                  // heeft. Antwoord staat in de PO-dialoog onderaan.
+                  const StatusPill(
+                    label: 'vraag aan PO',
+                    bg: Color(0xFFFFF4E5),
+                    fg: Color(0xFF8A5A0B),
+                  ),
                 _OutcomePill(outcome: run.outcome),
               ],
             ),
@@ -227,6 +245,94 @@ class _VerdictPill extends StatelessWidget {
       child: Text(label,
           style: TextStyle(
               fontSize: 11, fontWeight: FontWeight.w700, color: fg)),
+    );
+  }
+}
+
+class _PoDialogueCard extends StatelessWidget {
+  final PoDialogueEntry entry;
+  const _PoDialogueCard({required this.entry});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final agentLabel = entry.agent.isEmpty
+        ? 'Agent'
+        : entry.agent[0].toUpperCase() + entry.agent.substring(1);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.help_outline, color: scheme.error, size: 18),
+                  const SizedBox(width: 8),
+                  Text('$agentLabel — vraag',
+                      style: const TextStyle(
+                          fontSize: 14, fontWeight: FontWeight.w600)),
+                  const Spacer(),
+                  if (entry.questionCreated != null)
+                    Text(formatTs(entry.questionCreated),
+                        style: TextStyle(
+                            fontSize: 11, color: scheme.onSurfaceVariant)),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: scheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: SelectableText(entry.questionText,
+                    style: const TextStyle(fontSize: 13, height: 1.45)),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Icon(Icons.reply, color: scheme.primary, size: 18),
+                  const SizedBox(width: 8),
+                  const Text('Jouw antwoord',
+                      style: TextStyle(
+                          fontSize: 14, fontWeight: FontWeight.w600)),
+                  const Spacer(),
+                  if (entry.answerCreated != null)
+                    Text(formatTs(entry.answerCreated),
+                        style: TextStyle(
+                            fontSize: 11, color: scheme.onSurfaceVariant)),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: entry.hasAnswer
+                      ? scheme.tertiaryContainer.withValues(alpha: 0.4)
+                      : scheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: SelectableText(
+                  entry.hasAnswer ? entry.answerText : '(nog geen antwoord)',
+                  style: TextStyle(
+                    fontSize: 13,
+                    height: 1.45,
+                    fontStyle: entry.hasAnswer
+                        ? FontStyle.normal
+                        : FontStyle.italic,
+                    color: entry.hasAnswer ? null : scheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

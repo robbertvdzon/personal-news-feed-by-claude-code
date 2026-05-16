@@ -7,7 +7,9 @@ import '../providers/auth_provider.dart';
 import '../providers/data_providers.dart';
 import '../widgets/info_table.dart';
 import '../widgets/section_header.dart';
+import 'dashboard_tab.dart' show BuildRunTile;
 import 'runner_log_screen.dart';
+import 'screenshots_screen.dart';
 import 'story_handover_screen.dart';
 
 class StoryDetailScreen extends ConsumerWidget {
@@ -199,6 +201,21 @@ class _DetailBody extends StatelessWidget {
             ),
           ),
         ],
+        if (detail.prBuilds.isNotEmpty) ...[
+          SectionHeader(
+              title: 'GitHub builds (deze PR)',
+              subtitle: '${detail.prBuilds.length} runs'),
+          Card(
+            child: Column(
+              children: [
+                for (int i = 0; i < detail.prBuilds.length; i++) ...[
+                  if (i > 0) const Divider(height: 1),
+                  BuildRunTile(run: detail.prBuilds[i]),
+                ],
+              ],
+            ),
+          ),
+        ],
         if (detail.commits.isNotEmpty) ...[
           SectionHeader(
               title: 'Commits op ai/$storyKey',
@@ -232,6 +249,9 @@ class _LinksRow extends ConsumerWidget {
     final previewUrl = prNum != null
         ? 'https://pnf-pr-$prNum.vdzonsoftware.nl'
         : null;
+    final shotsAsync = ref.watch(screenshotsProvider(storyKey));
+    final shotsCount = shotsAsync.maybeWhen(
+        data: (s) => s.length, orElse: () => 0);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(14),
@@ -277,6 +297,15 @@ class _LinksRow extends ConsumerWidget {
                     builder: (_) => StoryHandoverScreen(storyKey: storyKey),
                   )),
                 ),
+                if (shotsCount > 0)
+                  FilledButton.tonalIcon(
+                    icon: const Icon(Icons.image_outlined, size: 16),
+                    label: Text('Show screenshots ($shotsCount)'),
+                    onPressed: () =>
+                        Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => ScreenshotsScreen(storyKey: storyKey),
+                    )),
+                  ),
               ],
             ),
           ],

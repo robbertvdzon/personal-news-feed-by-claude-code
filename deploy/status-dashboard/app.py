@@ -229,6 +229,18 @@ def gh_latest_release() -> Optional[dict]:
     return data
 
 
+def gh_recent_runs_for_branch(branch: str, limit: int = 10) -> list[dict]:
+    """Recente workflow-runs voor een branch (over alle workflows). Voor
+    de 'recente builds'-lijsten op het dashboard. Nieuwste eerst."""
+    data = gh(
+        f"/repos/{GITHUB_OWNER}/{GITHUB_REPO}/actions/runs",
+        params={"branch": branch, "per_page": str(limit)},
+    )
+    if not data:
+        return []
+    return data.get("workflow_runs") or []
+
+
 # ─── kubectl helpers ──────────────────────────────────────────────────────
 
 
@@ -743,6 +755,9 @@ class MainCard:
     apk_url: str = ""           # directe download-URL van de APK-asset
     apk_filename: str = ""
     apk_age: str = ""           # leeftijd van de release
+    # Recente GH-workflow-runs voor main (top 10). Voor de 'recente builds'-
+    # lijst op de Production-kaart van het Flutter-dashboard.
+    recent_runs: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -1110,6 +1125,7 @@ def build_state() -> dict:
                 apk_filename = asset.get("name", "")
                 apk_age = _ago(asset.get("updated_at", "") or rel.get("published_at", ""))
                 break
+
     main_card = MainCard(
         sha=main_sha,
         sha_short=main_sha[:7] if main_sha else "?",
@@ -1126,6 +1142,21 @@ def build_state() -> dict:
                 "age": _ago(pr.get("merged_at", "")),
             }
             for pr in gh_list_recent_closed_prs(5)
+        ],
+        recent_runs=[
+            {
+                "id": r.get("id"),
+                "name": r.get("name", ""),
+                "status": r.get("status", ""),          # queued/in_progress/completed
+                "conclusion": r.get("conclusion", ""),  # success/failure/cancelled/...
+                "html_url": r.get("html_url", ""),
+                "created_at": r.get("created_at", ""),
+                "updated_at": r.get("updated_at", ""),
+                "event": r.get("event", ""),
+                "head_sha": (r.get("head_sha") or "")[:7],
+                "age": _ago(r.get("updated_at", "") or r.get("created_at", "")),
+            }
+            for r in gh_recent_runs_for_branch("main", limit=10)
         ],
     )
 
@@ -3160,6 +3191,21 @@ def api_story_detail(key: str) -> Response:
         "ai_phase": meta.get("ai_phase", ""),
         "prs": gh_prs_for_branch(f"ai/{key}"),
         "commits": gh_commits_for_branch(f"ai/{key}", limit=30),
+        "pr_builds": [
+            {
+                "id": r.get("id"),
+                "name": r.get("name", ""),
+                "status": r.get("status", ""),
+                "conclusion": r.get("conclusion", ""),
+                "html_url": r.get("html_url", ""),
+                "created_at": r.get("created_at", ""),
+                "updated_at": r.get("updated_at", ""),
+                "event": r.get("event", ""),
+                "head_sha": (r.get("head_sha") or "")[:7],
+                "age": _ago(r.get("updated_at", "") or r.get("created_at", "")),
+            }
+            for r in gh_recent_runs_for_branch(f"ai/{key}", limit=15)
+        ],
     })
 
 
@@ -3185,7 +3231,60 @@ def api_story_handover(key: str) -> Response:
         "developer": all_by_role("developer"),
         "reviewer":  all_by_role("reviewer"),
         "tester":    all_by_role("tester"),
+        "po_dialogue": _po_dialogue_from_jira(key),
     })
+
+
+def _po_dialogue_from_jira(key: str) -> list[dict]:
+    """Loop alle comments oudste-eerst, koppel elke agent-vraag-comment
+    aan de eerstvolgende niet-agent-comment (= het PO-antwoord). Result:
+    chronologische lijst {agent, question_text, question_created,
+    answer_text, answer_created}. Lege lijst als JIRA niet geconfigureerd
+    of geen vragen."""
+    if not (JIRA_BASE_URL and JIRA_EMAIL and JIRA_API_KEY):
+        return []
+    try:
+        r = _jira_session.get(
+            f"{JIRA_BASE_URL}/rest/api/3/issue/{key}/comment",
+            params={"maxResults": "200", "orderBy": "+created"},
+            timeout=10,
+        )
+    except requests.RequestException:
+        return []
+    if r.status_code != 200:
+        return []
+    comments = r.json().get("comments", []) or []
+
+    # Detecteer agent-vragen (REFINER/REVIEWER/TESTER + "Vragen" in body).
+    out: list[dict] = []
+    pending: Optional[dict] = None  # de laatste open agent-vraag
+    for c in comments:
+        body = c.get("body")
+        text = _adf_to_plain(body).strip() if body else ""
+        if not text:
+            continue
+        m = _PO_QUESTION_RE.search(text)
+        is_agent_question = bool(m) and "Vragen" in text
+        is_agent_msg = bool(re.match(r"^\[(REFINER|REVIEWER|TESTER|DEVELOPER)\]", text))
+        is_factory_marker = "[factory]" in text.lower() or "@claude:command" in text.lower()
+        if is_agent_question:
+            agent = (m.group(1) or m.group(2) or "").lower() if m else ""
+            pending = {
+                "agent": agent,
+                "question_text": text,
+                "question_created": c.get("created"),
+                "answer_text": "",
+                "answer_created": None,
+            }
+            out.append(pending)
+            continue
+        # Niet-agent + niet-factory-marker = PO-comment. Koppel aan de
+        # laatste openstaande vraag.
+        if pending and not is_agent_msg and not is_factory_marker and not pending["answer_text"]:
+            pending["answer_text"] = text
+            pending["answer_created"] = c.get("created")
+            pending = None
+    return out
 
 
 @app.route("/api/v1/stories/<key>/cmd/<command>", methods=["POST", "OPTIONS"])
@@ -3243,10 +3342,19 @@ _PO_QUESTION_RE = re.compile(r"^\[(REFINER|REVIEWER|TESTER)\]\s+Vragen|^\[(REFIN
 @require_jwt
 def api_story_po_question(key: str) -> Response:
     """Geef de laatste agent-vraag terug uit de JIRA-comment-thread.
-    Returnt null als er geen actieve vraag is."""
+    Returnt null als de story niet in 'AI Needs Info' staat — een vraag
+    die al beantwoord is, is geen actieve vraag meer (de poller heeft de
+    status dan al weggetransitioned)."""
     if not _STORY_KEY_RE.match(key):
         return jsonify(error="bad key"), 400
     if not (JIRA_BASE_URL and JIRA_EMAIL and JIRA_API_KEY):
+        return jsonify(question=None)
+    # Gate op JIRA-status: alleen bij 'AI Needs Info' is er een
+    # openstaande vraag voor de PO. Voorkomt stale vragen op stories die
+    # al verder zijn (zoals KAN-46 waar de refiner z'n vraag al verwerkt
+    # heeft).
+    meta = _jira_fetch_issue_meta(key)
+    if meta.get("status", "") != "AI Needs Info":
         return jsonify(question=None)
     try:
         r = _jira_session.get(
@@ -3362,6 +3470,83 @@ def api_runner_log(job_name: str) -> Response:
     return jsonify(job=job_name, log=log_text, status=status_int)
 
 
+@app.route("/api/v1/stories/<key>/attachments", methods=["GET", "OPTIONS"])
+@require_jwt
+def api_story_attachments(key: str) -> Response:
+    """Geef alle image-attachments van een JIRA-issue terug. Bedoeld voor
+    tester-screenshots. URLs zijn relatief naar /api/v1/...
+    /attachments/<id>/raw zodat de frontend ze met de eigen JWT kan
+    laden zonder JIRA-creds te kennen."""
+    if not _STORY_KEY_RE.match(key):
+        return jsonify(error="bad key"), 400
+    if not (JIRA_BASE_URL and JIRA_EMAIL and JIRA_API_KEY):
+        return jsonify(attachments=[])
+    try:
+        r = _jira_session.get(
+            f"{JIRA_BASE_URL}/rest/api/3/issue/{key}",
+            params={"fields": "attachment"},
+            timeout=10,
+        )
+    except requests.RequestException:
+        return jsonify(attachments=[])
+    if r.status_code != 200:
+        return jsonify(attachments=[])
+    atts = ((r.json().get("fields") or {}).get("attachment") or [])
+    out = []
+    for a in atts:
+        mime = a.get("mimeType", "") or ""
+        if not mime.startswith("image/"):
+            continue
+        aid = str(a.get("id", ""))
+        out.append({
+            "id": aid,
+            "filename": a.get("filename", ""),
+            "mime_type": mime,
+            "size": a.get("size", 0),
+            "created": a.get("created", ""),
+            "raw_url": f"/api/v1/stories/{key}/attachments/{aid}/raw",
+        })
+    # Oudste eerst — screenshots zijn typisch in test-volgorde.
+    out.sort(key=lambda x: x.get("created", ""))
+    return jsonify(attachments=out)
+
+
+# Story-key matched op de outer regex; attachment-id beperken tot cijfers
+# voor veiligheid (JIRA attachment IDs zijn numeriek).
+@app.route(
+    "/api/v1/stories/<key>/attachments/<aid>/raw",
+    methods=["GET", "OPTIONS"],
+)
+@require_jwt
+def api_story_attachment_raw(key: str, aid: str) -> Response:
+    """Proxy: stream de attachment-bytes van JIRA terug naar de client
+    met onze eigen credentials. Caller hoeft dus geen JIRA-token te
+    kennen — JWT is genoeg."""
+    if not _STORY_KEY_RE.match(key):
+        return jsonify(error="bad key"), 400
+    if not re.match(r"^[0-9]+$", aid):
+        return jsonify(error="bad attachment id"), 400
+    if not (JIRA_BASE_URL and JIRA_EMAIL and JIRA_API_KEY):
+        return jsonify(error="JIRA not configured"), 503
+    try:
+        r = _jira_session.get(
+            f"{JIRA_BASE_URL}/rest/api/3/attachment/content/{aid}",
+            stream=True,
+            timeout=15,
+            allow_redirects=True,
+        )
+    except requests.RequestException as e:
+        return jsonify(error=f"upstream: {e}"), 502
+    if r.status_code != 200:
+        return jsonify(error="upstream", status=r.status_code), r.status_code
+    # Pass through MIME-type + body. Geen streaming naar Flask-Response
+    # nodig — screenshots zijn klein (≤ enkele MB).
+    return Response(
+        r.content,
+        mimetype=r.headers.get("Content-Type", "application/octet-stream"),
+    )
+
+
 @app.route("/api/v1/healthz", methods=["GET"])
 def api_healthz() -> Response:
     return jsonify(ok=True)
@@ -3443,9 +3628,11 @@ def _main_card_to_dict(m) -> Optional[dict]:
         return None
     return {
         "sha": getattr(m, "sha", ""),
-        "sha_age": getattr(m, "sha_age", ""),
-        "preview_url": getattr(m, "preview_url", ""),
+        "sha_age": getattr(m, "age", ""),
+        "message": getattr(m, "message", ""),
+        "preview_url": APP_BASE_URL,
         "phases": [_phase_to_dict(p) for p in getattr(m, "phases", [])],
+        "recent_runs": list(getattr(m, "recent_runs", []) or []),
     }
 
 
@@ -3528,12 +3715,21 @@ def _agent_run_to_dict(r: dict) -> dict:
 def _agent_summary_dict(r: Optional[dict]) -> Optional[dict]:
     if r is None:
         return None
+    text = r.get("summary_text", "") or ""
+    # Heuristiek: outcome is 'success' maar de agent heeft eigenlijk een
+    # vraag aan de PO gesteld. Dan staat "Vragen voor" / "Vragen aan" in
+    # de summary (= comment-tekst). De UI gebruikt deze flag om naast de
+    # success-pill een 'vraag aan PO'-pill te zetten.
+    had_question = bool(re.search(r"Vragen\s+(voor|aan)\b", text))
     return {
         "id": r.get("id"),
-        "role": r["role"], "started_at": _iso(r.get("started_at")),
+        "role": r["role"],
+        "started_at": _iso(r.get("started_at")),
         "ended_at": _iso(r.get("ended_at")),
-        "outcome": r["outcome"], "summary_text": r.get("summary_text", ""),
-        "verdict": _extract_verdict(r.get("role", ""), r.get("summary_text", "")),
+        "outcome": r["outcome"],
+        "summary_text": text,
+        "verdict": _extract_verdict(r.get("role", ""), text),
+        "had_question": had_question,
     }
 
 

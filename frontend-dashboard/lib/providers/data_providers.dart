@@ -48,6 +48,11 @@ final poQuestionProvider = FutureProvider.family<PoQuestion?, String>(
   (ref, key) => ref.read(apiProvider).poQuestion(key),
 );
 
+final screenshotsProvider =
+    FutureProvider.family<List<ScreenshotAttachment>, String>(
+  (ref, key) => ref.read(apiProvider).attachments(key),
+);
+
 Stream<T> _poll<T>(Future<T> Function() fn,
     {required Duration interval, Ref? ref}) async* {
   while (true) {

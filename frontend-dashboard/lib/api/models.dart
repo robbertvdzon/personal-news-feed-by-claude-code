@@ -119,6 +119,7 @@ class StoryDetail {
   final String aiPhase;
   final List<Map<String, dynamic>> prs;
   final List<Map<String, dynamic>> commits;
+  final List<BuildRun> prBuilds;
 
   StoryDetail({
     required this.id,
@@ -133,6 +134,7 @@ class StoryDetail {
     required this.aiPhase,
     required this.prs,
     required this.commits,
+    required this.prBuilds,
   });
 
   factory StoryDetail.fromJson(Map<String, dynamic> j) {
@@ -156,6 +158,9 @@ class StoryDetail {
       commits: (j['commits'] as List? ?? [])
           .map((c) => Map<String, dynamic>.from(c as Map))
           .toList(),
+      prBuilds: (j['pr_builds'] as List? ?? [])
+          .map((r) => BuildRun.fromJson(Map<String, dynamic>.from(r as Map)))
+          .toList(),
     );
   }
 }
@@ -170,6 +175,7 @@ class HandoverRun {
   final String outcome;
   final String summaryText;
   final String verdict;  // 'OK' / 'CHANGES' / 'PASS' / 'FAIL' / ''
+  final bool hadQuestion; // true als de agent eindigde met een PO-vraag
 
   HandoverRun({
     required this.id,
@@ -179,6 +185,7 @@ class HandoverRun {
     required this.outcome,
     required this.summaryText,
     required this.verdict,
+    required this.hadQuestion,
   });
 
   factory HandoverRun.fromJson(Map<String, dynamic> j) => HandoverRun(
@@ -189,6 +196,33 @@ class HandoverRun {
         outcome: j['outcome'] as String? ?? '',
         summaryText: j['summary_text'] as String? ?? '',
         verdict: j['verdict'] as String? ?? '',
+        hadQuestion: j['had_question'] as bool? ?? false,
+      );
+}
+
+class PoDialogueEntry {
+  final String agent;            // refiner / reviewer / tester
+  final String questionText;
+  final String? questionCreated;
+  final String answerText;
+  final String? answerCreated;
+
+  PoDialogueEntry({
+    required this.agent,
+    required this.questionText,
+    required this.questionCreated,
+    required this.answerText,
+    required this.answerCreated,
+  });
+
+  bool get hasAnswer => answerText.trim().isNotEmpty;
+
+  factory PoDialogueEntry.fromJson(Map<String, dynamic> j) => PoDialogueEntry(
+        agent: j['agent'] as String? ?? '',
+        questionText: j['question_text'] as String? ?? '',
+        questionCreated: j['question_created'] as String?,
+        answerText: j['answer_text'] as String? ?? '',
+        answerCreated: j['answer_created'] as String?,
       );
 }
 
@@ -199,6 +233,7 @@ class HandoverData {
   final List<HandoverRun> developer;
   final List<HandoverRun> reviewer;
   final List<HandoverRun> tester;
+  final List<PoDialogueEntry> poDialogue;
 
   HandoverData({
     required this.storyKey,
@@ -207,6 +242,7 @@ class HandoverData {
     required this.developer,
     required this.reviewer,
     required this.tester,
+    required this.poDialogue,
   });
 
   factory HandoverData.fromJson(Map<String, dynamic> j) {
@@ -225,6 +261,9 @@ class HandoverData {
       developer: runs('developer'),
       reviewer: runs('reviewer'),
       tester: runs('tester'),
+      poDialogue: (j['po_dialogue'] as List? ?? [])
+          .map((e) => PoDialogueEntry.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList(),
     );
   }
 }
@@ -254,6 +293,73 @@ class ApkEntry {
         builtAt: j['built_at'] as String?,
         size: (j['size'] as num?)?.toInt() ?? 0,
         tag: j['tag'] as String? ?? '',
+      );
+}
+
+class BuildRun {
+  final int id;
+  final String name;
+  final String status;     // queued / in_progress / completed
+  final String conclusion; // success / failure / cancelled / skipped / ''
+  final String htmlUrl;
+  final String createdAt;
+  final String updatedAt;
+  final String event;
+  final String headSha;
+  final String age;
+
+  BuildRun({
+    required this.id,
+    required this.name,
+    required this.status,
+    required this.conclusion,
+    required this.htmlUrl,
+    required this.createdAt,
+    required this.updatedAt,
+    required this.event,
+    required this.headSha,
+    required this.age,
+  });
+
+  factory BuildRun.fromJson(Map<String, dynamic> j) => BuildRun(
+        id: (j['id'] as num?)?.toInt() ?? 0,
+        name: j['name'] as String? ?? '',
+        status: j['status'] as String? ?? '',
+        conclusion: j['conclusion'] as String? ?? '',
+        htmlUrl: j['html_url'] as String? ?? '',
+        createdAt: j['created_at'] as String? ?? '',
+        updatedAt: j['updated_at'] as String? ?? '',
+        event: j['event'] as String? ?? '',
+        headSha: j['head_sha'] as String? ?? '',
+        age: j['age'] as String? ?? '',
+      );
+}
+
+class ScreenshotAttachment {
+  final String id;
+  final String filename;
+  final String mimeType;
+  final int size;
+  final String created;
+  final String rawUrl;
+
+  ScreenshotAttachment({
+    required this.id,
+    required this.filename,
+    required this.mimeType,
+    required this.size,
+    required this.created,
+    required this.rawUrl,
+  });
+
+  factory ScreenshotAttachment.fromJson(Map<String, dynamic> j) =>
+      ScreenshotAttachment(
+        id: j['id'] as String? ?? '',
+        filename: j['filename'] as String? ?? '',
+        mimeType: j['mime_type'] as String? ?? '',
+        size: (j['size'] as num?)?.toInt() ?? 0,
+        created: j['created'] as String? ?? '',
+        rawUrl: j['raw_url'] as String? ?? '',
       );
 }
 
@@ -340,17 +446,35 @@ class PoQuestion {
 class MainBuild {
   final String sha;
   final String shaAge;
+  final String message;
   final String previewUrl;
   final List<Map<String, dynamic>> phases;
-  MainBuild({required this.sha, required this.shaAge, required this.previewUrl, required this.phases});
+  final List<BuildRun> recentRuns;
+  MainBuild({
+    required this.sha,
+    required this.shaAge,
+    required this.message,
+    required this.previewUrl,
+    required this.phases,
+    required this.recentRuns,
+  });
   factory MainBuild.fromJson(Map<String, dynamic>? j) {
-    if (j == null) return MainBuild(sha: '', shaAge: '', previewUrl: '', phases: []);
+    if (j == null) {
+      return MainBuild(
+        sha: '', shaAge: '', message: '', previewUrl: '', phases: [],
+        recentRuns: [],
+      );
+    }
     return MainBuild(
       sha: j['sha'] as String? ?? '',
       shaAge: j['sha_age'] as String? ?? '',
+      message: j['message'] as String? ?? '',
       previewUrl: j['preview_url'] as String? ?? '',
       phases: (j['phases'] as List? ?? [])
           .map((p) => Map<String, dynamic>.from(p as Map))
+          .toList(),
+      recentRuns: (j['recent_runs'] as List? ?? [])
+          .map((r) => BuildRun.fromJson(Map<String, dynamic>.from(r as Map)))
           .toList(),
     );
   }

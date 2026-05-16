@@ -5,16 +5,27 @@ import '../api/models.dart';
 import '../providers/data_providers.dart';
 import '../widgets/section_header.dart';
 
+// externalApplication zorgt dat Android de system browser / download-manager
+// gebruikt i.p.v. de in-app webview, anders gebeurt er niks bij een .apk.
+Future<void> _openDownload(String url) => launchUrl(
+      Uri.parse(url),
+      mode: LaunchMode.externalApplication,
+    );
+
 class DashboardTab extends ConsumerWidget {
   const DashboardTab({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(homeStateProvider);
+    final apksAsync = ref.watch(apksProvider);
     return _TabFrame(
       title: 'Dashboard',
       subtitle: 'Overzicht van builds en productie',
-      onRefresh: () async => ref.invalidate(homeStateProvider),
+      onRefresh: () async {
+        ref.invalidate(homeStateProvider);
+        ref.invalidate(apksProvider);
+      },
       child: state.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('Fout: $e')),
@@ -26,6 +37,32 @@ class DashboardTab extends ConsumerWidget {
               main: s.main,
               lastMerged: s.closedPrs.isNotEmpty ? s.closedPrs.first : null,
             ),
+            const SizedBox(height: 8),
+            const SectionHeader(
+                title: 'APK\'s',
+                subtitle: 'Laatste builds van de twee Flutter-apps'),
+            apksAsync.when(
+              loading: () => const Padding(
+                padding: EdgeInsets.all(16),
+                child: Center(child: CircularProgressIndicator()),
+              ),
+              error: (e, _) => Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Text('APK-info niet beschikbaar: $e',
+                      style: TextStyle(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurfaceVariant)),
+                ),
+              ),
+              data: (apks) => _ApkRow(apks: apks),
+            ),
+            const SizedBox(height: 8),
+            SectionHeader(
+                title: 'Recente builds (main)',
+                subtitle: '${s.main.recentRuns.length} runs'),
+            _BuildsList(runs: s.main.recentRuns),
           ],
         ),
       ),
@@ -41,32 +78,33 @@ class _ProductionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final phasesOk = main.phases.where((p) => p['status'] == 'pass').length;
-    final phasesTotal = main.phases.length;
-    final allGreen = phasesTotal > 0 && phasesOk == phasesTotal;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                StatusPill(
-                  label: allGreen ? '● Healthy' : '$phasesOk / $phasesTotal groen',
-                  bg: allGreen ? const Color(0xFFE6F7EC) : const Color(0xFFFFF4E5),
-                  fg: allGreen ? const Color(0xFF1E6B3E) : const Color(0xFF8A5A0B),
+            // 'X/Y groen'-pill bewust weggehaald — gaf weinig informatie en
+            // toonde meestal '1/5 groen' ook bij gezonde state. Phases-detail
+            // staat verderop in deze kaart.
+            if (main.previewUrl.isNotEmpty)
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  icon: const Icon(Icons.open_in_new, size: 14),
+                  label: const Text('Preview'),
+                  onPressed: () => launchUrl(Uri.parse(main.previewUrl)),
                 ),
-                const Spacer(),
-                if (main.previewUrl.isNotEmpty)
-                  TextButton.icon(
-                    icon: const Icon(Icons.open_in_new, size: 14),
-                    label: const Text('Preview'),
-                    onPressed: () => launchUrl(Uri.parse(main.previewUrl)),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 12),
+              ),
+            if (main.message.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Text(main.message,
+                    style: const TextStyle(
+                        fontSize: 14, fontWeight: FontWeight.w600),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis),
+              ),
             Text(main.sha.isNotEmpty ? main.sha : '—',
                 style: const TextStyle(fontFamily: 'monospace', fontSize: 13)),
             Text(main.shaAge.isNotEmpty ? '${main.shaAge} geleden' : 'unknown age',
@@ -169,7 +207,6 @@ class _PhasesTable extends StatelessWidget {
       ),
       child: Column(
         children: [
-          // Header
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
             child: Row(
@@ -278,6 +315,183 @@ class _PhaseRow extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _ApkRow extends StatelessWidget {
+  final ApkInfo apks;
+  const _ApkRow({required this.apks});
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(builder: (context, c) {
+      final wide = c.maxWidth >= 520;
+      final newsCard = _ApkCard(
+        title: 'Personal News Feed',
+        subtitle: 'De nieuws-feed app voor je telefoon',
+        apk: apks.pnf,
+      );
+      final dashCard = _ApkCard(
+        title: 'Software Factory Dashboard',
+        subtitle: 'Dit dashboard op je telefoon',
+        apk: apks.dashboard,
+      );
+      if (wide) {
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(child: newsCard),
+            const SizedBox(width: 12),
+            Expanded(child: dashCard),
+          ],
+        );
+      }
+      return Column(
+        children: [newsCard, const SizedBox(height: 10), dashCard],
+      );
+    });
+  }
+}
+
+class _ApkCard extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final ApkEntry apk;
+  const _ApkCard({
+    required this.title,
+    required this.subtitle,
+    required this.apk,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final hasUrl = apk.url.isNotEmpty;
+    final dateLine = apk.builtAt != null && apk.builtAt!.isNotEmpty
+        ? 'Build: ${formatTs(apk.builtAt)}'
+        : 'datum onbekend';
+    return Card(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: hasUrl ? () => _openDownload(apk.url) : null,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Container(
+                width: 44, height: 44,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: scheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(Icons.android,
+                    color: scheme.onPrimaryContainer, size: 24),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title,
+                        style: const TextStyle(
+                            fontSize: 15, fontWeight: FontWeight.w600)),
+                    Text(subtitle,
+                        style: TextStyle(
+                            fontSize: 12, color: scheme.onSurfaceVariant)),
+                    const SizedBox(height: 4),
+                    Text(dateLine,
+                        style: TextStyle(
+                            fontSize: 11, color: scheme.onSurfaceVariant)),
+                  ],
+                ),
+              ),
+              FilledButton.tonalIcon(
+                icon: const Icon(Icons.download, size: 16),
+                label: const Text('APK'),
+                onPressed: hasUrl ? () => _openDownload(apk.url) : null,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BuildsList extends StatelessWidget {
+  final List<BuildRun> runs;
+  const _BuildsList({required this.runs});
+
+  @override
+  Widget build(BuildContext context) {
+    if (runs.isEmpty) {
+      return const Card(
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: Center(child: Text('Geen recente builds.')),
+        ),
+      );
+    }
+    return Card(
+      child: Column(
+        children: [
+          for (int i = 0; i < runs.length; i++) ...[
+            if (i > 0) const Divider(height: 1),
+            BuildRunTile(run: runs[i]),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class BuildRunTile extends StatelessWidget {
+  final BuildRun run;
+  const BuildRunTile({super.key, required this.run});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final running = run.status != 'completed';
+    final ok = run.conclusion == 'success';
+    final fail = run.conclusion == 'failure';
+    final cancelled =
+        run.conclusion == 'cancelled' || run.conclusion == 'skipped';
+    final IconData icon;
+    final Color color;
+    if (running) {
+      icon = Icons.sync;
+      color = const Color(0xFF1E40AF);
+    } else if (ok) {
+      icon = Icons.check_circle;
+      color = const Color(0xFF1E6B3E);
+    } else if (fail) {
+      icon = Icons.error;
+      color = const Color(0xFF991B1B);
+    } else if (cancelled) {
+      icon = Icons.do_disturb_on_outlined;
+      color = scheme.onSurfaceVariant;
+    } else {
+      icon = Icons.help_outline;
+      color = scheme.onSurfaceVariant;
+    }
+    return ListTile(
+      leading: Icon(icon, color: color),
+      title: Text(run.name,
+          maxLines: 1, overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+      subtitle: Text(
+        '${running ? "running" : (run.conclusion.isEmpty ? "?" : run.conclusion)}'
+        '${run.headSha.isNotEmpty ? " · ${run.headSha}" : ""}'
+        '${run.age.isNotEmpty ? " · ${run.age} geleden" : ""}',
+        style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+      ),
+      trailing: const Icon(Icons.open_in_new, size: 16),
+      onTap: run.htmlUrl.isEmpty
+          ? null
+          : () => launchUrl(Uri.parse(run.htmlUrl)),
     );
   }
 }

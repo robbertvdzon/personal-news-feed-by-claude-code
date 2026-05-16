@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../api/models.dart';
 import '../providers/data_providers.dart';
-import '../widgets/section_header.dart';
+import '../widgets/section_header.dart' show formatTokens;
 import 'story_detail_screen.dart';
 
 const _phaseOrder = ['refine', 'develop', 'review', 'test'];
@@ -25,6 +25,29 @@ const _phaseOrder = ['refine', 'develop', 'review', 'test'];
     default:                 return (stageIdx: -1, status: 'idle');
   }
 }
+
+// Vaste kolombreedtes — gebruikt om te beslissen of de tabel past of
+// horizontaal moet scrollen. Volgorde komt overeen met de header en
+// de rij-cellen.
+class _Col {
+  final String label;
+  final double width;
+  const _Col(this.label, this.width);
+}
+
+const _cols = <_Col>[
+  _Col('STORY', 220),
+  _Col('STATUS', 140),
+  _Col('FASE', 160),
+  _Col('RUNS', 60),
+  _Col('TOKENS', 130),
+  _Col('AI LVL', 70),
+  _Col('COST', 90),
+  _Col('', 28), // chevron
+];
+
+double get _tableMinWidth =>
+    _cols.fold(0.0, (acc, c) => acc + c.width) + 24; // +card-padding
 
 class StoriesTab extends ConsumerWidget {
   const StoriesTab({super.key});
@@ -74,7 +97,6 @@ class StoriesTab extends ConsumerWidget {
                 final m = RegExp(r'^ai/([A-Z][A-Z0-9]+-[0-9]+)$').firstMatch(p.branch);
                 final key = m?.group(1);
                 if (key == null) continue;
-                // Skip als al in aiActive (zou raar zijn maar safe).
                 if (s.aiActive.any((c) => c.key == key)) continue;
                 all.add(_StoryRow.fromPr(p, key));
               }
@@ -163,7 +185,7 @@ class _StoryRow {
         title: p.title.replaceFirst(RegExp(r'^[A-Z]+-\d+:\s*'), ''),
         status: p.jiraStatus,
         aiPhase: p.aiPhase,
-        runCount: 0, // niet beschikbaar via PR-card; eventueel later joinen
+        runCount: 0,
         tokensInput: 0,
         tokensOutput: 0,
         costUsd: 0,
@@ -177,37 +199,55 @@ class _StoriesTable extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     return LayoutBuilder(
       builder: (context, c) {
-        final wide = c.maxWidth >= 720;
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Header
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-              child: Row(
-                children: [
-                  const Expanded(flex: 3, child: _Hdr('Story')),
-                  if (wide) const Expanded(flex: 2, child: _Hdr('Status')),
-                  const Expanded(flex: 3, child: _Hdr('Fase')),
-                  if (wide) const Expanded(child: _Hdr('Runs')),
-                  if (wide) const Expanded(flex: 2, child: _Hdr('Tokens')),
-                  if (wide) const Expanded(child: _Hdr('AI lvl')),
-                  Expanded(flex: 2, child: _Hdr('Cost')),
-                  const SizedBox(width: 12),
-                ],
-              ),
-            ),
-            Divider(height: 1, color: scheme.outlineVariant),
-            for (int i = 0; i < rows.length; i++) ...[
-              if (i > 0) Divider(height: 1, color: scheme.outlineVariant),
-              _StoryRowWidget(row: rows[i], wide: wide),
+        final fits = c.maxWidth >= _tableMinWidth;
+        // Bij 'fits' gebruiken we de volle breedte; anders zetten we een
+        // vaste breedte en wrappen in een horizontale SingleChildScrollView
+        // zodat de hele tabel scrollt (niet per rij).
+        final tableWidth = fits ? c.maxWidth : _tableMinWidth;
+        final table = SizedBox(
+          width: tableWidth,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _HeaderRow(),
+              Divider(
+                  height: 1,
+                  color: Theme.of(context).colorScheme.outlineVariant),
+              for (int i = 0; i < rows.length; i++) ...[
+                if (i > 0)
+                  Divider(
+                      height: 1,
+                      color: Theme.of(context).colorScheme.outlineVariant),
+                _StoryRowWidget(row: rows[i]),
+              ],
             ],
-          ],
+          ),
+        );
+        if (fits) return table;
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: table,
         );
       },
+    );
+  }
+}
+
+class _HeaderRow extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      child: Row(
+        children: [
+          for (final col in _cols)
+            SizedBox(
+                width: col.width,
+                child: _Hdr(col.label)),
+        ],
+      ),
     );
   }
 }
@@ -217,7 +257,7 @@ class _Hdr extends StatelessWidget {
   const _Hdr(this.text);
   @override
   Widget build(BuildContext context) {
-    return Text(text.toUpperCase(),
+    return Text(text,
         style: TextStyle(
           fontSize: 11,
           fontWeight: FontWeight.w700,
@@ -229,14 +269,13 @@ class _Hdr extends StatelessWidget {
 
 class _StoryRowWidget extends StatelessWidget {
   final _StoryRow row;
-  final bool wide;
-  const _StoryRowWidget({required this.row, required this.wide});
+  const _StoryRowWidget({required this.row});
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final shortTitle = row.title.length > 30
-        ? '${row.title.substring(0, 30)}…'
+    final shortTitle = row.title.length > 36
+        ? '${row.title.substring(0, 36)}…'
         : row.title;
     return InkWell(
       onTap: () => Navigator.of(context).push(
@@ -247,61 +286,65 @@ class _StoryRowWidget extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Expanded(
-              flex: 3,
+            SizedBox(
+              width: _cols[0].width,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(row.key,
-                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+                      style: const TextStyle(
+                          fontSize: 14, fontWeight: FontWeight.w700)),
                   Text(shortTitle.isEmpty ? '—' : shortTitle,
-                      style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
-                  // Op narrow: status inline onder de titel; aparte kolom
-                  // overflowt op kleine schermen (zie KAN-46 screenshot).
-                  if (!wide && row.status.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 4),
-                      child: _StatusBadge(label: row.status),
-                    ),
+                      style: TextStyle(
+                          fontSize: 12, color: scheme.onSurfaceVariant),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis),
                 ],
               ),
             ),
-            if (wide)
-              Expanded(
-                flex: 2,
-                child: row.status.isEmpty
-                    ? const SizedBox.shrink()
-                    : _StatusBadge(label: row.status),
-              ),
-            Expanded(
-              flex: 3,
+            SizedBox(
+              width: _cols[1].width,
+              child: row.status.isEmpty
+                  ? const SizedBox.shrink()
+                  : _StatusBadge(label: row.status),
+            ),
+            SizedBox(
+              width: _cols[2].width,
               child: _PhasePips(aiPhase: row.aiPhase, status: row.status),
             ),
-            if (wide)
-              Expanded(child: Text('${row.runCount}', style: const TextStyle(fontSize: 13))),
-            if (wide)
-              Expanded(
-                flex: 2,
-                child: Text(
-                  row.tokensInput > 0
-                      ? '${formatTokens(row.tokensInput)} / ${formatTokens(row.tokensOutput)}'
-                      : '—',
-                  style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
-                ),
-              ),
-            if (wide)
-              Expanded(
-                child: Text(row.aiLevel >= 0 ? '${row.aiLevel}' : '—',
-                    style: const TextStyle(fontSize: 13)),
-              ),
-            Expanded(
-              flex: 2,
+            SizedBox(
+              width: _cols[3].width,
+              child: Text('${row.runCount}',
+                  style: const TextStyle(fontSize: 13)),
+            ),
+            SizedBox(
+              width: _cols[4].width,
               child: Text(
-                row.costUsd > 0 ? '\$${row.costUsd.toStringAsFixed(4)}' : '—',
+                row.tokensInput > 0
+                    ? '${formatTokens(row.tokensInput)} / ${formatTokens(row.tokensOutput)}'
+                    : '—',
+                style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+              ),
+            ),
+            SizedBox(
+              width: _cols[5].width,
+              child: Text(row.aiLevel >= 0 ? 'L${row.aiLevel}' : '—',
+                  style: const TextStyle(fontSize: 13)),
+            ),
+            SizedBox(
+              width: _cols[6].width,
+              child: Text(
+                row.costUsd > 0
+                    ? '\$${row.costUsd.toStringAsFixed(4)}'
+                    : '—',
                 style: const TextStyle(fontSize: 13),
               ),
             ),
-            Icon(Icons.chevron_right, color: scheme.onSurfaceVariant, size: 20),
+            SizedBox(
+              width: _cols[7].width,
+              child:
+                  Icon(Icons.chevron_right, color: scheme.onSurfaceVariant, size: 20),
+            ),
           ],
         ),
       ),
@@ -350,7 +393,6 @@ class _PhasePips extends StatelessWidget {
       children: List.generate(_phaseOrder.length, (i) {
         String s;
         if (mapping.stageIdx < 0) {
-          // unknown / awaiting-po → alles idle behalve eerste actief bij Ready
           s = (i == 0 && status == 'AI Ready') ? 'active' : 'idle';
         } else if (i < mapping.stageIdx) {
           s = 'done';

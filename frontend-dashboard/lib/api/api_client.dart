@@ -119,4 +119,20 @@ class ApiClient {
     final r = await _send('GET', '/api/v1/apks');
     return ApkInfo.fromJson(Map<String, dynamic>.from(r as Map));
   }
+
+  Future<List<ScreenshotAttachment>> attachments(String key) async {
+    final r = await _send('GET', '/api/v1/stories/$key/attachments');
+    final m = Map<String, dynamic>.from(r as Map);
+    return (m['attachments'] as List? ?? [])
+        .map((a) =>
+            ScreenshotAttachment.fromJson(Map<String, dynamic>.from(a as Map)))
+        .toList();
+  }
+
+  /// Volledige URL voor een attachment-raw-endpoint, bruikbaar voor
+  /// Image.network. Caller moet zelf de Authorization-header meegeven.
+  String attachmentRawUrl(String relPath) => '$baseUrl$relPath';
+
+  Map<String, String> authHeaders() =>
+      _token == null ? const {} : {'Authorization': 'Bearer $_token'};
 }

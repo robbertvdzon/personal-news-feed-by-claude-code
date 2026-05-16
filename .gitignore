@@ -31,6 +31,10 @@ newsfeedbackend/**/data/
 application-local.yml
 application-local.yaml
 
+# Python
+__pycache__/
+*.pyc
+
 # Logs
 *.log
 
