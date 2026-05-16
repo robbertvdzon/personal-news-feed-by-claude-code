@@ -64,6 +64,9 @@ REFRESH_SEC = int(os.environ.get("REFRESH_SEC", "10"))
 # Factory-DB voor token/cost-lookups en de timeline-page. Leeg = sectie
 # wordt overgeslagen, dashboard blijft voor de rest werken.
 FACTORY_DATABASE_URL = os.environ.get("FACTORY_DATABASE_URL", "")
+# OpenShift-console host voor klikbare "Open in OpenShift"-links per
+# K8s Job. Leeg laten = de frontend toont alleen de jobnaam zonder link.
+OPENSHIFT_CONSOLE_HOST = os.environ.get("OPENSHIFT_CONSOLE_HOST", "")
 
 # JIRA-config voor de "AI bezig"-sectie. Als JIRA_API_KEY leeg is wordt
 # de sectie netjes overgeslagen — niets gebroken.
@@ -3449,32 +3452,63 @@ def api_story_resume(key: str) -> Response:
 @app.route("/api/v1/stories/<key>/active-job", methods=["GET", "OPTIONS"])
 @require_jwt
 def api_story_active_job(key: str) -> Response:
-    """Geef de huidig-lopende agent-run voor een story terug (als die er
-    is). Bron: factory.agent_runs WHERE ended_at IS NULL voor de
-    laatste story_run.
+    """Geef de huidig-lopende claude-runner Job voor een story terug. Bron:
+    K8s Jobs met label app=claude-runner,story-id=<kebab-key> die nog
+    niet Complete/Failed zijn. agent_runs is geen bruikbare bron — die
+    krijgt pas een rij ná afloop van de run.
     """
     if not _STORY_KEY_RE.match(key):
         return jsonify(error="bad key"), 400
-    if not _factory_db_available():
-        return jsonify(active=None)
+    story_label = re.sub(r"[^a-z0-9-]+", "-", key.lower()).strip("-")[:30]
     try:
-        with psycopg.connect(FACTORY_DATABASE_URL) as conn, conn.cursor() as cur:
-            cur.execute(
-                """SELECT ar.id, ar.role, ar.job_name, ar.started_at
-                   FROM factory.agent_runs ar
-                   JOIN factory.story_runs sr ON sr.id = ar.story_run_id
-                   WHERE sr.story_key = %s AND ar.ended_at IS NULL
-                   ORDER BY ar.started_at DESC LIMIT 1""",
-                (key,),
-            )
-            r = cur.fetchone()
+        jobs = k8s_jobs(
+            FACTORY_NS,
+            label_selector=f"app=claude-runner,story-id={story_label}",
+        )
     except Exception as e:
-        log.warning("active-job lookup faalde: %s", e)
+        log.warning("active-job kubectl faalde: %s", e)
         return jsonify(active=None)
-    if not r:
+    # Alleen niet-afgeronde Jobs (geen Complete/Failed condition).
+    running = []
+    for j in jobs:
+        conds = j.get("status", {}).get("conditions", []) or []
+        done = any(
+            c.get("type") in ("Complete", "Failed") and c.get("status") == "True"
+            for c in conds
+        )
+        if done:
+            continue
+        running.append(j)
+    if not running:
         return jsonify(active=None)
+    # Pak de jongste (creationTimestamp DESC).
+    running.sort(
+        key=lambda j: j.get("metadata", {}).get("creationTimestamp", ""),
+        reverse=True,
+    )
+    j = running[0]
+    meta = j.get("metadata", {}) or {}
+    job_name = meta.get("name", "")
+    labels = meta.get("labels", {}) or {}
+    role = labels.get("role") or "agent"
+    # `startTime` op de Job-status is het moment dat de eerste pod start;
+    # creationTimestamp is het schedule-moment. We tonen startTime indien
+    # beschikbaar (kortste 'echte' duur), met creationTimestamp als fallback.
+    started_at = (
+        j.get("status", {}).get("startTime")
+        or meta.get("creationTimestamp")
+        or ""
+    )
+    console_url = (
+        f"https://{OPENSHIFT_CONSOLE_HOST}/k8s/ns/{FACTORY_NS}/jobs/{job_name}"
+        if OPENSHIFT_CONSOLE_HOST else ""
+    )
     return jsonify(active={
-        "id": r[0], "role": r[1], "job_name": r[2], "started_at": _iso(r[3]),
+        "id": 0,
+        "role": role,
+        "job_name": job_name,
+        "started_at": started_at,
+        "console_url": console_url,
     })
 
 

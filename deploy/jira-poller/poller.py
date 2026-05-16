@@ -588,6 +588,9 @@ def spawn_runner_job(
         "app": "claude-runner",
         "story-id": short,
         "mode": "comment" if is_comment_mode else "story",
+        # 'role' label zodat het dashboard de rol van een lopende Job
+        # kan ophalen zonder de pod-spec uit te pluizen.
+        "role": role,
     }
     if is_comment_mode:
         labels["pr-num"] = str(pr_number)
@@ -1629,6 +1632,144 @@ def check_review_for_merges() -> None:
             log.warning("transition naar %s faalde voor %s", JIRA_DONE_STATUS, key)
 
 
+# ─── stuck-state recovery ────────────────────────────────────────────────
+#
+# Een story zit "stuck" als de AI Phase zegt dat een agent actief is
+# (refining/developing/reviewing/testing) terwijl er geen K8s Job (meer)
+# loopt. Komt voor als de runner z'n JSON-output niet correct heeft
+# afgesloten waardoor de eindfase nooit op JIRA is gezet, of als de pod
+# crashte vóór die transitie.
+#
+# Voor refiner/developer is de volgende fase deterministisch (refined /
+# developed) — een gerunde job met outcome='success' verklapt dat het
+# werk klaar is. Voor reviewer/tester is dat ambigu (de uitspraak zelf
+# is reviewed-ok of reviewed-changes / tested-ok of tested-fail) en
+# kan de poller niet veilig auto-bumpen. Die laten we via een warning
+# zichtbaar in 't dashboard staan voor handmatige Re-implement.
+
+_STUCK_PHASE_TO_ROLE = {
+    "refining":   "refiner",
+    "developing": "developer",
+    "reviewing":  "reviewer",
+    "testing":    "tester",
+}
+
+
+def _auto_bump_targets() -> dict[tuple[str, str], tuple[str, str]]:
+    """Welke (status, phase)-combinaties hebben we genoeg info voor om
+    automatisch te bumpen? Mapping → (target_status, target_phase).
+
+    Alleen refiner→refined en developer→developed, want voor reviewer en
+    tester is de uitkomst van de run ambigu (ok/changes resp. ok/fail).
+    """
+    return {
+        (JIRA_TARGET_STATUS, "refining"):   ("AI Queued",        "refined"),
+        (JIRA_TARGET_STATUS, "developing"): (JIRA_REVIEW_STATUS, "developed"),
+    }
+
+
+def _story_has_running_runner_job(story_key: str) -> bool:
+    """True als er nu een claude-runner K8s Job loopt voor deze story
+    (niet Complete/Failed). Gebruikt label story-id=<kebab-key>."""
+    short = re.sub(r"[^a-z0-9-]+", "-", story_key.lower()).strip("-")[:30]
+    try:
+        out = kubectl(
+            "get", "jobs",
+            "-n", RUNNER_NAMESPACE,
+            "-l", f"app=claude-runner,story-id={short}",
+            "-o", "json",
+            check=False,
+        )
+        if out.returncode != 0:
+            log.warning("stuck-check: kubectl faalde voor %s: %s",
+                        story_key, out.stderr[:200])
+            # Bij twijfel: aannemen dat er nog iets loopt — geen voorbarige bump.
+            return True
+        data = json.loads(out.stdout or "{}")
+    except Exception as e:
+        log.warning("stuck-check: parse faalde voor %s: %s", story_key, e)
+        return True
+    for j in data.get("items", []):
+        conds = j.get("status", {}).get("conditions", [])
+        done = any(
+            c.get("type") in ("Complete", "Failed") and c.get("status") == "True"
+            for c in conds
+        )
+        if not done:
+            return True
+    return False
+
+
+def _latest_agent_run_outcome(story_key: str, role: str) -> Optional[str]:
+    """Geef het outcome van de laatste afgeronde agent_run voor
+    (story, role) terug. None als de DB niet beschikbaar is of er geen
+    rij is."""
+    if not FACTORY_DATABASE_URL or psycopg is None:
+        return None
+    try:
+        with psycopg.connect(FACTORY_DATABASE_URL) as conn, conn.cursor() as cur:
+            cur.execute(
+                """SELECT ar.outcome
+                   FROM factory.agent_runs ar
+                   JOIN factory.story_runs sr ON sr.id = ar.story_run_id
+                   WHERE sr.story_key = %s AND ar.role = %s
+                     AND ar.ended_at IS NOT NULL
+                   ORDER BY ar.ended_at DESC LIMIT 1""",
+                (story_key, role),
+            )
+            row = cur.fetchone()
+    except Exception as e:
+        log.warning("agent_run-outcome lookup faalde voor %s/%s: %s",
+                    story_key, role, e)
+        return None
+    return row[0] if row else None
+
+
+def recover_stuck_phases() -> None:
+    """Vind stories waarvan AI Phase op een actieve-rol-fase staat zonder
+    dat er een K8s Job loopt, en zet ze door naar de volgende fase
+    indien de laatste run succesvol was.
+
+    Alleen refiner→refined en developer→developed worden auto-gebumpt
+    (deterministisch). Reviewer/tester blijven staan; het dashboard
+    toont de stuck-warning zodat de PO handmatig kan ingrijpen.
+    """
+    for (status, phase), (target_status, target_phase) in _auto_bump_targets().items():
+        try:
+            issues = _fetch_status_with_phase(status, phase)
+        except Exception as e:
+            log.warning("stuck-fetch %s/%s faalde: %s", status, phase, e)
+            continue
+        if not issues:
+            continue
+        role = _STUCK_PHASE_TO_ROLE[phase]
+        for issue in issues:
+            key = issue.get("key", "")
+            if not key:
+                continue
+            if _story_has_running_runner_job(key):
+                continue  # Niet stuck — er draait een Job.
+            outcome = _latest_agent_run_outcome(key, role)
+            if outcome != "success":
+                log.info(
+                    "stuck-skip %s: phase=%s zonder Job, laatste %s-run outcome=%r "
+                    "— niet auto-bumpbaar",
+                    key, phase, role, outcome,
+                )
+                continue
+            log.info(
+                "stuck-recover %s: phase=%s zonder Job en laatste %s-run was success "
+                "→ bump naar %s + phase=%s",
+                key, phase, role, target_status, target_phase,
+            )
+            if not set_ai_fields(key, {"phase": target_phase}):
+                log.warning("stuck-recover %s: set_ai_fields faalde", key)
+                continue
+            if not transition_issue(key, target_status):
+                log.warning("stuck-recover %s: transitie naar %s faalde",
+                            key, target_status)
+
+
 # ─── main loop ────────────────────────────────────────────────────────────
 
 
@@ -1646,6 +1787,14 @@ def process_one_pass() -> None:
         check_review_for_merges()
     except Exception as e:
         log.exception("merge-check faalde: %s", e)
+
+    # Stuck-recovery: refiner/developer-phases zonder draaiende Job
+    # auto-bumpen naar de volgende fase. Reviewer/tester worden bewust
+    # overgeslagen — hun outcome is ambigu.
+    try:
+        recover_stuck_phases()
+    except Exception as e:
+        log.exception("stuck-recovery faalde: %s", e)
 
     # S-09: PR-comment iteratieloop — @claude-triggers oppakken.
     try:

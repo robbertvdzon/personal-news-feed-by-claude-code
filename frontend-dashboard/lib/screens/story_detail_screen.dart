@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -328,14 +330,33 @@ class _LinksRow extends ConsumerWidget {
   }
 }
 
+/// Phase-waarden waarvan de naam zegt 'een agent is nu bezig'. Als één
+/// hiervan actief is maar er géén K8s Job loopt, zit de story in een
+/// stuck-state (developer-output was bv. malformed → phase niet ge-bumpt).
+const _activeRolePhases = {'refining', 'developing', 'reviewing', 'testing'};
+
+bool _isActiveRolePhase(String phase) => _activeRolePhases.contains(phase);
+
+/// Detecteert de inconsistentie 'phase zegt agent draait, maar er is geen
+/// actieve K8s Job'. Wordt gebruikt voor het stuck-banner én bepaalt of
+/// de poller een auto-bump kan doen (zie poller.py).
+bool _isStuckActivePhase(String phase, ActiveAgentJob? job) =>
+    job == null && _isActiveRolePhase(phase);
+
 /// Bepaal een korte tekst die uitlegt wat er met de story gebeurt:
 /// 'Actief: <role>' als er een Claude-job loopt, anders een 'Wacht op …'
 /// of 'Klaar voor merge' afhankelijk van status + ai_phase.
 String _pipelineLabel(String status, String phase, ActiveAgentJob? job) {
   if (job != null) return 'Actief: ${job.role}-job draait nu';
-  // Done.
+  // Done wint van stuck — een afgesloten story die toevallig nog een
+  // active-role-phase heeft, hoeft de PO niet alsnog te alarmeren.
   const done = {'Gereed', 'Klaar', 'Done', 'Closed'};
   if (done.contains(status)) return 'Afgerond';
+  // Stuck: phase zegt dat er een agent loopt, maar er is er geen.
+  if (_isStuckActivePhase(phase, job)) {
+    return 'Vastgelopen — phase=$phase maar geen actieve job. '
+        'Poller bumpt of handmatige Re-implement.';
+  }
   // Manuele pauze.
   if (status == 'AI Paused') return 'Gepauzeerd — klik Continue om te hervatten';
   // PO-input nodig.
@@ -382,12 +403,32 @@ class _StatusBanner extends StatelessWidget {
     final phase = aiPhase;
     final running = activeJob != null;
     final needsInfo = status == 'AI Needs Info';
+    // Stuck-warning alleen relevant in actieve statussen; een 'Gereed'-
+    // story met een rare phase-rest hoeft de PO niet te alarmeren.
+    final isDone = _isStoryDone(status);
+    final stuck = !isDone && _isStuckActivePhase(phase, activeJob);
+    // Stuck wint van running (kan niet samen) en van needsInfo. Visueel
+    // mag de gebruiker de tegenspraak direct zien — daarom errorContainer.
     final bg = running
         ? scheme.primaryContainer
-        : (needsInfo ? scheme.errorContainer : scheme.secondaryContainer);
+        : (stuck || needsInfo
+            ? scheme.errorContainer
+            : scheme.secondaryContainer);
     final fg = running
         ? scheme.onPrimaryContainer
-        : (needsInfo ? scheme.onErrorContainer : scheme.onSecondaryContainer);
+        : (stuck || needsInfo
+            ? scheme.onErrorContainer
+            : scheme.onSecondaryContainer);
+    final IconData headerIcon;
+    if (running) {
+      headerIcon = Icons.sync;
+    } else if (stuck) {
+      headerIcon = Icons.warning_amber_outlined;
+    } else if (needsInfo) {
+      headerIcon = Icons.help_outline;
+    } else {
+      headerIcon = Icons.info_outline;
+    }
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -399,12 +440,7 @@ class _StatusBanner extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(
-                running
-                    ? Icons.sync
-                    : (needsInfo ? Icons.help_outline : Icons.info_outline),
-                color: fg,
-              ),
+              Icon(headerIcon, color: fg),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
@@ -431,44 +467,134 @@ class _StatusBanner extends StatelessWidget {
           ),
           if (running) ...[
             const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: scheme.surface,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.smart_toy_outlined,
-                      color: scheme.onSurfaceVariant, size: 20),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+            _ActiveJobCard(job: activeJob!),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Toont een lopende Claude-agent-Job: rol, jobnaam, hoe lang 'ie al
+/// draait (live tikkend), en knoppen naar live-logs + OpenShift-console.
+class _ActiveJobCard extends StatefulWidget {
+  final ActiveAgentJob job;
+  const _ActiveJobCard({required this.job});
+
+  @override
+  State<_ActiveJobCard> createState() => _ActiveJobCardState();
+}
+
+class _ActiveJobCardState extends State<_ActiveJobCard> {
+  Timer? _ticker;
+
+  @override
+  void initState() {
+    super.initState();
+    // 1Hz reicht voor 'duur sinds gestart'; geen rebuild als startedAt mist.
+    if (widget.job.startedAt != null) {
+      _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) setState(() {});
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
+  }
+
+  String _formatDuration(Duration d) {
+    final s = d.inSeconds;
+    if (s < 60) return '${s}s';
+    final m = s ~/ 60;
+    final rs = s % 60;
+    if (m < 60) return '${m}m ${rs}s';
+    final h = m ~/ 60;
+    final rm = m % 60;
+    return '${h}u ${rm}m';
+  }
+
+  String _durationText() {
+    final iso = widget.job.startedAt;
+    if (iso == null) return '—';
+    final start = DateTime.tryParse(iso);
+    if (start == null) return '—';
+    final diff = DateTime.now().toUtc().difference(start.toUtc());
+    if (diff.isNegative) return '0s';
+    return _formatDuration(diff);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final job = widget.job;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.smart_toy_outlined,
+                  color: scheme.onSurfaceVariant, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
                       children: [
-                        Text(activeJob!.role.toUpperCase(),
+                        Text(job.role.toUpperCase(),
                             style: TextStyle(
                                 fontSize: 12,
                                 fontWeight: FontWeight.w700,
                                 color: scheme.onSurfaceVariant)),
-                        Text(activeJob!.jobName,
-                            style: const TextStyle(
-                                fontSize: 11, fontFamily: 'monospace'),
-                            overflow: TextOverflow.ellipsis),
+                        const SizedBox(width: 8),
+                        Text('• ${_durationText()}',
+                            style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                                color: scheme.onSurfaceVariant)),
                       ],
                     ),
-                  ),
-                  FilledButton.tonalIcon(
-                    icon: const Icon(Icons.description_outlined, size: 16),
-                    label: const Text('Live log'),
-                    onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                      builder: (_) => RunnerLogScreen(jobName: activeJob!.jobName),
-                    )),
-                  ),
-                ],
+                    Text(job.jobName,
+                        style: const TextStyle(
+                            fontSize: 11, fontFamily: 'monospace'),
+                        overflow: TextOverflow.ellipsis),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: [
+              FilledButton.tonalIcon(
+                icon: const Icon(Icons.description_outlined, size: 16),
+                label: const Text('Live log'),
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => RunnerLogScreen(jobName: job.jobName),
+                )),
+              ),
+              if (job.consoleUrl.isNotEmpty)
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.open_in_new, size: 16),
+                  label: const Text('Open in OpenShift'),
+                  onPressed: () => launchUrl(
+                    Uri.parse(job.consoleUrl),
+                    mode: LaunchMode.externalApplication,
+                  ),
+                ),
+            ],
+          ),
         ],
       ),
     );

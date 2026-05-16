@@ -50,6 +50,11 @@ spec:
             # namespace-split is dat een eigen pnf-software-factory.
             - name: FACTORY_NS
               value: "pnf-software-factory"
+            # OpenShift-console host voor klikbare "Open in OpenShift"-
+            # links per K8s Job. Werkt alleen op het thuis-netwerk (geen
+            # Cloudflare-tunnel voor de console). Leeg = geen link.
+            - name: OPENSHIFT_CONSOLE_HOST
+              value: "console-openshift-console.apps.sno.lab.vdzon.com"
             - name: APP_BASE_URL
               value: "https://vdzonsoftware.nl"
             - name: PREVIEW_URL_FORMAT

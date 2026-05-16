@@ -428,12 +428,20 @@ class ActiveAgentJob {
   final String role;
   final String jobName;
   final String? startedAt;
-  ActiveAgentJob({required this.id, required this.role, required this.jobName, required this.startedAt});
+  final String consoleUrl;
+  ActiveAgentJob({
+    required this.id,
+    required this.role,
+    required this.jobName,
+    required this.startedAt,
+    required this.consoleUrl,
+  });
   factory ActiveAgentJob.fromJson(Map<String, dynamic> j) => ActiveAgentJob(
         id: (j['id'] as num?)?.toInt() ?? 0,
         role: j['role'] as String? ?? '',
         jobName: j['job_name'] as String? ?? '',
         startedAt: j['started_at'] as String?,
+        consoleUrl: j['console_url'] as String? ?? '',
       );
 }
 
