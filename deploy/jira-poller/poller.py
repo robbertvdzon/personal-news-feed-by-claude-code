@@ -1395,10 +1395,21 @@ def execute_story_command(issue_key: str, command: str) -> str:
         if f"pnf-pr-{pr_num}" not in all_ns:
             all_ns.append(f"pnf-pr-{pr_num}")
         ns_deleted = sum(1 for ns in all_ns if _delete_namespace_by_name(ns))
+        # Direct naar JIRA_DONE_STATUS transitioneren — vroeger lieten we
+        # dit aan check_review_for_merges over, maar die loop scant alleen
+        # AI IN REVIEW. Als de PO eerst pause + dan merge doet (story in
+        # AI Paused / AI Queued), bleef 't ticket hangen op de huidige
+        # status. Net als delete doen we 't hier expliciet.
+        ok = transition_issue(issue_key, JIRA_DONE_STATUS)
+        log.info("[cmd] merge %s: transition → %s", issue_key, ok)
+        status_part = (
+            f"status → {JIRA_DONE_STATUS}" if ok
+            else f"status NIET veranderd — geen transitie naar '{JIRA_DONE_STATUS}'"
+        )
         return (
             f"pr #{pr_num} merged squash, jobs={killed}, "
-            f"namespaces gewist={ns_deleted}/{len(all_ns)} "
-            "(status volgt via merge-detect)"
+            f"namespaces gewist={ns_deleted}/{len(all_ns)}, "
+            f"{status_part}"
         )
 
     if command == "re-implement":
