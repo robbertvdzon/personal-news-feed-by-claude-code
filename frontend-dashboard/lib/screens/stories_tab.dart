@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../api/models.dart';
 import '../providers/data_providers.dart';
+import '../widgets/budget_bar.dart';
 import '../widgets/section_header.dart' show formatTokens;
 import 'story_detail_screen.dart';
 
@@ -42,6 +43,7 @@ const _cols = <_Col>[
   _Col('RUNS', 60),
   _Col('TOKENS', 130),
   _Col('AI LVL', 70),
+  _Col('BUDGET', 120),
   _Col('COST', 90),
   _Col('', 28), // chevron
 ];
@@ -155,6 +157,7 @@ class _StoryRow {
   final int tokensOutput;
   final double costUsd;
   final int aiLevel;
+  final int tokenBudget;
 
   _StoryRow({
     required this.key,
@@ -166,6 +169,7 @@ class _StoryRow {
     required this.tokensOutput,
     required this.costUsd,
     required this.aiLevel,
+    required this.tokenBudget,
   });
 
   factory _StoryRow.fromJira(JiraCard c) => _StoryRow(
@@ -178,6 +182,7 @@ class _StoryRow {
         tokensOutput: c.tokensOutput,
         costUsd: c.costUsd,
         aiLevel: c.aiLevel,
+        tokenBudget: c.tokenBudget,
       );
 
   factory _StoryRow.fromPr(PrCard p, String key) => _StoryRow(
@@ -190,6 +195,7 @@ class _StoryRow {
         tokensOutput: 0,
         costUsd: 0,
         aiLevel: -1,
+        tokenBudget: 0,
       );
 }
 
@@ -333,6 +339,17 @@ class _StoryRowWidget extends StatelessWidget {
             ),
             SizedBox(
               width: _cols[6].width,
+              child: Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: BudgetBar(
+                  tokensUsed: row.tokensInput + row.tokensOutput,
+                  tokenBudget: row.tokenBudget,
+                  showLabel: true,
+                ),
+              ),
+            ),
+            SizedBox(
+              width: _cols[7].width,
               child: Text(
                 row.costUsd > 0
                     ? '\$${row.costUsd.toStringAsFixed(4)}'
@@ -341,7 +358,7 @@ class _StoryRowWidget extends StatelessWidget {
               ),
             ),
             SizedBox(
-              width: _cols[7].width,
+              width: _cols[8].width,
               child:
                   Icon(Icons.chevron_right, color: scheme.onSurfaceVariant, size: 20),
             ),

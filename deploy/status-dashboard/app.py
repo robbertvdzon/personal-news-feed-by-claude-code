@@ -607,8 +607,9 @@ if JIRA_EMAIL and JIRA_API_KEY:
 # eenmalig zodat we de actuele AI Level + AI Phase per ticket kunnen
 # tonen. Display-namen exact zoals ze in JIRA staan.
 _AI_FIELDS = {
-    "level": "AI Level",
-    "phase": "AI Phase",
+    "level":        "AI Level",
+    "phase":        "AI Phase",
+    "token_budget": "AI Token Budget",
 }
 _ai_field_id_cache: dict[str, Optional[str]] = {}
 
@@ -800,6 +801,8 @@ class JIRACard:
     # Hoeveel agent-runs heeft deze story al gehad? Hoog aantal = mogelijke
     # loop (dev↔reviewer pingpong of tester die maar niet OK krijgt).
     run_count: int = 0
+    # Budget-info (KAN-42). 0 = veld leeg (geen budget-balk in UI).
+    token_budget: int = 0
 
 
 # ─── helpers voor fase-status afleiden ────────────────────────────────────
@@ -1305,6 +1308,7 @@ def build_state() -> dict:
         # AI custom-fields
         lvl_id = _ai_field_id("level")
         phase_id = _ai_field_id("phase")
+        budget_id = _ai_field_id("token_budget")
         if lvl_id and fields.get(lvl_id) is not None:
             try:
                 card.ai_level = int(fields[lvl_id])
@@ -1312,6 +1316,11 @@ def build_state() -> dict:
                 pass
         if phase_id:
             card.ai_phase = fields.get(phase_id) or ""
+        if budget_id and fields.get(budget_id) is not None:
+            try:
+                card.token_budget = int(fields[budget_id])
+            except (TypeError, ValueError):
+                pass
         # Job-lookup: label story-id is de lowercase-kebab key (kan-12).
         story_label = re.sub(r"[^a-z0-9-]+", "-", key.lower()).strip("-")[:30]
         matching = [
@@ -2862,17 +2871,20 @@ def _jira_fetch_issue_title(key: str) -> str:
 
 
 def _jira_fetch_issue_meta(key: str) -> dict:
-    """Eén JIRA-call die summary + status + ai-phase ophaalt. Output:
-    {title, status, ai_phase}. Best-effort: lege strings op fout."""
-    out = {"title": "", "status": "", "ai_phase": ""}
+    """Eén JIRA-call die summary + status + ai-phase + token_budget
+    ophaalt. Output: {title, status, ai_phase, token_budget}.
+    Best-effort: lege strings/0 op fout."""
+    out = {"title": "", "status": "", "ai_phase": "", "token_budget": 0}
     if not (JIRA_BASE_URL and JIRA_EMAIL and JIRA_API_KEY):
         return out
-    # AI Phase-custom-field-ID lazy-resolven (één keer per process).
     _discover_ai_field_ids()
     phase_field_id = _ai_field_id_cache.get("phase")
+    budget_field_id = _ai_field_id_cache.get("token_budget")
     fields_param = "summary,status"
     if phase_field_id:
         fields_param += f",{phase_field_id}"
+    if budget_field_id:
+        fields_param += f",{budget_field_id}"
     try:
         r = _jira_session.get(
             f"{JIRA_BASE_URL}/rest/api/3/issue/{key}",
@@ -2888,6 +2900,11 @@ def _jira_fetch_issue_meta(key: str) -> dict:
     out["status"] = ((f.get("status") or {}).get("name")) or ""
     if phase_field_id:
         out["ai_phase"] = f.get(phase_field_id) or ""
+    if budget_field_id and f.get(budget_field_id) is not None:
+        try:
+            out["token_budget"] = int(f[budget_field_id])
+        except (TypeError, ValueError):
+            pass
     return out
 
 
@@ -3189,6 +3206,7 @@ def api_story_detail(key: str) -> Response:
         "jira_title": meta.get("title", ""),
         "jira_status": meta.get("status", ""),
         "ai_phase": meta.get("ai_phase", ""),
+        "token_budget": meta.get("token_budget", 0),
         "prs": gh_prs_for_branch(f"ai/{key}"),
         "commits": gh_commits_for_branch(f"ai/{key}", limit=30),
         "pr_builds": [
@@ -3650,6 +3668,7 @@ def _jira_card_to_dict(c) -> dict:
         "tokens_cache_read": c.tokens_cache_read, "cost_usd": c.cost_usd,
         "ai_level": c.ai_level, "ai_phase": c.ai_phase,
         "run_count": c.run_count,
+        "token_budget": c.token_budget,
     }
 
 

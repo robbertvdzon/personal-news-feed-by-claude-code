@@ -117,6 +117,7 @@ class StoryDetail {
   final String jiraTitle;
   final String jiraStatus;
   final String aiPhase;
+  final int tokenBudget;
   final List<Map<String, dynamic>> prs;
   final List<Map<String, dynamic>> commits;
   final List<BuildRun> prBuilds;
@@ -132,6 +133,7 @@ class StoryDetail {
     required this.jiraTitle,
     required this.jiraStatus,
     required this.aiPhase,
+    required this.tokenBudget,
     required this.prs,
     required this.commits,
     required this.prBuilds,
@@ -152,6 +154,7 @@ class StoryDetail {
       jiraTitle: j['jira_title'] as String? ?? '',
       jiraStatus: j['jira_status'] as String? ?? '',
       aiPhase: j['ai_phase'] as String? ?? '',
+      tokenBudget: (j['token_budget'] as num?)?.toInt() ?? 0,
       prs: (j['prs'] as List? ?? [])
           .map((p) => Map<String, dynamic>.from(p as Map))
           .toList(),
@@ -379,6 +382,7 @@ class JiraCard {
   final int aiLevel;
   final String aiPhase;
   final int runCount;
+  final int tokenBudget;  // 0 = geen budget gezet (toon geen balk)
 
   JiraCard({
     required this.key,
@@ -396,6 +400,7 @@ class JiraCard {
     required this.aiLevel,
     required this.aiPhase,
     required this.runCount,
+    required this.tokenBudget,
   });
 
   factory JiraCard.fromJson(Map<String, dynamic> j) => JiraCard(
@@ -414,6 +419,7 @@ class JiraCard {
         aiLevel: (j['ai_level'] as num?)?.toInt() ?? -1,
         aiPhase: j['ai_phase'] as String? ?? '',
         runCount: (j['run_count'] as num?)?.toInt() ?? 0,
+        tokenBudget: (j['token_budget'] as num?)?.toInt() ?? 0,
       );
 }
 

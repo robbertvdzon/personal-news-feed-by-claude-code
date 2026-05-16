@@ -7,6 +7,7 @@ import '../providers/auth_provider.dart';
 import '../providers/data_providers.dart';
 import '../widgets/info_table.dart';
 import '../widgets/section_header.dart';
+import '../widgets/budget_bar.dart';
 import 'dashboard_tab.dart' show BuildRunTile;
 import 'runner_log_screen.dart';
 import 'screenshots_screen.dart';
@@ -140,6 +141,12 @@ class _DetailBody extends StatelessWidget {
         _DeployCard(
           prCard: prCard,
           latestCommit: detail.commits.isNotEmpty ? detail.commits.first : null,
+        ),
+        const SizedBox(height: 16),
+        _BudgetCard(
+          tokensUsed: ((t['input'] as num?)?.toInt() ?? 0) +
+              ((t['output'] as num?)?.toInt() ?? 0),
+          tokenBudget: detail.tokenBudget,
         ),
         const SizedBox(height: 16),
         InfoTable(
@@ -930,6 +937,98 @@ class _CommitTile extends StatelessWidget {
         final url = commit['html_url']?.toString();
         if (url != null && url.isNotEmpty) launchUrl(Uri.parse(url));
       },
+    );
+  }
+}
+
+class _BudgetCard extends StatelessWidget {
+  final int tokensUsed;
+  final int tokenBudget;
+  const _BudgetCard({required this.tokensUsed, required this.tokenBudget});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    if (tokenBudget <= 0) {
+      // Story zonder AI Token Budget — toon neutraal, geen balk.
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              Icon(Icons.account_balance_wallet_outlined,
+                  color: scheme.onSurfaceVariant, size: 18),
+              const SizedBox(width: 10),
+              Text('Budget: n.v.t.',
+                  style: TextStyle(
+                      fontSize: 13, color: scheme.onSurfaceVariant)),
+              const SizedBox(width: 12),
+              Text('(${formatTokens(tokensUsed)} tokens gebruikt)',
+                  style: TextStyle(
+                      fontSize: 12, color: scheme.onSurfaceVariant)),
+            ],
+          ),
+        ),
+      );
+    }
+    final pctInt = ((tokensUsed / tokenBudget) * 100).round();
+    final remaining = tokenBudget - tokensUsed;
+    final remainingLabel = remaining < 0
+        ? '${formatTokens(-remaining)} over budget'
+        : '${formatTokens(remaining)} tokens over';
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.account_balance_wallet_outlined,
+                    color: scheme.primary, size: 18),
+                const SizedBox(width: 8),
+                Text('BUDGET',
+                    style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: scheme.onSurface,
+                        letterSpacing: 0.4)),
+                const Spacer(),
+                Text('$pctInt%',
+                    style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w700,
+                        color: scheme.onSurface)),
+              ],
+            ),
+            const SizedBox(height: 10),
+            BudgetBar(
+              tokensUsed: tokensUsed,
+              tokenBudget: tokenBudget,
+              height: 10,
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Text(
+                  '${formatTokens(tokensUsed)} / '
+                  '${formatTokens(tokenBudget)} tokens',
+                  style: TextStyle(
+                      fontSize: 12, color: scheme.onSurfaceVariant),
+                ),
+                const Spacer(),
+                Text(remainingLabel,
+                    style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: remaining < 0
+                            ? const Color(0xFFC62828)
+                            : scheme.onSurfaceVariant)),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
