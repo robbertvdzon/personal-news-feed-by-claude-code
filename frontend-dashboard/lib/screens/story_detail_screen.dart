@@ -137,7 +137,11 @@ class _DetailBody extends StatelessWidget {
         // Commands maken alleen zin voor stories die nog actief zijn —
         // niet voor reeds gemergede (Gereed/Klaar/Done). Hide ze daar.
         if (!_isStoryDone(detail.jiraStatus)) ...[
-          _CommandsCard(storyKey: storyKey, ref: ref),
+          _CommandsCard(
+            storyKey: storyKey,
+            ref: ref,
+            jiraStatus: detail.jiraStatus,
+          ),
           const SizedBox(height: 16),
         ],
         _DeployCard(
@@ -324,6 +328,42 @@ class _LinksRow extends ConsumerWidget {
   }
 }
 
+/// Bepaal een korte tekst die uitlegt wat er met de story gebeurt:
+/// 'Actief: <role>' als er een Claude-job loopt, anders een 'Wacht op …'
+/// of 'Klaar voor merge' afhankelijk van status + ai_phase.
+String _pipelineLabel(String status, String phase, ActiveAgentJob? job) {
+  if (job != null) return 'Actief: ${job.role}-job draait nu';
+  // Done.
+  const done = {'Gereed', 'Klaar', 'Done', 'Closed'};
+  if (done.contains(status)) return 'Afgerond';
+  // Manuele pauze.
+  if (status == 'AI Paused') return 'Gepauzeerd — klik Continue om te hervatten';
+  // PO-input nodig.
+  if (status == 'AI Needs Info') {
+    if (phase == 'awaiting-po') {
+      return 'Wacht op PO-antwoord (of klik Continue)';
+    }
+    return 'Wacht op PO-input';
+  }
+  // Idle, wacht op poller-pickup. Mapping per phase.
+  final waitTarget = {
+    '':                  'refiner (bij AI Ready)',
+    'refined':           'developer',
+    'awaiting-po':       'resume agent',
+    'developed':         'reviewer',
+    'reviewed-ok':       'tester',
+    'reviewed-changes':  'developer (loopback)',
+    'tested-fail':       'developer (loopback)',
+    'tested-ok':         'mens — klaar voor merge',
+  };
+  final target = waitTarget[phase];
+  if (target == null) {
+    return 'Wacht op poller (phase=$phase)';
+  }
+  if (phase == 'tested-ok') return 'Klaar voor merge';
+  return 'Wacht op poller — volgende: $target';
+}
+
 class _StatusBanner extends StatelessWidget {
   final String storyKey;
   final String status;
@@ -376,6 +416,18 @@ class _StatusBanner extends StatelessWidget {
               if (phase.isNotEmpty)
                 StatusPill(label: phase, bg: scheme.surface, fg: scheme.onSurface),
             ],
+          ),
+          // Tekstlabel zegt expliciet wat er gebeurt — actief of wachtend.
+          // Kleur volgt de bg-rules; alleen de tekst is nieuw.
+          Padding(
+            padding: const EdgeInsets.only(top: 6, left: 34),
+            child: Text(
+              _pipelineLabel(status, phase, activeJob),
+              style: TextStyle(
+                  color: fg.withValues(alpha: 0.85),
+                  fontSize: 13,
+                  fontStyle: FontStyle.italic),
+            ),
           ),
           if (running) ...[
             const SizedBox(height: 12),
@@ -535,7 +587,15 @@ class _PoQuestionCardState extends ConsumerState<_PoQuestionCard> {
 class _CommandsCard extends StatelessWidget {
   final String storyKey;
   final WidgetRef ref;
-  const _CommandsCard({required this.storyKey, required this.ref});
+  final String jiraStatus;
+  const _CommandsCard({
+    required this.storyKey,
+    required this.ref,
+    required this.jiraStatus,
+  });
+
+  bool get _isPaused =>
+      jiraStatus == 'AI Paused' || jiraStatus == 'AI Needs Info';
 
   Future<void> _send(BuildContext context, String cmd, {bool confirm = false}) async {
     if (confirm) {
@@ -680,19 +740,21 @@ class _CommandsCard extends StatelessWidget {
                   ),
                   onPressed: () => _send(context, 're-implement', confirm: true),
                 ),
-                // Continue: directe status-transitie naar AI Queued.
-                // Werkt voor manuele pauze, budget-pauze én PO-vraag —
-                // poller bepaalt vervolg o.b.v. de huidige AI Phase.
-                OutlinedButton.icon(
-                  icon: const Icon(Icons.play_arrow, size: 16),
-                  label: const Text('Continue'),
-                  onPressed: () => _resume(context),
-                ),
-                OutlinedButton.icon(
-                  icon: const Icon(Icons.account_balance_wallet_outlined, size: 16),
-                  label: const Text('Set budget + continue…'),
-                  onPressed: () => _askBudgetAndResume(context),
-                ),
+                // Continue + Set budget alleen tonen bij gepauzeerde stories
+                // (AI Paused / AI Needs Info). Voor actieve / wachtende
+                // stories doen ze niks zinnigs.
+                if (_isPaused) ...[
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.play_arrow, size: 16),
+                    label: const Text('Continue'),
+                    onPressed: () => _resume(context),
+                  ),
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.account_balance_wallet_outlined, size: 16),
+                    label: const Text('Set budget + continue…'),
+                    onPressed: () => _askBudgetAndResume(context),
+                  ),
+                ],
               ],
             ),
           ],

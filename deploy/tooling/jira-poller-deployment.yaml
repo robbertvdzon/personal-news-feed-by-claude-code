@@ -58,7 +58,7 @@ spec:
             - name: OPENSHIFT_CONSOLE_HOST
               value: "console-openshift-console.apps.sno.lab.vdzon.com"
             - name: POLL_INTERVAL_SEC
-              value: "30"
+              value: "10"
             - name: MAX_CONCURRENT_JOBS
               value: "2"
             - name: CLAUDE_RUNNER_IMAGE
