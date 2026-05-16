@@ -8,29 +8,18 @@ import org.springframework.beans.factory.annotation.Value
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate
 import org.springframework.stereotype.Component
-import java.nio.file.Files
-import java.nio.file.Path
 import java.sql.ResultSet
 import java.sql.Timestamp
 
 /**
- * Repository voor podcasts. Metadata in Postgres; de daadwerkelijke
- * audio (mp3) blijft op disk onder `${app.data-dir}/users/<u>/audio/`
- * omdat MP3-bestanden te groot zijn voor een DB-blob.
+ * Repository voor podcasts. Metadata en audio-gegevens (bytea)
+ * worden in PostgreSQL opgeslagen.
  */
 @Component
 class PodcastRepository(
     private val jdbc: NamedParameterJdbcTemplate,
-    private val json: JdbcJsonb,
-    @Value("\${app.data-dir:./data}") private val dataDir: String
+    private val json: JdbcJsonb
 ) {
-
-    // Pure path-berekening, geen side effects. Dir-creatie hoort bij
-    // schrijven (PodcastGenerator.renderAudio) — niet bij lezen, want
-    // op de OpenShift PVC kan de pod-user `/data/users` soms niet
-    // aanmaken en die IOException bubbled dan door naar de audio-call.
-    fun audioPath(username: String, podcastId: String): Path =
-        Path.of(dataDir, "users", username, "audio", "$podcastId.mp3")
 
     private fun map(rs: ResultSet, @Suppress("UNUSED_PARAMETER") n: Int): Podcast = Podcast(
         id = rs.getString("id"),
@@ -92,7 +81,6 @@ class PodcastRepository(
             "DELETE FROM podcasts WHERE username = :u AND id = :id",
             MapSqlParameterSource().addValue("u", username).addValue("id", id)
         )
-        if (n > 0) Files.deleteIfExists(audioPath(username, id))
         return n > 0
     }
 
