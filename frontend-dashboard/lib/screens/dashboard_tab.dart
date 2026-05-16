@@ -32,6 +32,7 @@ class DashboardTab extends ConsumerWidget {
         data: (s) => ListView(
           padding: const EdgeInsets.fromLTRB(24, 8, 24, 80),
           children: [
+            const _BuildInfoLine(),
             const SectionHeader(title: 'Production', subtitle: 'main-branch'),
             _ProductionCard(
               main: s.main,
@@ -64,6 +65,30 @@ class DashboardTab extends ConsumerWidget {
                 subtitle: '${s.main.recentRuns.length} runs'),
             _BuildsList(runs: s.main.recentRuns),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _BuildInfoLine extends StatelessWidget {
+  const _BuildInfoLine();
+
+  static const _sha = String.fromEnvironment('BUILD_SHA', defaultValue: 'dev');
+  static const _ts =
+      String.fromEnvironment('BUILD_TIMESTAMP', defaultValue: 'dev');
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Text(
+        'Frontend build: $_sha · $_ts',
+        style: TextStyle(
+          fontFamily: 'monospace',
+          fontSize: 11,
+          color: scheme.onSurfaceVariant,
         ),
       ),
     );
