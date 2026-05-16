@@ -58,7 +58,7 @@ class _NewsFeedAppState extends ConsumerState<NewsFeedApp>
       title: 'Personal News Feed',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.red),
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.yellow),
         useMaterial3: true,
       ),
       builder: (context, child) {
