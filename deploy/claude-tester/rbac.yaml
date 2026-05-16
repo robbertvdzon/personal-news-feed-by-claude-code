@@ -1,0 +1,69 @@
+# RBAC voor de claude-tester (KAN-43). Eigen ServiceAccount + Cluster-
+# wide read zodat de tester pod-logs / service-state / DB-config kan
+# inspecteren in elke namespace. Géén write-rechten — de tester mag
+# nooit infra muteren. Productie (`personal-news-feed`) is dus impliciet
+# beschermd: zonder patch/update/create/delete verbs is `oc patch
+# deployment -n personal-news-feed ...` automatisch 403.
+#
+# Cluster-scoped resources (ClusterRole + ClusterRoleBinding) gaan
+# eenmalig via `oc apply` door cluster-admin (zie deploy/bootstrap.sh)
+# — onze ArgoCD draait in namespaced mode en mag geen cluster-scoped
+# objecten beheren.
+#
+# TODO (vervolg): per pnf-pr-* namespace een Role met `pods/exec` +
+# `secrets read` zodat de tester binnen preview-namespaces kan ingrijpen
+# / preview-DB-creds kan lezen. Beste plek voor dat is de preview-ns-
+# labeller die de namespace al voorziet van labels — die kan ook een
+# RoleBinding aanmaken. Voor KAN-43 MVP: alleen cluster-wide read.
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: claude-tester
+  namespace: pnf-software-factory
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: claude-tester-read
+rules:
+  # Core API: pods, pods/log, services, endpoints, configmaps,
+  # namespaces. Secrets bewust UITGESLOTEN cluster-wide — die komen
+  # later per-namespace.
+  - apiGroups: [""]
+    resources:
+      - pods
+      - pods/log
+      - services
+      - endpoints
+      - configmaps
+      - namespaces
+      - events
+    verbs: ["get", "list", "watch"]
+  # apps: nodig voor `oc logs deploy/backend -n pnf-pr-N` — oc moet
+  # eerst de Deployment lezen om de juiste pod te vinden.
+  - apiGroups: ["apps"]
+    resources:
+      - deployments
+      - replicasets
+      - statefulsets
+      - daemonsets
+    verbs: ["get", "list", "watch"]
+  # batch: Jobs/CronJobs — de tester wil bij ai-pipeline-stories
+  # eventueel een runner-Job inspecteren.
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: claude-tester-read
+subjects:
+  - kind: ServiceAccount
+    name: claude-tester
+    namespace: pnf-software-factory
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: claude-tester-read

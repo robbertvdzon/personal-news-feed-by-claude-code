@@ -280,6 +280,14 @@ echo
 echo "[13/15] JIRA-poller (RBAC only)"
 oc apply -f "$DEPLOY_DIR/jira-poller/rbac.yaml"
 
+# ─── 13b. Claude-tester RBAC (KAN-43) ──────────────────────────────
+# ServiceAccount + ClusterRole + ClusterRoleBinding voor de tester-Jobs
+# die de poller spawnt met serviceAccountName=claude-tester. Cluster-
+# scoped → niet via ArgoCD.
+echo
+echo "[13b/15] Claude-tester (RBAC only)"
+oc apply -f "$DEPLOY_DIR/claude-tester/rbac.yaml"
+
 # ─── 14. Status-dashboard RBAC (Deployment komt via ArgoCD) ─────────
 # Read-only dashboard met PR + deploy-status. Voor publieke toegang
 # moet je in Cloudflare Zero Trust een public hostname toevoegen die

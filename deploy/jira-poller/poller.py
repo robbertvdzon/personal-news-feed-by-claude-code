@@ -680,6 +680,11 @@ def spawn_runner_job(
                 "metadata": {"labels": labels},
                 "spec": {
                     "restartPolicy": "Never",
+                    # Tester draait onder een eigen SA met cluster-wide
+                    # read; andere rollen blijven op de default-SA van
+                    # pnf-software-factory (geen kubectl nodig).
+                    **({"serviceAccountName": "claude-tester"}
+                       if role == "tester" else {}),
                     "containers": [
                         {
                             "name": "runner",
