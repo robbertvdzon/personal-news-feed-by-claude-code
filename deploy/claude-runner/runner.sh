@@ -339,7 +339,9 @@ Regels (CRUCIAAL — niet onderhandelbaar):
 - Je schrijft GEEN code, doet GEEN commits, wijzigt geen bestanden.
 - Je raakt GEEN infrastructuur aan: geen oc apply, kubectl apply, geen
   pod-restarts, geen secret-edits, geen DB-mutaties, geen git push.
-- Je mag wél: curl van URL's, gh-comments lezen, repo-bestanden lezen.
+- Je mag wél: curl van URL's, gh-comments lezen, repo-bestanden lezen,
+  read-only cluster-queries (oc/kubectl get/logs/describe) en read-only
+  SQL queries op de preview-DB (psql met SELECTs).
 
 Beschikbare info:
 - /work/repo/.task.md — story + comment-thread (refiner-aannames,
@@ -347,6 +349,21 @@ Beschikbare info:
 - /work/repo/.pr-diff.txt — unified diff van de PR.
 - env-var PREVIEW_URL — live preview-deploy van deze PR (kan leeg zijn
   als de PR-detectie faalde — werk dan zonder preview-check).
+- env-var PR_NUMBER — PR-nummer (leeg als geen PR). Gebruik dit voor de
+  preview-namespace-naam: \`pnf-pr-\${PR_NUMBER}\`.
+- env-var PREVIEW_DB_URL — Postgres-connection-string voor de preview-
+  DB (leeg als niet beschikbaar). Format: \`postgresql://user:pass@host/db\`.
+
+Cluster + DB-tools (KAN-44):
+- \`oc get pods -n pnf-pr-\$PR_NUMBER\` — wie draait er in de preview?
+- \`oc logs deploy/backend -n pnf-pr-\$PR_NUMBER --tail=50\` — last 50
+  lines van een Deployment's pods (handig om HTTP 500 te traceren).
+- \`oc describe pod <name> -n pnf-pr-\$PR_NUMBER\` — events bij crash-loop.
+- \`psql "\$PREVIEW_DB_URL" -c "SELECT count(*) FROM users"\` — data-
+  integriteit-check (alleen SELECT — nooit INSERT/UPDATE/DELETE).
+
+Geen \`oc patch\`, \`oc apply\`, \`oc exec\`, of \`oc delete\` — de
+ClusterRole heeft die verbs niet (RBAC-403). Probeer ze ook niet.
 
 CRUCIALE REGEL — geen browser = geen geldig rapport:
 

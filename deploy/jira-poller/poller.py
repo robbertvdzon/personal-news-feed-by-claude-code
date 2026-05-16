@@ -663,6 +663,28 @@ def spawn_runner_job(
         env.append({"name": "PR_NUMBER", "value": str(pr_number)})
         env.append({"name": "TRIGGER_COMMENT_ID", "value": str(trigger_comment_id)})
 
+    # KAN-44: tester krijgt PREVIEW_DB_URL voor psql-queries. Hetzelfde
+    # secret als de prod-app — preview-namespaces gebruiken dezelfde
+    # Neon-DB met schema-isolation. Andere rollen krijgen 'm niet (zou
+    # de developer verleiden tot DB-mutaties, wat verboden is).
+    if role == "tester":
+        env.append({
+            "name": "PREVIEW_DB_URL",
+            "valueFrom": {
+                "secretKeyRef": {
+                    "name": "newsfeed-api-keys",
+                    "key": "PNF_DATABASE_URL",
+                }
+            },
+        })
+        # PR_NUMBER ook in story-mode (niet alleen comment-mode), zodat
+        # de tester `pnf-pr-$PR_NUMBER` kan construeren voor oc-queries.
+        if not is_comment_mode:
+            # Voor story-mode is er nog geen PR; runner.sh berekent 't
+            # zelf uit branch via github API. Geef alleen door als we
+            # 'm hebben.
+            pass
+
     job = {
         "apiVersion": "batch/v1",
         "kind": "Job",

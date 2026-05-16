@@ -40,6 +40,29 @@ RUN apt-get update \
     && chmod -R g=u /opt/pw-cache \
     && rm -rf /var/lib/apt/lists/*
 
+# KAN-44: extra CLI's voor cluster + DB-inspectie tijdens tests.
+#   * postgresql-client → `psql` voor preview-DB queries (PREVIEW_DB_URL)
+#   * curl + jq → al gebruikt door de runner-flow; expliciet zodat het
+#     niet wegvalt bij een base-image-refresh.
+#   * oc + kubectl → cluster-state inspecteren in pnf-pr-N namespaces.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+         postgresql-client curl jq ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# kubectl — versie tracken op upstream-stable.
+RUN KCTL_VERSION=$(curl -sL https://dl.k8s.io/release/stable.txt) \
+    && curl -fsSL "https://dl.k8s.io/release/${KCTL_VERSION}/bin/linux/amd64/kubectl" \
+         -o /usr/local/bin/kubectl \
+    && chmod +x /usr/local/bin/kubectl
+
+# oc — OpenShift-CLI. Mirror van Red Hat; tarball met daarin het binary.
+RUN curl -fsSL https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/openshift-client-linux.tar.gz \
+         -o /tmp/oc.tar.gz \
+    && tar -xzf /tmp/oc.tar.gz -C /usr/local/bin oc \
+    && chmod +x /usr/local/bin/oc \
+    && rm -f /tmp/oc.tar.gz
+
 # Screenshot-wrapper. Tester roept 'm aan met:
 #   take-screenshot.sh URL OUTPUT.png [VIEWPORT]
 COPY take-screenshot.sh /usr/local/bin/take-screenshot.sh
