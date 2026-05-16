@@ -104,6 +104,7 @@ echo "[smoke-done]"
 '
     oc run "$PODNAME" -n "$NAMESPACE" \
       --image="$IMAGE" \
+      --image-pull-policy=Always \
       --restart=Never \
       --overrides="$overrides" \
       --command -- bash -c "$SCRIPT"
@@ -118,6 +119,7 @@ echo "[smoke-done]"
     echo "[run-local] tip: 'oc auth can-i list pods --all-namespaces'"
     oc run "$PODNAME" -n "$NAMESPACE" \
       --image="$IMAGE" \
+      --image-pull-policy=Always \
       --restart=Never -it --rm \
       --overrides="$overrides" \
       --command -- bash
@@ -131,6 +133,7 @@ echo "[smoke-done]"
     echo "[run-local] eenmalig commando in pod $PODNAME"
     oc run "$PODNAME" -n "$NAMESPACE" \
       --image="$IMAGE" \
+      --image-pull-policy=Always \
       --restart=Never \
       --overrides="$overrides" \
       --command -- "$@"
