@@ -47,7 +47,10 @@ RUN mkdir -p /work /home/runner /opt/m2 \
 # Runner-scripts
 COPY runner.sh /usr/local/bin/runner.sh
 COPY factory-report.py /usr/local/bin/factory-report.py
-RUN chmod +x /usr/local/bin/runner.sh /usr/local/bin/factory-report.py
+COPY parse-outcome.py /usr/local/bin/parse-outcome.py
+RUN chmod +x /usr/local/bin/runner.sh \
+              /usr/local/bin/factory-report.py \
+              /usr/local/bin/parse-outcome.py
 
 ENV HOME=/home/runner \
     MAVEN_CONFIG=/opt/m2 \

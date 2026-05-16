@@ -974,89 +974,30 @@ if [[ "${AGENT_ROLE:-developer}" == "refiner" ]]; then
   # JSON-regel). Gebruikt voor de [REFINER]-summary-comment hieronder.
   REFINER_FULL_TEXT=$(extract_claude_summary)
 
-  # De refiner-system-prompt eindigt met een JSON-object met 'phase'.
-  # Extractie is bewust robuust: we accepteren multi-line JSON, JSON
-  # binnen ```json-code-fences, en nemen het LAATSTE valide object met
-  # 'phase'-veld als de echte outcome. Python doet de brace-matching
-  # en json.loads-validatie.
-  #
-  # `|| true` bovenop de pipe: ook bij parse-failure mag de runner
-  # niet uit set -euo pipefail dood gaan. Lege output → fallback hieronder.
+  # JSON-outcome extraheren met de gedeelde parser. Robuust tegen
+  # markdown-fences, smart quotes, trailing commas, comments en
+  # onontsnapte quotes binnen string-values. Bij totale faal stderr
+  # bewaren zodat de fallback-comment de operator op weg helpt.
+  PARSE_ERR_FILE=/tmp/parse-outcome.refiner.err
   OUTCOME_JSON=$(jq -r 'select(.type == "result") | .result // ""' \
-    /tmp/claude.log.jsonl 2>/dev/null | python3 -c '
-import sys, re, json
-text = sys.stdin.read()
-# Strip eventuele ```json/``` code-fences.
-text = re.sub(r"```(?:json)?\s*", "", text)
-text = re.sub(r"```", "", text)
-
-# Pass 1: zoek balanced { … } met geldige JSON die "phase" bevat.
-strict_candidates = []
-# Pass 2-fallback: bewaar óók balanced blokken waar json.loads faalt,
-# voor regex-redding hieronder.
-lenient_blocks = []
-i = 0
-while i < len(text):
-    if text[i] == "{":
-        depth = 0
-        for j in range(i, len(text)):
-            if text[j] == "{": depth += 1
-            elif text[j] == "}":
-                depth -= 1
-                if depth == 0:
-                    candidate = text[i:j+1]
-                    try:
-                        obj = json.loads(candidate)
-                        if isinstance(obj, dict) and "phase" in obj:
-                            strict_candidates.append(json.dumps(obj))
-                    except json.JSONDecodeError:
-                        if "\"phase\"" in candidate:
-                            lenient_blocks.append(candidate)
-                    i = j
-                    break
-        else:
-            break
-    i += 1
-
-if strict_candidates:
-    print(strict_candidates[-1])
-elif lenient_blocks:
-    # Regex-redding: extract phase + questions ook al is JSON ongeldig
-    # (typisch: onontsnapte dubbele quotes binnen een vraag-string).
-    block = lenient_blocks[-1]
-    phase_m = re.search(r"\"phase\"\s*:\s*\"([^\"]+)\"", block)
-    if phase_m:
-        phase = phase_m.group(1)
-        questions = []
-        q_block = re.search(r"\"questions\"\s*:\s*\[(.*)\]\s*\}?\s*$", block, re.DOTALL)
-        if q_block:
-            raw = q_block.group(1).strip()
-            # Split op "(",")" maar tolerant: zoek "...", "..." patronen.
-            # Strip buitenste quotes en split op kwart-quote-comma-spatie-quote.
-            if raw.startswith("\""):
-                raw = raw[1:]
-            if raw.endswith("\""):
-                raw = raw[:-1]
-            parts = re.split(r"\"\s*,\s*\"", raw)
-            for p in parts:
-                p = p.strip().rstrip(",").strip()
-                if p:
-                    # Convert eventuele \\" en losse " naar quote-veilige tekst.
-                    cleaned = p.replace("\\\"", "\"")
-                    questions.append(cleaned)
-        out = {"phase": phase}
-        if questions:
-            out["questions"] = questions
-        print(json.dumps(out))
-    else:
-        print("")
-else:
-    print("")
-' 2>/dev/null || true)
+    /tmp/claude.log.jsonl 2>/dev/null \
+    | /usr/local/bin/parse-outcome.py --role refiner \
+        2>"$PARSE_ERR_FILE" || true)
 
   if [[ -z "$OUTCOME_JSON" ]]; then
     echo "[runner] geen geldig JSON-outcome gevonden — markeer als awaiting-po met fallback-vraag"
-    OUTCOME_JSON='{"phase":"awaiting-po","questions":["De refinement kon niet automatisch worden afgerond. Probeer de story opnieuw te starten via AI Queued, of maak de beschrijving wat concreter."]}'
+    echo "[runner] parser-diagnose:"
+    cat "$PARSE_ERR_FILE" 2>/dev/null || true
+    # Fallback-vraag bevat een hint van de parser-diagnose zodat de PO
+    # ziet WAT er mis ging (te lange output, ontbrekend JSON-blok, etc.)
+    # en de prompt eventueel kan bijschaven.
+    PARSE_DIAG=$(cat "$PARSE_ERR_FILE" 2>/dev/null | head -c 800 || true)
+    FALLBACK_Q="De refinement kon niet automatisch worden afgerond — het model gaf geen herkenbaar JSON-besluit. Probeer de story opnieuw te starten via AI Queued, of maak de beschrijving wat concreter."
+    if [[ -n "$PARSE_DIAG" ]]; then
+      FALLBACK_Q="${FALLBACK_Q} (Parser-diagnose: ${PARSE_DIAG//\"/\\\"})"
+    fi
+    OUTCOME_JSON=$(jq -nc --arg q "$FALLBACK_Q" \
+      '{phase:"awaiting-po",questions:[$q]}')
   fi
 
   echo "[runner] outcome: $OUTCOME_JSON"
@@ -1148,53 +1089,17 @@ if [[ "${AGENT_ROLE:-developer}" == "reviewer" ]]; then
 
   REVIEWER_FULL_TEXT=$(extract_claude_summary)
 
-  # Outcome-JSON met dezelfde robuuste parser als de refiner: strict
-  # json.loads, dan regex-fallback bij broken quotes.
+  # Outcome-JSON met de gedeelde parser. Zelfde robuustheid als refiner.
+  PARSE_ERR_FILE=/tmp/parse-outcome.reviewer.err
   OUTCOME_JSON=$(jq -r 'select(.type == "result") | .result // ""' \
-    /tmp/claude.log.jsonl 2>/dev/null | python3 -c '
-import sys, re, json
-text = sys.stdin.read()
-text = re.sub(r"```(?:json)?\s*", "", text)
-text = re.sub(r"```", "", text)
-strict_candidates = []
-lenient_blocks = []
-i = 0
-while i < len(text):
-    if text[i] == "{":
-        depth = 0
-        for j in range(i, len(text)):
-            if text[j] == "{": depth += 1
-            elif text[j] == "}":
-                depth -= 1
-                if depth == 0:
-                    candidate = text[i:j+1]
-                    try:
-                        obj = json.loads(candidate)
-                        if isinstance(obj, dict) and "phase" in obj:
-                            strict_candidates.append(json.dumps(obj))
-                    except json.JSONDecodeError:
-                        if "\"phase\"" in candidate:
-                            lenient_blocks.append(candidate)
-                    i = j
-                    break
-        else:
-            break
-    i += 1
-if strict_candidates:
-    print(strict_candidates[-1])
-elif lenient_blocks:
-    block = lenient_blocks[-1]
-    m = re.search(r"\"phase\"\s*:\s*\"([^\"]+)\"", block)
-    if m:
-        print(json.dumps({"phase": m.group(1)}))
-    else:
-        print("")
-else:
-    print("")
-' 2>/dev/null || true)
+    /tmp/claude.log.jsonl 2>/dev/null \
+    | /usr/local/bin/parse-outcome.py --role reviewer \
+        2>"$PARSE_ERR_FILE" || true)
 
   if [[ -z "$OUTCOME_JSON" ]]; then
     echo "[runner] geen geldige reviewer-outcome — default reviewed-changes (veiliger)"
+    echo "[runner] parser-diagnose:"
+    cat "$PARSE_ERR_FILE" 2>/dev/null || true
     OUTCOME_JSON='{"phase":"reviewed-changes"}'
   fi
 
@@ -1245,51 +1150,17 @@ if [[ "${AGENT_ROLE:-developer}" == "tester" ]]; then
 
   TESTER_FULL_TEXT=$(extract_claude_summary)
 
-  # Hergebruik dezelfde robuuste parser als reviewer/refiner.
+  # Hergebruik dezelfde gedeelde parser als reviewer/refiner.
+  PARSE_ERR_FILE=/tmp/parse-outcome.tester.err
   OUTCOME_JSON=$(jq -r 'select(.type == "result") | .result // ""' \
-    /tmp/claude.log.jsonl 2>/dev/null | python3 -c '
-import sys, re, json
-text = sys.stdin.read()
-text = re.sub(r"```(?:json)?\s*", "", text)
-text = re.sub(r"```", "", text)
-strict_candidates = []
-lenient_blocks = []
-i = 0
-while i < len(text):
-    if text[i] == "{":
-        depth = 0
-        for j in range(i, len(text)):
-            if text[j] == "{": depth += 1
-            elif text[j] == "}":
-                depth -= 1
-                if depth == 0:
-                    candidate = text[i:j+1]
-                    try:
-                        obj = json.loads(candidate)
-                        if isinstance(obj, dict) and "phase" in obj:
-                            strict_candidates.append(json.dumps(obj))
-                    except json.JSONDecodeError:
-                        if "\"phase\"" in candidate:
-                            lenient_blocks.append(candidate)
-                    i = j
-                    break
-        else:
-            break
-    i += 1
-if strict_candidates:
-    print(strict_candidates[-1])
-elif lenient_blocks:
-    m = re.search(r"\"phase\"\s*:\s*\"([^\"]+)\"", lenient_blocks[-1])
-    if m:
-        print(json.dumps({"phase": m.group(1)}))
-    else:
-        print("")
-else:
-    print("")
-' 2>/dev/null || true)
+    /tmp/claude.log.jsonl 2>/dev/null \
+    | /usr/local/bin/parse-outcome.py --role tester \
+        2>"$PARSE_ERR_FILE" || true)
 
   if [[ -z "$OUTCOME_JSON" ]]; then
     echo "[runner] geen geldige tester-outcome — default tested-fail (veiliger)"
+    echo "[runner] parser-diagnose:"
+    cat "$PARSE_ERR_FILE" 2>/dev/null || true
     OUTCOME_JSON='{"phase":"tested-fail"}'
   fi
 
