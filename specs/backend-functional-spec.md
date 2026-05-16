@@ -35,9 +35,9 @@ data/
     rss_feeds.json                    # geconfigureerde RSS-feed URLs
     podcasts.json                     # podcast metadata
     topic_history.json                # onderwerp-geschiedenis per gebruiker
-    audio/
-      {podcastId}.mp3                 # gegenereerde podcast audio
 ```
+
+**Podcast-audio:** MP3-bytes worden niet op disk opgeslagen maar als binaire kolom (`audio_data BYTEA`) in de `podcasts`-tabel in Postgres. Het ophalen via `GET /api/podcasts/{id}/audio` leest direct uit de database — er is geen bestand betrokken.
 
 ### Concurrency
 - Alle achtergrondtaken zijn asynchroon (`@Async`).
@@ -226,7 +226,7 @@ Wordt asynchroon gestart bij `POST /api/podcasts`.
    - INTERVIEWER-regels → stem A
    - GAST-regels → stem B
    - Segmenten worden aaneengevoegd tot één MP3-bestand
-9. Sla MP3 op als `data/users/{username}/audio/{podcastId}.mp3`.
+9. Sla de MP3-bytes op als binaire kolom (`audio_data BYTEA`) in de `podcasts`-tabel.
 
 ---
 
@@ -357,7 +357,6 @@ Alle configuratie via `application.properties` of omgevingsvariabelen.
 | Property | Omgevingsvariabele | Standaard | Beschrijving |
 |---|---|---|---|
 | `server.port` | — | `8080` | Serverpoort |
-| `app.data-dir` | — | `./data` | Root voor JSON-opslag en audio |
 | `app.jwt.secret` | — | (hardcoded default) | JWT-signeringssleutel (wijzigen in productie!) |
 | `app.anthropic.api-key` | `PNF_ANTHROPIC_API_KEY` | — | Verplicht |
 | `app.anthropic.model` | — | `claude-sonnet-4-5` | Hoofd Claude-model |

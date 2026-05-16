@@ -4,33 +4,22 @@ import com.vdzon.newsfeedbackend.podcast.Podcast
 import com.vdzon.newsfeedbackend.podcast.PodcastStatus
 import com.vdzon.newsfeedbackend.podcast.TtsProvider
 import com.vdzon.newsfeedbackend.storage.JdbcJsonb
-import org.springframework.beans.factory.annotation.Value
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate
 import org.springframework.stereotype.Component
-import java.nio.file.Files
-import java.nio.file.Path
 import java.sql.ResultSet
 import java.sql.Timestamp
 
 /**
- * Repository voor podcasts. Metadata in Postgres; de daadwerkelijke
- * audio (mp3) blijft op disk onder `${app.data-dir}/users/<u>/audio/`
- * omdat MP3-bestanden te groot zijn voor een DB-blob.
+ * Repository voor podcasts. Metadata én MP3-audio staan in Postgres
+ * (`audio_data BYTEA`). Audio wordt lazy gelezen via [loadAudio] zodat
+ * de list-/get-queries geen meerdere MB per rij hoeven op te halen.
  */
 @Component
 class PodcastRepository(
     private val jdbc: NamedParameterJdbcTemplate,
-    private val json: JdbcJsonb,
-    @Value("\${app.data-dir:./data}") private val dataDir: String
+    private val json: JdbcJsonb
 ) {
-
-    // Pure path-berekening, geen side effects. Dir-creatie hoort bij
-    // schrijven (PodcastGenerator.renderAudio) — niet bij lezen, want
-    // op de OpenShift PVC kan de pod-user `/data/users` soms niet
-    // aanmaken en die IOException bubbled dan door naar de audio-call.
-    fun audioPath(username: String, podcastId: String): Path =
-        Path.of(dataDir, "users", username, "audio", "$podcastId.mp3")
 
     private fun map(rs: ResultSet, @Suppress("UNUSED_PARAMETER") n: Int): Podcast = Podcast(
         id = rs.getString("id"),
@@ -42,7 +31,6 @@ class PodcastRepository(
         createdAt = rs.getTimestamp("created_at").toInstant(),
         scriptText = rs.getString("script_text"),
         topics = json.readList(rs, "topics", String::class.java),
-        audioPath = rs.getString("audio_path"),
         durationSeconds = rs.getObject("duration_seconds") as? Int,
         customTopics = json.readList(rs, "custom_topics", String::class.java),
         ttsProvider = TtsProvider.valueOf(rs.getString("tts_provider")),
@@ -61,7 +49,6 @@ class PodcastRepository(
         .addValue("created_at", Timestamp.from(p.createdAt))
         .addValue("script_text", p.scriptText)
         .addValue("topics", json.toJsonb(p.topics))
-        .addValue("audio_path", p.audioPath)
         .addValue("duration_seconds", p.durationSeconds)
         .addValue("custom_topics", json.toJsonb(p.customTopics))
         .addValue("tts_provider", p.ttsProvider.name)
@@ -70,7 +57,15 @@ class PodcastRepository(
 
     fun load(username: String): MutableList<Podcast> =
         jdbc.query(
-            "SELECT * FROM podcasts WHERE username = :u ORDER BY created_at DESC",
+            // audio_data expliciet niet selecteren — anders sleep je per
+            // podcast-row enkele MB MP3 mee voor list/get-queries.
+            """
+            SELECT username, id, title, period_description, period_days,
+                   duration_minutes, status, created_at, script_text,
+                   topics, duration_seconds, custom_topics, tts_provider,
+                   podcast_number, generation_seconds
+            FROM podcasts WHERE username = :u ORDER BY created_at DESC
+            """,
             MapSqlParameterSource("u", username),
             ::map
         ).toMutableList()
@@ -90,8 +85,24 @@ class PodcastRepository(
             "DELETE FROM podcasts WHERE username = :u AND id = :id",
             MapSqlParameterSource().addValue("u", username).addValue("id", id)
         )
-        if (n > 0) Files.deleteIfExists(audioPath(username, id))
         return n > 0
+    }
+
+    fun loadAudio(username: String, id: String): ByteArray? {
+        return jdbc.query(
+            "SELECT audio_data FROM podcasts WHERE username = :u AND id = :id",
+            MapSqlParameterSource().addValue("u", username).addValue("id", id)
+        ) { rs, _ -> rs.getBytes("audio_data") }.firstOrNull()
+    }
+
+    fun saveAudio(username: String, id: String, bytes: ByteArray): Int {
+        return jdbc.update(
+            "UPDATE podcasts SET audio_data = :bytes WHERE username = :u AND id = :id",
+            MapSqlParameterSource()
+                .addValue("u", username)
+                .addValue("id", id)
+                .addValue("bytes", bytes)
+        )
     }
 
     companion object {
@@ -99,12 +110,12 @@ class PodcastRepository(
             INSERT INTO podcasts (
                 username, id, title, period_description, period_days,
                 duration_minutes, status, created_at, script_text, topics,
-                audio_path, duration_seconds, custom_topics, tts_provider,
+                duration_seconds, custom_topics, tts_provider,
                 podcast_number, generation_seconds
             ) VALUES (
                 :username, :id, :title, :period_description, :period_days,
                 :duration_minutes, :status, :created_at, :script_text, :topics,
-                :audio_path, :duration_seconds, :custom_topics, :tts_provider,
+                :duration_seconds, :custom_topics, :tts_provider,
                 :podcast_number, :generation_seconds
             )
             ON CONFLICT (username, id) DO UPDATE SET
@@ -116,7 +127,6 @@ class PodcastRepository(
                 created_at         = EXCLUDED.created_at,
                 script_text        = EXCLUDED.script_text,
                 topics             = EXCLUDED.topics,
-                audio_path         = EXCLUDED.audio_path,
                 duration_seconds   = EXCLUDED.duration_seconds,
                 custom_topics      = EXCLUDED.custom_topics,
                 tts_provider       = EXCLUDED.tts_provider,

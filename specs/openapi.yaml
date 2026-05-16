@@ -697,7 +697,7 @@ paths:
       tags: [Podcasts]
       operationId: deletePodcast
       summary: Verwijder een podcast
-      description: Verwijdert ook het MP3-audiobestand.
+      description: Verwijdert de podcast-rij inclusief de bijbehorende MP3-bytes uit de database.
       parameters:
         - $ref: '#/components/parameters/ItemId'
       responses:
@@ -1164,10 +1164,6 @@ components:
           type: array
           items:
             type: string
-        audioPath:
-          type: string
-          nullable: true
-          description: Serverpad naar MP3-bestand
         durationSeconds:
           type: integer
           nullable: true
