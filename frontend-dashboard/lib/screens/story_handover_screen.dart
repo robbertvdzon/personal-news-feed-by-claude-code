@@ -1,8 +1,42 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../api/models.dart';
 import '../providers/data_providers.dart';
 import '../widgets/section_header.dart';
+
+/// Centrale markdown-renderer voor de briefing. Selectable + opent
+/// links in een externe browser. Tabel-styling matched de overige
+/// info-tables (kleine border-radius, surfaceContainerHighest header).
+MarkdownStyleSheet _markdownStyle(BuildContext context) {
+  final scheme = Theme.of(context).colorScheme;
+  return MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+    p: const TextStyle(fontSize: 14, height: 1.5),
+    listBullet: const TextStyle(fontSize: 14, height: 1.5),
+    code: TextStyle(
+      fontFamily: 'monospace',
+      fontSize: 13,
+      backgroundColor: scheme.surfaceContainerHighest,
+    ),
+    codeblockDecoration: BoxDecoration(
+      color: scheme.surfaceContainerHighest,
+      borderRadius: BorderRadius.circular(6),
+    ),
+    tableBody: const TextStyle(fontSize: 13),
+    tableHead: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+    tableBorder: TableBorder.all(color: scheme.outlineVariant, width: 0.5),
+    tableHeadAlign: TextAlign.left,
+    tableCellsPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+    h1: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+    h2: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+    h3: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+  );
+}
+
+void _onLinkTap(String? text, String? href, String? title) {
+  if (href != null && href.isNotEmpty) launchUrl(Uri.parse(href));
+}
 
 /// Chronologische timeline van alle agent-iteraties, nieuwste boven.
 /// Per iteratie: welke rol, hoeveelste keer voor die rol, eindverdict +
@@ -172,9 +206,12 @@ class _TimelineCard extends StatelessWidget {
                       color: scheme.onSurfaceVariant,
                       fontStyle: FontStyle.italic))
             else
-              SelectableText(
-                _stripJsonLine(run.summaryText),
-                style: const TextStyle(fontSize: 14, height: 1.5),
+              MarkdownBody(
+                data: _stripJsonLine(run.summaryText),
+                selectable: true,
+                shrinkWrap: true,
+                onTapLink: _onLinkTap,
+                styleSheet: _markdownStyle(context),
               ),
           ],
         ),
@@ -289,8 +326,15 @@ class _PoDialogueCard extends StatelessWidget {
                   color: scheme.surfaceContainerHighest,
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: SelectableText(entry.questionText,
-                    style: const TextStyle(fontSize: 13, height: 1.45)),
+                child: MarkdownBody(
+                  data: entry.questionText,
+                  selectable: true,
+                  shrinkWrap: true,
+                  onTapLink: _onLinkTap,
+                  styleSheet: _markdownStyle(context).copyWith(
+                    p: const TextStyle(fontSize: 13, height: 1.45),
+                  ),
+                ),
               ),
               const SizedBox(height: 10),
               Row(
@@ -317,17 +361,25 @@ class _PoDialogueCard extends StatelessWidget {
                       : scheme.surfaceContainerHighest,
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: SelectableText(
-                  entry.hasAnswer ? entry.answerText : '(nog geen antwoord)',
-                  style: TextStyle(
-                    fontSize: 13,
-                    height: 1.45,
-                    fontStyle: entry.hasAnswer
-                        ? FontStyle.normal
-                        : FontStyle.italic,
-                    color: entry.hasAnswer ? null : scheme.onSurfaceVariant,
-                  ),
-                ),
+                child: entry.hasAnswer
+                    ? MarkdownBody(
+                        data: entry.answerText,
+                        selectable: true,
+                        shrinkWrap: true,
+                        onTapLink: _onLinkTap,
+                        styleSheet: _markdownStyle(context).copyWith(
+                          p: const TextStyle(fontSize: 13, height: 1.45),
+                        ),
+                      )
+                    : Text(
+                        '(nog geen antwoord)',
+                        style: TextStyle(
+                          fontSize: 13,
+                          height: 1.45,
+                          fontStyle: FontStyle.italic,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
               ),
             ],
           ),
