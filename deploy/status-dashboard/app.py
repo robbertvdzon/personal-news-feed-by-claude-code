@@ -3323,18 +3323,41 @@ def api_story_command(key: str, command: str) -> Response:
     return jsonify(ok=True, command=command, key=key)
 
 
+# Resume-mapping: per AI Phase de juiste (target_status, target_phase).
+# Voor de '-ing'-phases (job liep mid-stride toen pause kwam) rollen we
+# de phase een stap terug naar de voorgaande '-ed/-ok'-vorm zodat de
+# poller's dispatch-regels de juiste rol opnieuw spawnen. Voor de overige
+# phases laten we de phase staan en mikken alleen op het juiste status-
+# bucket. target_phase = None betekent: phase ongewijzigd.
+_RESUME_MAP: dict[str, tuple[str, Optional[str]]] = {
+    # interrupted (mid-run, killed door pause): phase terugrollen
+    "refining":         ("AI Ready",     None),
+    "developing":       ("AI Queued",    "refined"),
+    "reviewing":        ("AI IN REVIEW", "developed"),
+    "testing":          ("AI IN REVIEW", "reviewed-ok"),
+    # voltooide phases — poller pikt 'm op via z'n bestaande dispatch
+    "refined":          ("AI Queued",    None),
+    "developed":        ("AI IN REVIEW", None),
+    "reviewed-ok":      ("AI IN REVIEW", None),
+    "reviewed-changes": ("AI IN REVIEW", None),
+    "tested-fail":      ("AI IN REVIEW", None),
+    "tested-ok":        ("AI IN REVIEW", None),
+    # PO-vraag of budget-pauze: resume via stap 3 (gebruikt resume_phase)
+    "awaiting-po":      ("AI Queued",    None),
+}
+
+
 @app.route("/api/v1/stories/<key>/resume", methods=["POST", "OPTIONS"])
 @require_jwt
 def api_story_resume(key: str) -> Response:
-    """Hervat een gepauzeerde story door 'm direct naar AI Queued te
-    transitioneren — werkt ongeacht de reden van de pauze (manueel
-    via @claude:command:pause, budget-overschrijding, PO-vraag). De
-    poller pikt 'm in z'n volgende tick op en bepaalt o.b.v. de huidige
-    AI Phase wie er moet draaien.
+    """Hervat een gepauzeerde story. Target-status wordt afgeleid uit
+    de huidige AI Phase via _RESUME_MAP — een tester die mid-run werd
+    gekilled (phase=testing) wordt zo correct naar AI IN REVIEW +
+    reviewed-ok teruggezet zodat de poller een nieuwe tester spawnt.
+    Lege/onbekende phase → AI Ready (refiner draait from scratch).
 
-    Optioneel body {"budget_value": <int>}: zet AI Token Budget op die
-    waarde voor we resumen (handig om in één klik 'set budget + resume'
-    te doen). Geen comment, geen +50%-magie.
+    Optioneel body {"budget_value": <int>}: zet AI Token Budget eerst
+    op die waarde (direct op het custom-field, geen comment).
     """
     if request.method == "OPTIONS":
         return _add_cors_headers(Response("", status=204))
@@ -3354,26 +3377,40 @@ def api_story_resume(key: str) -> Response:
         if budget_set <= 0:
             return jsonify(error="budget_value moet > 0 zijn"), 400
 
-    # Stap 1: optioneel budget bumpen (direct via custom-field, geen comment).
+    # Stap 0: huidige phase ophalen om de juiste target af te leiden.
+    meta = _jira_fetch_issue_meta(key)
+    current_phase = (meta.get("ai_phase") or "").strip()
+    target_status, target_phase = _RESUME_MAP.get(
+        current_phase, ("AI Ready", None)
+    )
+
+    # Stap 1: optioneel budget + (eventueel) phase-rewind in één PUT.
+    _discover_ai_field_ids()
+    fields_payload: dict[str, object] = {}
     if budget_set is not None:
-        _discover_ai_field_ids()
         bid = _ai_field_id_cache.get("token_budget")
         if not bid:
             return jsonify(error="AI Token Budget custom-field niet gevonden"), 500
+        fields_payload[bid] = budget_set
+    if target_phase is not None and target_phase != current_phase:
+        pid = _ai_field_id_cache.get("phase")
+        if not pid:
+            return jsonify(error="AI Phase custom-field niet gevonden"), 500
+        fields_payload[pid] = target_phase
+    if fields_payload:
         try:
             r = _jira_session.put(
                 f"{JIRA_BASE_URL}/rest/api/3/issue/{key}",
-                json={"fields": {bid: budget_set}},
+                json={"fields": fields_payload},
                 headers={"Content-Type": "application/json"},
                 timeout=10,
             )
         except requests.RequestException as e:
-            return jsonify(error=f"budget-set faalde: {e}"), 502
+            return jsonify(error=f"field-update faalde: {e}"), 502
         if r.status_code not in (200, 204):
-            return jsonify(error=f"budget-set HTTP {r.status_code}"), 502
+            return jsonify(error=f"field-update HTTP {r.status_code}"), 502
 
-    # Stap 2: transitie naar AI Queued. Lookup transition-id dynamisch want
-    # de cache leeft pod-locaal en zou stale kunnen zijn na workflow-edit.
+    # Stap 2: transitie. Lookup id dynamisch want cache leeft per pod.
     try:
         tr = _jira_session.get(
             f"{JIRA_BASE_URL}/rest/api/3/issue/{key}/transitions", timeout=10,
@@ -3382,11 +3419,13 @@ def api_story_resume(key: str) -> Response:
         return jsonify(error=f"transitions lookup faalde: {e}"), 502
     target_id = None
     for t in tr.get("transitions", []):
-        if (t.get("to") or {}).get("name") == "AI Queued":
+        if (t.get("to") or {}).get("name") == target_status:
             target_id = t.get("id")
             break
     if not target_id:
-        return jsonify(error="transitie naar AI Queued niet beschikbaar"), 409
+        return jsonify(
+            error=f"transitie naar {target_status!r} niet beschikbaar"
+        ), 409
     try:
         rt = _jira_session.post(
             f"{JIRA_BASE_URL}/rest/api/3/issue/{key}/transitions",
@@ -3398,8 +3437,13 @@ def api_story_resume(key: str) -> Response:
         return jsonify(error=f"transitie faalde: {e}"), 502
     if rt.status_code not in (200, 204):
         return jsonify(error=f"transitie HTTP {rt.status_code}"), 502
-    return jsonify(ok=True, key=key, budget_set=budget_set,
-                  transitioned_to="AI Queued")
+    return jsonify(
+        ok=True, key=key,
+        from_phase=current_phase or None,
+        to_status=target_status,
+        to_phase=target_phase,
+        budget_set=budget_set,
+    )
 
 
 @app.route("/api/v1/stories/<key>/active-job", methods=["GET", "OPTIONS"])
