@@ -20,7 +20,8 @@ final storiesProvider = StreamProvider<List<StoryRow>>((ref) async* {
       ref: ref);
 });
 
-final storyDetailProvider = FutureProvider.family<StoryDetail, String>(
+final storyDetailProvider =
+    FutureProvider.autoDispose.family<StoryDetail, String>(
   (ref, key) => ref.read(apiProvider).storyDetail(key),
 );
 
@@ -49,7 +50,7 @@ final poQuestionProvider = FutureProvider.family<PoQuestion?, String>(
 );
 
 final screenshotsProvider =
-    FutureProvider.family<List<ScreenshotAttachment>, String>(
+    FutureProvider.autoDispose.family<List<ScreenshotAttachment>, String>(
   (ref, key) => ref.read(apiProvider).attachments(key),
 );
 

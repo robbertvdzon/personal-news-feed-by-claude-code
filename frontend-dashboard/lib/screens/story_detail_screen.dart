@@ -39,6 +39,8 @@ class StoryDetailScreen extends ConsumerWidget {
             onPressed: () {
               ref.invalidate(storyDetailProvider(storyKey));
               ref.invalidate(poQuestionProvider(storyKey));
+              ref.invalidate(screenshotsProvider(storyKey));
+              ref.invalidate(activeJobProvider(storyKey));
               ref.invalidate(homeStateProvider);
             },
           ),
