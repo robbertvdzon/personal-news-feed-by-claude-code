@@ -159,7 +159,16 @@ fi
 # daar achterlaat wordt na de Claude-run als JIRA-attachment geüpload.
 if [[ "${AGENT_ROLE:-developer}" == "tester" ]]; then
   mkdir -p /tmp/screenshots
+  # `gh pr list` filtert default op state=open. Zoek 1) eerst open PR,
+  # 2) anders meest recente closed/merged — de preview-namespace blijft
+  # vaak nog enkele minuten na PR-close actief (ArgoCD-cleanup lag).
+  # Zonder deze fallback rapporteert de tester onterecht 'no preview' op
+  # net-gesloten stories.
   PR_NUM_FOR_PREVIEW=$(gh pr list --head "${BRANCH}" --json number --jq '.[0].number // ""' 2>/dev/null || echo "")
+  if [[ -z "$PR_NUM_FOR_PREVIEW" ]]; then
+    PR_NUM_FOR_PREVIEW=$(gh pr list --head "${BRANCH}" --state all --json number,closedAt --jq 'sort_by(.closedAt) | reverse | .[0].number // ""' 2>/dev/null || echo "")
+    [[ -n "$PR_NUM_FOR_PREVIEW" ]] && echo "[runner] tester-mode: geen open PR — gebruik recent-gesloten PR #$PR_NUM_FOR_PREVIEW (preview kan nog live zijn)"
+  fi
   if [[ -n "$PR_NUM_FOR_PREVIEW" ]]; then
     # Default-URL als losse var i.p.v. inline in ${var:-...}. Bash sluit
     # ${...} bij de eerste }, dus 'n inline-default met {pr} erin breekt:
