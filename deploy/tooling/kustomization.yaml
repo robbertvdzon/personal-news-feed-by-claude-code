@@ -48,6 +48,9 @@ configMapGenerator:
     disableNameSuffixHash: true
 
 images:
+- name: ghcr.io/robbertvdzon/cost-monitor
+  newName: ghcr.io/robbertvdzon/cost-monitor
+  newTag: sha-3b99a23
 - name: ghcr.io/robbertvdzon/dashboard-frontend
   newName: ghcr.io/robbertvdzon/dashboard-frontend
   newTag: sha-1f2dd1d
@@ -57,6 +60,3 @@ images:
 - name: ghcr.io/robbertvdzon/status-dashboard
   newName: ghcr.io/robbertvdzon/status-dashboard
   newTag: sha-1f2dd1d
-- name: ghcr.io/robbertvdzon/cost-monitor
-  newName: ghcr.io/robbertvdzon/cost-monitor
-  newTag: main
