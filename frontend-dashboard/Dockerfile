@@ -30,11 +30,13 @@ COPY web/index.html ./web/
 
 ARG API_BASE_URL=
 ARG BUILD_SHA=unknown
+ARG BUILD_TIMESTAMP=unknown
 
 # Web build — relatieve API-calls (nginx proxy't /api/* in deze image).
 RUN flutter build web --release \
       --dart-define=API_BASE_URL=${API_BASE_URL} \
-      --dart-define=BUILD_SHA=${BUILD_SHA}
+      --dart-define=BUILD_SHA=${BUILD_SHA} \
+      --dart-define=BUILD_TIMESTAMP=${BUILD_TIMESTAMP}
 
 # APK build — debug-signed (default Flutter debug-key). Voldoende voor
 # 'install via Unknown Sources' op je eigen toestel.
@@ -47,7 +49,8 @@ RUN --mount=type=cache,target=/root/.gradle \
     --mount=type=cache,target=/src/android/.gradle \
     flutter build apk --debug \
       --dart-define=API_BASE_URL=${API_BASE_URL:-https://status.vdzonsoftware.nl} \
-      --dart-define=BUILD_SHA=${BUILD_SHA}
+      --dart-define=BUILD_SHA=${BUILD_SHA} \
+      --dart-define=BUILD_TIMESTAMP=${BUILD_TIMESTAMP}
 
 # Content-hash main.dart.js MOET de laatste build-stap zijn — anders
 # regenereren latere flutter-commands main.dart.js en is de rename weg.
