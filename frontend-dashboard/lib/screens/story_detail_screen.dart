@@ -712,11 +712,21 @@ class _CommandsCard extends StatelessWidget {
               spacing: 8,
               runSpacing: 8,
               children: [
-                OutlinedButton.icon(
-                  icon: const Icon(Icons.pause, size: 16),
-                  label: const Text('Pause'),
-                  onPressed: () => _send(context, 'pause'),
-                ),
+                // Eerste knop: Continue als de story gepauzeerd is, anders
+                // Pause. Op dezelfde plek zodat de spier-geheugen-klik niet
+                // per ongeluk Merge wordt.
+                if (_isPaused)
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.play_arrow, size: 16),
+                    label: const Text('Continue'),
+                    onPressed: () => _resume(context),
+                  )
+                else
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.pause, size: 16),
+                    label: const Text('Pause'),
+                    onPressed: () => _send(context, 'pause'),
+                  ),
                 OutlinedButton.icon(
                   icon: const Icon(Icons.merge_type, size: 16),
                   label: const Text('Merge'),
@@ -740,21 +750,13 @@ class _CommandsCard extends StatelessWidget {
                   ),
                   onPressed: () => _send(context, 're-implement', confirm: true),
                 ),
-                // Continue + Set budget alleen tonen bij gepauzeerde stories
-                // (AI Paused / AI Needs Info). Voor actieve / wachtende
-                // stories doen ze niks zinnigs.
-                if (_isPaused) ...[
-                  OutlinedButton.icon(
-                    icon: const Icon(Icons.play_arrow, size: 16),
-                    label: const Text('Continue'),
-                    onPressed: () => _resume(context),
-                  ),
+                // Set budget + continue alleen bij gepauzeerde stories.
+                if (_isPaused)
                   OutlinedButton.icon(
                     icon: const Icon(Icons.account_balance_wallet_outlined, size: 16),
                     label: const Text('Set budget + continue…'),
                     onPressed: () => _askBudgetAndResume(context),
                   ),
-                ],
               ],
             ),
           ],

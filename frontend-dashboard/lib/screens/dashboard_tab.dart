@@ -363,13 +363,19 @@ class _ApkRow extends StatelessWidget {
         apk: apks.dashboard,
       );
       if (wide) {
-        return Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Expanded(child: newsCard),
-            const SizedBox(width: 12),
-            Expanded(child: dashCard),
-          ],
+        // IntrinsicHeight zodat de Row een bounded vertical constraint
+        // krijgt; zonder dit faalt CrossAxisAlignment.stretch silent in
+        // Flutter web release-builds en blijven de kaarten + alles eronder
+        // in de ListView onzichtbaar.
+        return IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(child: newsCard),
+              const SizedBox(width: 12),
+              Expanded(child: dashCard),
+            ],
+          ),
         );
       }
       return Column(
