@@ -14,13 +14,14 @@
 FROM bitnami/kubectl:latest
 
 USER 0
-# bitnami's install_packages helper:
-#   curl + jq        — Neon REST API + JSON-parsing
-#   python3-minimal  — libpq→JDBC URL-conversie (Python urllib.parse
-#                       voor URL-decoded user/password). Pure-bash regex
-#                       zou werken maar mist URL-decoding van
-#                       eventuele %-escapes in het password.
-RUN install_packages curl jq ca-certificates python3-minimal \
+# bitnami's install_packages helper (Photon OS / tdnf onder de motorkap):
+#   curl + jq      — Neon REST API + JSON-parsing (in base al aanwezig)
+#   python3        — libpq→JDBC URL-conversie (Python urllib.parse voor
+#                     URL-decoded user/password). Pure-bash regex zou
+#                     werken maar mist URL-decoding van eventuele
+#                     %-escapes in het password. Photon's pkg-naam is
+#                     'python3' (NIET python3-minimal — dat is Debian).
+RUN install_packages curl jq ca-certificates python3 \
     && install -d -m 0775 -o 1001 -g 0 /scripts
 
 COPY labeller.sh /scripts/labeller.sh
