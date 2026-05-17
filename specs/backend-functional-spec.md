@@ -213,7 +213,34 @@ Wordt asynchroon gestart bij `POST /api/requests`.
 
 ---
 
-### 6.4 Podcast generatie
+### 6.4 Podcast-bron-ingestie (KAN-56)
+
+Aparte async-pipeline die voor elke geconfigureerde **podcast-RSS-bron** (`podcast_feeds`) nieuwe afleveringen ophaalt, transcribeert en samenvat. Wordt automatisch meegetrokken met elke RSS-refresh (`POST /api/rss/refresh` → event `RssRefreshRequested`) én meteen na een save op `PUT /api/podcast-feeds`.
+
+**Statusverloop per aflevering (`podcast_episodes.status`):** `PENDING` → `DOWNLOADING` → `TRANSCRIBING` → `SUMMARIZING` → `DONE`, met `FAILED` als terminale-fout-state.
+
+**Pipeline:**
+1. Voor elke geconfigureerde podcast-feed-URL: haal de RSS op met dezelfde rome-parser als de gewone RSS-fetch.
+2. Per `<item>` haal de `<enclosure>` (MP3-URL), `<guid>`, `<itunes:duration>` en `<description>` op.
+3. Filter op nieuwe GUIDs (idempotency-cache = `(username, guid)` in `podcast_episodes`).
+4. **Bij de eerste ingestie van een feed**: cap op de 7 nieuwste afleveringen om te voorkomen dat een feed van 2000 items Whisper-credit opbrandt.
+5. Voor elke nieuwe aflevering: schrijf een `podcast_episodes`-rij met `status=PENDING` en kick een async-task ([PodcastEpisodeProcessor]) per aflevering.
+6. De per-aflevering-pipeline:
+   - **DOWNLOADING**: haal de MP3 in-memory binnen (geen disk-cache).
+   - **TRANSCRIBING**: stuur de bytes naar OpenAI Whisper API (`whisper-1`, multipart/form-data). Bij `transcribeEnabled=false` op de feed-rij óf bij een Whisper-fout: skip naar de show-notes als input.
+   - **SUMMARIZING**: vraag Claude om een korte Nederlandse samenvatting (1-2 zinnen, ~30-50 woorden), categorie-toewijzing en 3-8 onderwerpen die in de aflevering aan bod kwamen.
+   - **DONE**: upsert een rij in `rss_items` met `media_type='PODCAST'`, `audio_url=<MP3-URL>`, `duration_seconds=<itunes:duration>`, `summary=<Claude-shortSummary>`, `source=<podcast-naam>`. Het kaartje verschijnt daarna in de RSS-tab (firehose) tussen de artikelen.
+7. Bij elke fout: status naar `FAILED` met een `error_message`. Een `FAILED`-aflevering verschijnt NIET als card; gewone artikelen en andere podcasts in dezelfde batch blijven werken.
+
+**Promotie naar Feed-tab:** podcast-rss_items zijn onderdeel van de gewone `rss_items`-tabel en doorlopen het bestaande `selectForFeed` + `feedItemId`-mechanisme. Bij promotie naar de Feed-tab gebruikt `generateFeedItem(...)` het transcript (via `PodcastTranscriptLookup`) i.p.v. de MP3-URL, zodat de uitgebreide samenvatting niet hoeft terug te vallen op alleen de show-notes.
+
+**Validatie bij toevoegen:** `PUT /api/podcast-feeds` toetst nieuwe URLs synchroon door één feed-fetch te doen. Faalt die binnen ~10s → HTTP 400 met Nederlandse foutmelding ("Kon feed niet ophalen: ..."). Bestaande URLs worden niet hertoetst.
+
+**Kosten:** ~$0.05 per aflevering (Whisper $0.006/min × ~7 min + Claude-samenvatting ~$0.011). Gelogd in `external_calls` als `podcast_transcribe`, `podcast_episode_summarize`, `podcast_audio_download`, `podcast_feed_fetch`.
+
+---
+
+### 6.5 Podcast generatie
 
 Wordt asynchroon gestart bij `POST /api/podcasts`.
 
@@ -237,7 +264,7 @@ Wordt asynchroon gestart bij `POST /api/podcasts`.
 
 ---
 
-### 6.5 Opstartgedrag
+### 6.6 Opstartgedrag
 
 Bij serverstart worden alle verzoeken met status `PENDING` of `PROCESSING` gereset naar `FAILED` (herstel na herstart).
 
@@ -245,7 +272,7 @@ Voor elke bestaande gebruiker worden de vaste verzoekrecords `hourly-update-{use
 
 ---
 
-### 6.6 Onderwerp-geschiedenis
+### 6.7 Onderwerp-geschiedenis
 
 De onderwerp-geschiedenis (`topic_history.json`) wordt bijgehouden per gebruiker en bijgewerkt na:
 - Elke RSS-verwerking (topics van nieuwe items)
