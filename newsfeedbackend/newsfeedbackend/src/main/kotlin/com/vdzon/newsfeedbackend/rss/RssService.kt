@@ -45,5 +45,15 @@ data class RssItem(
     val starred: Boolean = false,
     val liked: Boolean? = null,
     val topics: List<String> = emptyList(),
-    val feedItemId: String? = null
+    val feedItemId: String? = null,
+    /**
+     * KAN-56: discriminator voor de RSS-tab. "ARTICLE" voor klassieke
+     * RSS-artikelen (default voor legacy rows), "PODCAST" voor podcast-
+     * afleveringen ge-ingest via de Whisper+Claude-pipeline.
+     */
+    val mediaType: String = "ARTICLE",
+    /** Bij PODCAST: directe MP3-URL zodat de gebruiker het origineel kan afspelen. */
+    val audioUrl: String = "",
+    /** Bij PODCAST: lengte in seconden uit de feed (itunes:duration). Null als onbekend. */
+    val durationSeconds: Int? = null
 )

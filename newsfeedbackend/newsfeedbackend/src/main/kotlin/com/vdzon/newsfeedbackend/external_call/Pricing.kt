@@ -28,4 +28,11 @@ object Pricing {
     // Tavily — flat per call op het pay-as-you-go-tarief
     fun tavilySearchCost(): Double = 0.008      // ~$8 per 1k searches
     fun tavilyExtractCost(): Double = 0.005     // ~$5 per 1k extracts
+
+    // OpenAI Whisper — prijs per minuut audio (afgerond naar boven). Pre-test
+    // (KAN-56): 7 min NL-podcast → ~$0.042.
+    fun openaiWhisperCost(seconds: Long): Double {
+        val minutes = (seconds + 59) / 60.0
+        return minutes * 0.006
+    }
 }
