@@ -222,9 +222,9 @@ Aparte async-pipeline die voor elke geconfigureerde **podcast-RSS-bron** (`podca
 **Pipeline:**
 1. Voor elke geconfigureerde podcast-feed-URL: haal de RSS op met dezelfde rome-parser als de gewone RSS-fetch.
 2. Per `<item>` haal de `<enclosure>` (MP3-URL), `<guid>`, `<itunes:duration>` en `<description>` op.
-3. Filter op nieuwe GUIDs (idempotency-cache = `(username, guid)` in `podcast_episodes`).
-4. **Bij de eerste ingestie van een feed**: cap op de 7 nieuwste afleveringen om te voorkomen dat een feed van 2000 items Whisper-credit opbrandt.
-5. Voor elke nieuwe aflevering: schrijf een `podcast_episodes`-rij met `status=PENDING` en kick een async-task ([PodcastEpisodeProcessor]) per aflevering.
+3. Beperk de scope tot de **7 nieuwste afleveringen** uit de feed-snapshot (sorteren op `<pubDate>` DESC, dan `take(7)`). Deze top-7-window geldt op elke run — zowel bij de eerste ingestie van een nieuwe feed (cap voor feeds met 2000 items, AC #9) als bij latere refreshes. Het effect: een 3× refresh achter elkaar zonder nieuwe publicaties levert dezelfde top-7 = alle GUIDs al bekend → 0 pipeline-runs, 0 Whisper-kosten (AC #6). Pas wanneer de podcast een nieuwe aflevering publiceert (die de top-7-window opschuift) verschijnt er één in stap 4.
+4. Filter de top-7 op nieuwe GUIDs (idempotency-cache = `(username, guid)` in `podcast_episodes`).
+5. Voor elke écht nieuwe aflevering: schrijf een `podcast_episodes`-rij met `status=PENDING` en kick een async-task ([PodcastEpisodeProcessor]) per aflevering.
 6. De per-aflevering-pipeline:
    - **DOWNLOADING**: haal de MP3 in-memory binnen (geen disk-cache).
    - **TRANSCRIBING**: stuur de bytes naar OpenAI Whisper API (`whisper-1`, multipart/form-data). Bij `transcribeEnabled=false` op de feed-rij óf bij een Whisper-fout: skip naar de show-notes als input.
