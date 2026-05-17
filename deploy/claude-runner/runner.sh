@@ -721,9 +721,20 @@ gegeven story op de bestaande codebase. Regels:
 6. Stop nadat alle wijzigingen lokaal gecommit zijn. Push doet het script.
 
 Story staat in /work/repo/.task.md. Onderaan dat bestand staat een
-\`## JIRA-comments\`-sectie met de hele thread: de refiner-samenvatting
-met aannames, PO-antwoorden, en eventuele eerdere [DEVELOPER]-comments.
-Lees die mee — de aannames van de refiner zijn voor jou de scope-baseline.
+\`## JIRA-comments\`-sectie met de hele thread:
+
+  - [REFINER]   — aannames + scope-baseline (leidend voor je interpretatie).
+  - PO-antwoorden — overrulen ambiguïteit in de description.
+  - [DEVELOPER] — eerdere iteraties: 'Gedaan:' / 'Niet gedaan:'.
+  - [REVIEWER]  — code-review-bevindingen ([blocker]/[bug]/[suggestie]).
+  - [TESTER]    — browser-test-bevindingen (vaak blokkers die compile-time
+                  niet zichtbaar zijn: HTTP-500, crashloop, UI-regressie).
+
+ALS er een [REVIEWER]- of [TESTER]-comment in de thread staat: dit is een
+LOOPBACK — een eerdere iteratie van jou is niet goedgekeurd. Lees de
+laatste [REVIEWER]/[TESTER]-comment ALS EERSTE, want daar staat WAT je
+moet fixen. Behandel elke [blocker]/[bug]-bullet als opdracht; [info]/
+[suggestie] zijn optioneel.
 
 EINDIG met een gestructureerde samenvatting die de menselijke
 reviewer/tester precies vertelt wat je hebt opgeleverd. Dit gaat
@@ -762,6 +773,45 @@ LET OP: dit is een iteratie op een al bestaande PR. /work/repo/.task.md
 bevat reviewer-feedback in plaats van een nieuwe story. Verwerk elke
 opmerking concreet, maar wijzig niets dat niet expliciet gevraagd wordt.
 De vorige implementatie staat al op deze branch — bouw daarop voort."
+fi
+
+# Reviewer/tester-loopback: poller spawnt 'n developer omdat de
+# reviewer 'reviewed-changes' of de tester 'tested-fail' gaf. We
+# laten 't model expliciet weten welke rol de loopback triggerde
+# zodat 't direct naar die comment kijkt — anders gokt 't dat dit
+# een nieuwe story is en mist de blocker.
+if [[ "${AGENT_ROLE:-developer}" == "developer" && -n "${DEVELOPER_LOOPBACK_REASON:-}" ]]; then
+  case "$DEVELOPER_LOOPBACK_REASON" in
+    reviewed-changes)
+      LOOPBACK_AGENT="reviewer"
+      LOOPBACK_TAG="[REVIEWER]"
+      ;;
+    tested-fail)
+      LOOPBACK_AGENT="tester"
+      LOOPBACK_TAG="[TESTER]"
+      ;;
+    *)
+      LOOPBACK_AGENT="vorige iteratie"
+      LOOPBACK_TAG="[REVIEWER] of [TESTER]"
+      ;;
+  esac
+  SYSTEM_PROMPT+="
+
+LOOPBACK — DIT IS GEEN NIEUWE STORY:
+
+Je wordt opnieuw aangeroepen omdat de $LOOPBACK_AGENT je vorige iteratie
+heeft afgekeurd (phase=$DEVELOPER_LOOPBACK_REASON). De branch bestaat al
+en de vorige PR is open. Je MOET:
+
+1. Begin met het LAATSTE $LOOPBACK_TAG-comment onderaan /work/repo/.task.md
+   lezen — daar staan de [blocker]/[bug]-bullets die je moet oplossen.
+2. Verwerk ELKE [blocker] en [bug] uit dat comment. Doe geen scope-
+   uitbreidingen die niet in de feedback staan.
+3. Commit op de bestaande branch. Het script duwt de update naar de
+   bestaande PR (geen nieuwe PR maken).
+4. In je samenvatting: per [blocker]/[bug] één bullet 'Gedaan:' met
+   wat je hebt gefixt en waar. Onder 'Niet gedaan / aangepast:' alle
+   bullets uit de feedback die je BEWUST hebt overgeslagen + waarom."
 fi
 
 # Effort-niveau via system-prompt-instructie (Fase 2). De Claude CLI

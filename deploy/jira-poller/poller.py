@@ -556,6 +556,7 @@ def spawn_runner_job(
     trigger_comment_id: Optional[int] = None,
     role: str = "developer",
     ai_level: Optional[int] = None,
+    loopback_reason: Optional[str] = None,
 ) -> Optional[str]:
     """Maak ConfigMap + Job voor één issue. Returns job-name of None bij failure.
 
@@ -665,6 +666,15 @@ def spawn_runner_job(
     if is_comment_mode:
         env.append({"name": "PR_NUMBER", "value": str(pr_number)})
         env.append({"name": "TRIGGER_COMMENT_ID", "value": str(trigger_comment_id)})
+
+    # Reviewer/tester-loopback: vertel de runner welke rol de loopback
+    # triggerde. De developer-system-prompt voegt dan een expliciete
+    # 'lees het laatste [REVIEWER]/[TESTER]-comment EERST'-hint toe.
+    if loopback_reason:
+        env.append({
+            "name": "DEVELOPER_LOOPBACK_REASON",
+            "value": loopback_reason,
+        })
 
     # KAN-44: tester krijgt PREVIEW_DB_URL voor psql-queries. Hetzelfde
     # secret als de prod-app — preview-namespaces gebruiken dezelfde
@@ -2019,7 +2029,10 @@ def process_one_pass() -> None:
         if active >= MAX_CONCURRENT_JOBS:
             log.info("  capacity bereikt — rest wacht op volgende poll")
             return
-        if _claim_and_spawn(issue, role="developer", target_status=JIRA_REVIEW_STATUS):
+        if _claim_and_spawn(
+            issue, role="developer", target_status=JIRA_REVIEW_STATUS,
+            loopback_reason="reviewed-changes",
+        ):
             active += 1
 
     # ── Stap 2d: AI IN REVIEW + phase=reviewed-ok → tester ──────────
@@ -2051,7 +2064,10 @@ def process_one_pass() -> None:
         if active >= MAX_CONCURRENT_JOBS:
             log.info("  capacity bereikt — rest wacht op volgende poll")
             return
-        if _claim_and_spawn(issue, role="developer", target_status=JIRA_REVIEW_STATUS):
+        if _claim_and_spawn(
+            issue, role="developer", target_status=JIRA_REVIEW_STATUS,
+            loopback_reason="tested-fail",
+        ):
             active += 1
 
     # ── Stap 3: AI Queued + phase=awaiting-po → resume agent ─────────
@@ -2091,6 +2107,7 @@ def process_one_pass() -> None:
 
 def _claim_and_spawn(
     issue: dict, role: str, target_status: Optional[str] = None,
+    loopback_reason: Optional[str] = None,
 ) -> bool:
     """Lees fields + schrijf defaults + transition → target_status +
     spawn runner-Job met de juiste rol. Returnt True bij succes.
@@ -2133,7 +2150,10 @@ def _claim_and_spawn(
         log.info("  %s al in %s — geen transitie nodig", key, effective_target)
 
     task_md = issue_to_task_md(issue)
-    job_name = spawn_runner_job(key, task_md, role=role, ai_level=level)
+    job_name = spawn_runner_job(
+        key, task_md, role=role, ai_level=level,
+        loopback_reason=loopback_reason,
+    )
     if not job_name:
         log.error(
             "  spawn faalde voor %s — issue staat nu in %s; manueel terugzetten",
