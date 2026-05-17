@@ -171,8 +171,8 @@ class _RssItemDetailScreenState extends ConsumerState<RssItemDetailScreen> {
                   if (it.url.isNotEmpty)
                     FilledButton.icon(
                       onPressed: () => launchUrl(Uri.parse(it.url), mode: LaunchMode.externalApplication),
-                      icon: const Icon(Icons.open_in_new),
-                      label: const Text('Open bron'),
+                      icon: Icon(it.isPodcast ? Icons.play_circle_outline : Icons.open_in_new),
+                      label: Text(it.isPodcast ? 'Origineel afspelen' : 'Open bron'),
                     ),
                   OutlinedButton.icon(
                     onPressed: () => _moreAbout(it),
