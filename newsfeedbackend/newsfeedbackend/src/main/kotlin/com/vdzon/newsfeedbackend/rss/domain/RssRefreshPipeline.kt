@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.vdzon.newsfeedbackend.ai.AnthropicClient
 import com.vdzon.newsfeedbackend.feed.FeedItem
 import com.vdzon.newsfeedbackend.feed.FeedService
+import com.vdzon.newsfeedbackend.podcast_source.PodcastTranscriptLookup
 import com.vdzon.newsfeedbackend.request.NewsRequest
 import com.vdzon.newsfeedbackend.request.RequestService
 import com.vdzon.newsfeedbackend.request.RequestStatus
@@ -36,7 +37,8 @@ class RssRefreshPipeline(
     private val requests: RequestService,
     private val mapper: ObjectMapper,
     private val meters: MeterRegistry,
-    private val topicHistory: TopicHistoryRepository
+    private val topicHistory: TopicHistoryRepository,
+    private val podcastTranscripts: PodcastTranscriptLookup
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
     private val locks = ConcurrentHashMap<String, ReentrantLock>()
@@ -363,7 +365,17 @@ class RssRefreshPipeline(
     }
 
     private fun generateFeedItem(username: String, rss: RssItem, categories: List<CategorySettings>): FeedItem {
-        val fullText = articleFetcher.fetchPlainText(username, rss.url) ?: rss.snippet
+        // Voor podcast-afleveringen: gebruik het transcript als input
+        // i.p.v. de MP3-URL via articleFetcher (die zou falen). Zo krijgt
+        // een gepromoveerd podcast-item een rijke uitgebreide samenvatting
+        // op basis van wat er ECHT in de aflevering is gezegd, niet
+        // alleen de show-notes (AC #4 + #10 van KAN-56).
+        val fullText = if (rss.mediaType == "PODCAST") {
+            podcastTranscripts.findTranscriptForRssItem(username, rss.id)
+                ?: rss.snippet
+        } else {
+            articleFetcher.fetchPlainText(username, rss.url) ?: rss.snippet
+        }
         val catInstr = categories.find { it.id == rss.category }?.extraInstructions.orEmpty()
         val ai = anthropic.complete(
             operation = "generateFeedItemSummary",

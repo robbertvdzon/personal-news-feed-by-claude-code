@@ -32,7 +32,10 @@ class RssItemRepository(
         starred = rs.getBoolean("starred"),
         liked = rs.getObject("liked") as? Boolean,
         topics = json.readList(rs, "topics", String::class.java),
-        feedItemId = rs.getString("feed_item_id")
+        feedItemId = rs.getString("feed_item_id"),
+        mediaType = rs.getString("media_type") ?: "ARTICLE",
+        audioUrl = rs.getString("audio_url") ?: "",
+        durationSeconds = rs.getObject("duration_seconds") as? Int
     )
 
     private fun params(username: String, item: RssItem) = MapSqlParameterSource()
@@ -55,6 +58,9 @@ class RssItemRepository(
         .addValue("liked", item.liked)
         .addValue("topics", json.toJsonb(item.topics))
         .addValue("feed_item_id", item.feedItemId)
+        .addValue("media_type", item.mediaType)
+        .addValue("audio_url", item.audioUrl)
+        .addValue("duration_seconds", item.durationSeconds)
 
     fun load(username: String): MutableList<RssItem> =
         jdbc.query(
@@ -90,11 +96,13 @@ class RssItemRepository(
             INSERT INTO rss_items (
                 username, id, title, summary, url, category, feed_url, source,
                 snippet, published_date, timestamp, processed_at, in_feed,
-                feed_reason, is_read, starred, liked, topics, feed_item_id
+                feed_reason, is_read, starred, liked, topics, feed_item_id,
+                media_type, audio_url, duration_seconds
             ) VALUES (
                 :username, :id, :title, :summary, :url, :category, :feed_url, :source,
                 :snippet, :published_date, :timestamp, :processed_at, :in_feed,
-                :feed_reason, :is_read, :starred, :liked, :topics, :feed_item_id
+                :feed_reason, :is_read, :starred, :liked, :topics, :feed_item_id,
+                :media_type, :audio_url, :duration_seconds
             )
             ON CONFLICT (username, id) DO UPDATE SET
                 title          = EXCLUDED.title,
@@ -113,7 +121,10 @@ class RssItemRepository(
                 starred        = EXCLUDED.starred,
                 liked          = EXCLUDED.liked,
                 topics         = EXCLUDED.topics,
-                feed_item_id   = EXCLUDED.feed_item_id
+                feed_item_id   = EXCLUDED.feed_item_id,
+                media_type     = EXCLUDED.media_type,
+                audio_url      = EXCLUDED.audio_url,
+                duration_seconds = EXCLUDED.duration_seconds
         """
     }
 }

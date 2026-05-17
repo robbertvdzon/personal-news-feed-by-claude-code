@@ -59,11 +59,21 @@ data class ExternalCall(
         const val ACTION_RSS_FETCH = "rss_fetch"
         const val ACTION_ARTICLE_FETCH = "article_fetch"
 
+        // KAN-56: podcast-bron-ingestie.
+        const val ACTION_PODCAST_FEED_FETCH = "podcast_feed_fetch"
+        const val ACTION_PODCAST_AUDIO_DOWNLOAD = "podcast_audio_download"
+        const val ACTION_PODCAST_TRANSCRIBE = "podcast_transcribe"
+        const val ACTION_PODCAST_EPISODE_SUMMARIZE = "podcast_episode_summarize"
+
         // UnitType-constants
         const val UNIT_TOKENS = "tokens"
         const val UNIT_CHARACTERS = "characters"
         const val UNIT_QUERIES = "queries"
         /** items teruggekregen uit een RSS-feed — handig om te zien hoe productief een feed is. */
         const val UNIT_ITEMS = "items"
+        /** seconden audio — Whisper-prijs is per minuut. */
+        const val UNIT_SECONDS = "seconds"
+        /** bytes — voor audio-download van podcast-MP3's. */
+        const val UNIT_BYTES = "bytes"
     }
 }

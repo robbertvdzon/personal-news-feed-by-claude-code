@@ -202,6 +202,41 @@ class RssFeedsNotifier extends AsyncNotifier<List<String>> {
   }
 }
 
+/// KAN-56: per-user lijst met podcast-bronnen. PUT valideert nieuwe
+/// URLs synchroon; bij een 400 gooit de API een [ApiException] die de
+/// caller (settings_screen._PodcastFeedsEditor) als snackbar toont.
+final podcastFeedsProvider =
+    AsyncNotifierProvider<PodcastFeedsNotifier, List<PodcastFeed>>(PodcastFeedsNotifier.new);
+
+class PodcastFeedsNotifier extends AsyncNotifier<List<PodcastFeed>> {
+  ApiClient get _api => ref.read(apiProvider);
+  String? get _user => ref.read(authProvider).username;
+
+  @override
+  Future<List<PodcastFeed>> build() async {
+    final r = await _fetchObjectWithCache(
+      api: _api,
+      path: '/api/podcast-feeds',
+      username: _user,
+      cacheName: 'podcast-feeds',
+    );
+    final list = (r['feeds'] as List<dynamic>? ?? const <dynamic>[]);
+    return list.map((e) => PodcastFeed.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  /// Slaat de lijst op zonder eerst de state te muteren — bij een
+  /// validatie-fout (HTTP 400) blijft de UI-staat dus correct en
+  /// kan de caller een snackbar tonen met de server-message.
+  Future<void> save(List<PodcastFeed> feeds) async {
+    final body = {
+      'feeds': feeds.map((f) => f.toJson()).toList(),
+    };
+    await _api.put('/api/podcast-feeds', body);
+    await LocalCache.saveObject(_user, 'podcast-feeds', body);
+    state = AsyncData(feeds);
+  }
+}
+
 final requestProvider = AsyncNotifierProvider<RequestNotifier, List<NewsRequest>>(RequestNotifier.new);
 
 class RequestNotifier extends AsyncNotifier<List<NewsRequest>> {

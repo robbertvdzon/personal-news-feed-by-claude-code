@@ -116,6 +116,12 @@ class RssItem {
   final bool? liked;
   final List<String> topics;
   final String? feedItemId;
+  /// KAN-56: discriminator voor de RSS-tab. 'ARTICLE' (default) of 'PODCAST'.
+  final String mediaType;
+  /// Bij PODCAST: directe MP3-URL voor 'Origineel afspelen'.
+  final String audioUrl;
+  /// Bij PODCAST: lengte in seconden (vaak uit `<itunes:duration>`).
+  final int? durationSeconds;
 
   RssItem({
     required this.id,
@@ -135,7 +141,12 @@ class RssItem {
     this.liked,
     this.topics = const [],
     this.feedItemId,
+    this.mediaType = 'ARTICLE',
+    this.audioUrl = '',
+    this.durationSeconds,
   });
+
+  bool get isPodcast => mediaType == 'PODCAST';
 
   factory RssItem.fromJson(Map<String, dynamic> j) => RssItem(
         id: j['id'] ?? '',
@@ -155,6 +166,9 @@ class RssItem {
         liked: j['liked'],
         topics: List<String>.from(j['topics'] ?? []),
         feedItemId: j['feedItemId'],
+        mediaType: j['mediaType'] ?? 'ARTICLE',
+        audioUrl: j['audioUrl'] ?? '',
+        durationSeconds: j['durationSeconds'],
       );
 
   RssItem copyWith({bool? isRead, bool? starred, Object? liked = const _Sentinel()}) => RssItem(
@@ -175,6 +189,32 @@ class RssItem {
         liked: liked is _Sentinel ? this.liked : liked as bool?,
         topics: topics,
         feedItemId: feedItemId,
+        mediaType: mediaType,
+        audioUrl: audioUrl,
+        durationSeconds: durationSeconds,
+      );
+}
+
+/// KAN-56: één podcast-bron (RSS-URL + per-bron transcribe-toggle).
+class PodcastFeed {
+  final String url;
+  final bool transcribeEnabled;
+
+  PodcastFeed({required this.url, this.transcribeEnabled = true});
+
+  factory PodcastFeed.fromJson(Map<String, dynamic> j) => PodcastFeed(
+        url: j['url'] ?? '',
+        transcribeEnabled: j['transcribeEnabled'] ?? true,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'url': url,
+        'transcribeEnabled': transcribeEnabled,
+      };
+
+  PodcastFeed copyWith({String? url, bool? transcribeEnabled}) => PodcastFeed(
+        url: url ?? this.url,
+        transcribeEnabled: transcribeEnabled ?? this.transcribeEnabled,
       );
 }
 

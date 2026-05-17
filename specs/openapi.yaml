@@ -34,8 +34,10 @@ tags:
     description: Categorie-instellingen
   - name: RSS Feeds
     description: Geconfigureerde RSS-feed URLs
+  - name: Podcast Feeds
+    description: Geconfigureerde podcast-RSS-bronnen (KAN-56)
   - name: RSS Items
-    description: Ruwe RSS-artikelen na AI-verwerking
+    description: Ruwe RSS-artikelen na AI-verwerking (incl. podcast-afleveringen via media_type=PODCAST)
   - name: Feed Items
     description: Gecureerde persoonlijke feed-items
   - name: Requests
@@ -198,6 +200,53 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RssFeedsSettings'
+
+  # ── Podcast Feeds (KAN-56) ────────────────────────────────────────────────────
+
+  /api/podcast-feeds:
+    get:
+      tags: [Podcast Feeds]
+      operationId: getPodcastFeeds
+      summary: Haal geconfigureerde podcast-RSS-bronnen op
+      responses:
+        '200':
+          description: Podcast-feed instellingen
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PodcastFeedsSettings'
+    put:
+      tags: [Podcast Feeds]
+      operationId: savePodcastFeeds
+      summary: Sla podcast-RSS-bronnen op
+      description: |
+        Slaat de volledige lijst met podcast-bronnen op (vervangt de oude).
+        Per bron is een `transcribeEnabled`-toggle beschikbaar — uit betekent
+        terugvallen op show-notes als input voor de Claude-samenvatting.
+
+        Nieuwe URLs (die nog niet in de bestaande lijst staan) worden
+        synchroon getoetst door de feed één keer op te halen. Bij een fout
+        komt er HTTP 400 met een Nederlandse foutmelding zodat de UI binnen
+        ~10s ('Kon feed niet ophalen: ...') kan reageren.
+
+        Na een succesvolle save wordt de podcast-ingestion-pipeline meteen
+        async getriggerd; nieuwe afleveringen verschijnen binnen ~2 min in
+        de RSS-tab.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PodcastFeedsSettings'
+      responses:
+        '200':
+          description: Opgeslagen podcast-feed instellingen
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PodcastFeedsSettings'
+        '400':
+          description: Ongeldige podcast-RSS-URL (zie message-veld)
 
   # ── RSS Items ─────────────────────────────────────────────────────────────────
 
@@ -879,6 +928,31 @@ components:
             - https://feeds.feedburner.com/KotlinWeekly
             - https://dartweekly.com/rss
 
+    # Podcast Feeds (KAN-56)
+
+    PodcastFeed:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+          description: Podcast-RSS-feed-URL
+        transcribeEnabled:
+          type: boolean
+          default: true
+          description: |
+            Wanneer false: pipeline downloadt de MP3 niet en gebruikt
+            de show-notes als input voor Claude. Bespaart Whisper-kosten
+            ten koste van de samenvattingskwaliteit.
+
+    PodcastFeedsSettings:
+      type: object
+      properties:
+        feeds:
+          type: array
+          items:
+            $ref: '#/components/schemas/PodcastFeed'
+
     # RSS Items
 
     RssItem:
@@ -945,6 +1019,26 @@ components:
           type: string
           nullable: true
           description: Gekoppeld FeedItem ID (als inFeed=true)
+        mediaType:
+          type: string
+          enum: [ARTICLE, PODCAST]
+          default: ARTICLE
+          description: |
+            KAN-56: discriminator voor de RSS-tab. 'ARTICLE' voor klassieke
+            RSS-artikelen, 'PODCAST' voor afleveringen ge-ingest via de
+            Whisper+Claude-pipeline.
+        audioUrl:
+          type: string
+          default: ''
+          description: |
+            Bij mediaType=PODCAST: directe MP3-URL voor de
+            'Origineel afspelen'-knop. Leeg voor artikelen.
+        durationSeconds:
+          type: integer
+          nullable: true
+          description: |
+            Bij mediaType=PODCAST: lengte in seconden uit `<itunes:duration>`.
+            Null bij onbekend of bij gewone artikelen.
 
     # Feed Items
 

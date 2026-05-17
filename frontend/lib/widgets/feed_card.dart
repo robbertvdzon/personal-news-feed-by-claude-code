@@ -20,6 +20,13 @@ class ItemCard extends StatelessWidget {
   final VoidCallback? onStar;
   final ValueChanged<bool?>? onFeedback;
   final VoidCallback? onDelete;
+  /// KAN-56: voor podcast-kaartjes toont de card een podcasts-icoon
+  /// vóór de bron-naam zodat de gebruiker meteen ziet dat het geen
+  /// artikel is, plus de duur (uit [durationSeconds]) en een
+  /// 'Origineel afspelen'-knop ([onPlayAudio]) die de MP3-URL opent.
+  final bool isPodcast;
+  final int? durationSeconds;
+  final VoidCallback? onPlayAudio;
 
   const ItemCard({
     super.key,
@@ -37,6 +44,9 @@ class ItemCard extends StatelessWidget {
     this.onStar,
     this.onFeedback,
     this.onDelete,
+    this.isPodcast = false,
+    this.durationSeconds,
+    this.onPlayAudio,
   });
 
   @override
@@ -54,20 +64,44 @@ class ItemCard extends StatelessWidget {
       child: Card(
         child: ListTile(
           onTap: onTap,
-          title: Text(
-            title,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontWeight: isRead ? FontWeight.normal : FontWeight.bold,
-              color: isRead ? Theme.of(context).hintColor : null,
-            ),
+          title: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (isPodcast) ...[
+                Padding(
+                  padding: const EdgeInsets.only(top: 2, right: 6),
+                  child: Icon(
+                    Icons.podcasts,
+                    size: 18,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+              ],
+              Expanded(
+                child: Text(
+                  title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontWeight: isRead ? FontWeight.normal : FontWeight.bold,
+                    color: isRead ? Theme.of(context).hintColor : null,
+                  ),
+                ),
+              ),
+            ],
           ),
           subtitle: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const SizedBox(height: 4),
               Wrap(spacing: 8, runSpacing: 2, crossAxisAlignment: WrapCrossAlignment.center, children: [
+                if (isPodcast)
+                  Chip(
+                    avatar: const Icon(Icons.headphones, size: 14),
+                    label: const Text('Podcast'),
+                    visualDensity: VisualDensity.compact,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
                 if (source.isNotEmpty) Text(source, style: Theme.of(context).textTheme.bodySmall),
                 if (relativeTime.isNotEmpty)
                   Text(
@@ -75,6 +109,11 @@ class ItemCard extends StatelessWidget {
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: Theme.of(context).hintColor,
                     ),
+                  ),
+                if (isPodcast && durationSeconds != null && durationSeconds! > 0)
+                  Text(
+                    '· ${_formatDurationMinutes(durationSeconds!)} min',
+                    style: Theme.of(context).textTheme.bodySmall,
                   ),
                 Chip(
                   label: Text(category),
@@ -118,6 +157,12 @@ class ItemCard extends StatelessWidget {
                       color: starred ? Colors.amber : null),
                   onPressed: onStar,
                 ),
+                if (isPodcast && onPlayAudio != null)
+                  IconButton(
+                    icon: const Icon(Icons.play_circle_outline),
+                    tooltip: 'Origineel afspelen',
+                    onPressed: onPlayAudio,
+                  ),
               ]),
             ],
           ),
@@ -138,4 +183,9 @@ String _truncateForPreview(String src) {
   final cut = firstPara.lastIndexOf(' ', maxLen);
   final at = cut > maxLen - 60 ? cut : maxLen;
   return '${firstPara.substring(0, at).trimRight()}…';
+}
+
+/// Afronden naar boven zodat ‘59s’ niet als 0 min toont.
+String _formatDurationMinutes(int seconds) {
+  return ((seconds + 30) / 60).floor().clamp(1, 999).toString();
 }

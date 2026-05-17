@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../models/models.dart';
 import '../providers/data_providers.dart';
 import '../util/time_format.dart';
@@ -119,6 +120,14 @@ class _RssScreenState extends ConsumerState<RssScreen> {
                             isRead: it.isRead,
                             starred: it.starred,
                             liked: it.liked,
+                            isPodcast: it.isPodcast,
+                            durationSeconds: it.durationSeconds,
+                            onPlayAudio: it.isPodcast && it.audioUrl.isNotEmpty
+                                ? () => launchUrl(
+                                      Uri.parse(it.audioUrl),
+                                      mode: LaunchMode.externalApplication,
+                                    )
+                                : null,
                             trailing: Tooltip(
                               message: it.feedReason,
                               child: Chip(
