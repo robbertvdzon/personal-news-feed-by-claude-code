@@ -75,6 +75,15 @@ class PodcastEpisodeRepository(
             MapSqlParameterSource().addValue("u", username).addValue("f", feedUrl)
         )
 
+    fun resetFailedWithOomError(): Int =
+        jdbc.update(
+            """UPDATE podcast_episodes
+               SET status = :status, error_message = NULL, updated_at = NOW()
+               WHERE status = 'FAILED'
+               AND (error_message LIKE '%heap space%' OR error_message = 'Audio-download faalde')""",
+            MapSqlParameterSource("status", "PENDING")
+        )
+
     private fun params(ep: PodcastEpisode) = MapSqlParameterSource()
         .addValue("username", ep.username)
         .addValue("guid", ep.guid)

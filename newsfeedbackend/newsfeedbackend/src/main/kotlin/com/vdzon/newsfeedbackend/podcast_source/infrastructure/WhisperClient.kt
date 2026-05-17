@@ -7,7 +7,9 @@ import com.vdzon.newsfeedbackend.external_call.Pricing
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
-import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.PipedInputStream
+import java.io.PipedOutputStream
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -15,6 +17,7 @@ import java.net.http.HttpResponse
 import java.time.Duration
 import java.time.Instant
 import java.util.UUID
+import kotlin.concurrent.thread
 
 /**
  * Speech-to-text via de OpenAI Whisper API (model `whisper-1`).
@@ -23,8 +26,8 @@ import java.util.UUID
  * endpoint die multipart/form-data verwacht (audio-bestand + model-
  * naam), niet de JSON-body die de TTS-endpoint gebruikt.
  *
- * Audio-bytes worden in-memory verwerkt; we slaan ze nooit op disk
- * of in de DB op (per de scope-aannames in de story).
+ * Multipart-body wordt gestreamed (PipedInputStream + PipedOutputStream)
+ * om heap-pressure bij grote afleveringen (80+ MB) te vermijden.
  */
 @Component
 class WhisperClient(
@@ -43,7 +46,7 @@ class WhisperClient(
     data class TranscribeResult(val text: String, val durationSeconds: Long)
 
     /**
-     * Stuurt [audioBytes] als MP3 naar Whisper en geeft de getranscribeerde
+     * Stuurt [audioFile] als MP3 naar Whisper en geeft de getranscribeerde
      * tekst terug. Bij elke fout (geen API-key, HTTP-fout, parse-fout)
      * geeft 'ie `null` — de caller moet dan terugvallen op show-notes
      * als input voor de Claude-samenvatting (zie story aanname).
@@ -54,7 +57,7 @@ class WhisperClient(
     fun transcribe(
         username: String,
         episodeGuid: String,
-        audioBytes: ByteArray,
+        audioFile: File,
         audioFilename: String,
         audioDurationSec: Long
     ): TranscribeResult? {
@@ -67,13 +70,12 @@ class WhisperClient(
         }
         return try {
             val boundary = "----PNFWhisper${UUID.randomUUID().toString().replace("-", "")}"
-            val body = buildMultipart(boundary, audioBytes, audioFilename)
             val req = HttpRequest.newBuilder()
                 .uri(URI.create("$openaiBaseUrl/v1/audio/transcriptions"))
                 .header("Authorization", "Bearer $openaiKey")
                 .header("Content-Type", "multipart/form-data; boundary=$boundary")
                 .timeout(Duration.ofMinutes(5))
-                .POST(HttpRequest.BodyPublishers.ofByteArray(body))
+                .POST(buildMultipartPublisher(boundary, audioFile, audioFilename))
                 .build()
             val resp = http.send(req, HttpResponse.BodyHandlers.ofString())
             if (resp.statusCode() >= 400) {
@@ -97,38 +99,54 @@ class WhisperClient(
         }
     }
 
-    private fun buildMultipart(
+    private fun buildMultipartPublisher(
         boundary: String,
-        audioBytes: ByteArray,
+        audioFile: File,
         audioFilename: String
-    ): ByteArray {
-        val out = ByteArrayOutputStream()
-        val crlf = "\r\n".toByteArray()
+    ): HttpRequest.BodyPublisher {
+        val pipe = PipedInputStream()
+        val out = PipedOutputStream(pipe)
 
-        // model-field
-        out.write("--$boundary\r\n".toByteArray())
-        out.write("Content-Disposition: form-data; name=\"model\"\r\n\r\n".toByteArray())
-        out.write(whisperModel.toByteArray())
-        out.write(crlf)
+        thread(start = true, isDaemon = true) {
+            try {
+                val crlf = "\r\n".toByteArray()
 
-        // response_format=json zodat we makkelijk de tekst kunnen extracten
-        out.write("--$boundary\r\n".toByteArray())
-        out.write("Content-Disposition: form-data; name=\"response_format\"\r\n\r\n".toByteArray())
-        out.write("json".toByteArray())
-        out.write(crlf)
+                out.write("--$boundary\r\n".toByteArray())
+                out.write("Content-Disposition: form-data; name=\"model\"\r\n\r\n".toByteArray())
+                out.write(whisperModel.toByteArray())
+                out.write(crlf)
 
-        // file-field
-        val safeName = audioFilename.replace(Regex("[\\r\\n\"]"), "_").ifBlank { "audio.mp3" }
-        out.write("--$boundary\r\n".toByteArray())
-        out.write(
-            ("Content-Disposition: form-data; name=\"file\"; filename=\"$safeName\"\r\n").toByteArray()
-        )
-        out.write("Content-Type: audio/mpeg\r\n\r\n".toByteArray())
-        out.write(audioBytes)
-        out.write(crlf)
+                out.write("--$boundary\r\n".toByteArray())
+                out.write("Content-Disposition: form-data; name=\"response_format\"\r\n\r\n".toByteArray())
+                out.write("json".toByteArray())
+                out.write(crlf)
 
-        out.write("--$boundary--\r\n".toByteArray())
-        return out.toByteArray()
+                val safeName = audioFilename.replace(Regex("[\\r\\n\"]"), "_").ifBlank { "audio.mp3" }
+                out.write("--$boundary\r\n".toByteArray())
+                out.write(
+                    ("Content-Disposition: form-data; name=\"file\"; filename=\"$safeName\"\r\n").toByteArray()
+                )
+                out.write("Content-Type: audio/mpeg\r\n\r\n".toByteArray())
+
+                audioFile.inputStream().use { fis ->
+                    val buf = ByteArray(8192)
+                    var read: Int
+                    while (fis.read(buf).also { read = it } > 0) {
+                        out.write(buf, 0, read)
+                    }
+                }
+
+                out.write(crlf)
+                out.write("--$boundary--\r\n".toByteArray())
+                out.flush()
+                out.close()
+            } catch (e: Exception) {
+                log.error("[Whisper] streaming-fout in multipart-builder: {}", e.message)
+                try { out.close() } catch (ignored: Exception) {}
+            }
+        }
+
+        return HttpRequest.BodyPublishers.ofInputStream { pipe }
     }
 
     private fun logCall(
