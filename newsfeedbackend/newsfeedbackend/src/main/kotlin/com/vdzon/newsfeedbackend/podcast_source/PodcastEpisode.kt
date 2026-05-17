@@ -47,6 +47,14 @@ data class PodcastEpisode(
      * voorlopige-badge te tonen.
      */
     val summarySource: String = "transcript",
+    /**
+     * KAN-60 (V8): wanneer de show-notes-timeout-promotie 1x getriggerd
+     * is voor deze aflevering. Voorkomt dat de worker elke tick opnieuw
+     * een Claude-selectie-call afvuurt voor een door AI afgewezen item
+     * (waar `rss_items.feed_item_id` NULL blijft). `null` = nog niet
+     * geprobeerd.
+     */
+    val feedPromotionAttemptedAt: Instant? = null,
     val createdAt: Instant = Instant.now(),
     val updatedAt: Instant = Instant.now()
 )

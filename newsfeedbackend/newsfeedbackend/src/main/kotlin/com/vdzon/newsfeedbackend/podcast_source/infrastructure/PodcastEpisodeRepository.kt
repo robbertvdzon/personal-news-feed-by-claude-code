@@ -34,6 +34,7 @@ class PodcastEpisodeRepository(
         retryCount = rs.getInt("retry_count"),
         nextAttemptAt = rs.getTimestamp("next_attempt_at")?.toInstant(),
         summarySource = rs.getString("summary_source") ?: "transcript",
+        feedPromotionAttemptedAt = rs.getTimestamp("feed_promotion_attempted_at")?.toInstant(),
         createdAt = rs.getTimestamp("created_at")?.toInstant() ?: Instant.now(),
         updatedAt = rs.getTimestamp("updated_at")?.toInstant() ?: Instant.now()
     )
@@ -107,24 +108,46 @@ class PodcastEpisodeRepository(
 
     /**
      * KAN-60: pakt afleveringen die langer dan [olderThan] vastzitten op
-     * NEEDS_TRANSCRIPT en nog niet naar de Feed-tab gepromoot zijn (geen
-     * gekoppeld feed_items.id op rss_items). Deze worden alsnog
-     * gepromoot op basis van de show-notes-samenvatting (AC #6).
+     * NEEDS_TRANSCRIPT en waarvoor we de show-notes-feed-promotie nog
+     * niet hebben getriggerd. Deze worden alsnog gepromoot op basis van
+     * de show-notes-samenvatting (AC #6).
+     *
+     * V8/follow-up: filteren op `feed_promotion_attempted_at IS NULL`
+     * i.p.v. `ri.feed_item_id IS NULL`. Een AI-afwijzing in
+     * `promoteSingleItem` laat `feed_item_id` op NULL staan, dus die
+     * conditie matchte iedere tick opnieuw → Claude-call-loop.
      */
     fun findShowNotesExpiredForPromotion(now: Instant, olderThan: java.time.Duration): List<PodcastEpisode> {
         val threshold = now.minus(olderThan)
         return jdbc.query(
             """SELECT pe.* FROM podcast_episodes pe
-               JOIN rss_items ri
-                 ON ri.username = pe.username AND ri.id = pe.rss_item_id
                WHERE pe.status = 'NEEDS_TRANSCRIPT'
                  AND pe.created_at <= :threshold
-                 AND ri.feed_item_id IS NULL
+                 AND pe.feed_promotion_attempted_at IS NULL
+                 AND pe.rss_item_id IS NOT NULL
                ORDER BY pe.created_at ASC""",
             MapSqlParameterSource("threshold", Timestamp.from(threshold)),
             ::map
         )
     }
+
+    /**
+     * Zet de marker dat de show-notes-timeout-promotie voor [guid]
+     * getriggerd is, zodat [findShowNotesExpiredForPromotion] 'm niet
+     * opnieuw oppakt. Aparte UPDATE (niet via [upsert]) zodat we niet
+     * per ongeluk andere velden overschrijven met een verouderde in-
+     * memory kopie van de worker.
+     */
+    fun markFeedPromotionAttempted(username: String, guid: String, at: Instant): Int =
+        jdbc.update(
+            """UPDATE podcast_episodes
+               SET feed_promotion_attempted_at = :at, updated_at = NOW()
+               WHERE username = :u AND guid = :g""",
+            MapSqlParameterSource()
+                .addValue("u", username)
+                .addValue("g", guid)
+                .addValue("at", Timestamp.from(at))
+        )
 
     private fun params(ep: PodcastEpisode) = MapSqlParameterSource()
         .addValue("username", ep.username)
@@ -144,6 +167,7 @@ class PodcastEpisodeRepository(
         .addValue("retry_count", ep.retryCount)
         .addValue("next_attempt_at", ep.nextAttemptAt?.let { Timestamp.from(it) })
         .addValue("summary_source", ep.summarySource)
+        .addValue("feed_promotion_attempted_at", ep.feedPromotionAttemptedAt?.let { Timestamp.from(it) })
         .addValue("created_at", Timestamp.from(ep.createdAt))
         .addValue("updated_at", Timestamp.from(ep.updatedAt))
 
@@ -153,30 +177,33 @@ class PodcastEpisodeRepository(
                 username, guid, feed_url, podcast_name, title, audio_url,
                 duration_seconds, published_date, show_notes, transcript,
                 summary, status, error_message, rss_item_id, retry_count,
-                next_attempt_at, summary_source, created_at, updated_at
+                next_attempt_at, summary_source, feed_promotion_attempted_at,
+                created_at, updated_at
             ) VALUES (
                 :username, :guid, :feed_url, :podcast_name, :title, :audio_url,
                 :duration_seconds, :published_date, :show_notes, :transcript,
                 :summary, :status, :error_message, :rss_item_id, :retry_count,
-                :next_attempt_at, :summary_source, :created_at, :updated_at
+                :next_attempt_at, :summary_source, :feed_promotion_attempted_at,
+                :created_at, :updated_at
             )
             ON CONFLICT (username, guid) DO UPDATE SET
-                feed_url         = EXCLUDED.feed_url,
-                podcast_name     = EXCLUDED.podcast_name,
-                title            = EXCLUDED.title,
-                audio_url        = EXCLUDED.audio_url,
-                duration_seconds = EXCLUDED.duration_seconds,
-                published_date   = EXCLUDED.published_date,
-                show_notes       = EXCLUDED.show_notes,
-                transcript       = EXCLUDED.transcript,
-                summary          = EXCLUDED.summary,
-                status           = EXCLUDED.status,
-                error_message    = EXCLUDED.error_message,
-                rss_item_id      = EXCLUDED.rss_item_id,
-                retry_count      = EXCLUDED.retry_count,
-                next_attempt_at  = EXCLUDED.next_attempt_at,
-                summary_source   = EXCLUDED.summary_source,
-                updated_at       = EXCLUDED.updated_at
+                feed_url                    = EXCLUDED.feed_url,
+                podcast_name                = EXCLUDED.podcast_name,
+                title                       = EXCLUDED.title,
+                audio_url                   = EXCLUDED.audio_url,
+                duration_seconds            = EXCLUDED.duration_seconds,
+                published_date              = EXCLUDED.published_date,
+                show_notes                  = EXCLUDED.show_notes,
+                transcript                  = EXCLUDED.transcript,
+                summary                     = EXCLUDED.summary,
+                status                      = EXCLUDED.status,
+                error_message               = EXCLUDED.error_message,
+                rss_item_id                 = EXCLUDED.rss_item_id,
+                retry_count                 = EXCLUDED.retry_count,
+                next_attempt_at             = EXCLUDED.next_attempt_at,
+                summary_source              = EXCLUDED.summary_source,
+                feed_promotion_attempted_at = EXCLUDED.feed_promotion_attempted_at,
+                updated_at                  = EXCLUDED.updated_at
         """
     }
 }

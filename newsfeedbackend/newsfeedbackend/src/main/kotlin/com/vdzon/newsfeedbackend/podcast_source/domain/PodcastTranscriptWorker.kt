@@ -110,6 +110,18 @@ class PodcastTranscriptWorker(
             expired.size, promotionTimeout.toHours())
         for (ep in expired) {
             val rid = ep.rssItemId ?: continue
+            // V8-fix: markeer de poging vóór we het event publishen.
+            // De event-handler is @Async én Claude wijst veel podcasts af
+            // (laat rss_items.feed_item_id NULL); zonder deze marker zou
+            // de query iedere tick (default elke 2m) opnieuw matchen en
+            // dezelfde aflevering naar Claude blijven sturen.
+            try {
+                episodeRepo.markFeedPromotionAttempted(ep.username, ep.guid, now)
+            } catch (e: Exception) {
+                log.warn("[PodcastWorker] kon promotion-marker niet zetten voor guid={}: {} — sla deze tick over om loop te voorkomen",
+                    ep.guid, e.message)
+                continue
+            }
             try {
                 events.publishEvent(PodcastPromotionRequested(username = ep.username, rssItemId = rid))
                 log.info("[PodcastWorker] show-notes-timeout-promotie getriggerd: user='{}' guid={} rssItemId={}",
