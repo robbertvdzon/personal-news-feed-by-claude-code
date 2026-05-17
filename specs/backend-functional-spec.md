@@ -263,6 +263,13 @@ terminale fout-state plus `error_message` op de rij.
      feed-card getoond. Files > 24 MB → FAILED.
    - **Transcribe UIT**: gebruik de `<description>` uit het RSS-item als
      bron-tekst (show-notes-fallback).
+   - **Transcribe AAN maar audio-download of Whisper faalt**: niet meteen
+     FAILED. De pipeline valt terug op de show-notes (zelfde pad als
+     Transcribe UIT). De feed-card krijgt dan `summarySource=show_notes`
+     en het `error_message`-veld op de episode-rij bewaart de reden van de
+     fallback. Alleen als ook de show-notes/titel leeg zijn → FAILED. Per
+     KAN-54 voorgestelde aanpak: "Beter een matige samenvatting dan geen
+     card."
 4. Claude-samenvatting (`claude-sonnet-4-5`) met podcast-specifiek
    prompt-template: 3 hoofdpunten + optioneel 1 letterlijke quote,
    doelgroep-relevantie, plus titleNl / shortSummary / category / topics.
@@ -278,6 +285,14 @@ terminale fout-state plus `error_message` op de rij.
 ### 6.6 Opstartgedrag
 
 Bij serverstart worden alle verzoeken met status `PENDING` of `PROCESSING` gereset naar `FAILED` (herstel na herstart).
+
+Daarnaast worden podcast-afleveringen die middenin de pipeline hingen
+(`DOWNLOADING`, `TRANSCRIBING`, `SUMMARIZING`) op `FAILED` gezet met een
+`error_message` zoals "onderbroken door restart tijdens TRANSCRIBING".
+`PENDING` blijft ongemoeid (= klaar voor de volgende refresh-tick). Dit
+voorkomt dat een crash-tijdens-Whisper bij de volgende refresh een
+tweede Whisper-call én een tweede `FeedItem` (nieuwe UUID, dus AC6's
+GUID-idempotency dekt 't niet) genereert.
 
 Voor elke bestaande gebruiker worden de vaste verzoekrecords `hourly-update-{username}` en `daily-summary-{username}` aangemaakt als ze nog niet bestaan.
 

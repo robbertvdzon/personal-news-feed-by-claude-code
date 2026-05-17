@@ -25,7 +25,7 @@ data class ExternalCall(
     val tokensOut: Long? = null,
     /** Catch-all veld: voor TTS = #characters, voor Tavily = 1 (per call). */
     val units: Long? = null,
-    /** "tokens" | "characters" | "queries" */
+    /** Eén van: "tokens" | "characters" | "queries" | "items" | "seconds" | "bytes" — zie UNIT_*-constants. */
     val unitType: String,
     val costUsd: Double,
     /** "ok" | "error" */
