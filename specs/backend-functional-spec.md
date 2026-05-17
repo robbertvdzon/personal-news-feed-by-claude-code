@@ -230,6 +230,8 @@ Wordt asynchroon gestart bij `POST /api/podcasts`.
 8. Genereer audio via de gekozen TTS-provider, regel voor regel:
    - INTERVIEWER-regels → stem A
    - GAST-regels → stem B
+   - De script-parser tolereert markdown-wrappers (`**INTERVIEWER:**`), alternatieve aliassen (`Host`, `Moderator`, `Presentator`, `Guest`, `Expert`) en positionele labels (`Spreker 1`/`Spreker 2`, `Speaker 1`/`Speaker 2`, in encounter-volgorde toegewezen aan interviewer/gast)
+   - Regie-aanwijzingen tussen haakjes/blokhaken en horizontale separators worden overgeslagen
    - Segmenten worden aaneengevoegd tot één MP3-bestand
 9. Sla de MP3-bytes op in de `podcasts.audio_bytes` BYTEA-kolom in Postgres. `GET /api/podcasts/{id}/audio` streamt rechtstreeks uit die kolom.
 

@@ -51,11 +51,30 @@ class PodcastGenerator(
                 action = com.vdzon.newsfeedbackend.external_call.ExternalCall.ACTION_PODCAST_SCRIPT,
                 username = username,
                 subject = "Podcast id=$id",
-                system = "Je schrijft een Nederlandstalig interview-podcastscript met INTERVIEWER en GAST regels. Zorg voor een vloeiende dialoog van ongeveer $targetWords woorden.",
-                user = if (current.customTopics.isNotEmpty())
-                    "Onderwerpen: ${current.customTopics.joinToString(", ")}\n\nFormat:\nINTERVIEWER: ...\nGAST: ..."
-                else
-                    "Stel zelf 5-8 boeiende technologie-onderwerpen samen uit recente nieuwsartikelen. Format:\nINTERVIEWER: ...\nGAST: ..."
+                system = """Je schrijft een Nederlandstalig interview-podcastscript voor twee sprekers.
+
+STRIKTE FORMAT-EISEN (zonder uitzondering):
+- Elke dialoog-regel begint met EXACT "INTERVIEWER:" of "GAST:" (hoofdletters, dubbelpunt, daarna een spatie).
+- Gebruik geen andere labels (geen "Host", "Spreker 1", "Presentator", etc.).
+- Gebruik geen markdown: geen sterretjes (**), geen #-koppen, geen lijst-streepjes.
+- Geen regie-aanwijzingen tussen haakjes of in vierkante haken.
+- Geen titel-regels of lege regels tussen sprekers.
+- Wissel sprekers af; begin met INTERVIEWER.
+
+Doellengte: ongeveer $targetWords woorden in totaal.""",
+                user = buildString {
+                    if (current.customTopics.isNotEmpty()) {
+                        appendLine("Onderwerpen: ${current.customTopics.joinToString(", ")}")
+                    } else {
+                        appendLine("Stel zelf 5-8 boeiende technologie-onderwerpen samen uit recente nieuwsartikelen.")
+                    }
+                    appendLine()
+                    appendLine("Voorbeeld van het verplichte format (volg dit EXACT, geen markdown):")
+                    appendLine("INTERVIEWER: Welkom bij DevTalk.")
+                    appendLine("GAST: Dank je, leuk om hier te zijn.")
+                    appendLine("INTERVIEWER: Wat is recent het belangrijkste nieuws?")
+                    appendLine("GAST: ...")
+                }
             )
             val script = scriptResp.text.ifBlank {
                 "INTERVIEWER: Welkom bij DevTalk!\nGAST: Hallo, leuk om hier te zijn."
@@ -90,16 +109,12 @@ class PodcastGenerator(
 
             val audioBytes = renderAudio(username, id, script, current.ttsProvider)
             // Als renderAudio() null teruggeeft is er géén audio gegenereerd
-            // (alle TTS-calls faalden, of het script bevatte geen
-            // INTERVIEWER/GAST-regels). De podcast eindigde dan eerder
-            // tóch op DONE met audio=null, waarna de frontend /audio
-            // aanriep en een 404 kreeg. Markeer in dat geval expliciet
-            // FAILED zodat de UI niet probeert af te spelen.
+            // (alle TTS-calls faalden, of het script bevatte geen herkenbare
+            // sprekerregels). Markeer in dat geval expliciet FAILED zodat de
+            // UI niet probeert af te spelen.
             val finalStatus = if (audioBytes != null) PodcastStatus.DONE else PodcastStatus.FAILED
             if (audioBytes != null) {
                 repo.saveAudio(username, id, audioBytes)
-            } else {
-                log.warn("[Podcast] no audio produced id={} user='{}' — marking FAILED", id, username)
             }
             update(username, id) {
                 it.copy(
@@ -121,24 +136,45 @@ class PodcastGenerator(
     }
 
     private fun renderAudio(username: String, id: String, script: String, provider: TtsProvider): ByteArray? {
+        val parsed = PodcastScriptParser.parse(script)
         val out = ByteArrayOutputStream()
-        for (line in script.lineSequence()) {
-            val trimmed = line.trim()
-            if (trimmed.isEmpty()) continue
-            val role = when {
-                trimmed.startsWith("INTERVIEWER:", ignoreCase = true) -> TtsClient.SpeakerRole.INTERVIEWER
-                trimmed.startsWith("GAST:", ignoreCase = true) -> TtsClient.SpeakerRole.GUEST
-                else -> continue
-            }
-            val text = trimmed.substringAfter(":").trim()
-            if (text.isEmpty()) continue
-            val bytes = tts.generate(username, id, provider, role, text) ?: continue
+        var ttsSuccess = 0
+        for (segment in parsed.segments) {
+            val bytes = tts.generate(username, id, provider, segment.role, segment.text) ?: continue
+            ttsSuccess += 1
             out.writeBytes(bytes)
         }
-        if (out.size() == 0) return null
+        if (out.size() == 0) {
+            logRenderFailure(id, script, parsed, ttsSuccess)
+            return null
+        }
         val data = out.toByteArray()
-        log.info("[Podcast] audio rendered id={} bytes={}", id, data.size)
+        log.info(
+            "[Podcast] audio rendered id={} bytes={} matchedLines={}/{} ttsOk={}",
+            id, data.size, parsed.matchedLines, parsed.totalContentLines, ttsSuccess
+        )
         return data
+    }
+
+    private fun logRenderFailure(
+        id: String,
+        script: String,
+        parsed: PodcastScriptParser.Result,
+        ttsSuccess: Int
+    ) {
+        val snippet = script.take(500).replace('\n', ' ')
+        val cause = when {
+            parsed.matchedLines == 0 ->
+                "script-parser herkende geen INTERVIEWER/GAST-regels (LLM produceerde een afwijkend format)"
+            ttsSuccess == 0 ->
+                "alle ${parsed.matchedLines} TTS-calls faalden (zie [TTS]-warnings)"
+            else ->
+                "onbekend (matched=${parsed.matchedLines}, ttsOk=$ttsSuccess maar 0 bytes)"
+        }
+        log.warn(
+            "[Podcast] no audio produced id={} — {}. matchedLines={}/{} ttsOk={} scriptLen={} snippet=\"{}\"",
+            id, cause, parsed.matchedLines, parsed.totalContentLines, ttsSuccess, script.length, snippet
+        )
     }
 
     private fun parseStringArray(text: String): List<String> {
