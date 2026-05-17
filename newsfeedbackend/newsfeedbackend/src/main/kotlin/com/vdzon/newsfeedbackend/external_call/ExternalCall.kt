@@ -58,6 +58,12 @@ data class ExternalCall(
         const val ACTION_ADHOC_SUMMARIZE = "adhoc_summarize"
         const val ACTION_RSS_FETCH = "rss_fetch"
         const val ACTION_ARTICLE_FETCH = "article_fetch"
+        // Podcast-bron pipeline (KAN-54): RSS-fetch van een podcastfeed,
+        // MP3-download, Whisper-transcript, Claude-samenvatting.
+        const val ACTION_PODCAST_FEED_FETCH = "podcast_feed_fetch"
+        const val ACTION_PODCAST_AUDIO_FETCH = "podcast_audio_fetch"
+        const val ACTION_PODCAST_TRANSCRIBE = "podcast_transcribe"
+        const val ACTION_PODCAST_SUMMARIZE_EPISODE = "podcast_summarize_episode"
 
         // UnitType-constants
         const val UNIT_TOKENS = "tokens"
@@ -65,5 +71,9 @@ data class ExternalCall(
         const val UNIT_QUERIES = "queries"
         /** items teruggekregen uit een RSS-feed — handig om te zien hoe productief een feed is. */
         const val UNIT_ITEMS = "items"
+        /** audio-seconden — voor Whisper-pricing (per minuut). */
+        const val UNIT_SECONDS = "seconds"
+        /** ruwe bytes — voor audio-downloads waar tokens/seconds geen logische unit zijn. */
+        const val UNIT_BYTES = "bytes"
     }
 }

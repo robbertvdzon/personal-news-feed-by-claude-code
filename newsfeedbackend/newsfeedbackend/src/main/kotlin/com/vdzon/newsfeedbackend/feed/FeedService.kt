@@ -57,5 +57,23 @@ data class FeedItem(
     @get:com.fasterxml.jackson.annotation.JsonProperty("isSummary")
     @field:com.fasterxml.jackson.annotation.JsonProperty("isSummary")
     @param:com.fasterxml.jackson.annotation.JsonProperty("isSummary")
-    val isSummary: Boolean = false
+    val isSummary: Boolean = false,
+    /**
+     * Soort feed-card: "rss" (default, gegenereerd uit een RSS-artikel) of
+     * "podcast" (gegenereerd uit een aflevering van een podcast-bron via
+     * Whisper + Claude). De frontend gebruikt dit veld om een audio-badge
+     * en de "Origineel afspelen"-knop te tonen.
+     */
+    val kind: String = "rss",
+    /** Voor podcast-cards: URL van de MP3 (uit RSS <enclosure>). NULL voor RSS-cards. */
+    val audioUrl: String? = null,
+    /** Voor podcast-cards: aflevering-duur in seconden. NULL als onbekend / RSS-card. */
+    val durationSeconds: Int? = null,
+    /**
+     * Voor podcast-cards: bron waarop de samenvatting is gebaseerd. Eén van
+     * "transcript" (Whisper STT + Claude) of "show_notes" (RSS-description
+     * + Claude). NULL voor RSS-cards. UI toont dit als badge zodat AC5
+     * (waarneembaar verschil tussen transcribe=AAN en =UIT) klopt.
+     */
+    val summarySource: String? = null
 )

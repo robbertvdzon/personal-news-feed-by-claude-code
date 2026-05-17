@@ -22,6 +22,9 @@ object Pricing {
     // OpenAI TTS — prijs per 1M characters voor model "tts-1"
     fun openaiTtsCost(characters: Long): Double = (characters / 1_000_000.0) * 15.0
 
+    // OpenAI Whisper STT — $0.006 per minuut audio.
+    fun openaiWhisperCost(seconds: Long): Double = (seconds / 60.0) * 0.006
+
     // ElevenLabs — prijs per character. Plan-afhankelijk; pak een ruwe gemiddelde.
     fun elevenlabsTtsCost(characters: Long): Double = (characters / 1000.0) * 0.30
 

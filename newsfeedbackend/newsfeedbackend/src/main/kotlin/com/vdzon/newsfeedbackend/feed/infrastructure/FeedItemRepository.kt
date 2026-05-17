@@ -32,7 +32,11 @@ class FeedItemRepository(
         liked = rs.getObject("liked") as? Boolean,
         createdAt = rs.getTimestamp("created_at").toInstant(),
         publishedDate = rs.getString("published_date"),
-        isSummary = rs.getBoolean("is_summary")
+        isSummary = rs.getBoolean("is_summary"),
+        kind = rs.getString("kind") ?: "rss",
+        audioUrl = rs.getString("audio_url"),
+        durationSeconds = rs.getObject("duration_seconds") as? Int,
+        summarySource = rs.getString("summary_source")
     )
 
     private fun params(username: String, item: FeedItem) = MapSqlParameterSource()
@@ -55,6 +59,10 @@ class FeedItemRepository(
         .addValue("created_at", Timestamp.from(item.createdAt))
         .addValue("published_date", item.publishedDate)
         .addValue("is_summary", item.isSummary)
+        .addValue("kind", item.kind)
+        .addValue("audio_url", item.audioUrl)
+        .addValue("duration_seconds", item.durationSeconds)
+        .addValue("summary_source", item.summarySource)
 
     fun load(username: String): MutableList<FeedItem> =
         jdbc.query(
@@ -87,31 +95,37 @@ class FeedItemRepository(
                 username, id, title, title_nl, summary, short_summary, url,
                 category, source, source_rss_ids, source_urls, topics,
                 feed_reason, is_read, starred, liked, created_at,
-                published_date, is_summary
+                published_date, is_summary, kind, audio_url, duration_seconds,
+                summary_source
             ) VALUES (
                 :username, :id, :title, :title_nl, :summary, :short_summary, :url,
                 :category, :source, :source_rss_ids, :source_urls, :topics,
                 :feed_reason, :is_read, :starred, :liked, :created_at,
-                :published_date, :is_summary
+                :published_date, :is_summary, :kind, :audio_url, :duration_seconds,
+                :summary_source
             )
             ON CONFLICT (username, id) DO UPDATE SET
-                title           = EXCLUDED.title,
-                title_nl        = EXCLUDED.title_nl,
-                summary         = EXCLUDED.summary,
-                short_summary   = EXCLUDED.short_summary,
-                url             = EXCLUDED.url,
-                category        = EXCLUDED.category,
-                source          = EXCLUDED.source,
-                source_rss_ids  = EXCLUDED.source_rss_ids,
-                source_urls     = EXCLUDED.source_urls,
-                topics          = EXCLUDED.topics,
-                feed_reason     = EXCLUDED.feed_reason,
-                is_read         = EXCLUDED.is_read,
-                starred         = EXCLUDED.starred,
-                liked           = EXCLUDED.liked,
-                created_at      = EXCLUDED.created_at,
-                published_date  = EXCLUDED.published_date,
-                is_summary      = EXCLUDED.is_summary
+                title            = EXCLUDED.title,
+                title_nl         = EXCLUDED.title_nl,
+                summary          = EXCLUDED.summary,
+                short_summary    = EXCLUDED.short_summary,
+                url              = EXCLUDED.url,
+                category         = EXCLUDED.category,
+                source           = EXCLUDED.source,
+                source_rss_ids   = EXCLUDED.source_rss_ids,
+                source_urls      = EXCLUDED.source_urls,
+                topics           = EXCLUDED.topics,
+                feed_reason      = EXCLUDED.feed_reason,
+                is_read          = EXCLUDED.is_read,
+                starred          = EXCLUDED.starred,
+                liked            = EXCLUDED.liked,
+                created_at       = EXCLUDED.created_at,
+                published_date   = EXCLUDED.published_date,
+                is_summary       = EXCLUDED.is_summary,
+                kind             = EXCLUDED.kind,
+                audio_url        = EXCLUDED.audio_url,
+                duration_seconds = EXCLUDED.duration_seconds,
+                summary_source   = EXCLUDED.summary_source
         """
     }
 }
