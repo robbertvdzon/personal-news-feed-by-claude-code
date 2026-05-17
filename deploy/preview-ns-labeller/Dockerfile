@@ -14,8 +14,13 @@
 FROM bitnami/kubectl:latest
 
 USER 0
-# bitnami's install_packages helper. curl + jq voor Neon API + JSON-parsing.
-RUN install_packages curl jq ca-certificates \
+# bitnami's install_packages helper:
+#   curl + jq        — Neon REST API + JSON-parsing
+#   python3-minimal  — libpq→JDBC URL-conversie (Python urllib.parse
+#                       voor URL-decoded user/password). Pure-bash regex
+#                       zou werken maar mist URL-decoding van
+#                       eventuele %-escapes in het password.
+RUN install_packages curl jq ca-certificates python3-minimal \
     && install -d -m 0775 -o 1001 -g 0 /scripts
 
 COPY labeller.sh /scripts/labeller.sh
