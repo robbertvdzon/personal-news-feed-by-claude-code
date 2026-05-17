@@ -108,24 +108,36 @@ class PodcastFeedPipeline(
         val transcribeEnabled = feedRepo.find(username, episode.feedUrl)?.transcribeEnabled ?: true
         try {
             var current = episode
-            // 1) audio downloaden (alleen als we gaan transcriberen)
+            // 1) audio downloaden + transcriberen (alleen als de bron transcribe-enabled is).
+            //    Bij audio-/Whisper-fout: niet FAILED, maar vallen we terug op show-notes.
+            //    Per task's "Voorgestelde aanpak": "Beter een matige samenvatting dan geen card."
             var transcript: String? = null
             var actualDuration: Int? = current.durationSeconds
+            var fallbackReason: String? = null
             if (transcribeEnabled) {
                 current = save(username, current.copy(status = EpisodeStatus.DOWNLOADING))
                 val bytes = audio.fetch(username, current.audioUrl)
-                    ?: return fail(username, current, "kon audio niet downloaden van ${current.audioUrl}")
-                current = save(username, current.copy(status = EpisodeStatus.TRANSCRIBING))
-                val whisperResult = whisper.transcribe(username, current.title.take(120), bytes)
-                    ?: return fail(username, current, "Whisper-transcriptie mislukt (zie [Whisper]-log)")
-                transcript = whisperResult.text
-                actualDuration = whisperResult.durationSeconds.takeIf { it > 0 } ?: actualDuration
-                current = save(
-                    username, current.copy(
-                        transcript = transcript,
-                        durationSeconds = actualDuration
-                    )
-                )
+                if (bytes == null) {
+                    fallbackReason = "audio-download mislukt voor ${current.audioUrl}; val terug op show-notes"
+                } else {
+                    current = save(username, current.copy(status = EpisodeStatus.TRANSCRIBING))
+                    val whisperResult = whisper.transcribe(username, current.title.take(120), bytes)
+                    if (whisperResult == null) {
+                        fallbackReason = "Whisper-transcriptie mislukt (zie [Whisper]-log); val terug op show-notes"
+                    } else {
+                        transcript = whisperResult.text
+                        actualDuration = whisperResult.durationSeconds.takeIf { it > 0 } ?: actualDuration
+                        current = save(
+                            username, current.copy(
+                                transcript = transcript,
+                                durationSeconds = actualDuration
+                            )
+                        )
+                    }
+                }
+                if (fallbackReason != null) {
+                    log.warn("[PodcastFeed] {} (guid={})", fallbackReason, current.guid)
+                }
             }
 
             // 2) Claude-samenvatting (transcript of show-notes)
@@ -134,6 +146,13 @@ class PodcastFeedPipeline(
                 "transcript" to transcript
             } else {
                 "show_notes" to current.description.ifBlank { current.title }
+            }
+            if (summarizerInput.isBlank()) {
+                return fail(
+                    username, current,
+                    fallbackReason?.let { "$it; show-notes/titel ook leeg" }
+                        ?: "geen show-notes of titel beschikbaar om samen te vatten"
+                )
             }
             val claude = summarize(username, current, summarizerInput, summarySource)
                 ?: return fail(username, current, "Claude-samenvatting mislukt — zie [Anthropic]-log")
@@ -167,12 +186,14 @@ class PodcastFeedPipeline(
                     status = EpisodeStatus.DONE,
                     processedAt = Instant.now(),
                     feedItemId = feedItem.id,
-                    errorMessage = null
+                    // Bij niet-fatale fallback: bewaar de reden op de rij voor diagnose, ook al is de card succesvol.
+                    errorMessage = fallbackReason
                 )
             )
             log.info(
-                "[PodcastFeed] DONE episode='{}' source={} feedItemId={}",
-                current.title.take(60), summarySource, feedItem.id
+                "[PodcastFeed] DONE episode='{}' source={} feedItemId={}{}",
+                current.title.take(60), summarySource, feedItem.id,
+                fallbackReason?.let { " (fallback: $it)" } ?: ""
             )
         } catch (e: Exception) {
             log.error("[PodcastFeed] processEpisode crashed for guid={}: {}", episode.guid, e.message, e)
