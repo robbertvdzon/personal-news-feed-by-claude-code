@@ -23,6 +23,9 @@ class FeedItem {
   final String createdAt;
   final String? publishedDate;
   final bool isSummary;
+  /// KAN-60: 'ARTICLE' (default) of 'PODCAST'. Stuurt de Feed-tab filter
+  /// (AC8) en evt. een podcasts-icoon op de feed-card.
+  final String mediaType;
 
   FeedItem({
     required this.id,
@@ -43,7 +46,10 @@ class FeedItem {
     this.createdAt = '',
     this.publishedDate,
     this.isSummary = false,
+    this.mediaType = 'ARTICLE',
   });
+
+  bool get isPodcast => mediaType == 'PODCAST';
 
   /// Display-titel voor list/detail. Pakt eerst [titleNl], anders [title].
   String get displayTitle => titleNl.isNotEmpty ? titleNl : title;
@@ -72,6 +78,7 @@ class FeedItem {
         createdAt: j['createdAt'] ?? '',
         publishedDate: j['publishedDate'],
         isSummary: j['isSummary'] ?? false,
+        mediaType: j['mediaType'] ?? 'ARTICLE',
       );
 
   FeedItem copyWith({bool? isRead, bool? starred, Object? liked = const _Sentinel()}) => FeedItem(
@@ -93,6 +100,7 @@ class FeedItem {
         createdAt: createdAt,
         publishedDate: publishedDate,
         isSummary: isSummary,
+        mediaType: mediaType,
       );
 }
 
@@ -122,6 +130,10 @@ class RssItem {
   final String audioUrl;
   /// Bij PODCAST: lengte in seconden (vaak uit `<itunes:duration>`).
   final int? durationSeconds;
+  /// KAN-60: 'show_notes' = voorlopige samenvatting op RSS-description,
+  /// 'transcript' = échte Whisper-transcript-summary. Wordt door
+  /// [isShowNotesBased] omgezet naar de badge in de UI.
+  final String summarySource;
 
   RssItem({
     required this.id,
@@ -144,9 +156,13 @@ class RssItem {
     this.mediaType = 'ARTICLE',
     this.audioUrl = '',
     this.durationSeconds,
+    this.summarySource = 'transcript',
   });
 
   bool get isPodcast => mediaType == 'PODCAST';
+  /// KAN-60: true wanneer de card nog een voorlopige (show-notes-)
+  /// samenvatting toont en de transcript-fase nog niet gedraaid is.
+  bool get isShowNotesBased => isPodcast && summarySource == 'show_notes';
 
   factory RssItem.fromJson(Map<String, dynamic> j) => RssItem(
         id: j['id'] ?? '',
@@ -169,6 +185,7 @@ class RssItem {
         mediaType: j['mediaType'] ?? 'ARTICLE',
         audioUrl: j['audioUrl'] ?? '',
         durationSeconds: j['durationSeconds'],
+        summarySource: j['summarySource'] ?? 'transcript',
       );
 
   RssItem copyWith({bool? isRead, bool? starred, Object? liked = const _Sentinel()}) => RssItem(
@@ -192,6 +209,7 @@ class RssItem {
         mediaType: mediaType,
         audioUrl: audioUrl,
         durationSeconds: durationSeconds,
+        summarySource: summarySource,
       );
 }
 

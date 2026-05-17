@@ -17,6 +17,9 @@ const _starredTabId = '__starred__';
 /// kunt aanklikken.
 const _otherTabId = 'overig';
 
+/// KAN-60 (AC7): media-type filter onafhankelijk van de categorie-tab.
+enum _MediaFilter { all, rss, podcasts }
+
 class RssScreen extends ConsumerStatefulWidget {
   const RssScreen({super.key});
 
@@ -27,6 +30,9 @@ class RssScreen extends ConsumerStatefulWidget {
 class _RssScreenState extends ConsumerState<RssScreen> {
   String _selectedTab = _allTabId;
   bool _hideRead = true;
+  // KAN-60 (AC7): session-scoped filter — Alles / RSS / Podcasts. Geen
+  // persistentie nodig; reset op restart is expliciet in de aanname.
+  _MediaFilter _mediaFilter = _MediaFilter.all;
 
   @override
   Widget build(BuildContext context) {
@@ -92,6 +98,10 @@ class _RssScreenState extends ConsumerState<RssScreen> {
           value: _hideRead,
           onChanged: (v) => setState(() => _hideRead = v),
         ),
+        _MediaFilterBar(
+          selected: _mediaFilter,
+          onSelected: (f) => setState(() => _mediaFilter = f),
+        ),
         _RssCategoryTabBar(
           tabs: tabs,
           selectedId: _selectedTab,
@@ -122,6 +132,7 @@ class _RssScreenState extends ConsumerState<RssScreen> {
                             liked: it.liked,
                             isPodcast: it.isPodcast,
                             durationSeconds: it.durationSeconds,
+                            showNotesPending: it.isShowNotesBased,
                             onPlayAudio: it.isPodcast && it.audioUrl.isNotEmpty
                                 ? () => launchUrl(
                                       Uri.parse(it.audioUrl),
@@ -156,6 +167,7 @@ class _RssScreenState extends ConsumerState<RssScreen> {
   int _countFor(List<RssItem> items, String tabId) {
     return items.where((it) {
       if (!_matchesTab(it, tabId)) return false;
+      if (!_matchesMediaFilter(it)) return false;
       if (_hideRead && it.isRead) return false;
       return true;
     }).length;
@@ -164,9 +176,24 @@ class _RssScreenState extends ConsumerState<RssScreen> {
   List<RssItem> _filter(List<RssItem> items) {
     return items.where((it) {
       if (!_matchesTab(it, _selectedTab)) return false;
+      if (!_matchesMediaFilter(it)) return false;
       if (_hideRead && it.isRead) return false;
       return true;
     }).toList();
+  }
+
+  /// KAN-60 (AC7): de RSS-tab filter combineert AND met de categorie-tab
+  /// (refiner-aanname). 'Alles' laat alles door; 'RSS' = artikelen;
+  /// 'Podcasts' = podcast-afleveringen.
+  bool _matchesMediaFilter(RssItem it) {
+    switch (_mediaFilter) {
+      case _MediaFilter.all:
+        return true;
+      case _MediaFilter.rss:
+        return !it.isPodcast;
+      case _MediaFilter.podcasts:
+        return it.isPodcast;
+    }
   }
 
   bool _matchesTab(RssItem it, String tabId) {
@@ -222,6 +249,46 @@ class _RssTab {
   final String id;
   final String name;
   const _RssTab({required this.id, required this.name});
+}
+
+/// KAN-60 (AC7 + AC8): horizontale rij van drie ChoiceChips —
+/// 'Alles | RSS | Podcasts'. Sessie-state, niet persistent (refiner-
+/// aanname). Hergebruikt zowel in de RSS-tab als de Feed-tab — dezelfde
+/// look-and-feel zodat de gebruiker niet hoeft te leren.
+class _MediaFilterBar extends StatelessWidget {
+  final _MediaFilter selected;
+  final ValueChanged<_MediaFilter> onSelected;
+
+  const _MediaFilterBar({required this.selected, required this.onSelected});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      child: Wrap(
+        spacing: 8,
+        children: [
+          ChoiceChip(
+            label: const Text('Alles'),
+            selected: selected == _MediaFilter.all,
+            onSelected: (_) => onSelected(_MediaFilter.all),
+          ),
+          ChoiceChip(
+            label: const Text('RSS'),
+            avatar: const Icon(Icons.article_outlined, size: 16),
+            selected: selected == _MediaFilter.rss,
+            onSelected: (_) => onSelected(_MediaFilter.rss),
+          ),
+          ChoiceChip(
+            label: const Text('Podcasts'),
+            avatar: const Icon(Icons.podcasts, size: 16),
+            selected: selected == _MediaFilter.podcasts,
+            onSelected: (_) => onSelected(_MediaFilter.podcasts),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 /// Tab-bar voor RSS — bijna identiek aan de FeedScreen-versie, maar

@@ -27,6 +27,10 @@ class ItemCard extends StatelessWidget {
   final bool isPodcast;
   final int? durationSeconds;
   final VoidCallback? onPlayAudio;
+  /// KAN-60: tijdens fase 1 (show-notes-summary) toont de card een
+  /// 'voorlopige samenvatting'-badge naast de podcast-chip. Verdwijnt
+  /// zodra het transcript verwerkt is (`summarySource='transcript'`).
+  final bool showNotesPending;
 
   const ItemCard({
     super.key,
@@ -47,6 +51,7 @@ class ItemCard extends StatelessWidget {
     this.isPodcast = false,
     this.durationSeconds,
     this.onPlayAudio,
+    this.showNotesPending = false,
   });
 
   @override
@@ -101,6 +106,19 @@ class ItemCard extends StatelessWidget {
                     label: const Text('Podcast'),
                     visualDensity: VisualDensity.compact,
                     materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                if (showNotesPending)
+                  Tooltip(
+                    message:
+                        'Voorlopige samenvatting op basis van de RSS show-notes. '
+                        'Het echte transcript wordt op de achtergrond verwerkt.',
+                    child: Chip(
+                      avatar: const Icon(Icons.hourglass_top, size: 14),
+                      label: const Text('📝 voorlopig'),
+                      backgroundColor: Colors.amber.shade100,
+                      visualDensity: VisualDensity.compact,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
                   ),
                 if (source.isNotEmpty) Text(source, style: Theme.of(context).textTheme.bodySmall),
                 if (relativeTime.isNotEmpty)
