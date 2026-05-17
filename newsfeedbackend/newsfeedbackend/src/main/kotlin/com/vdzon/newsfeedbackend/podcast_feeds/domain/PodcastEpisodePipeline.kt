@@ -88,7 +88,7 @@ class PodcastEpisodePipeline(
 
             // Process PENDING episodes through the pipeline
             processDownloading(username, categories)
-            processTranscribing(username)
+            processTranscribing(username, feedSettings)
             processSummarizing(username, categories)
 
             meters.counter("newsfeed.podcasts.episodes.processed", "username", username)
@@ -157,7 +157,7 @@ class PodcastEpisodePipeline(
         }
     }
 
-    private fun processTranscribing(username: String) {
+    private fun processTranscribing(username: String, feedSettings: com.vdzon.newsfeedbackend.podcast_feeds.PodcastFeedsSettings) {
         val downloading = episodesRepo.loadByStatus(username, "TRANSCRIBING")
         if (downloading.isEmpty()) return
 
@@ -166,20 +166,37 @@ class PodcastEpisodePipeline(
             try {
                 log.info("[PODCAST]   transcribe {}/{}: {}", idx + 1, downloading.size, episode.title.take(60))
 
-                // Download audio again (or we'd need to store it)
-                val audioBytes = downloadAudio(episode.podcastUrl!!, username)
+                // Check if transcription is enabled for this feed
+                val feed = feedSettings.feeds.find { it.url == episode.feedUrl }
+                val transcribeEnabled = feed?.transcribeEnabled ?: true
 
-                // Call OpenAI Whisper API
-                val transcript = transcribeAudio(audioBytes, episode.title, username)
-                log.info("[PODCAST]   transcribed {} chars", transcript.length)
-
-                episodesRepo.upsert(
-                    username,
-                    episode.copy(
-                        status = "SUMMARIZING",
-                        transcript = transcript
+                if (!transcribeEnabled) {
+                    // Transcription disabled for this feed, use show-notes as transcript
+                    log.info("[PODCAST]   transcription disabled for feed {}, using show-notes", episode.feedUrl)
+                    episodesRepo.upsert(
+                        username,
+                        episode.copy(
+                            status = "SUMMARIZING",
+                            transcript = episode.showNotes, // Use show-notes as primary input
+                            errorMessage = "transcribe_disabled: using show-notes fallback"
+                        )
                     )
-                )
+                } else {
+                    // Download audio again (or we'd need to store it)
+                    val audioBytes = downloadAudio(episode.podcastUrl!!, username)
+
+                    // Call OpenAI Whisper API
+                    val transcript = transcribeAudio(audioBytes, episode.title, username)
+                    log.info("[PODCAST]   transcribed {} chars", transcript.length)
+
+                    episodesRepo.upsert(
+                        username,
+                        episode.copy(
+                            status = "SUMMARIZING",
+                            transcript = transcript
+                        )
+                    )
+                }
             } catch (e: Exception) {
                 log.warn("[PODCAST] transcribe failed for {}: {}", episode.title, e.message)
                 // Fallback to show-notes
