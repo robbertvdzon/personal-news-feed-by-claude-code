@@ -1657,7 +1657,8 @@ _STUCK_PHASE_TO_ROLE = {
 
 def _auto_bump_targets() -> dict[tuple[str, str], tuple[str, str]]:
     """Welke (status, phase)-combinaties hebben we genoeg info voor om
-    automatisch te bumpen? Mapping → (target_status, target_phase).
+    FORWARD te bumpen (laatste run was success)? Mapping →
+    (target_status, target_phase).
 
     Alleen refiner→refined en developer→developed, want voor reviewer en
     tester is de uitkomst van de run ambigu (ok/changes resp. ok/fail).
@@ -1666,6 +1667,53 @@ def _auto_bump_targets() -> dict[tuple[str, str], tuple[str, str]]:
         (JIRA_TARGET_STATUS, "refining"):   ("AI Queued",        "refined"),
         (JIRA_TARGET_STATUS, "developing"): (JIRA_REVIEW_STATUS, "developed"),
     }
+
+
+def _retry_targets() -> dict[tuple[str, str], tuple[str, str]]:
+    """Welke (status, phase)-combinaties bumpen we BACKWARD om dezelfde
+    rol opnieuw te laten spawnen door de normale dispatch? Mapping →
+    (revert_status, revert_phase).
+
+    Wordt gebruikt bij transient API-fouten (Anthropic 5xx, rate-limit,
+    timeout) — de runner faalde zonder dat 't aan de story zelf lag.
+    Voor alle vier de rollen want de dispatcher kan ze allemaal
+    opnieuw oppakken via hun normale (status, phase)-trigger:
+
+      - refiner   wordt gespawned uit `AI Ready`            (geen phase)
+      - developer wordt gespawned uit `AI Queued`           + phase=refined
+      - reviewer  wordt gespawned uit `AI IN REVIEW`        + phase=developed
+      - tester    wordt gespawned uit `AI IN REVIEW`        + phase=reviewed-ok
+    """
+    return {
+        (JIRA_TARGET_STATUS, "refining"):   (JIRA_SOURCE_STATUS, ""),
+        (JIRA_TARGET_STATUS, "developing"): ("AI Queued",        "refined"),
+        (JIRA_REVIEW_STATUS, "reviewing"):  (JIRA_REVIEW_STATUS, "developed"),
+        (JIRA_REVIEW_STATUS, "testing"):    (JIRA_REVIEW_STATUS, "reviewed-ok"),
+    }
+
+
+# Hoogste aantal opeenvolgende transient-failures dat we tolereren
+# voordat we de story laten staan voor handmatige inspectie. 2 retries
+# vangt de meeste flake-storms zonder onbeperkt budget te verbranden.
+_MAX_TRANSIENT_RETRIES = 2
+
+# Substrings die wijzen op een transient server/network-error. Match
+# case-insensitive op summary_text van de gefaalde agent_run.
+_TRANSIENT_MARKERS = (
+    "api error: 500", "api error: 502", "api error: 503", "api error: 504",
+    "internal server error", "bad gateway", "service unavailable",
+    "gateway timeout", "rate limit", "ratelimit",
+    "connection reset", "connection refused", "temporarily unavailable",
+    "request timed out", "timeout", "overloaded_error",
+)
+
+
+def _is_transient_failure(summary_text: Optional[str]) -> bool:
+    """True als de samenvatting een Anthropic/network-flake suggereert."""
+    if not summary_text:
+        return False
+    s = summary_text.lower()
+    return any(m in s for m in _TRANSIENT_MARKERS)
 
 
 def _story_has_running_runner_job(story_key: str) -> bool:
@@ -1700,16 +1748,19 @@ def _story_has_running_runner_job(story_key: str) -> bool:
     return False
 
 
-def _latest_agent_run_outcome(story_key: str, role: str) -> Optional[str]:
-    """Geef het outcome van de laatste afgeronde agent_run voor
-    (story, role) terug. None als de DB niet beschikbaar is of er geen
-    rij is."""
+def _latest_agent_run(
+    story_key: str, role: str,
+) -> Optional[tuple[str, Optional[str]]]:
+    """Returnt (outcome, summary_text) van de laatste afgeronde agent_run
+    voor (story, role). None als de DB niet bereikbaar is of er geen rij
+    bestaat. summary_text wordt gebruikt om transient-failures te
+    detecteren (API 5xx in de message)."""
     if not FACTORY_DATABASE_URL or psycopg is None:
         return None
     try:
         with psycopg.connect(FACTORY_DATABASE_URL) as conn, conn.cursor() as cur:
             cur.execute(
-                """SELECT ar.outcome
+                """SELECT ar.outcome, ar.summary_text
                    FROM factory.agent_runs ar
                    JOIN factory.story_runs sr ON sr.id = ar.story_run_id
                    WHERE sr.story_key = %s AND ar.role = %s
@@ -1719,22 +1770,87 @@ def _latest_agent_run_outcome(story_key: str, role: str) -> Optional[str]:
             )
             row = cur.fetchone()
     except Exception as e:
-        log.warning("agent_run-outcome lookup faalde voor %s/%s: %s",
+        log.warning("agent_run lookup faalde voor %s/%s: %s",
                     story_key, role, e)
         return None
-    return row[0] if row else None
+    if not row:
+        return None
+    return (row[0] or "", row[1])
+
+
+def _consecutive_transient_failures(story_key: str, role: str) -> int:
+    """Tel hoeveel transient-failed runs er op een rij staan voor
+    (story, role), terugtellend vanaf de laatste afgeronde run. Stopt
+    bij de eerste run die ofwel success was ofwel een non-transient
+    failure had. Wordt gebruikt om de retry-emmer te begrenzen."""
+    if not FACTORY_DATABASE_URL or psycopg is None:
+        return 0
+    try:
+        with psycopg.connect(FACTORY_DATABASE_URL) as conn, conn.cursor() as cur:
+            cur.execute(
+                """SELECT ar.outcome, ar.summary_text
+                   FROM factory.agent_runs ar
+                   JOIN factory.story_runs sr ON sr.id = ar.story_run_id
+                   WHERE sr.story_key = %s AND ar.role = %s
+                     AND ar.ended_at IS NOT NULL
+                   ORDER BY ar.ended_at DESC
+                   LIMIT %s""",
+                (story_key, role, _MAX_TRANSIENT_RETRIES + 2),
+            )
+            rows = cur.fetchall()
+    except Exception:
+        return 0
+    n = 0
+    for outcome, summary in rows:
+        if outcome == "failed" and _is_transient_failure(summary):
+            n += 1
+        else:
+            break
+    return n
+
+
+def _apply_recovery(
+    key: str, role: str, current_phase: str,
+    target_status: str, target_phase: str, reason: str,
+) -> None:
+    """Helper: set phase + transition status. Logt 't bedoelde gevolg
+    apart zodat de operator in de logs ziet welke recovery-tak werd
+    geactiveerd."""
+    log.info(
+        "stuck-recover %s: role=%s phase=%s → status=%s phase=%s (reden: %s)",
+        key, role, current_phase, target_status, target_phase, reason,
+    )
+    if not set_ai_fields(key, {"phase": target_phase}):
+        log.warning("stuck-recover %s: set_ai_fields faalde", key)
+        return
+    if not transition_issue(key, target_status):
+        log.warning("stuck-recover %s: transitie naar %s faalde",
+                    key, target_status)
 
 
 def recover_stuck_phases() -> None:
     """Vind stories waarvan AI Phase op een actieve-rol-fase staat zonder
-    dat er een K8s Job loopt, en zet ze door naar de volgende fase
-    indien de laatste run succesvol was.
+    dat er een K8s Job loopt, en handel afhankelijk van de laatste run:
 
-    Alleen refiner→refined en developer→developed worden auto-gebumpt
-    (deterministisch). Reviewer/tester blijven staan; het dashboard
-    toont de stuck-warning zodat de PO handmatig kan ingrijpen.
+      * outcome=success → FORWARD bumpen naar de volgende fase
+        (alleen refiner→refined en developer→developed; reviewer en
+        tester zijn ambigu).
+      * outcome=failed + transient error (Anthropic 5xx, rate-limit,
+        timeout) → BACKWARD bumpen naar de spawn-trigger van dezelfde
+        rol zodat de normale dispatcher 'm opnieuw oppakt. Hard cap
+        op _MAX_TRANSIENT_RETRIES opeenvolgende retries.
+      * anders → niets doen; dashboard toont de stuck-warning voor
+        handmatige inspectie (Re-implement of beschrijving aanpassen).
     """
-    for (status, phase), (target_status, target_phase) in _auto_bump_targets().items():
+    forward = _auto_bump_targets()
+    retry = _retry_targets()
+    # Verzamel alle stuck-combinaties die we überhaupt willen scannen.
+    # Forward + retry kunnen overlappen (alle forward-keys staan ook
+    # in retry); set-union zorgt dat we elke (status,phase) één keer
+    # opvragen aan JIRA.
+    scan_keys = set(forward.keys()) | set(retry.keys())
+
+    for (status, phase) in scan_keys:
         try:
             issues = _fetch_status_with_phase(status, phase)
         except Exception as e:
@@ -1749,25 +1865,60 @@ def recover_stuck_phases() -> None:
                 continue
             if _story_has_running_runner_job(key):
                 continue  # Niet stuck — er draait een Job.
-            outcome = _latest_agent_run_outcome(key, role)
-            if outcome != "success":
+
+            run = _latest_agent_run(key, role)
+            if run is None:
+                # Geen agent_run-record. Kan zijn dat de runner gecrasht
+                # is vóór 'ie de /agent-run/complete-call deed. We laten
+                # 't met rust — handmatige actie nodig.
                 log.info(
-                    "stuck-skip %s: phase=%s zonder Job, laatste %s-run outcome=%r "
-                    "— niet auto-bumpbaar",
-                    key, phase, role, outcome,
+                    "stuck-skip %s: phase=%s zonder Job en zonder agent_run-rij "
+                    "— mogelijk pre-run crash, geen auto-actie",
+                    key, phase,
                 )
                 continue
-            log.info(
-                "stuck-recover %s: phase=%s zonder Job en laatste %s-run was success "
-                "→ bump naar %s + phase=%s",
-                key, phase, role, target_status, target_phase,
-            )
-            if not set_ai_fields(key, {"phase": target_phase}):
-                log.warning("stuck-recover %s: set_ai_fields faalde", key)
+            outcome, summary = run
+
+            # 1. Success → forward bump (alleen voor refiner/developer).
+            if outcome == "success" and (status, phase) in forward:
+                target_status, target_phase = forward[(status, phase)]
+                _apply_recovery(
+                    key, role, phase, target_status, target_phase,
+                    reason=f"laatste {role}-run was success",
+                )
                 continue
-            if not transition_issue(key, target_status):
-                log.warning("stuck-recover %s: transitie naar %s faalde",
-                            key, target_status)
+
+            # 2. Transient failure → backward bump om te retryen.
+            if (
+                outcome == "failed"
+                and _is_transient_failure(summary)
+                and (status, phase) in retry
+            ):
+                n_failures = _consecutive_transient_failures(key, role)
+                if n_failures > _MAX_TRANSIENT_RETRIES:
+                    log.warning(
+                        "stuck-skip %s: %d opeenvolgende transient-fails op %s — "
+                        "retry-cap bereikt, handmatige actie nodig",
+                        key, n_failures, role,
+                    )
+                    continue
+                target_status, target_phase = retry[(status, phase)]
+                _apply_recovery(
+                    key, role, phase, target_status, target_phase,
+                    reason=(
+                        f"transient API-error in {role}-run "
+                        f"(retry {n_failures}/{_MAX_TRANSIENT_RETRIES})"
+                    ),
+                )
+                continue
+
+            # 3. Anders: laten staan, dashboard toont stuck-warning.
+            log.info(
+                "stuck-skip %s: phase=%s zonder Job, laatste %s-outcome=%r "
+                "(transient=%s) — geen veilige auto-actie",
+                key, phase, role, outcome,
+                _is_transient_failure(summary),
+            )
 
 
 # ─── main loop ────────────────────────────────────────────────────────────
