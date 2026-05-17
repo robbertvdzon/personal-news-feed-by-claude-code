@@ -4,6 +4,7 @@ import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.ControllerAdvice
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.ResponseStatus
+import org.springframework.web.server.ResponseStatusException
 import org.springframework.http.ResponseEntity
 import org.slf4j.LoggerFactory
 
@@ -54,6 +55,20 @@ class GlobalExceptionHandler {
     fun handleUnauthorized(ex: UnauthorizedException): ResponseEntity<Map<String, Any?>> {
         log.warn("401 Unauthorized: {}", ex.message)
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(mapOf("error" to ex.message))
+    }
+
+    // Spring's eigen `ResponseStatusException` apart afvangen — anders pakt
+    // `handleGeneric(Exception::class)` 'm en degradeert 'm naar HTTP 500
+    // met body `{"error":"400 BAD_REQUEST \"<msg>\""}`. De frontend (b.v.
+    // de podcast-feed-editor) verwacht 400 met een schone NL-message in
+    // `error`, zoals AC #7 van KAN-56 voorschrijft.
+    @ExceptionHandler(ResponseStatusException::class)
+    fun handleResponseStatus(ex: ResponseStatusException): ResponseEntity<Map<String, Any?>> {
+        val status = ex.statusCode
+        val reason = ex.reason ?: ex.message ?: "error"
+        if (status.is5xxServerError) log.error("{} {}", status.value(), reason, ex)
+        else log.warn("{} {}", status.value(), reason)
+        return ResponseEntity.status(status).body(mapOf("error" to reason))
     }
 
     @ExceptionHandler(Exception::class)
