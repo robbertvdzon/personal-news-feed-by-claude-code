@@ -12,8 +12,6 @@ import org.slf4j.MDC
 import org.springframework.scheduling.annotation.Async
 import org.springframework.stereotype.Component
 import java.io.ByteArrayOutputStream
-import java.nio.file.Files
-import java.nio.file.Path
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
@@ -90,22 +88,22 @@ class PodcastGenerator(
                 )
             }
 
-            val audio = renderAudio(username, id, script, current.ttsProvider)
-            // Als renderAudio() null teruggeeft staat er géén mp3 op disk
+            val audioBytes = renderAudio(username, id, script, current.ttsProvider)
+            // Als renderAudio() null teruggeeft is er géén audio gegenereerd
             // (alle TTS-calls faalden, of het script bevatte geen
             // INTERVIEWER/GAST-regels). De podcast eindigde dan eerder
-            // tóch op DONE met audioPath=null, waarna de frontend
-            // /audio aanriep en een 404 'mp3-bestand niet gevonden' kreeg.
-            // Markeer in dat geval expliciet FAILED zodat de UI niet
-            // probeert af te spelen.
-            val finalStatus = if (audio != null) PodcastStatus.DONE else PodcastStatus.FAILED
-            if (audio == null) {
+            // tóch op DONE met audio=null, waarna de frontend /audio
+            // aanriep en een 404 kreeg. Markeer in dat geval expliciet
+            // FAILED zodat de UI niet probeert af te spelen.
+            val finalStatus = if (audioBytes != null) PodcastStatus.DONE else PodcastStatus.FAILED
+            if (audioBytes != null) {
+                repo.saveAudio(username, id, audioBytes)
+            } else {
                 log.warn("[Podcast] no audio produced id={} user='{}' — marking FAILED", id, username)
             }
             update(username, id) {
                 it.copy(
                     status = finalStatus,
-                    audioPath = audio?.toAbsolutePath()?.toString(),
                     durationSeconds = current.durationMinutes * 60,
                     generationSeconds = Duration.between(started, Instant.now()).seconds.toInt()
                 )
@@ -122,7 +120,7 @@ class PodcastGenerator(
         }
     }
 
-    private fun renderAudio(username: String, id: String, script: String, provider: TtsProvider): Path? {
+    private fun renderAudio(username: String, id: String, script: String, provider: TtsProvider): ByteArray? {
         val out = ByteArrayOutputStream()
         for (line in script.lineSequence()) {
             val trimmed = line.trim()
@@ -138,14 +136,9 @@ class PodcastGenerator(
             out.writeBytes(bytes)
         }
         if (out.size() == 0) return null
-        val path = repo.audioPath(username, id)
-        Files.createDirectories(path.parent)
-        Files.write(path, out.toByteArray())
-        // Pad + size in de log zodat we bij een 404-'mp3-bestand niet
-        // gevonden' achteraf kunnen verifiëren of het bestand ooit op
-        // disk stond (bv. om een verloren PVC-mount uit te sluiten).
-        log.info("[Podcast] audio written id={} path={} bytes={}", id, path.toAbsolutePath(), out.size())
-        return path
+        val data = out.toByteArray()
+        log.info("[Podcast] audio rendered id={} bytes={}", id, data.size)
+        return data
     }
 
     private fun parseStringArray(text: String): List<String> {

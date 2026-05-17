@@ -35,9 +35,14 @@ data/
     rss_feeds.json                    # geconfigureerde RSS-feed URLs
     podcasts.json                     # podcast metadata
     topic_history.json                # onderwerp-geschiedenis per gebruiker
-    audio/
-      {podcastId}.mp3                 # gegenereerde podcast audio
 ```
+
+Podcast-audio (MP3) wordt opgeslagen in de Postgres-tabel `podcasts`
+(kolom `audio_bytes BYTEA`), níet op het filesystem. Reden: op de
+OpenShift PVC kan de pod-user `/data/users` soms niet aanmaken
+(`AccessDeniedException` uit `Files.createDirectories`), waardoor de
+audio-render-stap faalde. Door audio in de DB te zetten verdwijnt die
+dependency en gaat de audio mee in de DB-backup.
 
 ### Concurrency
 - Alle achtergrondtaken zijn asynchroon (`@Async`).
@@ -226,7 +231,7 @@ Wordt asynchroon gestart bij `POST /api/podcasts`.
    - INTERVIEWER-regels → stem A
    - GAST-regels → stem B
    - Segmenten worden aaneengevoegd tot één MP3-bestand
-9. Sla MP3 op als `data/users/{username}/audio/{podcastId}.mp3`.
+9. Sla de MP3-bytes op in de `podcasts.audio_bytes` BYTEA-kolom in Postgres. `GET /api/podcasts/{id}/audio` streamt rechtstreeks uit die kolom.
 
 ---
 
