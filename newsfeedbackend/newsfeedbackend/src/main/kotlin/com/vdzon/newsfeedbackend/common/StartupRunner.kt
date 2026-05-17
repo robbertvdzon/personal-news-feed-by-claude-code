@@ -3,6 +3,7 @@ package com.vdzon.newsfeedbackend.common
 import com.vdzon.newsfeedbackend.auth.AuthService
 import com.vdzon.newsfeedbackend.auth.domain.User
 import com.vdzon.newsfeedbackend.auth.infrastructure.UserRepository
+import com.vdzon.newsfeedbackend.podcastfeed.PodcastFeedService
 import com.vdzon.newsfeedbackend.request.RequestService
 import org.slf4j.LoggerFactory
 import org.springframework.boot.ApplicationArguments
@@ -13,7 +14,8 @@ import org.springframework.stereotype.Component
 class StartupRunner(
     private val auth: AuthService,
     private val users: UserRepository,
-    private val requests: RequestService
+    private val requests: RequestService,
+    private val podcastFeeds: PodcastFeedService
 ) : ApplicationRunner {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -21,6 +23,7 @@ class StartupRunner(
     override fun run(args: ApplicationArguments) {
         log.info("Startup: resetting stuck requests")
         requests.resetStuck()
+        podcastFeeds.resetStuck()
         ensureAdminExists()
         for (username in auth.listUsernames()) {
             requests.ensureFixedRequests(username)

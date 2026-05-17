@@ -102,6 +102,28 @@ class PodcastEpisodeRepository(
         ::map
     )
 
+    /**
+     * Bij een pod-restart blijven episodes die middenin de pipeline (DOWNLOADING /
+     * TRANSCRIBING / SUMMARIZING) hingen op die status staan. Zonder reset zou
+     * findPending() ze bij de volgende refresh opnieuw oppakken — Whisper-kosten
+     * verdubbelen en er ontstaat een tweede FeedItem (nieuwe UUID, dus de
+     * GUID-based idempotency van AC6 dekt 't niet). PENDING is veilig — die
+     * staat alleen "klaar voor volgende tick".
+     *
+     * Returnt het aantal rijen dat gemarkeerd is.
+     */
+    fun resetStuck(): Int = jdbc.update(
+        """
+        UPDATE podcast_episodes
+        SET status        = 'FAILED',
+            error_message = COALESCE(error_message || ' | ', '') ||
+                            'onderbroken door restart tijdens ' || status,
+            processed_at  = now()
+        WHERE status IN ('DOWNLOADING', 'TRANSCRIBING', 'SUMMARIZING')
+        """,
+        MapSqlParameterSource()
+    )
+
     companion object {
         private val UPSERT_SQL = """
             INSERT INTO podcast_episodes (

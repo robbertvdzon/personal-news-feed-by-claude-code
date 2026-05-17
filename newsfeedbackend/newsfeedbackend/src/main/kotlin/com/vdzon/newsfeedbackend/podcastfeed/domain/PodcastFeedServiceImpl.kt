@@ -62,4 +62,10 @@ class PodcastFeedServiceImpl(
     }
 
     override fun listEpisodes(username: String): List<PodcastEpisode> = episodeRepo.load(username)
+
+    override fun resetStuck(): Int {
+        val n = episodeRepo.resetStuck()
+        if (n > 0) log.warn("[PodcastFeed] startup-reset: {} episode(s) van in-flight status naar FAILED gezet", n)
+        return n
+    }
 }

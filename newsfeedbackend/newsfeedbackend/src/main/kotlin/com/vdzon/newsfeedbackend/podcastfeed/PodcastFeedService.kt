@@ -22,6 +22,12 @@ interface PodcastFeedService {
     fun delete(username: String, url: String): Boolean
     fun triggerRefresh(username: String)
     fun listEpisodes(username: String): List<PodcastEpisode>
+    /**
+     * Zet alle episodes die middenin de pipeline hangen (DOWNLOADING /
+     * TRANSCRIBING / SUMMARIZING) na een pod-restart op FAILED. Voorkomt
+     * dubbele Whisper-kosten en duplicate FeedItems bij re-processing.
+     */
+    fun resetStuck(): Int
 }
 
 data class PodcastFeed(
