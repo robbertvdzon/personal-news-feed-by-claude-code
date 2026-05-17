@@ -23,7 +23,6 @@ data class Podcast(
     val createdAt: Instant = Instant.now(),
     val scriptText: String? = null,
     val topics: List<String> = emptyList(),
-    val audioPath: String? = null,
     val durationSeconds: Int? = null,
     val customTopics: List<String> = emptyList(),
     val ttsProvider: TtsProvider = TtsProvider.OPENAI,

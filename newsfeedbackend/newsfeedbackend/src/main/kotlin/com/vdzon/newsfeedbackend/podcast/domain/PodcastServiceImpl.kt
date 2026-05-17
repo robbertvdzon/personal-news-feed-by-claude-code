@@ -7,7 +7,6 @@ import com.vdzon.newsfeedbackend.podcast.PodcastStatus
 import com.vdzon.newsfeedbackend.podcast.infrastructure.PodcastRepository
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
-import java.nio.file.Files
 import java.time.LocalDate
 import java.util.UUID
 
@@ -49,19 +48,12 @@ class PodcastServiceImpl(
     override fun delete(username: String, id: String): Boolean = repo.delete(username, id)
 
     override fun audioBytes(username: String, id: String): ByteArray? {
-        val path = repo.audioPath(username, id)
-        val absolute = path.toAbsolutePath()
-        // Pad expliciet loggen aan de read-kant zodat een 404
-        // 'mp3-bestand niet gevonden' direct te correleren is met het
-        // pad dat de generator gebruikt heeft (zie
-        // PodcastGenerator.renderAudio "audio written" log).
-        return if (Files.exists(path)) {
-            val bytes = Files.readAllBytes(path)
-            log.info("[Podcast] audio read id={} user='{}' path={} bytes={}", id, username, absolute, bytes.size)
-            bytes
+        val bytes = repo.loadAudio(username, id)
+        if (bytes != null) {
+            log.info("[Podcast] audio read id={} user='{}' bytes={}", id, username, bytes.size)
         } else {
-            log.warn("[Podcast] audio missing on disk id={} user='{}' path={}", id, username, absolute)
-            null
+            log.warn("[Podcast] audio missing in db id={} user='{}'", id, username)
         }
+        return bytes
     }
 }
