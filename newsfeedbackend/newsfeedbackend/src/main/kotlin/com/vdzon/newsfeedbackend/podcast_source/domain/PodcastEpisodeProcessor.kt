@@ -42,9 +42,10 @@ class PodcastEpisodeProcessor(
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
-    @Async
+    @Async("podcastTaskExecutor")
     fun process(username: String, guid: String, transcribeEnabled: Boolean) {
         MDC.put("username", username)
+        var audioFile: java.io.File? = null
         try {
             val initial = episodeRepo.get(username, guid) ?: run {
                 log.warn("[PodcastEpisode] verdween uit DB voor we 'm konden verwerken — guid={}", guid)
@@ -62,8 +63,8 @@ class PodcastEpisodeProcessor(
             var ep = initial
             val transcript = if (transcribeEnabled) {
                 ep = save(ep.copy(status = PodcastEpisodeStatus.DOWNLOADING))
-                val audio = downloader.download(username, guid, ep.audioUrl)
-                if (audio == null) {
+                audioFile = downloader.download(username, guid, ep.audioUrl)
+                if (audioFile == null) {
                     log.warn("[PodcastEpisode] download faalde voor guid={} url={}", guid, ep.audioUrl)
                     ep = save(ep.copy(
                         status = PodcastEpisodeStatus.FAILED,
@@ -75,7 +76,7 @@ class PodcastEpisodeProcessor(
                 val result = whisper.transcribe(
                     username = username,
                     episodeGuid = guid,
-                    audioBytes = audio,
+                    audioFile = audioFile,
                     audioFilename = guessFilename(ep.audioUrl),
                     audioDurationSec = (ep.durationSeconds ?: 0).toLong()
                 )
@@ -125,6 +126,11 @@ class PodcastEpisodeProcessor(
                 ))
             }
         } finally {
+            try {
+                audioFile?.delete()
+            } catch (e: Exception) {
+                log.warn("[PodcastEpisode] kon temp-file niet verwijderen: {}", e.message)
+            }
             MDC.clear()
         }
     }

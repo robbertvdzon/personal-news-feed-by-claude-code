@@ -4,6 +4,7 @@ import com.vdzon.newsfeedbackend.external_call.ExternalCall
 import com.vdzon.newsfeedbackend.external_call.ExternalCallLogger
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
+import java.io.File
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -13,10 +14,11 @@ import java.time.Instant
 import java.util.UUID
 
 /**
- * Downloads een podcast-MP3 in memory. We slaan de bytes nooit op disk
- * of in de DB op — ze gaan direct door naar Whisper en worden daarna
- * weggegooid. De cost-log (action=podcast_audio_download) registreert
- * alleen aantal bytes, voor diagnose; bandbreedte is gratis.
+ * Downloads een podcast-MP3 naar een temp-file. De file wordt gestreamed
+ * naar disk om heap-pressure te vermijden bij grote afleveringen (80+ MB).
+ * De caller is verantwoordelijk voor opruimen van de temp-file na verwerking.
+ * De cost-log (action=podcast_audio_download) registreert alleen aantal bytes,
+ * voor diagnose; bandbreedte is gratis.
  */
 @Component
 class PodcastAudioDownloader(
@@ -28,32 +30,35 @@ class PodcastAudioDownloader(
         .followRedirects(HttpClient.Redirect.ALWAYS)
         .build()
 
-    fun download(username: String, episodeGuid: String, audioUrl: String): ByteArray? {
+    fun download(username: String, episodeGuid: String, audioUrl: String): File? {
         val started = Instant.now()
         var status = "ok"
         var errorMessage: String? = null
-        var bytes: ByteArray? = null
+        var size: Long = 0L
+        val tempFile = File.createTempFile("podcast-", ".mp3")
         try {
             val req = HttpRequest.newBuilder().uri(URI.create(audioUrl))
                 .header("User-Agent", "PersonalNewsFeed/1.0")
                 .timeout(Duration.ofMinutes(5))
                 .GET().build()
-            val resp = http.send(req, HttpResponse.BodyHandlers.ofByteArray())
+            val resp = http.send(req, HttpResponse.BodyHandlers.ofFile(tempFile.toPath()))
             if (resp.statusCode() >= 400) {
                 status = "error"
                 errorMessage = "http ${resp.statusCode()}"
                 log.warn("[PodcastAudio] {} -> {}", audioUrl, resp.statusCode())
+                tempFile.delete()
                 return null
             }
-            bytes = resp.body()
-            return bytes
+            size = tempFile.length()
+            return tempFile
         } catch (e: Exception) {
             log.warn("[PodcastAudio] download failed {}: {}", audioUrl, e.message)
             status = "error"
             errorMessage = e.message ?: e.javaClass.simpleName
+            tempFile.delete()
             return null
         } finally {
-            log(username, episodeGuid, audioUrl, started, bytes?.size?.toLong() ?: 0L, status, errorMessage)
+            log(username, episodeGuid, audioUrl, started, size, status, errorMessage)
         }
     }
 
