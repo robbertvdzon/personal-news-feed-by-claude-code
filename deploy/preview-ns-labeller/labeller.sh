@@ -36,18 +36,26 @@ NEON_ROLE="${NEON_ROLE:-neondb_owner}"
 #   NEON_API_KEY      — token voor Neon REST API
 #   NEON_PROJECT_ID   — bv. square-wave-12014142
 
-if [[ -z "${NEON_API_KEY:-}" ]]; then
-  echo "FATAL: NEON_API_KEY ontbreekt (zou uit secret newsfeed-api-keys moeten komen)" >&2
-  exit 1
-fi
-if [[ -z "${NEON_PROJECT_ID:-}" ]]; then
-  echo "FATAL: NEON_PROJECT_ID ontbreekt" >&2
-  exit 1
+# Neon-credentials zijn optioneel. Zonder valt de labeller terug op de
+# oude NS-labeling-rol (geen branches, geen secret-patching) en logt
+# één keer een waarschuwing. Zodra de credentials beschikbaar komen
+# (via een latere oc-apply die de deployment-YAML met env-vars
+# activeert), schakelt 'ie vanzelf over naar full Neon-mode bij de
+# eerstvolgende poll. Hard-fail is bewust vermeden zodat een
+# achterlopende deployment.yaml-apply de bestaande NS-labeling-functie
+# niet platlegt.
+NEON_ENABLED=1
+if [[ -z "${NEON_API_KEY:-}" || -z "${NEON_PROJECT_ID:-}" ]]; then
+  NEON_ENABLED=0
 fi
 
 log() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) [labeller] $*"; }
 
-log "start — argocd-ns=$ARGOCD_NS prefix=$NS_PREFIX neon-project=$NEON_PROJECT_ID interval=${INTERVAL}s"
+if (( NEON_ENABLED )); then
+  log "start — argocd-ns=$ARGOCD_NS prefix=$NS_PREFIX neon-project=$NEON_PROJECT_ID interval=${INTERVAL}s"
+else
+  log "start — argocd-ns=$ARGOCD_NS prefix=$NS_PREFIX interval=${INTERVAL}s — NEON DISABLED (set NEON_API_KEY + NEON_PROJECT_ID to enable per-PR branches)"
+fi
 
 # ─── Neon REST API helpers ───────────────────────────────────────────────
 
@@ -212,21 +220,28 @@ while true; do
       | grep "^${NS_PREFIX}" | sort -u || true
   )
 
-  # 2. Cache default-branch-id (parent voor PR-branches).
+  # 2. Cache default-branch-id (parent voor PR-branches). Skip helemaal
+  # als Neon-mode uit staat — dan doet de loop alleen NS-labeling.
   default_branch_id=""
-  if (( ${#app_namespaces[@]} > 0 )); then
+  if (( NEON_ENABLED )) && (( ${#app_namespaces[@]} > 0 )); then
     default_branch_id=$(neon_get_default_branch_id || true)
     if [[ -z "$default_branch_id" ]]; then
-      log "kan default Neon-branch niet bepalen — sla deze poll over"
-      sleep "$INTERVAL"
-      continue
+      log "kan default Neon-branch niet bepalen — sla Neon-stap over voor deze poll"
     fi
   fi
 
-  # 3. Per preview-namespace: ns ensure + branch ensure + secret patch.
+  # 3. Per preview-namespace: ns ensure + (optioneel) branch ensure + secret patch.
   for ns in "${app_namespaces[@]}"; do
     [[ -z "$ns" ]] && continue
     ensure_ns_with_label "$ns"
+
+    # Vanaf hier alleen Neon-werk; bij disabled-mode skippen we.
+    if ! (( NEON_ENABLED )); then
+      continue
+    fi
+    if [[ -z "$default_branch_id" ]]; then
+      continue
+    fi
 
     # PR-num uit ns-naam halen.
     pr_num="${ns#${NS_PREFIX}}"
@@ -284,6 +299,11 @@ while true; do
   done
 
   # 4. Cleanup: orphan Neon-branches verwijderen (geen matching ArgoCD-Application meer).
+  # Skip als Neon-mode uit staat — dan zijn er sowieso geen branches om op te ruimen.
+  if ! (( NEON_ENABLED )); then
+    sleep "$INTERVAL"
+    continue
+  fi
   all_branches_json=$(neon_list_branches 2>/dev/null || echo '{"branches":[]}')
   # Verzamel set van actieve PR-nummers uit huidige Applications.
   declare -A active_prs=()
