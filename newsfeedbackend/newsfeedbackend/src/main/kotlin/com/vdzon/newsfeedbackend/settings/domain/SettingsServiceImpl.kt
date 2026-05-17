@@ -1,5 +1,7 @@
 package com.vdzon.newsfeedbackend.settings.domain
 
+import com.vdzon.newsfeedbackend.podcast_feeds.PodcastFeedsSettings
+import com.vdzon.newsfeedbackend.podcast_feeds.infrastructure.PodcastFeedsRepository
 import com.vdzon.newsfeedbackend.settings.CategorySettings
 import com.vdzon.newsfeedbackend.settings.RssFeedsSettings
 import com.vdzon.newsfeedbackend.settings.SettingsService
@@ -10,7 +12,8 @@ import org.springframework.stereotype.Service
 @Service
 class SettingsServiceImpl(
     private val categoryRepo: CategorySettingsRepository,
-    private val rssFeedsRepo: RssFeedsRepository
+    private val rssFeedsRepo: RssFeedsRepository,
+    private val podcastFeedsRepo: PodcastFeedsRepository
 ) : SettingsService {
 
     private val defaultCategories = listOf(
@@ -42,6 +45,13 @@ class SettingsServiceImpl(
 
     override fun saveRssFeeds(username: String, settings: RssFeedsSettings): RssFeedsSettings {
         rssFeedsRepo.save(username, settings)
+        return settings
+    }
+
+    override fun getPodcastFeeds(username: String): PodcastFeedsSettings = podcastFeedsRepo.load(username)
+
+    override fun savePodcastFeeds(username: String, settings: PodcastFeedsSettings): PodcastFeedsSettings {
+        podcastFeedsRepo.save(username, settings)
         return settings
     }
 

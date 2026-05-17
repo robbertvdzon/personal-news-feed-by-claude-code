@@ -1,11 +1,16 @@
 package com.vdzon.newsfeedbackend.settings
 
+import com.vdzon.newsfeedbackend.podcast_feeds.PodcastFeedsSettings
+
 interface SettingsService {
     fun getCategories(username: String): List<CategorySettings>
     fun saveCategories(username: String, categories: List<CategorySettings>): List<CategorySettings>
 
     fun getRssFeeds(username: String): RssFeedsSettings
     fun saveRssFeeds(username: String, settings: RssFeedsSettings): RssFeedsSettings
+
+    fun getPodcastFeeds(username: String): PodcastFeedsSettings
+    fun savePodcastFeeds(username: String, settings: PodcastFeedsSettings): PodcastFeedsSettings
 }
 
 data class CategorySettings(

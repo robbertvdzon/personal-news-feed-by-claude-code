@@ -4,6 +4,7 @@ import com.vdzon.newsfeedbackend.ai.AnthropicClient
 import com.vdzon.newsfeedbackend.auth.AuthService
 import com.vdzon.newsfeedbackend.feed.FeedItem
 import com.vdzon.newsfeedbackend.feed.FeedService
+import com.vdzon.newsfeedbackend.podcast_feeds.domain.PodcastRefreshRequested
 import com.vdzon.newsfeedbackend.request.NewsRequest
 import com.vdzon.newsfeedbackend.request.RequestService
 import com.vdzon.newsfeedbackend.request.RequestStatus
@@ -11,6 +12,7 @@ import com.vdzon.newsfeedbackend.rss.RssService
 import com.vdzon.newsfeedbackend.rss.infrastructure.RssItemRepository
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock
 import org.slf4j.LoggerFactory
+import org.springframework.context.ApplicationEventPublisher
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
 import java.time.Instant
@@ -24,7 +26,8 @@ class RssScheduler(
     private val feed: FeedService,
     private val rssRepo: RssItemRepository,
     private val anthropic: AnthropicClient,
-    private val requests: RequestService
+    private val requests: RequestService,
+    private val publisher: ApplicationEventPublisher
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -34,6 +37,7 @@ class RssScheduler(
         for (username in auth.listUsernames()) {
             log.info("[Scheduler] hourly refresh -> {}", username)
             rss.triggerRefresh(username)
+            publisher.publishEvent(PodcastRefreshRequested(username))
         }
     }
 
