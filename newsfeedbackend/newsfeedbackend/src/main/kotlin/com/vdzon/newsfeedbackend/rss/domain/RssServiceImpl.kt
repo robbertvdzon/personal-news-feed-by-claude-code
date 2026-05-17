@@ -11,6 +11,15 @@ import java.time.temporal.ChronoUnit
 data class RssRefreshRequested(val username: String)
 data class RssReselectRequested(val username: String)
 
+/**
+ * KAN-60: door de [com.vdzon.newsfeedbackend.podcast_source.domain.PodcastTranscriptWorker]
+ * gepubliceerd zodra een podcast-aflevering klaar is voor feed-promotie
+ * (transcript verwerkt óf 24h-timeout verstreken). De
+ * [RssRefreshPipeline] luistert hierop en draait de bestaande
+ * AI-selectie+FeedItem-generatie voor één rss_items-rij.
+ */
+data class PodcastPromotionRequested(val username: String, val rssItemId: String)
+
 @Service
 class RssServiceImpl(
     private val repo: RssItemRepository,

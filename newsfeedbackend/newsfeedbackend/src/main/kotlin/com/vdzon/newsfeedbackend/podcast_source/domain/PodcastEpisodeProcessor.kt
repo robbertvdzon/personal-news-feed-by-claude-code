@@ -8,27 +8,44 @@ import com.vdzon.newsfeedbackend.podcast_source.infrastructure.PodcastAudioDownl
 import com.vdzon.newsfeedbackend.podcast_source.infrastructure.PodcastEpisodeRepository
 import com.vdzon.newsfeedbackend.podcast_source.infrastructure.WhisperClient
 import com.vdzon.newsfeedbackend.rss.RssItem
+import com.vdzon.newsfeedbackend.rss.domain.PodcastPromotionRequested
 import com.vdzon.newsfeedbackend.rss.infrastructure.RssItemRepository
 import com.vdzon.newsfeedbackend.settings.SettingsService
 import org.slf4j.LoggerFactory
 import org.slf4j.MDC
+import org.springframework.context.ApplicationEventPublisher
 import org.springframework.scheduling.annotation.Async
 import org.springframework.stereotype.Component
+import java.time.Duration
 import java.time.Instant
 import java.util.UUID
 
 /**
- * Async-pipeline-stappen voor één podcast-aflevering:
- *   DOWNLOADING → TRANSCRIBING → SUMMARIZING → DONE
+ * KAN-60: tweefasen-pipeline-stappen voor één podcast-aflevering.
  *
- * Op elke fout (geen audio, Whisper-fail, Claude-fail) zetten we de
- * episode op FAILED met een leesbare `error_message`. We schrijven dan
- * GEEN rss_items-rij; gefaalde episodes verschijnen niet als card
- * (AC #8).
+ * **Fase 1 — snelle show-notes-card** ([processShowNotes], async via
+ * `podcastTaskExecutor`):
+ *   PENDING → SUMMARIZING_FROM_NOTES → (NEEDS_TRANSCRIPT óf
+ *   SHOW_NOTES_DONE als transcribeEnabled=false)
  *
- * Bij `transcribeEnabled=false` (of als Whisper faalt en er show-notes
- * zijn): val terug op de show-notes als Claude-input. Beter een matige
- * samenvatting dan geen card.
+ *   Geen audio-download, geen Whisper-call. Claude vat de RSS-
+ *   `<description>` samen, het kaartje verschijnt direct in de RSS-tab
+ *   met `summary_source='show_notes'` (voorlopige badge in de UI).
+ *
+ * **Fase 2 — async transcript** ([processTranscript], door
+ * [PodcastTranscriptWorker] aangeroepen):
+ *   NEEDS_TRANSCRIPT → DOWNLOADING → TRANSCRIBING → SUMMARIZING → DONE
+ *
+ *   Download MP3, Whisper, herberekening Claude. Overschrijft de summary
+ *   op het rss_items-kaartje en zet `summary_source='transcript'`
+ *   (badge verdwijnt). Trigget daarna de feed-promotie.
+ *
+ * **Foutbeleid**:
+ *   - Whisper 429/5xx → episode blijft NEEDS_TRANSCRIPT, retry_count++,
+ *     next_attempt_at = now + backoff (5m/15m/45m/24h). Geen FAILED.
+ *   - Whisper fatale fout / geen API-key → episode wordt SHOW_NOTES_DONE
+ *     (terminale "we proberen het niet meer"-state — badge blijft).
+ *   - Onverwachte exception in show-notes-fase → FAILED, geen card.
  */
 @Component
 class PodcastEpisodeProcessor(
@@ -38,87 +55,84 @@ class PodcastEpisodeProcessor(
     private val whisper: WhisperClient,
     private val anthropic: AnthropicClient,
     private val settings: SettingsService,
-    private val mapper: ObjectMapper
+    private val mapper: ObjectMapper,
+    private val events: ApplicationEventPublisher
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
+    /**
+     * Fase 1 — show-notes-summary. Wordt vanuit
+     * [PodcastIngestionPipeline] gekickt direct na het ontdekken van een
+     * nieuwe aflevering, zodat de card binnen seconden in de RSS-tab
+     * verschijnt (AC #1).
+     */
     @Async("podcastTaskExecutor")
-    fun process(username: String, guid: String, transcribeEnabled: Boolean) {
+    fun processShowNotes(username: String, guid: String, transcribeEnabled: Boolean) {
         MDC.put("username", username)
-        var audioFile: java.io.File? = null
         try {
             val initial = episodeRepo.get(username, guid) ?: run {
                 log.warn("[PodcastEpisode] verdween uit DB voor we 'm konden verwerken — guid={}", guid)
                 return
             }
-            // Idempotency: als 'ie al DONE staat (b.v. door een eerder
-            // gevallen async-run die uiteindelijk toch slaagde) niet
-            // opnieuw verwerken. AC #6 — 3× refresh = 0 dupes.
-            if (initial.status == PodcastEpisodeStatus.DONE) {
-                log.debug("[PodcastEpisode] guid={} al DONE — skip", guid)
+            // Idempotency: alleen in PENDING-staat verwerken; bij een refresh
+            // die op een al-verwerkte episode landt (b.v. SUMMARIZING_FROM_NOTES
+            // door een vorige tick) niet opnieuw doen.
+            if (initial.status != PodcastEpisodeStatus.PENDING) {
+                log.debug("[PodcastEpisode] guid={} status={} — skip show-notes-fase", guid, initial.status)
                 return
             }
-            log.info("[PodcastEpisode] start guid={} title='{}'", guid, initial.title.take(80))
+            log.info("[PodcastEpisode] show-notes-fase start guid={} title='{}'",
+                guid, initial.title.take(80))
 
-            var ep = initial
-            val transcript = if (transcribeEnabled) {
-                ep = save(ep.copy(status = PodcastEpisodeStatus.DOWNLOADING))
-                audioFile = downloader.download(username, guid, ep.audioUrl)
-                if (audioFile == null) {
-                    log.warn("[PodcastEpisode] download faalde voor guid={} url={}", guid, ep.audioUrl)
-                    ep = save(ep.copy(
-                        status = PodcastEpisodeStatus.FAILED,
-                        errorMessage = "Audio-download faalde"
-                    ))
-                    return
-                }
-                ep = save(ep.copy(status = PodcastEpisodeStatus.TRANSCRIBING))
-                val result = whisper.transcribe(
-                    username = username,
-                    episodeGuid = guid,
-                    audioFile = audioFile,
-                    audioFilename = guessFilename(ep.audioUrl),
-                    audioDurationSec = (ep.durationSeconds ?: 0).toLong()
-                )
-                result?.text.orEmpty()
-            } else {
-                log.info("[PodcastEpisode] transcribe-toggle uit — fallback naar show-notes voor guid={}", guid)
-                ""
-            }
+            var ep = save(initial.copy(status = PodcastEpisodeStatus.SUMMARIZING_FROM_NOTES))
 
-            val summarizeInput = transcript.ifBlank { ep.showNotes }
-            if (summarizeInput.isBlank()) {
-                log.warn("[PodcastEpisode] noch transcript noch show-notes — guid={}", guid)
+            if (ep.showNotes.isBlank()) {
+                log.warn("[PodcastEpisode] geen show-notes — guid={} (kan geen voorlopige card maken)", guid)
                 save(ep.copy(
                     status = PodcastEpisodeStatus.FAILED,
-                    errorMessage = "Geen transcript en geen show-notes om samenvatting van te maken"
+                    errorMessage = "Geen show-notes om een voorlopige samenvatting van te maken"
                 ))
                 return
             }
 
-            ep = save(ep.copy(status = PodcastEpisodeStatus.SUMMARIZING, transcript = transcript))
-            val summarized = summarize(username, ep, summarizeInput)
+            val summarized = summarize(username, ep, ep.showNotes)
             if (summarized == null) {
                 save(ep.copy(
                     status = PodcastEpisodeStatus.FAILED,
-                    errorMessage = "Claude-samenvatting faalde"
+                    errorMessage = "Claude-samenvatting op show-notes faalde"
                 ))
                 return
             }
 
-            ep = ep.copy(summary = summarized.shortSummary)
             val rssItemId = ep.rssItemId ?: UUID.randomUUID().toString()
-            val rss = buildRssItem(ep, summarized, rssItemId)
+            val rss = buildRssItem(ep, summarized, rssItemId, summarySource = "show_notes")
             rssRepo.upsert(username, rss)
 
-            save(ep.copy(
-                status = PodcastEpisodeStatus.DONE,
+            // Bij transcribeEnabled=false: dit is meteen de eindstaat. Card
+            // krijgt permanent een show-notes-badge (refiner-aanname), en
+            // we promoten 'm direct (geen wachten op transcript dat nooit
+            // komt — voorkomt dat een card 24h "vast" zit voordat de
+            // timeout-promotie 'm oppakt).
+            val nextStatus = if (transcribeEnabled) {
+                PodcastEpisodeStatus.NEEDS_TRANSCRIPT
+            } else {
+                PodcastEpisodeStatus.SHOW_NOTES_DONE
+            }
+            ep = save(ep.copy(
+                status = nextStatus,
                 rssItemId = rssItemId,
+                summary = summarized.shortSummary,
+                summarySource = "show_notes",
                 errorMessage = null
             ))
-            log.info("[PodcastEpisode] DONE guid={} → rss_items.id={}", guid, rssItemId)
+
+            if (!transcribeEnabled) {
+                triggerFeedPromotion(username, rssItemId)
+            }
+            log.info("[PodcastEpisode] show-notes-fase klaar guid={} → status={} rssItemId={}",
+                guid, nextStatus, rssItemId)
         } catch (e: Exception) {
-            log.error("[PodcastEpisode] onverwachte fout guid={}: {}", guid, e.message, e)
+            log.error("[PodcastEpisode] onverwachte fout in show-notes-fase guid={}: {}", guid, e.message, e)
             episodeRepo.get(username, guid)?.let {
                 episodeRepo.upsert(it.copy(
                     status = PodcastEpisodeStatus.FAILED,
@@ -126,12 +140,164 @@ class PodcastEpisodeProcessor(
                 ))
             }
         } finally {
+            MDC.clear()
+        }
+    }
+
+    /**
+     * Fase 2 — transcript-fase. Wordt synchroon aangeroepen vanuit
+     * [PodcastTranscriptWorker] (de scheduled tick pakt MAX 1 episode op).
+     * Retourneert hoe het is afgelopen zodat de worker bij rate-limit de
+     * backoff kan instellen.
+     */
+    fun processTranscript(username: String, guid: String): TranscriptResult {
+        MDC.put("username", username)
+        var audioFile: java.io.File? = null
+        return try {
+            val initial = episodeRepo.get(username, guid)
+                ?: return TranscriptResult.Skipped("episode verdwenen uit DB").also {
+                    log.warn("[PodcastEpisode] transcript-fase: guid={} niet in DB", guid)
+                }
+            if (initial.status != PodcastEpisodeStatus.NEEDS_TRANSCRIPT) {
+                log.debug("[PodcastEpisode] transcript-fase: guid={} status={} — skip", guid, initial.status)
+                return TranscriptResult.Skipped("status=${initial.status}")
+            }
+            log.info("[PodcastEpisode] transcript-fase start guid={} title='{}' (retry_count={})",
+                guid, initial.title.take(80), initial.retryCount)
+
+            var ep = save(initial.copy(status = PodcastEpisodeStatus.DOWNLOADING))
+            audioFile = downloader.download(username, guid, ep.audioUrl)
+            if (audioFile == null) {
+                log.warn("[PodcastEpisode] download faalde voor guid={} url={}", guid, ep.audioUrl)
+                // Download-fouten zijn meestal niet-herstelbaar (404, dode
+                // CDN-link); we laten de show-notes-card staan i.p.v. een
+                // retry-storm te bouwen.
+                save(ep.copy(
+                    status = PodcastEpisodeStatus.SHOW_NOTES_DONE,
+                    errorMessage = "Audio-download faalde — card blijft op show-notes"
+                ))
+                return TranscriptResult.Fatal("audio-download faalde")
+            }
+
+            ep = save(ep.copy(status = PodcastEpisodeStatus.TRANSCRIBING))
+            val outcome = whisper.transcribe(
+                username = username,
+                episodeGuid = guid,
+                audioFile = audioFile,
+                audioFilename = guessFilename(ep.audioUrl),
+                audioDurationSec = (ep.durationSeconds ?: 0).toLong()
+            )
+            when (outcome) {
+                is WhisperClient.TranscribeOutcome.RateLimited -> {
+                    // Niet FAILED — episode blijft in de retry-pool. De
+                    // worker zet next_attempt_at + retry_count zelf na de
+                    // return-value; hier zetten we 'm alleen terug op
+                    // NEEDS_TRANSCRIPT en sturen de status-code mee.
+                    save(ep.copy(
+                        status = PodcastEpisodeStatus.NEEDS_TRANSCRIPT,
+                        errorMessage = "Whisper rate-limited: ${outcome.message.take(160)}"
+                    ))
+                    log.warn("[PodcastEpisode] Whisper rate-limited guid={} ({}). Retry volgt via worker.",
+                        guid, outcome.statusCode)
+                    return TranscriptResult.RateLimited(outcome.statusCode)
+                }
+                is WhisperClient.TranscribeOutcome.NoApiKey,
+                is WhisperClient.TranscribeOutcome.FatalError -> {
+                    val msg = (outcome as? WhisperClient.TranscribeOutcome.FatalError)?.message
+                        ?: "Whisper: geen API-key geconfigureerd"
+                    // Geen Whisper-resultaat te krijgen; we stoppen met
+                    // proberen en laten de show-notes-card permanent staan.
+                    save(ep.copy(
+                        status = PodcastEpisodeStatus.SHOW_NOTES_DONE,
+                        errorMessage = "Whisper fataal: ${msg.take(160)}"
+                    ))
+                    log.warn("[PodcastEpisode] Whisper fatale fout guid={}: {} — card blijft op show-notes",
+                        guid, msg)
+                    return TranscriptResult.Fatal(msg)
+                }
+                is WhisperClient.TranscribeOutcome.Success -> {
+                    val transcript = outcome.text
+                    if (transcript.isBlank()) {
+                        log.warn("[PodcastEpisode] Whisper gaf leeg transcript voor guid={}", guid)
+                        save(ep.copy(
+                            status = PodcastEpisodeStatus.SHOW_NOTES_DONE,
+                            errorMessage = "Whisper gaf een leeg transcript terug"
+                        ))
+                        return TranscriptResult.Fatal("empty transcript")
+                    }
+                    ep = save(ep.copy(
+                        status = PodcastEpisodeStatus.SUMMARIZING,
+                        transcript = transcript
+                    ))
+                    val summarized = summarize(username, ep, transcript)
+                    if (summarized == null) {
+                        // Claude faalde op het transcript — terugvallen op
+                        // de bestaande show-notes-summary. Card blijft
+                        // intact, badge ook (summarySource blijft show_notes).
+                        save(ep.copy(
+                            status = PodcastEpisodeStatus.SHOW_NOTES_DONE,
+                            errorMessage = "Claude-samenvatting op transcript faalde"
+                        ))
+                        log.warn("[PodcastEpisode] Claude faalde op transcript guid={} — card blijft op show-notes", guid)
+                        return TranscriptResult.Fatal("claude summarize failed")
+                    }
+
+                    val rssItemId = ep.rssItemId ?: UUID.randomUUID().toString()
+                    val rss = buildRssItem(ep, summarized, rssItemId, summarySource = "transcript")
+                    rssRepo.upsert(username, rss)
+
+                    save(ep.copy(
+                        status = PodcastEpisodeStatus.DONE,
+                        rssItemId = rssItemId,
+                        summary = summarized.shortSummary,
+                        summarySource = "transcript",
+                        nextAttemptAt = null,
+                        errorMessage = null
+                    ))
+                    log.info("[PodcastEpisode] DONE (transcript-based) guid={} → rss_items.id={}",
+                        guid, rssItemId)
+                    triggerFeedPromotion(username, rssItemId)
+                    return TranscriptResult.Success
+                }
+            }
+        } catch (e: Exception) {
+            log.error("[PodcastEpisode] onverwachte fout in transcript-fase guid={}: {}",
+                guid, e.message, e)
+            episodeRepo.get(username, guid)?.let {
+                episodeRepo.upsert(it.copy(
+                    status = PodcastEpisodeStatus.SHOW_NOTES_DONE,
+                    errorMessage = "Onverwachte fout in transcript-fase: ${e.message ?: e.javaClass.simpleName}"
+                ))
+            }
+            TranscriptResult.Fatal(e.message ?: e.javaClass.simpleName)
+        } finally {
             try {
                 audioFile?.delete()
             } catch (e: Exception) {
                 log.warn("[PodcastEpisode] kon temp-file niet verwijderen: {}", e.message)
             }
             MDC.clear()
+        }
+    }
+
+    /**
+     * Backoff-tabel uit de story (AC #4): 5m → 15m → 45m → 24h. retryCount
+     * is het aantal mislukte pogingen vóór deze tick; retryCount=0 ná de
+     * eerste 429 → wachttijd 5m.
+     */
+    fun nextRetryDelay(retryCount: Int): Duration = when (retryCount) {
+        0 -> Duration.ofMinutes(5)
+        1 -> Duration.ofMinutes(15)
+        2 -> Duration.ofMinutes(45)
+        else -> Duration.ofHours(24)
+    }
+
+    private fun triggerFeedPromotion(username: String, rssItemId: String) {
+        try {
+            events.publishEvent(PodcastPromotionRequested(username = username, rssItemId = rssItemId))
+        } catch (e: Exception) {
+            log.warn("[PodcastEpisode] kon promotion-event niet publiceren voor rssItemId={}: {}",
+                rssItemId, e.message)
         }
     }
 
@@ -210,7 +376,12 @@ class PodcastEpisodeProcessor(
         }
     }
 
-    private fun buildRssItem(ep: PodcastEpisode, sum: Summarized, rssItemId: String): RssItem {
+    private fun buildRssItem(
+        ep: PodcastEpisode,
+        sum: Summarized,
+        rssItemId: String,
+        summarySource: String
+    ): RssItem {
         // Bij re-runs hergebruiken we het oude rss_items.id zodat
         // gebruikersinteractie (sterren, isRead) bewaard blijft.
         val existing = ep.rssItemId?.let { rid ->
@@ -225,7 +396,8 @@ class PodcastEpisodeProcessor(
             timestamp = Instant.now(),
             mediaType = "PODCAST",
             audioUrl = ep.audioUrl,
-            durationSeconds = ep.durationSeconds
+            durationSeconds = ep.durationSeconds,
+            summarySource = summarySource
         )).copy(
             title = ep.title,
             summary = sum.shortSummary,
@@ -239,6 +411,7 @@ class PodcastEpisodeProcessor(
             mediaType = "PODCAST",
             audioUrl = ep.audioUrl,
             durationSeconds = ep.durationSeconds,
+            summarySource = summarySource,
             processedAt = Instant.now()
         )
     }
@@ -288,5 +461,12 @@ class PodcastEpisodeProcessor(
             }
         }
         return s.substring(start)
+    }
+
+    sealed class TranscriptResult {
+        object Success : TranscriptResult()
+        data class RateLimited(val statusCode: Int) : TranscriptResult()
+        data class Fatal(val message: String) : TranscriptResult()
+        data class Skipped(val reason: String) : TranscriptResult()
     }
 }

@@ -32,7 +32,8 @@ class FeedItemRepository(
         liked = rs.getObject("liked") as? Boolean,
         createdAt = rs.getTimestamp("created_at").toInstant(),
         publishedDate = rs.getString("published_date"),
-        isSummary = rs.getBoolean("is_summary")
+        isSummary = rs.getBoolean("is_summary"),
+        mediaType = rs.getString("media_type") ?: "ARTICLE"
     )
 
     private fun params(username: String, item: FeedItem) = MapSqlParameterSource()
@@ -55,6 +56,7 @@ class FeedItemRepository(
         .addValue("created_at", Timestamp.from(item.createdAt))
         .addValue("published_date", item.publishedDate)
         .addValue("is_summary", item.isSummary)
+        .addValue("media_type", item.mediaType)
 
     fun load(username: String): MutableList<FeedItem> =
         jdbc.query(
@@ -87,12 +89,12 @@ class FeedItemRepository(
                 username, id, title, title_nl, summary, short_summary, url,
                 category, source, source_rss_ids, source_urls, topics,
                 feed_reason, is_read, starred, liked, created_at,
-                published_date, is_summary
+                published_date, is_summary, media_type
             ) VALUES (
                 :username, :id, :title, :title_nl, :summary, :short_summary, :url,
                 :category, :source, :source_rss_ids, :source_urls, :topics,
                 :feed_reason, :is_read, :starred, :liked, :created_at,
-                :published_date, :is_summary
+                :published_date, :is_summary, :media_type
             )
             ON CONFLICT (username, id) DO UPDATE SET
                 title           = EXCLUDED.title,
@@ -111,7 +113,8 @@ class FeedItemRepository(
                 liked           = EXCLUDED.liked,
                 created_at      = EXCLUDED.created_at,
                 published_date  = EXCLUDED.published_date,
-                is_summary      = EXCLUDED.is_summary
+                is_summary      = EXCLUDED.is_summary,
+                media_type      = EXCLUDED.media_type
         """
     }
 }

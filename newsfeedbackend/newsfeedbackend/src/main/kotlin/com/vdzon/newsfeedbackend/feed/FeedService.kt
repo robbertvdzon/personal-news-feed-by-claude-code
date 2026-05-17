@@ -57,5 +57,12 @@ data class FeedItem(
     @get:com.fasterxml.jackson.annotation.JsonProperty("isSummary")
     @field:com.fasterxml.jackson.annotation.JsonProperty("isSummary")
     @param:com.fasterxml.jackson.annotation.JsonProperty("isSummary")
-    val isSummary: Boolean = false
+    val isSummary: Boolean = false,
+    /**
+     * KAN-60: 'ARTICLE' (default) of 'PODCAST'. Discriminator zodat de
+     * Feed-tab filter (AC8) op rij-niveau kan filteren zonder cross-join
+     * met rss_items. Legacy feed_items uit pre-KAN-60-tijd zijn standaard
+     * ARTICLE — veilige default conform refiner-aanname.
+     */
+    val mediaType: String = "ARTICLE"
 )

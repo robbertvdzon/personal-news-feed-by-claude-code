@@ -14,6 +14,9 @@ const _allTabId = '__all__';
 const _starredTabId = '__starred__';
 const _summaryTabId = '__summary__';
 
+/// KAN-60 (AC8): media-type filter onafhankelijk van de categorie-tab.
+enum _MediaFilter { all, rss, podcasts }
+
 class FeedScreen extends ConsumerStatefulWidget {
   const FeedScreen({super.key});
 
@@ -24,6 +27,8 @@ class FeedScreen extends ConsumerStatefulWidget {
 class _FeedScreenState extends ConsumerState<FeedScreen> {
   String _selectedTab = _allTabId;
   bool _hideRead = true;
+  // KAN-60 (AC8): session-scoped filter — Alles / RSS / Podcasts.
+  _MediaFilter _mediaFilter = _MediaFilter.all;
 
   @override
   Widget build(BuildContext context) {
@@ -64,6 +69,10 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
             title: const Text('Verberg gelezen'),
             value: _hideRead,
             onChanged: (v) => setState(() => _hideRead = v),
+          ),
+          _MediaFilterBar(
+            selected: _mediaFilter,
+            onSelected: (f) => setState(() => _mediaFilter = f),
           ),
           _CategoryTabBar(
             tabs: tabs,
@@ -126,10 +135,23 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     }
   }
 
+  /// KAN-60 (AC8): media-type filter, AND-gecombineerd met categorie-tab.
+  bool _matchesMediaFilter(FeedItem it) {
+    switch (_mediaFilter) {
+      case _MediaFilter.all:
+        return true;
+      case _MediaFilter.rss:
+        return !it.isPodcast;
+      case _MediaFilter.podcasts:
+        return it.isPodcast;
+    }
+  }
+
   /// Telt items die zichtbaar zouden zijn voor `tabId` na verberg-gelezen.
   int _countFor(List<FeedItem> items, String tabId) {
     return items.where((it) {
       if (!_matchesTab(it, tabId)) return false;
+      if (!_matchesMediaFilter(it)) return false;
       if (_hideRead && it.isRead) return false;
       return true;
     }).length;
@@ -138,6 +160,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
   List<FeedItem> _filter(List<FeedItem> items) {
     return items.where((it) {
       if (!_matchesTab(it, _selectedTab)) return false;
+      if (!_matchesMediaFilter(it)) return false;
       if (_hideRead && it.isRead) return false;
       return true;
     }).toList();
@@ -186,6 +209,46 @@ class _FeedTab {
   final String id;
   final String name;
   const _FeedTab({required this.id, required this.name});
+}
+
+/// KAN-60 (AC8): zelfde 'Alles | RSS | Podcasts'-chip-rij als op de
+/// RSS-tab. Sessie-state. Chips zijn altijd zichtbaar — zelfs als er
+/// (nog) geen podcast-items in de feed staan; klikken op 'Podcasts'
+/// geeft dan 0 items (refiner-aanname).
+class _MediaFilterBar extends StatelessWidget {
+  final _MediaFilter selected;
+  final ValueChanged<_MediaFilter> onSelected;
+
+  const _MediaFilterBar({required this.selected, required this.onSelected});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      child: Wrap(
+        spacing: 8,
+        children: [
+          ChoiceChip(
+            label: const Text('Alles'),
+            selected: selected == _MediaFilter.all,
+            onSelected: (_) => onSelected(_MediaFilter.all),
+          ),
+          ChoiceChip(
+            label: const Text('RSS'),
+            avatar: const Icon(Icons.article_outlined, size: 16),
+            selected: selected == _MediaFilter.rss,
+            onSelected: (_) => onSelected(_MediaFilter.rss),
+          ),
+          ChoiceChip(
+            label: const Text('Podcasts'),
+            avatar: const Icon(Icons.podcasts, size: 16),
+            selected: selected == _MediaFilter.podcasts,
+            onSelected: (_) => onSelected(_MediaFilter.podcasts),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 /// Horizontaal scrollende rij van tabs met tellers. Geen TabController:
