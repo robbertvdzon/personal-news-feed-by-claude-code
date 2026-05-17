@@ -31,6 +31,9 @@ class PodcastEpisodeRepository(
         }.getOrDefault(PodcastEpisodeStatus.PENDING),
         errorMessage = rs.getString("error_message"),
         rssItemId = rs.getString("rss_item_id"),
+        retryCount = rs.getInt("retry_count"),
+        nextAttemptAt = rs.getTimestamp("next_attempt_at")?.toInstant(),
+        summarySource = rs.getString("summary_source") ?: "transcript",
         createdAt = rs.getTimestamp("created_at")?.toInstant() ?: Instant.now(),
         updatedAt = rs.getTimestamp("updated_at")?.toInstant() ?: Instant.now()
     )
@@ -84,6 +87,45 @@ class PodcastEpisodeRepository(
             MapSqlParameterSource("status", "PENDING")
         )
 
+    /**
+     * KAN-60: pakt globaal de oudste aflevering die klaar is voor een
+     * (nieuwe) Whisper-poging — status=NEEDS_TRANSCRIPT en niet meer in
+     * de backoff-wachtkamer. FIFO over alle gebruikers heen; per tick
+     * wordt er max één opgepakt zodat we Whisper niet weer met een burst
+     * overstelpen (AC #3).
+     */
+    fun findOneReadyForTranscript(now: Instant): PodcastEpisode? =
+        jdbc.query(
+            """SELECT * FROM podcast_episodes
+               WHERE status = 'NEEDS_TRANSCRIPT'
+                 AND (next_attempt_at IS NULL OR next_attempt_at <= :now)
+               ORDER BY created_at ASC
+               LIMIT 1""",
+            MapSqlParameterSource("now", Timestamp.from(now)),
+            ::map
+        ).firstOrNull()
+
+    /**
+     * KAN-60: pakt afleveringen die langer dan [olderThan] vastzitten op
+     * NEEDS_TRANSCRIPT en nog niet naar de Feed-tab gepromoot zijn (geen
+     * gekoppeld feed_items.id op rss_items). Deze worden alsnog
+     * gepromoot op basis van de show-notes-samenvatting (AC #6).
+     */
+    fun findShowNotesExpiredForPromotion(now: Instant, olderThan: java.time.Duration): List<PodcastEpisode> {
+        val threshold = now.minus(olderThan)
+        return jdbc.query(
+            """SELECT pe.* FROM podcast_episodes pe
+               JOIN rss_items ri
+                 ON ri.username = pe.username AND ri.id = pe.rss_item_id
+               WHERE pe.status = 'NEEDS_TRANSCRIPT'
+                 AND pe.created_at <= :threshold
+                 AND ri.feed_item_id IS NULL
+               ORDER BY pe.created_at ASC""",
+            MapSqlParameterSource("threshold", Timestamp.from(threshold)),
+            ::map
+        )
+    }
+
     private fun params(ep: PodcastEpisode) = MapSqlParameterSource()
         .addValue("username", ep.username)
         .addValue("guid", ep.guid)
@@ -99,6 +141,9 @@ class PodcastEpisodeRepository(
         .addValue("status", ep.status.name)
         .addValue("error_message", ep.errorMessage)
         .addValue("rss_item_id", ep.rssItemId)
+        .addValue("retry_count", ep.retryCount)
+        .addValue("next_attempt_at", ep.nextAttemptAt?.let { Timestamp.from(it) })
+        .addValue("summary_source", ep.summarySource)
         .addValue("created_at", Timestamp.from(ep.createdAt))
         .addValue("updated_at", Timestamp.from(ep.updatedAt))
 
@@ -107,11 +152,13 @@ class PodcastEpisodeRepository(
             INSERT INTO podcast_episodes (
                 username, guid, feed_url, podcast_name, title, audio_url,
                 duration_seconds, published_date, show_notes, transcript,
-                summary, status, error_message, rss_item_id, created_at, updated_at
+                summary, status, error_message, rss_item_id, retry_count,
+                next_attempt_at, summary_source, created_at, updated_at
             ) VALUES (
                 :username, :guid, :feed_url, :podcast_name, :title, :audio_url,
                 :duration_seconds, :published_date, :show_notes, :transcript,
-                :summary, :status, :error_message, :rss_item_id, :created_at, :updated_at
+                :summary, :status, :error_message, :rss_item_id, :retry_count,
+                :next_attempt_at, :summary_source, :created_at, :updated_at
             )
             ON CONFLICT (username, guid) DO UPDATE SET
                 feed_url         = EXCLUDED.feed_url,
@@ -126,6 +173,9 @@ class PodcastEpisodeRepository(
                 status           = EXCLUDED.status,
                 error_message    = EXCLUDED.error_message,
                 rss_item_id      = EXCLUDED.rss_item_id,
+                retry_count      = EXCLUDED.retry_count,
+                next_attempt_at  = EXCLUDED.next_attempt_at,
+                summary_source   = EXCLUDED.summary_source,
                 updated_at       = EXCLUDED.updated_at
         """
     }

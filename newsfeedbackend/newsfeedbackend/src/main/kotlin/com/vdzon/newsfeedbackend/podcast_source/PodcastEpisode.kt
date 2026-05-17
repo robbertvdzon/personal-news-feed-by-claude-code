@@ -3,14 +3,19 @@ package com.vdzon.newsfeedbackend.podcast_source
 import java.time.Instant
 
 /**
- * Tracking-rij voor één podcast-aflevering tijdens de Whisper+Claude-
- * pipeline. PK (username, guid) is meteen de idempotency-cache: een
- * refresh die dezelfde GUID opnieuw tegenkomt verwerkt 'm niet opnieuw.
+ * Tracking-rij voor één podcast-aflevering tijdens de tweefasen-pipeline.
+ * PK (username, guid) is meteen de idempotency-cache: een refresh die
+ * dezelfde GUID opnieuw tegenkomt verwerkt 'm niet opnieuw.
  *
- * Status-pipeline: PENDING → DOWNLOADING → TRANSCRIBING → SUMMARIZING
- * → DONE, met FAILED als terminale-fout-state. Bij DONE staat
- * [rssItemId] gevuld zodat het bijbehorende rss_items-kaartje
- * gevonden kan worden zonder dubbele inserts.
+ * KAN-60-statusverloop:
+ *   PENDING
+ *     → SUMMARIZING_FROM_NOTES   (snelle fase, op kritieke pad)
+ *     → NEEDS_TRANSCRIPT          (card staat al online, transcript volgt)
+ *         ↳ DOWNLOADING → TRANSCRIBING → SUMMARIZING
+ *         → DONE                  (transcript-based summary, badge weg)
+ *     → SHOW_NOTES_DONE           (terminale state als transcribeEnabled=false)
+ *   FAILED                        (alleen voor fatale fouten, niet voor
+ *                                  429/5xx — die worden geretryd)
  */
 data class PodcastEpisode(
     val username: String,
@@ -27,12 +32,30 @@ data class PodcastEpisode(
     val status: PodcastEpisodeStatus = PodcastEpisodeStatus.PENDING,
     val errorMessage: String? = null,
     val rssItemId: String? = null,
+    /** KAN-60: aantal mislukte Whisper-pogingen (429/5xx). Stuurt de backoff. */
+    val retryCount: Int = 0,
+    /**
+     * KAN-60: wanneer de [PodcastTranscriptWorker] op z'n vroegst opnieuw
+     * mag proberen. `null` = direct opneembaar. Wordt door de worker
+     * gezet bij 429/5xx; volgt de tabel 5m → 15m → 45m → 24h.
+     */
+    val nextAttemptAt: Instant? = null,
+    /**
+     * KAN-60: 'show_notes' zolang de samenvatting nog op de RSS-description
+     * gebaseerd is; 'transcript' zodra Whisper+Claude opnieuw heeft
+     * gedraaid. De frontend gebruikt dit (op rss_items) om de
+     * voorlopige-badge te tonen.
+     */
+    val summarySource: String = "transcript",
     val createdAt: Instant = Instant.now(),
     val updatedAt: Instant = Instant.now()
 )
 
 enum class PodcastEpisodeStatus {
     PENDING,
+    SUMMARIZING_FROM_NOTES,
+    NEEDS_TRANSCRIPT,
+    SHOW_NOTES_DONE,
     DOWNLOADING,
     TRANSCRIBING,
     SUMMARIZING,

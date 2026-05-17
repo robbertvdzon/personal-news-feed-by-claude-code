@@ -51,6 +51,18 @@ class RssRefreshPipeline(
     @Async
     fun onReselect(event: RssReselectRequested) = reselect(event.username)
 
+    /**
+     * KAN-60: trigger feed-promotie voor één specifiek rss_items-id
+     * (typisch een podcast-aflevering die transcript-fase heeft afgerond
+     * óf de 24h-show-notes-timeout heeft geraakt). Draait de bestaande
+     * AI-selectie op precies dit item en genereert bij selectie een
+     * FeedItem.
+     */
+    @EventListener
+    @Async
+    fun onPodcastPromotion(event: PodcastPromotionRequested) =
+        promoteSingleItem(event.username, event.rssItemId)
+
     fun run(username: String) {
         val lock = locks.computeIfAbsent(username) { ReentrantLock() }
         if (!lock.tryLock()) {
@@ -364,6 +376,77 @@ class RssRefreshPipeline(
         }
     }
 
+    /**
+     * KAN-60: feed-promotie voor één rss_items-rij. Wordt aangeroepen
+     * vanuit de podcast-transcript-worker zodra een aflevering klaar is
+     * (echte transcript-summary of 24h-show-notes-timeout).
+     *
+     * - Skip als het item niet bestaat of al een feed_item heeft
+     *   (dubbele promotie voorkomen).
+     * - Roept Claude aan via `selectForFeed` met deze ene rss-rij plus
+     *   bestaande items als context (zodat de AI ranking-history mee
+     *   weegt). Op een afwijzing wordt geen FeedItem aangemaakt, maar
+     *   wel `inFeed=false` + reason op de rss-rij geschreven.
+     * - Op selectie: genereert het FeedItem en koppelt 'm via
+     *   `feed_item_id` op rss_items.
+     */
+    fun promoteSingleItem(username: String, rssItemId: String) {
+        val lock = locks.computeIfAbsent(username) { ReentrantLock() }
+        if (!lock.tryLock()) {
+            log.info("[RSS] podcast-promotie skipped — andere RSS-run actief voor '{}'", username)
+            return
+        }
+        MDC.put("username", username)
+        try {
+            val all = rssRepo.load(username)
+            val item = all.find { it.id == rssItemId } ?: run {
+                log.warn("[RSS] podcast-promotie: rssItemId={} niet gevonden voor '{}'",
+                    rssItemId, username)
+                return
+            }
+            if (item.feedItemId != null) {
+                log.debug("[RSS] podcast-promotie: rssItemId={} al gepromoot (feedItemId={})",
+                    rssItemId, item.feedItemId)
+                return
+            }
+            log.info("[RSS] podcast-promotie start voor '{}' — rssItemId={} title='{}'",
+                username, rssItemId, item.title.take(80))
+            val cats = settings.getCategories(username).filter { it.enabled || it.isSystem }
+            val verdicts = selectForFeed(username, listOf(item), cats, all)
+            val verdict = verdicts[item.id]
+            val updated = when {
+                verdict == null -> item.copy(
+                    inFeed = false,
+                    feedReason = "AI heeft de podcast niet beoordeeld (parse-fout — zie backend log)"
+                )
+                verdict.inFeed -> item.copy(
+                    inFeed = true,
+                    feedReason = verdict.reason.ifBlank { "Geselecteerd door AI" }
+                )
+                else -> item.copy(
+                    inFeed = false,
+                    feedReason = verdict.reason.ifBlank { "Niet geselecteerd voor de persoonlijke feed" }
+                )
+            }
+            rssRepo.upsert(username, updated)
+            if (verdict?.inFeed == true) {
+                val feedItem = generateFeedItem(username, updated, cats)
+                feed.save(username, feedItem)
+                rssRepo.upsert(username, updated.copy(feedItemId = feedItem.id))
+                log.info("[RSS] podcast-promotie klaar — rssItemId={} → feedItemId={}",
+                    rssItemId, feedItem.id)
+            } else {
+                log.info("[RSS] podcast-promotie: AI wees rssItemId={} af — geen FeedItem", rssItemId)
+            }
+        } catch (e: Exception) {
+            log.error("[RSS] podcast-promotie mislukt voor '{}' rssItemId={}: {}",
+                username, rssItemId, e.message, e)
+        } finally {
+            MDC.clear()
+            lock.unlock()
+        }
+    }
+
     private fun generateFeedItem(username: String, rss: RssItem, categories: List<CategorySettings>): FeedItem {
         // Voor podcast-afleveringen: gebruik het transcript als input
         // i.p.v. de MP3-URL via articleFetcher (die zou falen). Zo krijgt
@@ -441,7 +524,10 @@ class RssRefreshPipeline(
             topics = rss.topics,
             feedReason = rss.feedReason,
             publishedDate = rss.publishedDate,
-            createdAt = Instant.now()
+            createdAt = Instant.now(),
+            // KAN-60: propagate de RSS-discriminator naar het feed_item
+            // zodat de Feed-tab filter (AC8) op rij-niveau kan filteren.
+            mediaType = rss.mediaType
         )
     }
 

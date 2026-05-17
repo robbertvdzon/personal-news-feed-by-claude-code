@@ -55,5 +55,12 @@ data class RssItem(
     /** Bij PODCAST: directe MP3-URL zodat de gebruiker het origineel kan afspelen. */
     val audioUrl: String = "",
     /** Bij PODCAST: lengte in seconden uit de feed (itunes:duration). Null als onbekend. */
-    val durationSeconds: Int? = null
+    val durationSeconds: Int? = null,
+    /**
+     * KAN-60: 'transcript' (default) of 'show_notes'. Bij 'show_notes' is
+     * de samenvatting nog op de RSS-description gebaseerd en moet de
+     * frontend een voorlopige-badge tonen. Wordt overschreven door
+     * 'transcript' zodra de async transcript-fase klaar is.
+     */
+    val summarySource: String = "transcript"
 )

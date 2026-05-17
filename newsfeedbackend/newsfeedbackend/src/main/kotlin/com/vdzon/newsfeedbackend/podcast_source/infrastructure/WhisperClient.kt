@@ -26,8 +26,11 @@ import kotlin.concurrent.thread
  * endpoint die multipart/form-data verwacht (audio-bestand + model-
  * naam), niet de JSON-body die de TTS-endpoint gebruikt.
  *
- * Multipart-body wordt gestreamed (PipedInputStream + PipedOutputStream)
- * om heap-pressure bij grote afleveringen (80+ MB) te vermijden.
+ * KAN-60: de transcribe-call retourneert nu een sealed [TranscribeOutcome]
+ * zodat de async transcript-worker rate-limit-/server-fouten (429/5xx)
+ * kan onderscheiden van fatale fouten. Bij 429/5xx wordt de aflevering
+ * geretryd met backoff; bij fatale fouten of "no api key" gaat 'ie naar
+ * de show-notes-only-eindstaat (geen oneindige retry-storm).
  */
 @Component
 class WhisperClient(
@@ -43,13 +46,21 @@ class WhisperClient(
         .followRedirects(HttpClient.Redirect.ALWAYS)
         .build()
 
-    data class TranscribeResult(val text: String, val durationSeconds: Long)
+    sealed class TranscribeOutcome {
+        data class Success(val text: String, val durationSeconds: Long) : TranscribeOutcome()
+        /** OPENAI_API_KEY ontbreekt — fatale, niet-tijdelijke fout. */
+        object NoApiKey : TranscribeOutcome()
+        /** HTTP 429 of 5xx van OpenAI; episode moet met backoff geretryd worden. */
+        data class RateLimited(val statusCode: Int, val message: String) : TranscribeOutcome()
+        /** Andere fout (4xx, netwerkfout, parse-fout) — niet zinvol om te retryen. */
+        data class FatalError(val message: String) : TranscribeOutcome()
+    }
 
     /**
-     * Stuurt [audioFile] als MP3 naar Whisper en geeft de getranscribeerde
-     * tekst terug. Bij elke fout (geen API-key, HTTP-fout, parse-fout)
-     * geeft 'ie `null` — de caller moet dan terugvallen op show-notes
-     * als input voor de Claude-samenvatting (zie story aanname).
+     * Stuurt [audioFile] als MP3 naar Whisper. Resultaat is een
+     * [TranscribeOutcome] zodat de caller (PodcastTranscriptWorker) weet
+     * of 'ie moet retryen (RateLimited), opgeven (FatalError/NoApiKey)
+     * of door kan met de tekst (Success).
      *
      * `audioDurationSec` wordt alleen gebruikt voor de cost-log; de
      * pipeline kent de duur uit `<itunes:duration>` of valt terug op 0.
@@ -60,13 +71,13 @@ class WhisperClient(
         audioFile: File,
         audioFilename: String,
         audioDurationSec: Long
-    ): TranscribeResult? {
+    ): TranscribeOutcome {
         val started = Instant.now()
         val subject = "Podcast episode guid=${episodeGuid.take(60)}"
         if (openaiKey.isBlank()) {
             log.warn("[Whisper] no OPENAI_API_KEY configured — skipping transcription")
             logCall(username, started, audioDurationSec, 0.0, "error", "no API key", subject)
-            return null
+            return TranscribeOutcome.NoApiKey
         }
         return try {
             val boundary = "----PNFWhisper${UUID.randomUUID().toString().replace("-", "")}"
@@ -78,11 +89,19 @@ class WhisperClient(
                 .POST(buildMultipartPublisher(boundary, audioFile, audioFilename))
                 .build()
             val resp = http.send(req, HttpResponse.BodyHandlers.ofString())
-            if (resp.statusCode() >= 400) {
-                log.warn("[Whisper] {} -> {} body={}", subject, resp.statusCode(), resp.body().take(400))
+            val code = resp.statusCode()
+            if (code >= 400) {
+                val bodyHead = resp.body().take(400)
+                log.warn("[Whisper] {} -> {} body={}", subject, code, bodyHead)
                 logCall(username, started, audioDurationSec, 0.0,
-                    "error", "http ${resp.statusCode()}", subject)
-                return null
+                    "error", "http $code", subject)
+                // 429 (rate limit) of 5xx (transient server-fout) → retry-pad.
+                // 4xx anders dan 429 (bv. 400/413 te grote file) → fataal.
+                return if (code == 429 || code in 500..599) {
+                    TranscribeOutcome.RateLimited(statusCode = code, message = "HTTP $code: ${bodyHead.take(120)}")
+                } else {
+                    TranscribeOutcome.FatalError("HTTP $code: ${bodyHead.take(120)}")
+                }
             }
             val tree = mapper.readTree(resp.body())
             val text = tree.path("text").asText("")
@@ -90,12 +109,12 @@ class WhisperClient(
             logCall(username, started, audioDurationSec, cost, "ok", null, subject)
             log.info("[Whisper] transcribed guid={} chars={} durationSec={} cost=${'$'}{}",
                 episodeGuid, text.length, audioDurationSec, "%.4f".format(cost))
-            TranscribeResult(text = text, durationSeconds = audioDurationSec)
+            TranscribeOutcome.Success(text = text, durationSeconds = audioDurationSec)
         } catch (e: Exception) {
             log.warn("[Whisper] transcribe failed: {}", e.message)
             logCall(username, started, audioDurationSec, 0.0,
                 "error", e.message ?: e.javaClass.simpleName, subject)
-            null
+            TranscribeOutcome.FatalError(e.message ?: e.javaClass.simpleName)
         }
     }
 

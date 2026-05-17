@@ -35,7 +35,8 @@ class RssItemRepository(
         feedItemId = rs.getString("feed_item_id"),
         mediaType = rs.getString("media_type") ?: "ARTICLE",
         audioUrl = rs.getString("audio_url") ?: "",
-        durationSeconds = rs.getObject("duration_seconds") as? Int
+        durationSeconds = rs.getObject("duration_seconds") as? Int,
+        summarySource = rs.getString("summary_source") ?: "transcript"
     )
 
     private fun params(username: String, item: RssItem) = MapSqlParameterSource()
@@ -61,6 +62,7 @@ class RssItemRepository(
         .addValue("media_type", item.mediaType)
         .addValue("audio_url", item.audioUrl)
         .addValue("duration_seconds", item.durationSeconds)
+        .addValue("summary_source", item.summarySource)
 
     fun load(username: String): MutableList<RssItem> =
         jdbc.query(
@@ -97,12 +99,12 @@ class RssItemRepository(
                 username, id, title, summary, url, category, feed_url, source,
                 snippet, published_date, timestamp, processed_at, in_feed,
                 feed_reason, is_read, starred, liked, topics, feed_item_id,
-                media_type, audio_url, duration_seconds
+                media_type, audio_url, duration_seconds, summary_source
             ) VALUES (
                 :username, :id, :title, :summary, :url, :category, :feed_url, :source,
                 :snippet, :published_date, :timestamp, :processed_at, :in_feed,
                 :feed_reason, :is_read, :starred, :liked, :topics, :feed_item_id,
-                :media_type, :audio_url, :duration_seconds
+                :media_type, :audio_url, :duration_seconds, :summary_source
             )
             ON CONFLICT (username, id) DO UPDATE SET
                 title          = EXCLUDED.title,
@@ -124,7 +126,8 @@ class RssItemRepository(
                 feed_item_id   = EXCLUDED.feed_item_id,
                 media_type     = EXCLUDED.media_type,
                 audio_url      = EXCLUDED.audio_url,
-                duration_seconds = EXCLUDED.duration_seconds
+                duration_seconds = EXCLUDED.duration_seconds,
+                summary_source = EXCLUDED.summary_source
         """
     }
 }
