@@ -213,26 +213,43 @@ Wordt asynchroon gestart bij `POST /api/requests`.
 
 ---
 
-### 6.4 Podcast-bron-ingestie (KAN-56)
+### 6.4 Podcast-bron-ingestie (KAN-56, herzien in KAN-60)
 
-Aparte async-pipeline die voor elke geconfigureerde **podcast-RSS-bron** (`podcast_feeds`) nieuwe afleveringen ophaalt, transcribeert en samenvat. Wordt automatisch meegetrokken met elke RSS-refresh (`POST /api/rss/refresh` → event `RssRefreshRequested`) én meteen na een save op `PUT /api/podcast-feeds`.
+Twee-fasen async-pipeline voor elke geconfigureerde **podcast-RSS-bron** (`podcast_feeds`). De snelle fase (show-notes-samenvatting) draait op het kritieke pad zodat een nieuw kaartje binnen seconden in de RSS-tab verschijnt; de zware fase (Whisper-transcript) wordt door een aparte achtergrondtaak op een rustig tempo afgewerkt zodat een burst-feed (KAN-59-incident: 7 Latent Space-afleveringen in 1 min) Whisper niet in een rate-limit-storm gooit.
 
-**Statusverloop per aflevering (`podcast_episodes.status`):** `PENDING` → `DOWNLOADING` → `TRANSCRIBING` → `SUMMARIZING` → `DONE`, met `FAILED` als terminale-fout-state.
+**Statusverloop per aflevering (`podcast_episodes.status`):**
 
-**Pipeline:**
-1. Voor elke geconfigureerde podcast-feed-URL: haal de RSS op met dezelfde rome-parser als de gewone RSS-fetch.
-2. Per `<item>` haal de `<enclosure>` (MP3-URL), `<guid>`, `<itunes:duration>` en `<description>` op.
-3. Beperk de scope tot de **7 nieuwste afleveringen** uit de feed-snapshot (sorteren op `<pubDate>` DESC, dan `take(7)`). Deze top-7-window geldt op elke run — zowel bij de eerste ingestie van een nieuwe feed (cap voor feeds met 2000 items, AC #9) als bij latere refreshes. Het effect: een 3× refresh achter elkaar zonder nieuwe publicaties levert dezelfde top-7 = alle GUIDs al bekend → 0 pipeline-runs, 0 Whisper-kosten (AC #6). Pas wanneer de podcast een nieuwe aflevering publiceert (die de top-7-window opschuift) verschijnt er één in stap 4.
-4. Filter de top-7 op nieuwe GUIDs (idempotency-cache = `(username, guid)` in `podcast_episodes`).
-5. Voor elke écht nieuwe aflevering: schrijf een `podcast_episodes`-rij met `status=PENDING` en kick een async-task ([PodcastEpisodeProcessor]) per aflevering.
-6. De per-aflevering-pipeline:
-   - **DOWNLOADING**: haal de MP3 in-memory binnen (geen disk-cache).
-   - **TRANSCRIBING**: stuur de bytes naar OpenAI Whisper API (`whisper-1`, multipart/form-data). Bij `transcribeEnabled=false` op de feed-rij óf bij een Whisper-fout: skip naar de show-notes als input.
-   - **SUMMARIZING**: vraag Claude om een korte Nederlandse samenvatting (1-2 zinnen, ~30-50 woorden), categorie-toewijzing en 3-8 onderwerpen die in de aflevering aan bod kwamen.
-   - **DONE**: upsert een rij in `rss_items` met `media_type='PODCAST'`, `audio_url=<MP3-URL>`, `duration_seconds=<itunes:duration>`, `summary=<Claude-shortSummary>`, `source=<podcast-naam>`. Het kaartje verschijnt daarna in de RSS-tab (firehose) tussen de artikelen.
-7. Bij elke fout: status naar `FAILED` met een `error_message`. Een `FAILED`-aflevering verschijnt NIET als card; gewone artikelen en andere podcasts in dezelfde batch blijven werken.
+`PENDING` → `SUMMARIZING_FROM_NOTES` → `NEEDS_TRANSCRIPT` → `DOWNLOADING` → `TRANSCRIBING` → `SUMMARIZING` → `DONE`
 
-**Promotie naar Feed-tab:** podcast-rss_items zijn onderdeel van de gewone `rss_items`-tabel en doorlopen het bestaande `selectForFeed` + `feedItemId`-mechanisme. Bij promotie naar de Feed-tab gebruikt `generateFeedItem(...)` het transcript (via `PodcastTranscriptLookup`) i.p.v. de MP3-URL, zodat de uitgebreide samenvatting niet hoeft terug te vallen op alleen de show-notes.
+Variaties:
+- Bij `transcribeEnabled=false` op de feed-rij eindigt de snelle fase op `SHOW_NOTES_DONE` (geen transcript-fase). De show-notes-badge blijft permanent staan.
+- `FAILED` blijft de terminale state voor fatale fouten in de show-notes-fase. Whisper-rate-limit-/server-fouten leiden NIET tot `FAILED`; de aflevering blijft op `NEEDS_TRANSCRIPT` met `retry_count++` en een `next_attempt_at` in de toekomst.
+
+**Snelle fase (binnen 30s na refresh, AC #1):**
+1. Per `<item>` uit de feed-fetch: top-7-window (zelfde logica als KAN-56 — sorteer op `<pubDate>` DESC, neem 7) en filter op nieuwe GUIDs. Idempotency-cache: `(username, guid)` in `podcast_episodes`.
+2. Voor elke écht nieuwe aflevering: schrijf een `podcast_episodes`-rij (status `PENDING`) en kick een async-task ([PodcastEpisodeProcessor.processShowNotes]) per aflevering.
+3. `SUMMARIZING_FROM_NOTES`: Claude krijgt de `<description>` (show-notes) als input en levert `shortSummary`, `category`, `topics`. Geen MP3-download, geen Whisper-call. Resultaat: een `rss_items`-rij met `media_type='PODCAST'`, `summary_source='show_notes'`. De RSS-tab toont de card direct met een `📝 voorlopig`-badge.
+4. Status naar `NEEDS_TRANSCRIPT` (of `SHOW_NOTES_DONE` bij uitgeschakelde transcriptie).
+
+**Async transcript-fase ([PodcastTranscriptWorker], @Scheduled fixedDelay):**
+- Tickt elke `app.podcast.transcript-worker.interval-ms` (default 2 min). Pakt **maximaal één aflevering per tick** op met `status=NEEDS_TRANSCRIPT` en `next_attempt_at <= now()` (FIFO over alle gebruikers, oudste eerst). AC #3.
+- Doorloopt `DOWNLOADING` → `TRANSCRIBING` → `SUMMARIZING` → `DONE`. Het transcript wordt opgeslagen, Claude genereert een nieuwe samenvatting en overschrijft `rss_items.summary` + zet `summary_source='transcript'` (badge verdwijnt — AC #5).
+- **Rate-limit-retry (AC #4):** bij HTTP 429 of 5xx van Whisper blijft de aflevering op `NEEDS_TRANSCRIPT` met `retry_count++` en `next_attempt_at = now() + backoff`:
+  - 1e mislukte poging → wacht 5 min
+  - 2e → wacht 15 min
+  - 3e → wacht 45 min
+  - 4e+ → wacht 24 u
+  De retry-state overleeft een restart (kolommen `retry_count` + `next_attempt_at` op `podcast_episodes`).
+- Bij een fatale fout (geen API-key, HTTP 4xx ≠ 429, parse-fout, lege transcript): status naar `SHOW_NOTES_DONE`. De show-notes-card blijft permanent staan; geen retry-storm.
+
+**Feed-promotie (AC #6):**
+- Voor podcasts is promotie naar de Feed-tab **niet automatisch via de hourly RSS-refresh**: de async transcript-worker (of de show-notes-fase bij `transcribeEnabled=false`) publiceert een `PodcastPromotionRequested`-event waarop `RssRefreshPipeline.promoteSingleItem(...)` reageert. Die draait de bestaande Claude-feed-selectie op precies die ene rss-rij en — bij positief verdict — genereert een FeedItem.
+- Promotie gebeurt:
+  - **Op het transcript-pad:** zodra `status=DONE` is gezet.
+  - **Op het show-notes-timeout-pad:** als een aflevering langer dan `app.podcast.transcript-worker.promotion-timeout-hours` (default 24h) op `NEEDS_TRANSCRIPT` staat én nog geen `feed_item_id` heeft. De aflevering blijft daarna `NEEDS_TRANSCRIPT` — de transcript-poging gaat door — maar het FeedItem is alvast aangemaakt op basis van de show-notes-samenvatting.
+- De promoter is idempotent: rss-items met een bestaande `feed_item_id` worden overgeslagen.
+- `generateFeedItem(...)` gebruikt het transcript (via `PodcastTranscriptLookup`) i.p.v. de MP3-URL voor de uitgebreide samenvatting; bij show-notes-timeout-promotie valt 'ie terug op `snippet` (show-notes-tekst).
+- `FeedItem.media_type` wordt overgenomen van de bron-rss-rij zodat de Feed-tab filter (AC #8) op rij-niveau kan filteren.
 
 **Validatie bij toevoegen:** `PUT /api/podcast-feeds` toetst nieuwe URLs synchroon door één feed-fetch te doen. Faalt die binnen ~10s → HTTP 400 met Nederlandse foutmelding ("Kon feed niet ophalen: ..."). Bestaande URLs worden niet hertoetst.
 

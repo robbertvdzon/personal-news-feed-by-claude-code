@@ -90,7 +90,8 @@ Toont de gecureerde persoonlijke feed: `GET /api/feed` (gesorteerd op `createdAt
 
 ### Filteropties (altijd zichtbaar bovenaan)
 - **"Verberg gelezen"-switch** (altijd-zichtbare `SwitchListTile` boven de tab-rij — niet vermengd met categorieën, want filter ≠ weergave-optie). Default `true`. Toggelt of items met `isRead: true` in de lijst verschijnen.
-- **Tab-rij** (horizontaal-scrollend): één tab kan actief zijn (geen multi-select). De volgorde is **"Alles" → "Bewaard" → "Samenvatting" → categorieën uit Settings**. "Bewaard" toont alleen items met `starred: true`; "Samenvatting" toont alleen items met `isSummary: true`. Elke tab toont een **bolletje met het aantal items** dat ná verberg-gelezen in die tab valt — leeg ⇒ geen badge. De geselecteerde tab krijgt een onderstreping en kleurt naar `colorScheme.primary`.
+- **Media-filter-rij** (KAN-60, AC #8): drie `ChoiceChip`s — **Alles | RSS | Podcasts**. AND-gecombineerd met de categorie-tab en de verberg-gelezen-switch. Sessie-state in de widget (`StatefulWidget._mediaFilter`); geen persistentie over restarts. Chips zijn altijd zichtbaar — bij `Podcasts`-selectie zonder podcast-items toont de lijst gewoon 0 items. Filtert op `FeedItem.mediaType` (`'PODCAST'` vs. `'ARTICLE'`); legacy items zonder veld vallen via de json-default terug op `'ARTICLE'`.
+- **Tab-rij** (horizontaal-scrollend): één tab kan actief zijn (geen multi-select). De volgorde is **"Alles" → "Bewaard" → "Samenvatting" → categorieën uit Settings**. "Bewaard" toont alleen items met `starred: true`; "Samenvatting" toont alleen items met `isSummary: true`. Elke tab toont een **bolletje met het aantal items** dat ná verberg-gelezen + media-filter in die tab valt — leeg ⇒ geen badge. De geselecteerde tab krijgt een onderstreping en kleurt naar `colorScheme.primary`.
 
 ### FeedItem-kaart (in de lijst)
 Toont per item:
@@ -137,10 +138,12 @@ PageView waarmee je door alle (gefilterde) items heen kunt bladeren.
 Toont ruwe RSS-artikelen na AI-verwerking: `GET /api/rss` (gesorteerd op `timestamp` aflopend).
 
 ### Filteropties
-Identiek aan Feed-tab in opbouw: een aparte **"Verberg gelezen"-switch** boven de tab-rij (default `_hideRead = true`), gevolgd door de tab-rij. Volgorde: **"Alles" → "Bewaard" → categorieën → "Overig"**. "Bewaard" filtert op `starred: true`. "Overig" verzamelt items met categorie `overig` of zonder. (Feed heeft een extra "Samenvatting"-tab die op `isSummary: true` filtert; RssItem heeft dat veld niet, dus deze tab ontbreekt op de RSS-tab.) Elke tab toont een bolletje met het aantal items dat ná verberg-gelezen in die tab valt.
+Identiek aan Feed-tab in opbouw: een aparte **"Verberg gelezen"-switch** boven de tab-rij (default `_hideRead = true`), gevolgd door dezelfde **media-filter-rij 'Alles | RSS | Podcasts'** (KAN-60, AC #7 — sessie-state, AND-gecombineerd met de categorie-tab) en daarna de categorie-tab-rij. Volgorde van de tab-rij: **"Alles" → "Bewaard" → categorieën → "Overig"**. "Bewaard" filtert op `starred: true`. "Overig" verzamelt items met categorie `overig` of zonder. (Feed heeft een extra "Samenvatting"-tab die op `isSummary: true` filtert; RssItem heeft dat veld niet, dus deze tab ontbreekt op de RSS-tab.) Elke tab toont een bolletje met het aantal items dat ná verberg-gelezen + media-filter in die tab valt.
 
 ### RssItem-kaart
 Toont: titel, bron, **relatieve tijd** ("12 minuten geleden" / "3 uur geleden" / "2 dagen geleden" / DD-MM-YYYY na 3 dagen, op basis van `timestamp`), categorie, datum en een **preview-tekst van max 2 regels**. De preview toont bij voorkeur de Nederlandse AI-samenvatting (`summary`) — die geeft de gebruiker direct context in zijn eigen taal. Als `summary` leeg is (item nog niet door AI verwerkt) valt de kaart terug op de ruwe RSS-`snippet`. Een badge geeft aan of het item **in de feed** staat (`inFeed: true`) of niet, inclusief een tooltip met de `feedReason`.
+
+**KAN-60 — show-notes-voorlopige-badge (AC #2):** podcast-kaartjes met `summarySource: 'show_notes'` tonen extra een amberkleurig `📝 voorlopig`-chip met tooltip "Voorlopige samenvatting op basis van de RSS show-notes — het echte transcript wordt op de achtergrond verwerkt." De badge verdwijnt automatisch bij de volgende data-refresh nadat de transcript-worker `summary_source` op `'transcript'` heeft gezet. Voor feeds met `transcribeEnabled=false` blijft de badge permanent staan (de eindgebruiker weet dan dat deze bron altijd op show-notes draait).
 
 **Acties per kaart:** identiek aan Feed (swipe-delete, 👍/👎, ster).
 

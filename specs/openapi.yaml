@@ -1039,6 +1039,18 @@ components:
           description: |
             Bij mediaType=PODCAST: lengte in seconden uit `<itunes:duration>`.
             Null bij onbekend of bij gewone artikelen.
+        summarySource:
+          type: string
+          enum: [show_notes, transcript]
+          default: transcript
+          description: |
+            KAN-60: 'show_notes' wanneer de samenvatting nog op de
+            RSS-description gebaseerd is (tweefasen-ingest, fase 1);
+            'transcript' zodra Whisper+Claude opnieuw heeft gedraaid
+            (fase 2). De frontend toont een voorlopige-badge zolang
+            summarySource='show_notes' is. Voor podcast-feeds met
+            transcribeEnabled=false blijft 'show_notes' permanent.
+            Klassieke RSS-artikelen krijgen altijd 'transcript' (default).
 
     # Feed Items
 
@@ -1113,6 +1125,15 @@ components:
           description: >
             true als dit de dagelijkse AI-samenvatting is. Het summary-veld
             bevat dan Markdown-tekst (600-1000 woorden). ID-formaat: daily-summary-feed-{datum}.
+        mediaType:
+          type: string
+          enum: [ARTICLE, PODCAST]
+          default: ARTICLE
+          description: |
+            KAN-60: discriminator zodat de Feed-tab filter (AC8) op
+            rij-niveau kan filteren tussen artikelen en podcast-
+            afleveringen. Legacy feed_items uit pre-KAN-60-tijd vallen
+            terug op de default 'ARTICLE'.
 
     # Requests
 
