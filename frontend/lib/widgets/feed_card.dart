@@ -15,6 +15,10 @@ class ItemCard extends StatelessWidget {
   final bool isRead;
   final bool starred;
   final bool? liked;
+  /// Optioneel icoon links van de titel — gebruikt voor de audio/podcast-
+  /// indicator (AC4d) zodat podcast-cards in één oogopslag herkenbaar zijn
+  /// tussen RSS-artikelen.
+  final Widget? leading;
   final Widget? trailing;
   final VoidCallback? onTap;
   final VoidCallback? onStar;
@@ -32,6 +36,7 @@ class ItemCard extends StatelessWidget {
     this.isRead = false,
     this.starred = false,
     this.liked,
+    this.leading,
     this.trailing,
     this.onTap,
     this.onStar,
@@ -54,6 +59,7 @@ class ItemCard extends StatelessWidget {
       child: Card(
         child: ListTile(
           onTap: onTap,
+          leading: leading,
           title: Text(
             title,
             maxLines: 2,

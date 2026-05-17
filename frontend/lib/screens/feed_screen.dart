@@ -93,7 +93,8 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
                               isRead: it.isRead,
                               starred: it.starred,
                               liked: it.liked,
-                              trailing: it.isSummary ? const Chip(label: Text('Samenvatting')) : null,
+                              leading: it.isPodcast ? const Icon(Icons.podcasts) : null,
+                              trailing: _trailingFor(it),
                               onTap: () => _open(filtered, i),
                               onStar: () => ref.read(feedProvider.notifier).toggleStar(it.id),
                               onFeedback: (v) => ref.read(feedProvider.notifier).setFeedback(it.id, v),
@@ -173,6 +174,28 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
         ),
       );
     }
+  }
+
+  /// Trailing-chip per feed-card. Voor podcast-cards tonen we naast de
+  /// duur ook de bron van de samenvatting (transcript vs show-notes,
+  /// AC5). Dagelijkse samenvatting houdt zijn eigen chip.
+  Widget? _trailingFor(FeedItem it) {
+    if (it.isSummary) return const Chip(label: Text('Samenvatting'));
+    if (!it.isPodcast) return null;
+    final min = it.durationMinutes;
+    final isTranscript = it.summarySource == 'transcript';
+    final label = StringBuffer('Podcast');
+    if (min != null) label.write(' · $min min');
+    label.write(isTranscript ? ' · transcript' : ' · show-notes');
+    return Chip(
+      avatar: Icon(
+        isTranscript ? Icons.subtitles : Icons.notes,
+        size: 16,
+      ),
+      label: Text(label.toString()),
+      visualDensity: VisualDensity.compact,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    );
   }
 
   void _open(List<FeedItem> items, int idx) {

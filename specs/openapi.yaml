@@ -199,6 +199,69 @@ paths:
               schema:
                 $ref: '#/components/schemas/RssFeedsSettings'
 
+  # ── Podcast Feeds (KAN-54) ────────────────────────────────────────────────────
+
+  /api/podcast-feeds:
+    get:
+      tags: [Podcast Feeds]
+      operationId: getPodcastFeeds
+      summary: Haal geconfigureerde podcast-bronnen op
+      responses:
+        '200':
+          description: Podcast-bronnen
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PodcastFeedsSettings'
+    put:
+      tags: [Podcast Feeds]
+      operationId: savePodcastFeeds
+      summary: Sla podcast-bronnen op
+      description: |
+        Persisteert de volledige set bronnen voor de user. Bij toevoegen
+        van een nieuwe URL valideert de backend de feed synchroon
+        (parse als RSS, controleer op `<enclosure>`-tags, timeout 5s) en
+        retourneert 400 als de feed niet bereikbaar of leeg is. Bestaande
+        URLs worden niet opnieuw gevalideerd. Bij succes triggert de
+        backend onmiddelijk een refresh (AC3).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PodcastFeedsSettings'
+      responses:
+        '200':
+          description: Opgeslagen podcast-bronnen
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PodcastFeedsSettings'
+        '400':
+          description: |
+            Eén of meer nieuwe URLs konden niet gevalideerd worden.
+            Body: `{"error": "Kon feed niet ophalen (...)", "url": "..."}`.
+
+  /api/podcast-feeds/refresh:
+    post:
+      tags: [Podcast Feeds]
+      operationId: refreshPodcastFeeds
+      summary: Trigger handmatig een podcast-pipeline-run
+      description: |
+        Start asynchroon de podcast-feed-pipeline voor de huidige user.
+        Idempotent: al-eerder-verwerkte afleveringen (per GUID) worden
+        overgeslagen (AC6).
+      responses:
+        '200':
+          description: Trigger geaccepteerd
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+
   # ── RSS Items ─────────────────────────────────────────────────────────────────
 
   /api/rss:
@@ -879,6 +942,39 @@ components:
             - https://feeds.feedburner.com/KotlinWeekly
             - https://dartweekly.com/rss
 
+    # Podcast feeds (KAN-54). Per-user lijst van podcast-RSS-bronnen die
+    # de pipeline elke uur (en bij toevoegen) verwerkt: nieuwe afleveringen
+    # worden gedownload, optioneel met Whisper getranscribeerd en door
+    # Claude samengevat, daarna als FeedItem (kind=podcast) afgeleverd in
+    # dezelfde feed-tab als RSS-cards.
+    PodcastFeed:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+          format: uri
+          description: URL van de podcast-RSS.
+        transcribeEnabled:
+          type: boolean
+          default: true
+          description: >
+            true = Whisper STT + Claude-samenvatting o.b.v. transcript.
+            false = sla STT over en gebruik de RSS `<description>`
+            (show-notes) als bron voor de samenvatting. Verschil is
+            zichtbaar op de feed-card via `summarySource`.
+
+    PodcastFeedsSettings:
+      type: object
+      properties:
+        feeds:
+          type: array
+          items:
+            $ref: '#/components/schemas/PodcastFeed'
+          example:
+            - url: https://www.omnycontent.com/d/playlist/8257a063-6be9-42fa-b892-acd4013b1255/a53c5750-331e-4cba-a1a9-ade1011df90b/43a0a1a4-9506-471f-adf1-ade1011e46bf/podcast.rss
+              transcribeEnabled: true
+
     # RSS Items
 
     RssItem:
@@ -1019,6 +1115,32 @@ components:
           description: >
             true als dit de dagelijkse AI-samenvatting is. Het summary-veld
             bevat dan Markdown-tekst (600-1000 woorden). ID-formaat: daily-summary-feed-{datum}.
+        kind:
+          type: string
+          enum: [rss, podcast]
+          default: rss
+          description: >
+            Type feed-card. `rss` (default) = artikel via RSS-pipeline.
+            `podcast` = aflevering van een podcast-bron via Whisper/Claude
+            (KAN-54). Bepaalt het audio-icoon en de "Origineel afspelen"-knop.
+        audioUrl:
+          type: string
+          format: uri
+          nullable: true
+          description: Voor `kind=podcast`: URL van de MP3-aflevering.
+        durationSeconds:
+          type: integer
+          nullable: true
+          description: Voor `kind=podcast`: duur van de aflevering in seconden.
+        summarySource:
+          type: string
+          enum: [transcript, show_notes]
+          nullable: true
+          description: >
+            Voor `kind=podcast`: bron waarop de samenvatting is gebaseerd.
+            `transcript` = Whisper STT → Claude. `show_notes` = RSS
+            description → Claude (alleen als transcribe-toggle UIT staat
+            of Whisper faalt, AC5).
 
     # Requests
 

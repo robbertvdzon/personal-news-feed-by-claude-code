@@ -133,6 +133,23 @@ class _FeedItemDetailScreenState extends ConsumerState<FeedItemDetailScreen> {
             if (it.source.isNotEmpty) Chip(label: Text(it.source)),
             Chip(label: Text(it.category)),
             if (it.publishedDate != null) Chip(label: Text(it.publishedDate!)),
+            if (it.isPodcast) ...[
+              Chip(
+                avatar: const Icon(Icons.podcasts, size: 16),
+                label: Text(it.durationMinutes != null
+                    ? 'Podcast · ${it.durationMinutes} min'
+                    : 'Podcast'),
+              ),
+              Chip(
+                avatar: Icon(
+                  it.summarySource == 'transcript' ? Icons.subtitles : Icons.notes,
+                  size: 16,
+                ),
+                label: Text(it.summarySource == 'transcript'
+                    ? 'Samenvatting o.b.v. transcript'
+                    : 'Samenvatting o.b.v. show-notes'),
+              ),
+            ],
           ]),
           const SizedBox(height: 16),
           // Alle samenvattingen als Markdown + selecteerbaar: Claude levert
@@ -142,7 +159,16 @@ class _FeedItemDetailScreenState extends ConsumerState<FeedItemDetailScreen> {
           // je tekst kunt kopiëren met cmd/ctrl+c.
           MarkdownBody(data: it.summary, selectable: true),
           const SizedBox(height: 24),
-          if (it.url != null)
+          if (it.isPodcast && (it.audioUrl ?? it.url) != null)
+            FilledButton.icon(
+              onPressed: () => launchUrl(
+                Uri.parse(it.audioUrl ?? it.url!),
+                mode: LaunchMode.externalApplication,
+              ),
+              icon: const Icon(Icons.play_arrow),
+              label: const Text('Origineel afspelen'),
+            )
+          else if (it.url != null)
             FilledButton.icon(
               onPressed: () => launchUrl(Uri.parse(it.url!), mode: LaunchMode.externalApplication),
               icon: const Icon(Icons.open_in_new),

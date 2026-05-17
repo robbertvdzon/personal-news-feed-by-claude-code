@@ -237,7 +237,45 @@ Wordt asynchroon gestart bij `POST /api/podcasts`.
 
 ---
 
-### 6.5 Opstartgedrag
+### 6.5 Podcast-bronnen als feed-source (KAN-54)
+
+Naast RSS-artikelen kan een gebruiker podcast-RSS-feeds als bron toevoegen.
+Beheer via `GET/PUT /api/podcast-feeds` (zie [`openapi.yaml`](./openapi.yaml)).
+Bij toevoegen valideert de backend de URL synchroon (parse als RSS, controle
+op `<enclosure>`-tags, 5s timeout) en retourneert 400 als de feed niet
+binnen die tijd opgehaald kan worden — de UI toont de melding direct.
+
+**Pipeline (per aflevering):** `PENDING` → `DOWNLOADING` →
+`TRANSCRIBING` (optioneel) → `SUMMARIZING` → `DONE` met `FAILED` als
+terminale fout-state plus `error_message` op de rij.
+
+1. Bij elke refresh (POST `/api/podcast-feeds/refresh`, hourly cron, of
+   automatisch direct na het toevoegen van een nieuwe bron): voor elke
+   podcast-feed van de user de RSS-XML ophalen via Rome.
+2. Voor elke aflevering: GUID = `entry.uri` (fallback: enclosure-URL).
+   `INSERT ... ON CONFLICT DO NOTHING` op `(username, guid)` voorkomt
+   dubbele verwerking (AC6). Bestaande episodes in DONE/FAILED blijven
+   ongemoeid.
+3. Voor elke PENDING-episode:
+   - **Transcribe AAN** (default): download de MP3, stuur naar OpenAI
+     Whisper (`whisper-1`, `verbose_json`-format). Het response bevat
+     het transcript én de werkelijke duur — die laatste wordt op de
+     feed-card getoond. Files > 24 MB → FAILED.
+   - **Transcribe UIT**: gebruik de `<description>` uit het RSS-item als
+     bron-tekst (show-notes-fallback).
+4. Claude-samenvatting (`claude-sonnet-4-5`) met podcast-specifiek
+   prompt-template: 3 hoofdpunten + optioneel 1 letterlijke quote,
+   doelgroep-relevantie, plus titleNl / shortSummary / category / topics.
+5. Bij DONE: een nieuwe `FeedItem` met `kind=podcast`, `audioUrl` (MP3),
+   `durationSeconds`, en `summarySource` (`transcript` of `show_notes`).
+   Verschijnt in de gewone feed-tab tussen RSS-cards (AC3) met een
+   audio-icoon (AC4d).
+6. FAILED-episodes verschijnen niet als card maar blijven in
+   `podcast_episodes` staan met hun `error_message` voor diagnose (AC8).
+
+---
+
+### 6.6 Opstartgedrag
 
 Bij serverstart worden alle verzoeken met status `PENDING` of `PROCESSING` gereset naar `FAILED` (herstel na herstart).
 
@@ -245,7 +283,7 @@ Voor elke bestaande gebruiker worden de vaste verzoekrecords `hourly-update-{use
 
 ---
 
-### 6.6 Onderwerp-geschiedenis
+### 6.7 Onderwerp-geschiedenis
 
 De onderwerp-geschiedenis (`topic_history.json`) wordt bijgehouden per gebruiker en bijgewerkt na:
 - Elke RSS-verwerking (topics van nieuwe items)
@@ -326,6 +364,23 @@ Tavily wordt **alleen** gebruikt voor ad-hoc verzoeken (`POST /api/requests`), n
 
 ---
 
+### 7.3b OpenAI Whisper (spraak-naar-tekst voor podcast-bronnen, KAN-54)
+
+**API:** `https://api.openai.com/v1/audio/transcriptions`
+
+**API-sleutel:** zelfde `PNF_OPENAI_API_KEY` als de TTS.
+
+**Gebruik:**
+- Model: `whisper-1`
+- Response-format: `verbose_json` (levert naast `text` ook `duration`)
+- Multipart upload van de MP3 (max ~24 MB; grotere afleveringen → FAILED)
+- Wordt aangeroepen voor podcast-afleveringen waarvan de bron
+  `transcribeEnabled=true` heeft staan
+
+**Kosteninschatting:** ~$0.006 per minuut audio (Pre-test: 7 min NL-podcast → $0.042 STT)
+
+---
+
 ### 7.4 ElevenLabs TTS (alternatieve tekst-naar-spraak)
 
 **API:** `https://api.elevenlabs.io/v1/text-to-speech/{voiceId}`
@@ -385,6 +440,7 @@ Alle configuratie via `application.properties` of omgevingsvariabelen.
 | Tijd | Taak |
 |---|---|
 | Elk uur (`0 0 * * * *`) | RSS ophalen en verwerken voor alle gebruikers |
+| Elk uur (`0 5 * * * *`) | Podcast-bronnen pollen + nieuwe afleveringen verwerken (KAN-54) |
 | Dagelijks 06:00 (`0 0 6 * * *`) | Dagelijkse AI-samenvatting genereren voor alle gebruikers |
 
 ---

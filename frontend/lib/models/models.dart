@@ -23,6 +23,14 @@ class FeedItem {
   final String createdAt;
   final String? publishedDate;
   final bool isSummary;
+  /// Type feed-card: 'rss' (default) of 'podcast'.
+  final String kind;
+  /// Voor podcast-cards: URL van de MP3-aflevering.
+  final String? audioUrl;
+  /// Voor podcast-cards: duur in seconden (uit Whisper of geschat uit MP3-grootte).
+  final int? durationSeconds;
+  /// Voor podcast-cards: 'transcript' of 'show_notes' — bron van de samenvatting.
+  final String? summarySource;
 
   FeedItem({
     required this.id,
@@ -43,7 +51,22 @@ class FeedItem {
     this.createdAt = '',
     this.publishedDate,
     this.isSummary = false,
+    this.kind = 'rss',
+    this.audioUrl,
+    this.durationSeconds,
+    this.summarySource,
   });
+
+  /// `true` als deze card een podcast-aflevering is.
+  bool get isPodcast => kind == 'podcast';
+
+  /// Duur als afgeronde minuten (alleen voor podcasts). Returnt null als
+  /// niet beschikbaar; UI valt dan terug op alleen de audio-icoon.
+  int? get durationMinutes {
+    final s = durationSeconds;
+    if (s == null || s <= 0) return null;
+    return ((s + 30) / 60).floor().clamp(1, 100000);
+  }
 
   /// Display-titel voor list/detail. Pakt eerst [titleNl], anders [title].
   String get displayTitle => titleNl.isNotEmpty ? titleNl : title;
@@ -72,6 +95,10 @@ class FeedItem {
         createdAt: j['createdAt'] ?? '',
         publishedDate: j['publishedDate'],
         isSummary: j['isSummary'] ?? false,
+        kind: j['kind'] ?? 'rss',
+        audioUrl: j['audioUrl'],
+        durationSeconds: j['durationSeconds'],
+        summarySource: j['summarySource'],
       );
 
   FeedItem copyWith({bool? isRead, bool? starred, Object? liked = const _Sentinel()}) => FeedItem(
@@ -93,6 +120,10 @@ class FeedItem {
         createdAt: createdAt,
         publishedDate: publishedDate,
         isSummary: isSummary,
+        kind: kind,
+        audioUrl: audioUrl,
+        durationSeconds: durationSeconds,
+        summarySource: summarySource,
       );
 }
 
@@ -175,6 +206,28 @@ class RssItem {
         liked: liked is _Sentinel ? this.liked : liked as bool?,
         topics: topics,
         feedItemId: feedItemId,
+      );
+}
+
+class PodcastFeed {
+  final String url;
+  final bool transcribeEnabled;
+
+  const PodcastFeed({required this.url, this.transcribeEnabled = true});
+
+  factory PodcastFeed.fromJson(Map<String, dynamic> j) => PodcastFeed(
+        url: j['url'] ?? '',
+        transcribeEnabled: j['transcribeEnabled'] ?? true,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'url': url,
+        'transcribeEnabled': transcribeEnabled,
+      };
+
+  PodcastFeed copyWith({String? url, bool? transcribeEnabled}) => PodcastFeed(
+        url: url ?? this.url,
+        transcribeEnabled: transcribeEnabled ?? this.transcribeEnabled,
       );
 }
 

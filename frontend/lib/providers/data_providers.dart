@@ -202,6 +202,40 @@ class RssFeedsNotifier extends AsyncNotifier<List<String>> {
   }
 }
 
+final podcastFeedsProvider =
+    AsyncNotifierProvider<PodcastFeedsNotifier, List<PodcastFeed>>(PodcastFeedsNotifier.new);
+
+class PodcastFeedsNotifier extends AsyncNotifier<List<PodcastFeed>> {
+  ApiClient get _api => ref.read(apiProvider);
+  String? get _user => ref.read(authProvider).username;
+
+  @override
+  Future<List<PodcastFeed>> build() async {
+    final r = await _fetchObjectWithCache(
+      api: _api, path: '/api/podcast-feeds', username: _user, cacheName: 'podcast-feeds');
+    final raw = (r['feeds'] as List<dynamic>? ?? const []);
+    return raw.map((e) => PodcastFeed.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  /// Persist; gooit een [ApiException] door als de backend 400 geeft —
+  /// AC7 (ongeldige feed-URL → leesbare melding in UI) leunt hierop.
+  Future<void> save(List<PodcastFeed> feeds) async {
+    final body = {'feeds': feeds.map((f) => f.toJson()).toList()};
+    final r = await _api.put('/api/podcast-feeds', body) as Map<String, dynamic>;
+    final saved = (r['feeds'] as List<dynamic>? ?? const [])
+        .map((e) => PodcastFeed.fromJson(e as Map<String, dynamic>))
+        .toList();
+    state = AsyncData(saved);
+    await LocalCache.saveObject(_user, 'podcast-feeds', {
+      'feeds': saved.map((f) => f.toJson()).toList(),
+    });
+  }
+
+  Future<void> refresh() async {
+    await _api.post('/api/podcast-feeds/refresh');
+  }
+}
+
 final requestProvider = AsyncNotifierProvider<RequestNotifier, List<NewsRequest>>(RequestNotifier.new);
 
 class RequestNotifier extends AsyncNotifier<List<NewsRequest>> {

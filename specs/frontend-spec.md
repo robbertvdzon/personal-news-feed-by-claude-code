@@ -97,6 +97,7 @@ Toont per item:
 - **Titel:** de Nederlandse `titleNl` van het item (door Claude tegelijk met de samenvatting gegenereerd, ~70 tekens). Voor legacy items zonder `titleNl` valt de UI terug op het originele `title`-veld.
 - **Bron, relatieve tijd, categorie, datum** uit de bekende velden. De relatieve tijd toont hoe lang geleden het item bij ons binnenkwam (op basis van `createdAt`): "12 minuten geleden", "3 uur geleden", "2 dagen geleden", of een absolute datum (DD-MM-YYYY) na 3 dagen. Toont niets voor legacy items zonder timestamp. Helper: `lib/util/time_format.dart`.
 - **Preview:** de `shortSummary` (2 regels Nederlandse plain-text, ~30-50 woorden, eveneens door Claude gegenereerd). Voor legacy items zonder `shortSummary` valt de kaart terug op een afgekapte versie van de lange `summary`. De preview wordt **als Markdown** gerenderd via `MarkdownBody`, zodat `**vet**`, `*cursief*` en `` `code` `` netjes worden opgemaakt — vooral relevant voor de fallback uit de lange summary die volop markdown bevat. Lengte wordt begrensd door eerst de eerste paragraaf te pakken en die af te kappen rond 240 tekens (op woordgrens, met `…`); headers/lijst-bullets worden via een aangepaste `MarkdownStyleSheet` als gewone tekst gerenderd om kaart-overflow te voorkomen.
+- **Podcast-cards** (`kind: 'podcast'`, KAN-54) krijgen een `podcasts`-icoon links van de titel en een trailing-chip "Podcast · {duur} min · transcript|show-notes". De chip onderscheidt visueel of de samenvatting op het Whisper-transcript of op de show-notes is gebaseerd (AC5).
 
 **Acties per kaart:**
 - **Tik:** open FeedItemDetailScreen
@@ -118,7 +119,7 @@ PageView waarmee je door alle (gefilterde) items heen kunt bladeren.
 - Als `titleNl` aanwezig is **én** afwijkt van `title`, wordt het originele Engels eronder klein, cursief en in hint-kleur getoond — zo blijft de bron-titel herkenbaar voor wie het origineel zoekt.
 - Bron, categorie, datum als chips.
 - **Volledige samenvatting** = `summary` (uitgebreide Nederlandse 400-600 woord versie, 600-1000 voor daily summaries). Altijd via `MarkdownBody` + `selectable: true` zodat headers, vet/cursief, lijsten en paragrafen netjes worden gerenderd én de tekst gekopieerd kan worden met cmd/ctrl+c.
-- Bronlink(s) onderaan: tik om te openen in externe browser; lang indrukken om URL te kopiëren.
+- Bronlink(s) onderaan: tik om te openen in externe browser; lang indrukken om URL te kopiëren. Voor podcast-cards (KAN-54) heet de knop **"Origineel afspelen"** en opent de MP3 (`audioUrl`) i.p.v. de RSS-artikel-URL.
 
 **AppBar-acties** (per huidig item, status reflecteert live de provider-state — dus toggles updaten de iconen direct):
 - 👍 **Vind ik leuk** (`thumb_up_outlined` / `thumb_up` in groen) — `setFeedback(id, true)`; opnieuw tikken zet hem op `null`.
@@ -273,6 +274,15 @@ Lijst van geconfigureerde RSS-feed URLs uit `GET /api/rss-feeds`.
 - **Tik op URL:** opent URL in externe browser
 - **Verwijder-icoon (×):** verwijder feed-URL, PUT `/api/rss-feeds`
 - **Invoerveld + toevoegen-knop:** nieuwe URL toevoegen, PUT `/api/rss-feeds`
+
+### Podcast-bronnen (KAN-54)
+Lijst van geconfigureerde podcast-RSS-bronnen uit `GET /api/podcast-feeds`.
+Patroon analoog aan RSS-feeds met één extra control per regel:
+
+- **Tik op URL:** opent in externe browser.
+- **Transcriberen-toggle:** zet `transcribeEnabled` aan/uit en slaat direct op (PUT `/api/podcast-feeds`). AAN = Whisper STT + Claude-samenvatting o.b.v. transcript. UIT = sla STT over en gebruik de RSS show-notes.
+- **Verwijder-icoon (×):** PUT `/api/podcast-feeds` met de bron eruit gefilterd. Bijbehorende episodes worden CASCADE verwijderd.
+- **Invoerveld + toevoegen-knop:** nieuwe URL toevoegen. De backend valideert synchroon (5s timeout). Bij een 400 toont de UI een rode snackbar met de `error`-string uit het response-body (AC7). Tijdens de validatie staat de + -knop op een spinner.
 
 ### Achtergrond-taken
 Twee handmatige triggers voor de scheduled jobs (die zelf gewoon doorlopen op hun schedule — hourly RSS-refresh en de daily summary om 06:00):

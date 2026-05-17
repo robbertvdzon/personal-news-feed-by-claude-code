@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -20,6 +22,7 @@ class SettingsScreen extends ConsumerWidget {
     final auth = ref.watch(authProvider);
     final cats = ref.watch(settingsProvider);
     final feeds = ref.watch(rssFeedsProvider);
+    final podcastFeeds = ref.watch(podcastFeedsProvider);
     final appearance = ref.watch(appearanceProvider);
     final bottomInset = MediaQuery.of(context).padding.bottom;
     return Scaffold(
@@ -48,6 +51,7 @@ class SettingsScreen extends ConsumerWidget {
               ref.invalidate(requestProvider);
               ref.invalidate(settingsProvider);
               ref.invalidate(rssFeedsProvider);
+              ref.invalidate(podcastFeedsProvider);
             },
           ),
         ),
@@ -94,6 +98,13 @@ class SettingsScreen extends ConsumerWidget {
         Text('RSS-feeds', style: Theme.of(context).textTheme.titleLarge),
         feeds.when(
           data: (list) => _RssFeedsEditor(feeds: list),
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (e, _) => Text('Fout: $e'),
+        ),
+        const Divider(),
+        Text('Podcast-bronnen', style: Theme.of(context).textTheme.titleLarge),
+        podcastFeeds.when(
+          data: (list) => _PodcastFeedsEditor(feeds: list),
           loading: () => const Center(child: CircularProgressIndicator()),
           error: (e, _) => Text('Fout: $e'),
         ),
@@ -500,6 +511,132 @@ class _BackgroundJobTile extends StatelessWidget {
       trailing: running
           ? Tooltip(message: 'Loopt al…', child: button)
           : button,
+    );
+  }
+}
+
+/// Beheer van per-user podcast-bronnen. Parallel patroon aan
+/// [_RssFeedsEditor]: lijst + verwijderknop, invoerveld + + -knop. Extra:
+/// een transcribe-toggle per bron (AC1, AC5). Validatie van een nieuwe
+/// URL gebeurt server-side; bij een 400 (Kon feed niet ophalen) toont
+/// de UI binnen 10s een snackbar met de melding (AC7).
+class _PodcastFeedsEditor extends ConsumerStatefulWidget {
+  final List<PodcastFeed> feeds;
+  const _PodcastFeedsEditor({required this.feeds});
+
+  @override
+  ConsumerState<_PodcastFeedsEditor> createState() => _PodcastFeedsEditorState();
+}
+
+class _PodcastFeedsEditorState extends ConsumerState<_PodcastFeedsEditor> {
+  final _controller = TextEditingController();
+  bool _adding = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(children: [
+      for (final f in widget.feeds)
+        ListTile(
+          leading: const Icon(Icons.podcasts),
+          title: Text(f.url, style: const TextStyle(fontFamily: 'monospace')),
+          subtitle: Row(children: [
+            const Text('Transcriberen'),
+            const SizedBox(width: 8),
+            Switch(
+              value: f.transcribeEnabled,
+              onChanged: (v) async {
+                final next = widget.feeds
+                    .map((x) => x.url == f.url ? x.copyWith(transcribeEnabled: v) : x)
+                    .toList();
+                try {
+                  await ref.read(podcastFeedsProvider.notifier).save(next);
+                } catch (e) {
+                  if (!mounted) return;
+                  _showError(context, e);
+                }
+              },
+            ),
+          ]),
+          trailing: IconButton(
+            icon: const Icon(Icons.close),
+            onPressed: () async {
+              final next = widget.feeds.where((x) => x.url != f.url).toList();
+              try {
+                await ref.read(podcastFeedsProvider.notifier).save(next);
+              } catch (e) {
+                if (!mounted) return;
+                _showError(context, e);
+              }
+            },
+          ),
+          onTap: () => launchUrl(Uri.parse(f.url), mode: LaunchMode.externalApplication),
+        ),
+      Row(children: [
+        Expanded(
+          child: TextField(
+            controller: _controller,
+            enabled: !_adding,
+            decoration: const InputDecoration(
+              labelText: 'Nieuwe podcast-RSS-URL',
+              hintText: 'https://...',
+            ),
+            onSubmitted: (_) => _add(),
+          ),
+        ),
+        _adding
+            ? const Padding(
+                padding: EdgeInsets.all(12),
+                child: SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              )
+            : IconButton(icon: const Icon(Icons.add), onPressed: _add),
+      ]),
+    ]);
+  }
+
+  Future<void> _add() async {
+    final url = _controller.text.trim();
+    if (url.isEmpty) return;
+    if (widget.feeds.any((f) => f.url == url)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Deze bron staat al in de lijst')),
+      );
+      return;
+    }
+    setState(() => _adding = true);
+    final next = [...widget.feeds, PodcastFeed(url: url)];
+    try {
+      await ref.read(podcastFeedsProvider.notifier).save(next);
+      _controller.clear();
+    } catch (e) {
+      if (mounted) _showError(context, e);
+    } finally {
+      if (mounted) setState(() => _adding = false);
+    }
+  }
+
+  void _showError(BuildContext context, Object e) {
+    var msg = 'Kon feed niet ophalen';
+    if (e is ApiException && e.body.isNotEmpty) {
+      // Backend retourneert `{"error": "...", "url": "..."}` op 400 (AC7).
+      try {
+        final decoded = jsonDecode(e.body);
+        if (decoded is Map && decoded['error'] is String) {
+          msg = decoded['error'] as String;
+        }
+      } catch (_) {
+        // body is geen JSON — laat default-melding staan.
+      }
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        backgroundColor: Theme.of(context).colorScheme.error,
+        duration: const Duration(seconds: 6),
+      ),
     );
   }
 }
