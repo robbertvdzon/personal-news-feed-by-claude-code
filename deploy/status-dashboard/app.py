@@ -2285,7 +2285,15 @@ cat > "$HOME/.claude.json" <<JSON
 {
   "hasCompletedOnboarding": true,
   "lastOnboardingVersion": "${CLAUDE_VER:-99.99.99}",
-  "numStartups": 1
+  "numStartups": 1,
+  "projects": {
+    "/work/repo": {
+      "hasTrustDialogAccepted": true,
+      "hasClaudeMdExternalIncludesApproved": true,
+      "projectOnboardingSeenCount": 1,
+      "allowedTools": []
+    }
+  }
 }
 JSON
 cat > "$HOME/.claude/settings.json" <<'JSON'
@@ -2293,7 +2301,7 @@ cat > "$HOME/.claude/settings.json" <<'JSON'
   "theme": "dark"
 }
 JSON
-echo "[claude-interactive] config pre-seeded (skip onboarding wizard)"
+echo "[claude-interactive] config pre-seeded (skip onboarding wizard + folder-trust)"
 
 echo "[claude-interactive] claude start in /remote-modus…"
 { echo "/remote"; tail -f /dev/null; } | \

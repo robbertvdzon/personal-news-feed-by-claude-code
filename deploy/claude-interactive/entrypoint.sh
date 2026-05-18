@@ -103,7 +103,15 @@ cat > "$HOME/.claude.json" <<JSON
 {
   "hasCompletedOnboarding": true,
   "lastOnboardingVersion": "${CLAUDE_VER:-99.99.99}",
-  "numStartups": 1
+  "numStartups": 1,
+  "projects": {
+    "/work/repo": {
+      "hasTrustDialogAccepted": true,
+      "hasClaudeMdExternalIncludesApproved": true,
+      "projectOnboardingSeenCount": 1,
+      "allowedTools": []
+    }
+  }
 }
 JSON
 cat > "$HOME/.claude/settings.json" <<'JSON'
