@@ -2501,8 +2501,17 @@ def _build_interactive_resources(name: str) -> dict:
                             # script als positional $0, niet als stdin,
                             # dus stdin blijft beschikbaar voor claude.
                             "command": ["bash", "-c", _INTERACTIVE_ENTRYPOINT_SH],
-                            "tty": True,
-                            "stdin": True,
+                            # Géén tty/stdin op container-niveau. K8s zou
+                            # anders een "phantom" PTY toewijzen zonder
+                            # client; claude detecteert die, denkt dat 'ie
+                            # een echte terminal heeft en initialiseert de
+                            # remote-bridge niet (empirisch waargenomen:
+                            # met tty=true blijft de debug-log stoppen op
+                            # ~6s zonder enige remote-bridge events). De
+                            # `script`-wrapper in entrypoint alloceert
+                            # zelf een PTY voor claude, dat is voldoende.
+                            "tty": False,
+                            "stdin": False,
                             "env": env,
                             "resources": {
                                 "requests": {"cpu": "100m", "memory": "256Mi"},
