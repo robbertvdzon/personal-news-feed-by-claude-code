@@ -36,7 +36,9 @@ class RssItemRepository(
         mediaType = rs.getString("media_type") ?: "ARTICLE",
         audioUrl = rs.getString("audio_url") ?: "",
         durationSeconds = rs.getObject("duration_seconds") as? Int,
-        summarySource = rs.getString("summary_source") ?: "transcript"
+        summarySource = rs.getString("summary_source") ?: "transcript",
+        longSummary = rs.getString("long_summary"),
+        keyTakeaways = json.readList(rs, "key_takeaways", String::class.java)
     )
 
     private fun params(username: String, item: RssItem) = MapSqlParameterSource()
@@ -63,6 +65,8 @@ class RssItemRepository(
         .addValue("audio_url", item.audioUrl)
         .addValue("duration_seconds", item.durationSeconds)
         .addValue("summary_source", item.summarySource)
+        .addValue("long_summary", item.longSummary)
+        .addValue("key_takeaways", json.toJsonb(item.keyTakeaways))
 
     fun load(username: String): MutableList<RssItem> =
         jdbc.query(
@@ -99,12 +103,14 @@ class RssItemRepository(
                 username, id, title, summary, url, category, feed_url, source,
                 snippet, published_date, timestamp, processed_at, in_feed,
                 feed_reason, is_read, starred, liked, topics, feed_item_id,
-                media_type, audio_url, duration_seconds, summary_source
+                media_type, audio_url, duration_seconds, summary_source,
+                long_summary, key_takeaways
             ) VALUES (
                 :username, :id, :title, :summary, :url, :category, :feed_url, :source,
                 :snippet, :published_date, :timestamp, :processed_at, :in_feed,
                 :feed_reason, :is_read, :starred, :liked, :topics, :feed_item_id,
-                :media_type, :audio_url, :duration_seconds, :summary_source
+                :media_type, :audio_url, :duration_seconds, :summary_source,
+                :long_summary, :key_takeaways
             )
             ON CONFLICT (username, id) DO UPDATE SET
                 title          = EXCLUDED.title,
@@ -127,7 +133,9 @@ class RssItemRepository(
                 media_type     = EXCLUDED.media_type,
                 audio_url      = EXCLUDED.audio_url,
                 duration_seconds = EXCLUDED.duration_seconds,
-                summary_source = EXCLUDED.summary_source
+                summary_source = EXCLUDED.summary_source,
+                long_summary   = EXCLUDED.long_summary,
+                key_takeaways  = EXCLUDED.key_takeaways
         """
     }
 }

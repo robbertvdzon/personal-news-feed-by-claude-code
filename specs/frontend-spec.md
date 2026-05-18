@@ -159,6 +159,17 @@ Identiek qua PageView-navigatie en AppBar-acties als FeedItemDetailScreen.
 - **"Open feed-item"-knop:** alleen zichtbaar als `feedItemId` ingevuld is. Navigeert naar FeedItemDetailScreen voor het gekoppelde feed-item.
 - Tik op bronnaam: opent `feedUrl` of `url` in externe browser.
 
+### RssPodcastDetailScreen (KAN-62)
+Voor RssItems met `mediaType: 'PODCAST'` opent **niet** `RssItemDetailScreen` maar een dedicated podcast-detail-scherm (`rss_podcast_detail_screen.dart`). Deze routing-keuze gebeurt in zowel `rss_screen.dart` (direct op `isPodcast`) als `feed_screen.dart` (FeedItem `isPodcast` → opzoeken van de matchende RssItem via `sourceRssIds` → routeren naar dezelfde screen; fallback op `FeedItemDetailScreen` wanneer de RssItem niet gevonden wordt).
+
+Het scherm gebruikt dezelfde PageView-navigatie en AppBar-acties (👍/👎/⭐/lees), maar de body bevat drie podcast-specifieke secties:
+
+1. **Lange samenvatting** (~400-600 woorden, 3-5 alinea's): gerenderd uit `longSummary`. Bij ontbrekende waarde (nog niet door uitgebreide Claude-prompt of niet-gebackfilled): valt terug op `summary` plus een cursieve hint *"Uitgebreide samenvatting wordt op de achtergrond verwerkt"*.
+2. **Key takeaways**: bullet-list van `keyTakeaways` (5-10 regels). Sectie wordt verborgen wanneer de lijst leeg is.
+3. **Ruw transcript**: `ExpansionTile`, default ingeklapt. Bij eerste uitklap fetcht het scherm `GET /api/rss/{id}/transcript` (lazy — feed-listing transporteert geen 50-90k chars per podcast). Voor `summarySource='show_notes'`-items toont 'ie geen knop maar een placeholder *"Transcript wordt nog verwerkt"* (AC #5).
+
+Onderaan staat een **"Origineel afspelen"**-knop die `url` (de MP3) in een externe player opent.
+
 ### Toolbar-acties
 - **Vernieuwen (van bron) (`cloud_download`):** roept POST `/api/rss/refresh` aan, daarna periodiek (elke 4 seconden) opnieuw GET `/api/rss` tot verversing klaar is.
 - **AI-selectie opnieuw (`auto_awesome`):** roept POST `/api/rss/reselect` aan om alleen de AI-selectie-stap te draaien op de al-opgeslagen items, zonder fetch/summary opnieuw. Toont snackbar "AI-selectie opnieuw gestart — check backend log".

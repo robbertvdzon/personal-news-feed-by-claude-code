@@ -62,5 +62,19 @@ data class RssItem(
      * frontend een voorlopige-badge tonen. Wordt overschreven door
      * 'transcript' zodra de async transcript-fase klaar is.
      */
-    val summarySource: String = "transcript"
+    val summarySource: String = "transcript",
+    /**
+     * KAN-62: lange Nederlandse samenvatting voor het podcast-detail-
+     * scherm (3-5 alinea's, ~400-600 woorden). `null` voor (a) niet-
+     * podcast cards en (b) podcast cards die nog niet door de
+     * uitgebreide Claude-prompt heen zijn. De Flutter-app valt in dat
+     * geval terug op [summary]. Niet gezet voor `mediaType=ARTICLE`.
+     */
+    val longSummary: String? = null,
+    /**
+     * KAN-62: 5-10 concrete takeaway-bullets uit de podcast-aflevering.
+     * Eén regel per bullet, geen sub-bullets, geen markdown-headers.
+     * Lege lijst = sectie wordt verborgen op het detail-scherm.
+     */
+    val keyTakeaways: List<String> = emptyList()
 )

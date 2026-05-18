@@ -134,6 +134,14 @@ class RssItem {
   /// 'transcript' = échte Whisper-transcript-summary. Wordt door
   /// [isShowNotesBased] omgezet naar de badge in de UI.
   final String summarySource;
+  /// KAN-62: lange Nederlandse samenvatting (~400-600 woorden, 3-5
+  /// alinea's) voor het podcast-detail-scherm. Leeg/null voor (a) niet-
+  /// podcast items en (b) podcasts die nog niet door de uitgebreide
+  /// Claude-prompt heen zijn — detail-scherm valt dan terug op [summary].
+  final String? longSummary;
+  /// KAN-62: 5-10 concrete takeaway-bullets uit de aflevering. Lege
+  /// lijst = sectie wordt verborgen op het detail-scherm.
+  final List<String> keyTakeaways;
 
   RssItem({
     required this.id,
@@ -157,6 +165,8 @@ class RssItem {
     this.audioUrl = '',
     this.durationSeconds,
     this.summarySource = 'transcript',
+    this.longSummary,
+    this.keyTakeaways = const [],
   });
 
   bool get isPodcast => mediaType == 'PODCAST';
@@ -186,6 +196,8 @@ class RssItem {
         audioUrl: j['audioUrl'] ?? '',
         durationSeconds: j['durationSeconds'],
         summarySource: j['summarySource'] ?? 'transcript',
+        longSummary: j['longSummary'],
+        keyTakeaways: List<String>.from(j['keyTakeaways'] ?? const []),
       );
 
   RssItem copyWith({bool? isRead, bool? starred, Object? liked = const _Sentinel()}) => RssItem(
@@ -210,6 +222,8 @@ class RssItem {
         audioUrl: audioUrl,
         durationSeconds: durationSeconds,
         summarySource: summarySource,
+        longSummary: longSummary,
+        keyTakeaways: keyTakeaways,
       );
 }
 
