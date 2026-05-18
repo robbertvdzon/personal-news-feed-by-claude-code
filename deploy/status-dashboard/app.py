@@ -2239,7 +2239,7 @@ _SESSION_NAME_MAX = 22
 # geen kustomize-mount nodig heeft.
 _INTERACTIVE_ENTRYPOINT_SH = r"""set -euo pipefail
 echo "[claude-interactive] sessie '${SESSION_NAME:-?}' start"
-for v in CLAUDE_CODE_OAUTH_TOKEN GITHUB_TOKEN REPO_URL SESSION_NAME; do
+for v in CLAUDE_AI_OAUTH_CREDENTIALS_JSON GITHUB_TOKEN REPO_URL SESSION_NAME; do
   if [[ -z "${!v:-}" ]]; then
     echo "FATAL: env $v is leeg" >&2; exit 1
   fi

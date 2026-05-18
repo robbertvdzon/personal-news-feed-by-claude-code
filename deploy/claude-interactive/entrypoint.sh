@@ -8,11 +8,14 @@
 # runner.sh inneemt (claude-tester-image hergebruikt).
 #
 # Verwachte env-vars:
-#   SESSION_NAME              de PO-gegeven naam (uniek per actieve sessie)
-#   REPO_URL                  bv. https://github.com/.../personal-news-feed-by-claude-code.git
-#   GITHUB_TOKEN              voor de clone
-#   CLAUDE_CODE_OAUTH_TOKEN   logt de pod in onder het PO-account, waardoor
-#                             de sessie in de mobiele Claude-app verschijnt
+#   SESSION_NAME                       de PO-gegeven naam (uniek per actieve sessie)
+#   REPO_URL                           bv. https://github.com/.../personal-news-feed-by-claude-code.git
+#   GITHUB_TOKEN                       voor de clone
+#   CLAUDE_AI_OAUTH_CREDENTIALS_JSON   full Claude Max OAuth-credentials-blob
+#                                      (uit Mac-keychain "Claude Code-credentials").
+#                                      Bevat user:sessions:claude_code +
+#                                      user:mcp_servers scopes; zonder die werkt
+#                                      --remote-control niet (mobile-sync uit).
 #
 # Doel:
 #   1. Verse git-clone van main in /work/repo.
@@ -30,7 +33,7 @@ set -euo pipefail
 echo "[claude-interactive] sessie '${SESSION_NAME:-?}' start"
 
 # ---------- pre-flight ----------
-for v in CLAUDE_CODE_OAUTH_TOKEN GITHUB_TOKEN REPO_URL SESSION_NAME; do
+for v in CLAUDE_AI_OAUTH_CREDENTIALS_JSON GITHUB_TOKEN REPO_URL SESSION_NAME; do
   if [[ -z "${!v:-}" ]]; then
     echo "FATAL: env $v is leeg" >&2; exit 1
   fi
