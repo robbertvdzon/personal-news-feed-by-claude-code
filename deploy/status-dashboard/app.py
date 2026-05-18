@@ -2303,9 +2303,17 @@ cat > "$HOME/.claude/settings.json" <<'JSON'
 JSON
 echo "[claude-interactive] config pre-seeded (skip onboarding wizard + folder-trust)"
 
-echo "[claude-interactive] claude start in /remote-modus…"
-{ echo "/remote-control"; tail -f /dev/null; } | \
-  script -q -c "claude --append-system-prompt \"$(cat /tmp/welcome.md)\"" /dev/null
+echo "[claude-interactive] claude start in /remote-control-modus…"
+# Wacht 6s zodat claude volledig is opgestart (config gelezen, welkomst-
+# banner getoond, prompt-ready) voordat we /remote-control intypen.
+# Anders consumeert claude's input-buffer de slash-command tijdens
+# startup en blijft de autocomplete-dropdown openstaan. De extra \n
+# bevestigt de autocomplete-selectie ("druk ENTER om te kiezen").
+{
+  sleep 6
+  printf '/remote-control\n\n'
+  tail -f /dev/null
+} | script -q -c "claude --append-system-prompt \"$(cat /tmp/welcome.md)\"" /dev/null
 echo "[claude-interactive] claude is afgesloten — exit"
 """
 
