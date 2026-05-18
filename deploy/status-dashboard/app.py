@@ -2344,7 +2344,7 @@ echo "[claude-interactive] claude start in --remote-control-modus…"
 # tail /tmp/claude-debug.log` kunnen we [remote-bridge]-events bekijken
 # wanneer een sessie niet op mobiel verschijnt.
 { tail -f /dev/null; } | \
-  script -q -c "claude --remote-control \"$SESSION_NAME\" --append-system-prompt \"$(cat /tmp/welcome.md)\"" /dev/null
+  script -q -c "claude --debug-file /tmp/claude-debug.log --remote-control \"$SESSION_NAME\" --append-system-prompt \"$(cat /tmp/welcome.md)\"" /dev/null
 echo "[claude-interactive] claude is afgesloten — exit"
 """
 
