@@ -1592,7 +1592,7 @@ def jwt_verify(token: str) -> Optional[dict]:
 
 def _add_cors_headers(resp: Response) -> Response:
     resp.headers["Access-Control-Allow-Origin"] = DASHBOARD_CORS_ORIGIN
-    resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    resp.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS"
     resp.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type"
     resp.headers["Access-Control-Max-Age"] = "600"
     resp.headers["Vary"] = "Origin"
