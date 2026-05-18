@@ -2303,21 +2303,14 @@ cat > "$HOME/.claude/settings.json" <<'JSON'
 JSON
 echo "[claude-interactive] config pre-seeded (skip onboarding wizard + folder-trust)"
 
-echo "[claude-interactive] claude start in /remote-control-modus…"
-# Claude's TUI heeft een slash-command-autocomplete die opent zodra "/"
-# verschijnt. Volgorde voor 'm robuust te triggeren:
-#   1. wacht 10s tot claude volledig boot-ready is (welkomst-banner +
-#      marketplace-notificatie + lege prompt)
-#   2. typ "/remote-control" + \n  → autocomplete pakt de exact-match
-#   3. wacht 2s zodat claude de autocomplete-selectie verwerkt
-#   4. extra \n → submit (= execute van het slash-command)
-{
-  sleep 10
-  printf '/remote-control\n'
-  sleep 2
-  printf '\n'
-  tail -f /dev/null
-} | script -q -c "claude --append-system-prompt \"$(cat /tmp/welcome.md)\"" /dev/null
+echo "[claude-interactive] claude start in --remote-control-modus…"
+# `claude --remote-control <name>` start direct met Remote Control aan,
+# zonder dat we de slash-command via de TUI-autocomplete hoeven te typen
+# (wat eerder vastliep op de open autocomplete-dropdown). Naam wordt de
+# pod-sessie-naam zodat 'ie herkenbaar is in de mobiele Claude-app.
+# tail -f houdt de stream open zodat claude niet meteen EOF ziet.
+{ tail -f /dev/null; } | \
+  script -q -c "claude --remote-control \"$SESSION_NAME\" --append-system-prompt \"$(cat /tmp/welcome.md)\"" /dev/null
 echo "[claude-interactive] claude is afgesloten — exit"
 """
 

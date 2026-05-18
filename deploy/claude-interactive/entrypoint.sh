@@ -130,19 +130,9 @@ echo "[claude-interactive] config pre-seeded"
 # z'n eerste mobiele prompt kan oproepen ("toon /tmp/welcome.md").
 echo "[claude-interactive] claude start in /remote-modus…"
 {
-  # Volgorde van events voor de slash-command-autocomplete:
-  #   1. wacht 10s tot claude volledig boot-ready is (welkomst-banner +
-  #      marketplace-notificatie + lege prompt)
-  #   2. typ "/remote-control" + \n  → autocomplete pakt de exact-match
-  #   3. wacht 2s zodat claude de autocomplete-selectie verwerkt
-  #   4. extra \n → submit (= execute van het slash-command)
-  sleep 10
-  printf '/remote-control\n'
-  sleep 2
-  printf '\n'
-  # Houd de stream open zodat claude niet meteen EOF ziet. `tail -f`
+  # tail -f houdt de stream open zodat claude niet meteen EOF ziet en
   # blokkeert tot de pod gedeleted wordt.
   tail -f /dev/null
-} | script -q -c "claude --append-system-prompt \"$(cat /tmp/welcome.md)\"" /dev/null
+} | script -q -c "claude --remote-control \"$SESSION_NAME\" --append-system-prompt \"$(cat /tmp/welcome.md)\"" /dev/null
 
 echo "[claude-interactive] claude is afgesloten — exit"
