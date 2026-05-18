@@ -48,6 +48,22 @@ data class PodcastEpisode(
      */
     val summarySource: String = "transcript",
     /**
+     * KAN-62: lange Nederlandse samenvatting voor het podcast-detail-
+     * scherm (3-5 alinea's, ~400-600 woorden). `null` voor cards die
+     * nog niet door de uitgebreide Claude-prompt gegaan zijn — de
+     * frontend valt in dat geval terug op de short-summary in
+     * [summary]. Wordt gevuld door [PodcastEpisodeProcessor.summarize]
+     * (nieuwe afleveringen) en door [PodcastBackfillRunner] (de
+     * 14 bestaande KAN-60-rijen).
+     */
+    val longSummary: String? = null,
+    /**
+     * KAN-62: 5-10 concrete takeaway-bullets uit de aflevering. Eén
+     * regel per bullet, geen sub-bullets, geen markdown-headers.
+     * `null` of leeg = sectie wordt verborgen op het detail-scherm.
+     */
+    val keyTakeaways: List<String> = emptyList(),
+    /**
      * KAN-60 (V8): wanneer de show-notes-timeout-promotie 1x getriggerd
      * is voor deze aflevering. Voorkomt dat de worker elke tick opnieuw
      * een Claude-selectie-call afvuurt voor een door AI afgewezen item

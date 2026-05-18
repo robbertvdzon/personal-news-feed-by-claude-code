@@ -1,10 +1,12 @@
 package com.vdzon.newsfeedbackend.rss.api
 
 import com.vdzon.newsfeedbackend.common.FeedbackBody
+import com.vdzon.newsfeedbackend.podcast_source.PodcastTranscriptLookup
 import com.vdzon.newsfeedbackend.rss.RssItem
 import com.vdzon.newsfeedbackend.rss.RssService
 import com.vdzon.newsfeedbackend.common.SecurityHelpers
 import org.slf4j.LoggerFactory
+import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
@@ -17,7 +19,10 @@ import org.springframework.web.bind.annotation.RestController
 
 @RestController
 @RequestMapping("/api/rss")
-class RssController(private val service: RssService) {
+class RssController(
+    private val service: RssService,
+    private val transcriptLookup: PodcastTranscriptLookup
+) {
 
     private val log = LoggerFactory.getLogger(javaClass)
     private fun user(): String = SecurityHelpers.currentUsername()
@@ -69,4 +74,19 @@ class RssController(private val service: RssService) {
 
     @DeleteMapping("/{id}")
     fun delete(@PathVariable id: String): Map<String, String> { service.delete(user(), id); return mapOf("status" to "ok") }
+
+    /**
+     * KAN-62: ruwe Whisper-transcript voor één podcast-rss-item. Apart
+     * endpoint (niet inline in `/api/rss`) zodat de transcript-tekst
+     * (50-90k chars per aflevering) de feed-listing niet opblaast — de
+     * Flutter-app fetcht 'm pas wanneer de gebruiker de transcript-
+     * sectie op het detail-scherm uitklapt. 404 als er geen transcript
+     * is (b.v. niet-podcast-item of `summary_source='show_notes'`).
+     */
+    @GetMapping("/{id}/transcript")
+    fun transcript(@PathVariable id: String): ResponseEntity<Map<String, String>> {
+        val transcript = transcriptLookup.findTranscriptForRssItem(user(), id)
+            ?: return ResponseEntity.notFound().build()
+        return ResponseEntity.ok(mapOf("transcript" to transcript))
+    }
 }

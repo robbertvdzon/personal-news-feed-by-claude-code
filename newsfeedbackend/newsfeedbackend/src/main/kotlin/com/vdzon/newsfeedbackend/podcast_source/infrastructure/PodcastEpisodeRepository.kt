@@ -2,6 +2,7 @@ package com.vdzon.newsfeedbackend.podcast_source.infrastructure
 
 import com.vdzon.newsfeedbackend.podcast_source.PodcastEpisode
 import com.vdzon.newsfeedbackend.podcast_source.PodcastEpisodeStatus
+import com.vdzon.newsfeedbackend.storage.JdbcJsonb
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate
 import org.springframework.stereotype.Component
@@ -11,7 +12,8 @@ import java.time.Instant
 
 @Component
 class PodcastEpisodeRepository(
-    private val jdbc: NamedParameterJdbcTemplate
+    private val jdbc: NamedParameterJdbcTemplate,
+    private val json: JdbcJsonb
 ) {
 
     private fun map(rs: ResultSet, @Suppress("UNUSED_PARAMETER") n: Int): PodcastEpisode = PodcastEpisode(
@@ -34,6 +36,8 @@ class PodcastEpisodeRepository(
         retryCount = rs.getInt("retry_count"),
         nextAttemptAt = rs.getTimestamp("next_attempt_at")?.toInstant(),
         summarySource = rs.getString("summary_source") ?: "transcript",
+        longSummary = rs.getString("long_summary"),
+        keyTakeaways = json.readList(rs, "key_takeaways", String::class.java),
         feedPromotionAttemptedAt = rs.getTimestamp("feed_promotion_attempted_at")?.toInstant(),
         createdAt = rs.getTimestamp("created_at")?.toInstant() ?: Instant.now(),
         updatedAt = rs.getTimestamp("updated_at")?.toInstant() ?: Instant.now()
@@ -132,6 +136,25 @@ class PodcastEpisodeRepository(
     }
 
     /**
+     * KAN-62: alle DONE-afleveringen die nog geen long_summary hebben.
+     * Wordt door [com.vdzon.newsfeedbackend.podcast_source.infrastructure.PodcastBackfillRunner]
+     * gebruikt om bestaande KAN-60-rijen retroactief te verrijken met
+     * de uitgebreidere Claude-output (story AC #7). Alleen transcript-
+     * based items — show-notes-rijen hebben geen transcript om uit te
+     * vertrekken (refiner-aanname).
+     */
+    fun findDoneNeedingLongSummary(): List<PodcastEpisode> =
+        jdbc.query(
+            """SELECT * FROM podcast_episodes
+               WHERE status = 'DONE'
+                 AND summary_source = 'transcript'
+                 AND long_summary IS NULL
+               ORDER BY created_at ASC""",
+            MapSqlParameterSource(),
+            ::map
+        )
+
+    /**
      * Zet de marker dat de show-notes-timeout-promotie voor [guid]
      * getriggerd is, zodat [findShowNotesExpiredForPromotion] 'm niet
      * opnieuw oppakt. Aparte UPDATE (niet via [upsert]) zodat we niet
@@ -167,6 +190,8 @@ class PodcastEpisodeRepository(
         .addValue("retry_count", ep.retryCount)
         .addValue("next_attempt_at", ep.nextAttemptAt?.let { Timestamp.from(it) })
         .addValue("summary_source", ep.summarySource)
+        .addValue("long_summary", ep.longSummary)
+        .addValue("key_takeaways", json.toJsonb(ep.keyTakeaways))
         .addValue("feed_promotion_attempted_at", ep.feedPromotionAttemptedAt?.let { Timestamp.from(it) })
         .addValue("created_at", Timestamp.from(ep.createdAt))
         .addValue("updated_at", Timestamp.from(ep.updatedAt))
@@ -177,14 +202,14 @@ class PodcastEpisodeRepository(
                 username, guid, feed_url, podcast_name, title, audio_url,
                 duration_seconds, published_date, show_notes, transcript,
                 summary, status, error_message, rss_item_id, retry_count,
-                next_attempt_at, summary_source, feed_promotion_attempted_at,
-                created_at, updated_at
+                next_attempt_at, summary_source, long_summary, key_takeaways,
+                feed_promotion_attempted_at, created_at, updated_at
             ) VALUES (
                 :username, :guid, :feed_url, :podcast_name, :title, :audio_url,
                 :duration_seconds, :published_date, :show_notes, :transcript,
                 :summary, :status, :error_message, :rss_item_id, :retry_count,
-                :next_attempt_at, :summary_source, :feed_promotion_attempted_at,
-                :created_at, :updated_at
+                :next_attempt_at, :summary_source, :long_summary, :key_takeaways,
+                :feed_promotion_attempted_at, :created_at, :updated_at
             )
             ON CONFLICT (username, guid) DO UPDATE SET
                 feed_url                    = EXCLUDED.feed_url,
@@ -202,6 +227,8 @@ class PodcastEpisodeRepository(
                 retry_count                 = EXCLUDED.retry_count,
                 next_attempt_at             = EXCLUDED.next_attempt_at,
                 summary_source              = EXCLUDED.summary_source,
+                long_summary                = EXCLUDED.long_summary,
+                key_takeaways               = EXCLUDED.key_takeaways,
                 feed_promotion_attempted_at = EXCLUDED.feed_promotion_attempted_at,
                 updated_at                  = EXCLUDED.updated_at
         """
