@@ -109,3 +109,23 @@ CREATE TABLE IF NOT EXISTS factory.agent_knowledge (
 
 CREATE INDEX IF NOT EXISTS agent_knowledge_role_idx
     ON factory.agent_knowledge (role, category, key);
+
+-- 2026-05-18 (KAN-61) — interactieve Claude-sessies. Handmatig gestarte
+-- long-running pods met de Claude Code CLI in /remote-modus. Eén row
+-- per spawn. status: 'running' / 'stopped' / 'failed'. ended_at NULL
+-- zolang de sessie loopt; wordt door de dashboard-backend op now()
+-- gezet bij stop-knop of bij ophalen van de actieve lijst (cleanup
+-- van afgelopen sessies). De K8s Job is leidend voor de échte status
+-- — deze tabel is een persistent record voor history / debugging.
+CREATE TABLE IF NOT EXISTS factory.interactive_sessions (
+  id          BIGSERIAL PRIMARY KEY,
+  name        TEXT NOT NULL,
+  job_name    TEXT NOT NULL UNIQUE,
+  started_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  ended_at    TIMESTAMPTZ,
+  status      TEXT NOT NULL DEFAULT 'running'
+);
+
+CREATE INDEX IF NOT EXISTS interactive_sessions_active_idx
+    ON factory.interactive_sessions (ended_at)
+    WHERE ended_at IS NULL;

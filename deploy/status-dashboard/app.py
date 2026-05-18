@@ -265,6 +265,22 @@ def kubectl_json(*args) -> dict:
         return {}
 
 
+def kubectl_run(*args, input_data: Optional[str] = None,
+                timeout: int = 15) -> subprocess.CompletedProcess:
+    """kubectl-wrapper voor mutaties (apply/delete/patch). Geen JSON-
+    parsing; caller leest stdout/stderr + returncode zelf zodat 'ie
+    een nette HTTP-fout kan terugsturen aan de client.
+
+    Logged niet automatisch bij fout — het log-niveau hangt af van
+    of de fout fataal is voor de caller (bv. 409 op delete = OK)."""
+    return subprocess.run(
+        ["kubectl", *args],
+        input=input_data,
+        capture_output=True, text=True,
+        timeout=timeout, check=False,
+    )
+
+
 def k8s_applications() -> list[dict]:
     """Alle ArgoCD Applications in de argocd-namespace."""
     data = kubectl_json("get", "applications.argoproj.io", "-n", ARGOCD_NS)
@@ -2163,6 +2179,456 @@ def api_story_attachment_raw(key: str, aid: str) -> Response:
         r.content,
         mimetype=r.headers.get("Content-Type", "application/octet-stream"),
     )
+
+
+# ─── Claude-tab: factory-agents + interactieve sessies (KAN-61) ──────────
+#
+# Twee endpoint-groepen voor de "Claude"-tab van het dashboard:
+#
+#   GET  /api/v1/claude-factory-agents
+#       Read-only lijst van actief draaiende claude-runner Jobs (de
+#       factory-pipeline: refiner/developer/reviewer/tester). Eén kaartje
+#       per Job met story_key + rol + duur + status.
+#
+#   GET    /api/v1/claude-sessions
+#   POST   /api/v1/claude-sessions          {"name": "<uniek>"}
+#   DELETE /api/v1/claude-sessions/<name>
+#       Long-running interactieve pods met de Claude Code CLI in
+#       /remote-modus. Verschijnen in de Anthropic Claude-app van de PO
+#       zodat 'ie vanaf z'n mobiel cluster-commando's kan sturen.
+#
+# Beide bronnen leven onder K8s-labels:
+#   app=claude-runner       — factory-Jobs (jira-poller spawnt)
+#   app=claude-interactive  — interactieve sessies (dit dashboard spawnt)
+
+# Hard cap: max N actieve interactieve sessies tegelijk. Story KAN-61
+# spreekt over "per user" maar het dashboard heeft één admin-account,
+# dus de cap is effectief systeem-breed.
+MAX_INTERACTIVE_SESSIONS = int(
+    os.environ.get("MAX_INTERACTIVE_SESSIONS", "3")
+)
+CLAUDE_INTERACTIVE_IMAGE = os.environ.get(
+    "CLAUDE_INTERACTIVE_IMAGE",
+    "ghcr.io/robbertvdzon/claude-tester:main",
+)
+CLAUDE_INTERACTIVE_SA = os.environ.get(
+    "CLAUDE_INTERACTIVE_SA", "claude-interactive"
+)
+REPO_URL = os.environ.get(
+    "REPO_URL",
+    "https://github.com/robbertvdzon/personal-news-feed-by-claude-code.git",
+)
+
+# K8s-veilige sessienaam: kleine letters/cijfers/streepjes, 1–30 tekens.
+# Beperkt OOK wat we als pad-parameter accepteren in DELETE.
+_SESSION_NAME_RE = re.compile(r"^[a-z][a-z0-9-]{0,29}$")
+
+# Entrypoint-script dat in de pod draait. Wordt als ConfigMap-binaryData
+# meegegeven en op /opt/claude-interactive/entrypoint.sh gemount. We
+# houden 'm hier inline (i.p.v. in een aparte file lezen) zodat het
+# dashboard-image self-contained blijft — geen kustomize-mount nodig.
+_INTERACTIVE_ENTRYPOINT_SH = r"""#!/usr/bin/env bash
+set -euo pipefail
+echo "[claude-interactive] sessie '${SESSION_NAME:-?}' start"
+for v in CLAUDE_CODE_OAUTH_TOKEN GITHUB_TOKEN REPO_URL SESSION_NAME; do
+  if [[ -z "${!v:-}" ]]; then
+    echo "FATAL: env $v is leeg" >&2; exit 1
+  fi
+done
+rm -rf /work/repo
+mkdir -p /work
+cd /work
+echo "[claude-interactive] git clone $REPO_URL → /work/repo"
+git -c credential.helper="!f() { echo username=token; echo password=$GITHUB_TOKEN; }; f" \
+    clone --depth 1 --branch main "$REPO_URL" repo
+cd /work/repo
+cat > /tmp/welcome.md <<EOF
+# Interactieve Claude-sessie — '${SESSION_NAME}'
+
+Je hebt **admin-RBAC** op het cluster (cluster-admin ClusterRoleBinding).
+Wees voorzichtig: een verkeerd commando kan productie raken.
+
+Scope:
+- pnf-software-factory  → schrijfbaar
+- personal-news-feed    → schrijfbaar (PRODUCTIE — let op)
+- pnf-pr-*              → schrijfbaar (previews)
+- argocd                → schrijfbaar
+
+Tools: claude, kubectl, oc, psql, git, gh, jq, Playwright/Chromium.
+DB: \$PNF_DATABASE_URL en \$FACTORY_DATABASE_URL.
+Werkdirectory: /work/repo (verse clone van main bij start).
+
+Stop via de dashboard-knop — geen exit-on-idle.
+EOF
+echo "[claude-interactive] welkomstprompt → /tmp/welcome.md"
+echo "[claude-interactive] claude start in /remote-modus…"
+{ echo "/remote"; tail -f /dev/null; } | \
+  script -q -c "claude --append-system-prompt \"$(cat /tmp/welcome.md)\"" /dev/null
+echo "[claude-interactive] claude is afgesloten — exit"
+"""
+
+
+def _sanitize_session_name(name: str) -> str:
+    """Strip + lowercase de PO-input voor regex-validatie."""
+    return (name or "").strip().lower()
+
+
+def _interactive_job_name(name: str) -> str:
+    stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
+    short = _sanitize_session_name(name)[:30]
+    return f"claude-interactive-{short}-{stamp}"
+
+
+def _job_is_active(job: dict) -> bool:
+    """True zolang de Job nog niet Complete/Failed is."""
+    conds = (job.get("status") or {}).get("conditions") or []
+    for c in conds:
+        if c.get("status") == "True" and c.get("type") in ("Complete", "Failed"):
+            return False
+    return True
+
+
+def _factory_agent_to_dict(job: dict) -> dict:
+    """Eén claude-runner Job → API-shape voor de dashboard-tab."""
+    meta = job.get("metadata") or {}
+    labels = meta.get("labels") or {}
+    status = job.get("status") or {}
+    job_name = meta.get("name", "")
+    started_at = status.get("startTime") or meta.get("creationTimestamp") or ""
+    # status: 'running' / 'completing' / 'failed' / 'finished'.
+    # We exposen ook nog 'finished' voor compleetheid; de UI filtert
+    # zelf op niet-finished.
+    conds = status.get("conditions") or []
+    complete = any(c.get("type") == "Complete" and c.get("status") == "True" for c in conds)
+    failed = any(c.get("type") == "Failed" and c.get("status") == "True" for c in conds)
+    active = int(status.get("active", 0) or 0)
+    succeeded = int(status.get("succeeded", 0) or 0)
+    if failed:
+        state = "failed"
+    elif complete:
+        state = "finished"
+    elif active == 0 and succeeded > 0:
+        state = "completing"
+    else:
+        state = "running"
+    # story_key: terug uit het label 'story-id' (kebab-lowercase, bv.
+    # 'kan-61'). Voor UI willen we de oorspronkelijke KAN-61.
+    story_label = labels.get("story-id", "") or ""
+    story_key = story_label.upper() if story_label else ""
+    return {
+        "job_name": job_name,
+        "story_key": story_key,
+        "role": labels.get("role") or "",
+        "mode": labels.get("mode") or "",
+        "started_at": started_at,
+        "state": state,
+    }
+
+
+def _session_to_dict(job: dict) -> dict:
+    """Eén claude-interactive Job → API-shape voor het sessie-kaartje."""
+    meta = job.get("metadata") or {}
+    labels = meta.get("labels") or {}
+    status = job.get("status") or {}
+    conds = status.get("conditions") or []
+    complete = any(c.get("type") == "Complete" and c.get("status") == "True" for c in conds)
+    failed = any(c.get("type") == "Failed" and c.get("status") == "True" for c in conds)
+    if failed:
+        state = "failed"
+    elif complete:
+        state = "stopped"
+    else:
+        state = "running"
+    return {
+        "name": labels.get("session-name", "") or "",
+        "job_name": meta.get("name", ""),
+        "started_at": status.get("startTime") or meta.get("creationTimestamp") or "",
+        "state": state,
+    }
+
+
+def _list_active_interactive_jobs() -> list[dict]:
+    """Alle claude-interactive Jobs die nog niet Complete/Failed zijn."""
+    items = k8s_jobs(FACTORY_NS, label_selector="app=claude-interactive")
+    return [j for j in items if _job_is_active(j)]
+
+
+def _build_interactive_resources(name: str) -> tuple[dict, dict]:
+    """Bouw (ConfigMap, Job)-paar voor één sessie. De Job mount de
+    ConfigMap als entrypoint-script; ownerReference op de ConfigMap
+    wordt ná Job-create gepatched zodat 'm mee-GC't met de Job."""
+    job_name = _interactive_job_name(name)
+    cm_name = f"{job_name}-entry"
+    labels = {
+        "app": "claude-interactive",
+        "session-name": _sanitize_session_name(name)[:30],
+    }
+    cm = {
+        "apiVersion": "v1",
+        "kind": "ConfigMap",
+        "metadata": {
+            "name": cm_name,
+            "namespace": FACTORY_NS,
+            "labels": labels,
+        },
+        "data": {
+            "entrypoint.sh": _INTERACTIVE_ENTRYPOINT_SH,
+        },
+    }
+    env = [
+        {"name": "SESSION_NAME", "value": _sanitize_session_name(name)[:30]},
+        {"name": "REPO_URL", "value": REPO_URL},
+        {"name": "GITHUB_OWNER", "value": GITHUB_OWNER},
+        {"name": "GITHUB_REPO", "value": GITHUB_REPO},
+        # OAuth-token = de sleutel die de pod aan de PO's Anthropic-
+        # account koppelt; daardoor verschijnt de sessie binnen ~30s in
+        # de mobiele Claude-app. ANTHROPIC_API_KEY NIET óók meegeven,
+        # die zou de OAuth-route overschrijven (zie poller.py).
+        _secret_env("CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"),
+        _secret_env("GITHUB_TOKEN", "GITHUB_TOKEN"),
+        _secret_env("JIRA_API_KEY", "ATLASSIAN_API_KEY"),
+        _secret_env("PNF_DATABASE_URL", "PNF_DATABASE_URL"),
+        _secret_env("FACTORY_DATABASE_URL", "FACTORY_DATABASE_URL"),
+        # Whisper = OpenAI's audio-API; in deze repo onder PNF_OPENAI_API_KEY.
+        _secret_env("PNF_OPENAI_API_KEY", "PNF_OPENAI_API_KEY"),
+        _secret_env("PNF_TAVILY_API_KEY", "PNF_TAVILY_API_KEY"),
+        _secret_env("PNF_ELEVENLABS_API_KEY", "PNF_ELEVENLABS_API_KEY"),
+    ]
+    job = {
+        "apiVersion": "batch/v1",
+        "kind": "Job",
+        "metadata": {
+            "name": job_name,
+            "namespace": FACTORY_NS,
+            "labels": labels,
+        },
+        "spec": {
+            # 1u TTL na finish: pod-logs blijven nog even oproepbaar.
+            "ttlSecondsAfterFinished": 3600,
+            # backoffLimit + restartPolicy=OnFailure: K8s herstart de
+            # pod automatisch bij crash; volledig opgeven na 3 backoffs.
+            "backoffLimit": 3,
+            "template": {
+                "metadata": {"labels": labels},
+                "spec": {
+                    "restartPolicy": "OnFailure",
+                    "serviceAccountName": CLAUDE_INTERACTIVE_SA,
+                    "containers": [
+                        {
+                            "name": "claude",
+                            "image": CLAUDE_INTERACTIVE_IMAGE,
+                            "imagePullPolicy": "Always",
+                            "command": ["bash", "/opt/claude-interactive/entrypoint.sh"],
+                            "tty": True,
+                            "stdin": True,
+                            "env": env,
+                            "volumeMounts": [
+                                {
+                                    "name": "entry",
+                                    "mountPath": "/opt/claude-interactive",
+                                    "readOnly": True,
+                                },
+                            ],
+                            "resources": {
+                                "requests": {"cpu": "100m", "memory": "256Mi"},
+                                "limits": {"cpu": "500m", "memory": "1Gi"},
+                            },
+                        },
+                    ],
+                    "volumes": [
+                        {
+                            "name": "entry",
+                            "configMap": {
+                                "name": cm_name,
+                                "defaultMode": 0o755,
+                            },
+                        },
+                    ],
+                },
+            },
+        },
+    }
+    return cm, job
+
+
+def _secret_env(name: str, key: str) -> dict:
+    return {
+        "name": name,
+        "valueFrom": {
+            "secretKeyRef": {"name": "newsfeed-api-keys", "key": key},
+        },
+    }
+
+
+def _factory_db_record_session(name: str, job_name: str) -> None:
+    """Best-effort: schrijf een rij in factory.interactive_sessions. Faalt
+    silent als DB onbereikbaar — K8s blijft de leidende state."""
+    if not _factory_db_available():
+        return
+    try:
+        with psycopg.connect(FACTORY_DATABASE_URL) as conn, conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO factory.interactive_sessions
+                       (name, job_name, status)
+                   VALUES (%s, %s, 'running')
+                   ON CONFLICT (job_name) DO NOTHING""",
+                (name, job_name),
+            )
+            conn.commit()
+    except Exception as e:
+        log.warning("interactive_sessions insert faalde: %s", e)
+
+
+def _factory_db_mark_stopped(job_name: str) -> None:
+    if not _factory_db_available():
+        return
+    try:
+        with psycopg.connect(FACTORY_DATABASE_URL) as conn, conn.cursor() as cur:
+            cur.execute(
+                """UPDATE factory.interactive_sessions
+                       SET status='stopped', ended_at=now()
+                       WHERE job_name=%s AND ended_at IS NULL""",
+                (job_name,),
+            )
+            conn.commit()
+    except Exception as e:
+        log.warning("interactive_sessions stop-update faalde: %s", e)
+
+
+@app.route("/api/v1/claude-factory-agents", methods=["GET", "OPTIONS"])
+@require_jwt
+def api_claude_factory_agents() -> Response:
+    """Lijst van actief draaiende claude-runner Jobs (factory-pipeline).
+    Lege lijst is geldig — geen agents actief = stille tab."""
+    items = k8s_jobs(FACTORY_NS, label_selector="app=claude-runner")
+    active = [_factory_agent_to_dict(j) for j in items if _job_is_active(j)]
+    # Nieuwste eerst zodat een net gestarte run bovenaan komt.
+    active.sort(key=lambda a: a.get("started_at", ""), reverse=True)
+    return jsonify(agents=active)
+
+
+@app.route("/api/v1/claude-sessions", methods=["GET", "POST", "OPTIONS"])
+@require_jwt
+def api_claude_sessions() -> Response:
+    if request.method == "OPTIONS":
+        return _add_cors_headers(Response("", status=204))
+    if request.method == "GET":
+        active = [_session_to_dict(j) for j in _list_active_interactive_jobs()]
+        active.sort(key=lambda s: s.get("started_at", ""), reverse=True)
+        return jsonify(
+            sessions=active,
+            cap=MAX_INTERACTIVE_SESSIONS,
+        )
+    # POST: nieuwe sessie starten
+    data = request.get_json(silent=True) or {}
+    raw_name = (data.get("name") or "").strip()
+    name = _sanitize_session_name(raw_name)
+    if not _SESSION_NAME_RE.match(name):
+        return jsonify(error=(
+            "Naam moet 1-30 tekens zijn: kleine letters/cijfers/streepjes "
+            "en beginnen met een letter."
+        )), 400
+    active = _list_active_interactive_jobs()
+    # Naam-uniekheid binnen actieve sessies (historische namen mogen
+    # opnieuw — zoals de spec voorschrijft).
+    for j in active:
+        if (j.get("metadata", {}).get("labels", {}) or {}).get("session-name") == name:
+            return jsonify(error=f"Sessie '{name}' bestaat al."), 409
+    if len(active) >= MAX_INTERACTIVE_SESSIONS:
+        return jsonify(error=(
+            f"Maximum {MAX_INTERACTIVE_SESSIONS} sessies bereikt — "
+            "stop er eentje of wacht tot een afloopt."
+        )), 409
+
+    cm, job = _build_interactive_resources(name)
+    cm_out = kubectl_run(
+        "apply", "-f", "-",
+        input_data=json.dumps(cm),
+    )
+    if cm_out.returncode != 0:
+        log.warning("ConfigMap apply faalde: %s", cm_out.stderr[:200])
+        return jsonify(error=f"ConfigMap apply faalde: {cm_out.stderr[:200]}"), 502
+    job_out = kubectl_run(
+        "apply", "-f", "-", "-o", "json",
+        input_data=json.dumps(job),
+    )
+    if job_out.returncode != 0:
+        # Roll back de zojuist aangemaakte CM zodat we geen weeskinderen
+        # achterlaten in de namespace.
+        kubectl_run("delete", "configmap", cm["metadata"]["name"],
+                    "-n", FACTORY_NS, "--ignore-not-found=true")
+        log.warning("Job apply faalde: %s", job_out.stderr[:200])
+        return jsonify(error=f"Job apply faalde: {job_out.stderr[:200]}"), 502
+    try:
+        job_uid = json.loads(job_out.stdout)["metadata"]["uid"]
+    except (json.JSONDecodeError, KeyError, TypeError):
+        job_uid = None
+    if job_uid:
+        # Plak de CM aan de Job zodat ie mee-GC't bij stop-knop.
+        patch = {
+            "metadata": {
+                "ownerReferences": [{
+                    "apiVersion": "batch/v1",
+                    "kind": "Job",
+                    "name": job["metadata"]["name"],
+                    "uid": job_uid,
+                }],
+            },
+        }
+        kubectl_run(
+            "patch", "configmap", cm["metadata"]["name"],
+            "-n", FACTORY_NS, "--type=merge",
+            "-p", json.dumps(patch),
+        )
+    _factory_db_record_session(name, job["metadata"]["name"])
+    log.info("interactive sessie '%s' gestart (job=%s)", name, job["metadata"]["name"])
+    return jsonify(
+        ok=True,
+        session={
+            "name": name,
+            "job_name": job["metadata"]["name"],
+            "started_at": "",
+            "state": "running",
+        },
+    ), 201
+
+
+@app.route("/api/v1/claude-sessions/<name>", methods=["DELETE", "OPTIONS"])
+@require_jwt
+def api_claude_session_delete(name: str) -> Response:
+    if request.method == "OPTIONS":
+        return _add_cors_headers(Response("", status=204))
+    name = _sanitize_session_name(name)
+    if not _SESSION_NAME_RE.match(name):
+        return jsonify(error="ongeldige sessienaam"), 400
+    # Vind de actieve Job op label-match (mogelijk meerdere historische
+    # jobs met dezelfde sessie-naam, maar slechts één actief — uniqueness
+    # wordt afgedwongen door de create-flow). We deleten alle matchende
+    # Jobs zodat ook stragglers worden opgeruimd.
+    items = k8s_jobs(FACTORY_NS, label_selector=f"app=claude-interactive,session-name={name}")
+    if not items:
+        return jsonify(error="sessie niet gevonden"), 404
+    deleted = []
+    for j in items:
+        job_name = (j.get("metadata") or {}).get("name", "")
+        if not job_name:
+            continue
+        out = kubectl_run(
+            "delete", "job", job_name,
+            "-n", FACTORY_NS,
+            "--ignore-not-found=true",
+            # propagationPolicy=Background zodat de DELETE-call snel
+            # terugkomt (geen sync-wait op pod-termination), terwijl
+            # ownerReferences alsnog ervoor zorgen dat ConfigMap + pods
+            # mee-GC't worden.
+            "--cascade=background",
+        )
+        if out.returncode != 0:
+            log.warning("delete job %s faalde: %s", job_name, out.stderr[:200])
+            return jsonify(error=f"kubectl delete faalde: {out.stderr[:200]}"), 502
+        deleted.append(job_name)
+        _factory_db_mark_stopped(job_name)
+    return jsonify(ok=True, deleted=deleted)
 
 
 @app.route("/api/v1/healthz", methods=["GET"])
