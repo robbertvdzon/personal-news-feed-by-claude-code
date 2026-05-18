@@ -2270,6 +2270,31 @@ Werkdirectory: /work/repo (verse clone van main bij start).
 Stop via de dashboard-knop — geen exit-on-idle.
 EOF
 echo "[claude-interactive] welkomstprompt → /tmp/welcome.md"
+
+# ----- pre-seed claude-config zodat de first-run wizard niet blokkeert -----
+# Verse pod = lege $HOME, dus claude toont anders eerst:
+#   1) "kies een theme" (pijltjes-prompt)
+#   2) tos-acceptatie
+#   3) "what's new in deze versie"
+# Onze `echo /remote` op stdin wordt door die wizard opgeslokt en bereikt
+# claude nooit. Met hasCompletedOnboarding=true + theme prefilled slaat
+# claude alle drie de stappen over en is /remote de eerste echte input.
+CLAUDE_VER="$(claude --version 2>/dev/null | awk '{print $1}')"
+mkdir -p "$HOME/.claude"
+cat > "$HOME/.claude.json" <<JSON
+{
+  "hasCompletedOnboarding": true,
+  "lastOnboardingVersion": "${CLAUDE_VER:-99.99.99}",
+  "numStartups": 1
+}
+JSON
+cat > "$HOME/.claude/settings.json" <<'JSON'
+{
+  "theme": "dark"
+}
+JSON
+echo "[claude-interactive] config pre-seeded (skip onboarding wizard)"
+
 echo "[claude-interactive] claude start in /remote-modus…"
 { echo "/remote"; tail -f /dev/null; } | \
   script -q -c "claude --append-system-prompt \"$(cat /tmp/welcome.md)\"" /dev/null

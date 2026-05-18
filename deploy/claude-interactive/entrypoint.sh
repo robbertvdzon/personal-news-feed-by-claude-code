@@ -93,6 +93,26 @@ EOF
 
 echo "[claude-interactive] welkomstprompt geschreven naar /tmp/welcome.md"
 
+# ---------- pre-seed claude-config (skip onboarding wizard) ----------
+# Verse pod = lege $HOME. Zonder pre-seed toont claude eerst de
+# theme-picker en TOS-acceptatie; onze `/remote` op stdin wordt
+# daardoor opgegeten en bereikt claude nooit.
+CLAUDE_VER="$(claude --version 2>/dev/null | awk '{print $1}')"
+mkdir -p "$HOME/.claude"
+cat > "$HOME/.claude.json" <<JSON
+{
+  "hasCompletedOnboarding": true,
+  "lastOnboardingVersion": "${CLAUDE_VER:-99.99.99}",
+  "numStartups": 1
+}
+JSON
+cat > "$HOME/.claude/settings.json" <<'JSON'
+{
+  "theme": "dark"
+}
+JSON
+echo "[claude-interactive] config pre-seeded"
+
 # ---------- claude start ----------
 # claude weigert te starten zonder PTY. We wrappen 'm met `script` (uit
 # util-linux, aanwezig in de claude-tester-image) zodat we een fake-TTY
