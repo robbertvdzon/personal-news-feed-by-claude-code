@@ -135,7 +135,7 @@ class ClaudeTab extends ConsumerWidget {
                             for (final s in list.sessions)
                               Padding(
                                 padding: const EdgeInsets.only(bottom: 8),
-                                child: _SessionCard(session: s, ref: ref),
+                                child: _SessionCard(session: s),
                               ),
                           ],
                         ),
@@ -295,16 +295,15 @@ class _FactoryAgentCard extends StatelessWidget {
   }
 }
 
-class _SessionCard extends StatefulWidget {
+class _SessionCard extends ConsumerStatefulWidget {
   final ClaudeSession session;
-  final WidgetRef ref;
-  const _SessionCard({required this.session, required this.ref});
+  const _SessionCard({required this.session});
 
   @override
-  State<_SessionCard> createState() => _SessionCardState();
+  ConsumerState<_SessionCard> createState() => _SessionCardState();
 }
 
-class _SessionCardState extends State<_SessionCard> {
+class _SessionCardState extends ConsumerState<_SessionCard> {
   bool _stopping = false;
   String? _error;
 
@@ -314,10 +313,10 @@ class _SessionCardState extends State<_SessionCard> {
       _error = null;
     });
     try {
-      final api = widget.ref.read(apiProvider);
+      final api = ref.read(apiProvider);
       await api.deleteClaudeSession(widget.session.name);
       // Direct verfrissen — niet wachten op de 10s-poll.
-      widget.ref.invalidate(claudeSessionsProvider);
+      ref.invalidate(claudeSessionsProvider);
     } on ApiException catch (e) {
       setState(() => _error = _humanizeApiError(e));
     } finally {
