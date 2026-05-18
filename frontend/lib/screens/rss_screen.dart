@@ -7,6 +7,7 @@ import '../util/time_format.dart';
 import '../widgets/app_logo.dart';
 import '../widgets/feed_card.dart';
 import 'rss_detail_screen.dart';
+import 'rss_podcast_detail_screen.dart';
 
 /// Speciale "tab"-id voor "alle items, geen categorie-filter".
 const _allTabId = '__all__';
@@ -239,6 +240,22 @@ class _RssScreenState extends ConsumerState<RssScreen> {
   }
 
   void _open(List<RssItem> items, int idx) {
+    final tapped = items[idx];
+    // KAN-62: podcast-cards openen het dedicated podcast-detail-scherm
+    // i.p.v. de generieke RSS-detail. Scope de paging-lijst tot enkel
+    // podcasts zodat swipen niet plotseling op een artikel landt
+    // (artikelen hebben geen long-summary/takeaways/transcript).
+    if (tapped.isPodcast) {
+      final podcasts = items.where((it) => it.isPodcast).toList();
+      final podIdx = podcasts.indexWhere((it) => it.id == tapped.id);
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => RssPodcastDetailScreen(
+          items: podcasts,
+          initialIndex: podIdx < 0 ? 0 : podIdx,
+        ),
+      ));
+      return;
+    }
     Navigator.of(context).push(MaterialPageRoute(
       builder: (_) => RssItemDetailScreen(items: items, initialIndex: idx),
     ));

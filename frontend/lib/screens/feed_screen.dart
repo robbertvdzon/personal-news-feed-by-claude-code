@@ -6,6 +6,7 @@ import '../util/time_format.dart';
 import '../widgets/app_logo.dart';
 import '../widgets/feed_card.dart';
 import 'feed_detail_screen.dart';
+import 'rss_podcast_detail_screen.dart';
 
 // Speciale tab-id's. We gebruiken dezelfde tab-rij voor "categorie"-tabs
 // en cross-cutting filters (Bewaard, Samenvatting). Tab-id's met dubbele
@@ -199,6 +200,30 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
   }
 
   void _open(List<FeedItem> items, int idx) {
+    final tapped = items[idx];
+    // KAN-62: voor podcast-feed-items routeren we naar het dedicated
+    // podcast-detail-scherm. Dat werkt op `RssItem`-objecten, dus
+    // zoeken we de matchende RssItem op via `sourceRssIds` (één
+    // FeedItem ↔ één onderliggend RssItem voor podcasts). Lukt het
+    // niet (bv. RssItem is in een andere user-state, of de matching
+    // is verwijderd), dan vallen we terug op de generieke
+    // FeedItemDetailScreen — geen blocker, gewoon de korte versie.
+    if (tapped.isPodcast) {
+      final allRss = ref.read(rssProvider).value ?? const <RssItem>[];
+      final podcasts = allRss.where((it) => it.isPodcast).toList();
+      final matchId = tapped.sourceRssIds
+          .firstWhere((id) => podcasts.any((p) => p.id == id), orElse: () => '');
+      if (matchId.isNotEmpty) {
+        final initialIdx = podcasts.indexWhere((p) => p.id == matchId);
+        Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => RssPodcastDetailScreen(
+            items: podcasts,
+            initialIndex: initialIdx < 0 ? 0 : initialIdx,
+          ),
+        ));
+        return;
+      }
+    }
     Navigator.of(context).push(MaterialPageRoute(
       builder: (_) => FeedItemDetailScreen(items: items, initialIndex: idx),
     ));
