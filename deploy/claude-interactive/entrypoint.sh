@@ -130,7 +130,10 @@ echo "[claude-interactive] config pre-seeded"
 # z'n eerste mobiele prompt kan oproepen ("toon /tmp/welcome.md").
 echo "[claude-interactive] claude start in /remote-modus…"
 {
-  echo "/remote"
+  # `/remote-control` is de slash-command waarmee de sessie via Anthropic's
+  # multi-device-sync op de mobiele Claude-app verschijnt. `/remote` alleen
+  # opent een autocomplete-menu en wacht op verdere input.
+  echo "/remote-control"
   # Houd de stream open zodat claude niet meteen EOF ziet. `tail -f`
   # blokkeert tot de pod gedeleted wordt.
   tail -f /dev/null

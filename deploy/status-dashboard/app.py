@@ -2304,7 +2304,7 @@ JSON
 echo "[claude-interactive] config pre-seeded (skip onboarding wizard + folder-trust)"
 
 echo "[claude-interactive] claude start in /remote-modus…"
-{ echo "/remote"; tail -f /dev/null; } | \
+{ echo "/remote-control"; tail -f /dev/null; } | \
   script -q -c "claude --append-system-prompt \"$(cat /tmp/welcome.md)\"" /dev/null
 echo "[claude-interactive] claude is afgesloten — exit"
 """
