@@ -45,6 +45,8 @@ class ApiClient {
         resp = await http
             .post(url, headers: _headers(), body: jsonEncode(body ?? {}))
             .timeout(timeout);
+      } else if (method == 'DELETE') {
+        resp = await http.delete(url, headers: _headers()).timeout(timeout);
       } else {
         throw UnsupportedError('method $method');
       }
@@ -129,6 +131,40 @@ class ApiClient {
   Future<ApkInfo> apks() async {
     final r = await _send('GET', '/api/v1/apks');
     return ApkInfo.fromJson(Map<String, dynamic>.from(r as Map));
+  }
+
+  /// KAN-61: lijst van actief draaiende claude-runner Jobs voor de
+  /// "Claude"-tab. Lege lijst is geldig (geen factory-agents actief).
+  Future<List<ClaudeFactoryAgent>> claudeFactoryAgents() async {
+    final r = await _send('GET', '/api/v1/claude-factory-agents');
+    final m = Map<String, dynamic>.from(r as Map);
+    return (m['agents'] as List? ?? [])
+        .map((a) =>
+            ClaudeFactoryAgent.fromJson(Map<String, dynamic>.from(a as Map)))
+        .toList();
+  }
+
+  /// KAN-61: lijst van actieve interactieve Claude-sessies.
+  Future<ClaudeSessionList> claudeSessions() async {
+    final r = await _send('GET', '/api/v1/claude-sessions');
+    return ClaudeSessionList.fromJson(Map<String, dynamic>.from(r as Map));
+  }
+
+  /// KAN-61: start een nieuwe sessie. Server-side caps + naam-validatie;
+  /// 409 of 400 als de input ongeldig is. ApiException-statusCode is wat
+  /// de UI gebruikt om de inline foutmelding te tonen.
+  Future<ClaudeSession> createClaudeSession(String name) async {
+    final r = await _send('POST', '/api/v1/claude-sessions', body: {'name': name});
+    final m = Map<String, dynamic>.from(r as Map);
+    return ClaudeSession.fromJson(
+        Map<String, dynamic>.from(m['session'] as Map));
+  }
+
+  /// KAN-61: stop een sessie via z'n naam. Returnt zonder fout als
+  /// kubectl delete slaagt. UI ververst zelf de lijst na een succesvolle
+  /// call (geen optimistic-update).
+  Future<void> deleteClaudeSession(String name) async {
+    await _send('DELETE', '/api/v1/claude-sessions/$name');
   }
 
   Future<List<ScreenshotAttachment>> attachments(String key) async {
