@@ -2298,12 +2298,10 @@ cat > "$HOME/.claude.json" <<JSON
 JSON
 cat > "$HOME/.claude/settings.json" <<'JSON'
 {
-  "theme": "dark",
-  "skipDangerousModePermissionPrompt": true,
-  "skipAutoPermissionPrompt": true
+  "theme": "dark"
 }
 JSON
-echo "[claude-interactive] config pre-seeded (skip onboarding + folder-trust + bypass-mode-confirm)"
+echo "[claude-interactive] config pre-seeded (skip onboarding wizard + folder-trust)"
 
 # ----- schrijf claude-credentials weg zodat --remote-control werkt -----
 # Op Mac haalt claude credentials uit de keychain (key "Claude Code-
@@ -2346,7 +2344,7 @@ echo "[claude-interactive] claude start in --remote-control-modus…"
 # tail /tmp/claude-debug.log` kunnen we [remote-bridge]-events bekijken
 # wanneer een sessie niet op mobiel verschijnt.
 { tail -f /dev/null; } | \
-  script -q -c "claude --debug-file /tmp/claude-debug.log --remote-control \"$SESSION_NAME\" --append-system-prompt \"$(cat /tmp/welcome.md)\"" /dev/null
+  script -q -c "claude --remote-control \"$SESSION_NAME\" --append-system-prompt \"$(cat /tmp/welcome.md)\"" /dev/null
 echo "[claude-interactive] claude is afgesloten — exit"
 """
 
