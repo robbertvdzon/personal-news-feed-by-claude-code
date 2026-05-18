@@ -59,4 +59,4 @@ images:
   newTag: sha-7c43cb3
 - name: ghcr.io/robbertvdzon/status-dashboard
   newName: ghcr.io/robbertvdzon/status-dashboard
-  newTag: sha-467b130
+  newTag: sha-e4097b3
