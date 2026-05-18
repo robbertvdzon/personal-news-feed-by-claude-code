@@ -507,7 +507,7 @@ class _CreateSessionDialogState extends ConsumerState<_CreateSessionDialog> {
               decoration: const InputDecoration(
                 labelText: 'Sessienaam',
                 helperText:
-                    'Kleine letters, cijfers en streepjes. Start met een letter. Max 30 tekens.',
+                    'Kleine letters, cijfers en streepjes. Start met een letter. Max 22 tekens.',
                 border: OutlineInputBorder(),
               ),
               onSubmitted: (_) => _submit(),

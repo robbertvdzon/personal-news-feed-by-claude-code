@@ -2219,9 +2219,17 @@ REPO_URL = os.environ.get(
     "https://github.com/robbertvdzon/personal-news-feed-by-claude-code.git",
 )
 
-# K8s-veilige sessienaam: kleine letters/cijfers/streepjes, 1–30 tekens.
+# K8s-veilige sessienaam: kleine letters/cijfers/streepjes, 1–22 tekens.
 # Beperkt OOK wat we als pad-parameter accepteren in DELETE.
-_SESSION_NAME_RE = re.compile(r"^[a-z][a-z0-9-]{0,29}$")
+#
+# Waarom 22 chars? Een pod-naam moet binnen de DNS-1123 label-limit van
+# 63 chars passen. Voor een Job-aangemaakte pod is dat
+#   "claude-interactive-" (19) + <name> + "-YYYYMMDD-HHMMSS" (16) + "-XXXXX" (6) = 41 + len(name)
+# zodat 63 - 41 = 22 chars max voor de user-input. Bij hogere waarden
+# truncated K8s meestal, maar dan komt de naam in de UI niet overeen
+# met de werkelijke pod-naam — beter strak afdwingen aan de bron.
+_SESSION_NAME_RE = re.compile(r"^[a-z][a-z0-9-]{0,21}$")
+_SESSION_NAME_MAX = 22
 
 # Entrypoint-script dat in de pod draait. Wordt als ConfigMap-binaryData
 # meegegeven en op /opt/claude-interactive/entrypoint.sh gemount. We
@@ -2275,7 +2283,7 @@ def _sanitize_session_name(name: str) -> str:
 
 def _interactive_job_name(name: str) -> str:
     stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
-    short = _sanitize_session_name(name)[:30]
+    short = _sanitize_session_name(name)[:_SESSION_NAME_MAX]
     return f"claude-interactive-{short}-{stamp}"
 
 
@@ -2361,7 +2369,7 @@ def _build_interactive_resources(name: str) -> tuple[dict, dict]:
     cm_name = f"{job_name}-entry"
     labels = {
         "app": "claude-interactive",
-        "session-name": _sanitize_session_name(name)[:30],
+        "session-name": _sanitize_session_name(name)[:_SESSION_NAME_MAX],
     }
     cm = {
         "apiVersion": "v1",
@@ -2376,7 +2384,7 @@ def _build_interactive_resources(name: str) -> tuple[dict, dict]:
         },
     }
     env = [
-        {"name": "SESSION_NAME", "value": _sanitize_session_name(name)[:30]},
+        {"name": "SESSION_NAME", "value": _sanitize_session_name(name)[:_SESSION_NAME_MAX]},
         {"name": "REPO_URL", "value": REPO_URL},
         {"name": "GITHUB_OWNER", "value": GITHUB_OWNER},
         {"name": "GITHUB_REPO", "value": GITHUB_REPO},
@@ -2525,8 +2533,8 @@ def api_claude_sessions() -> Response:
     name = _sanitize_session_name(raw_name)
     if not _SESSION_NAME_RE.match(name):
         return jsonify(error=(
-            "Naam moet 1-30 tekens zijn: kleine letters/cijfers/streepjes "
-            "en beginnen met een letter."
+            f"Naam moet 1-{_SESSION_NAME_MAX} tekens zijn: kleine letters/"
+            "cijfers/streepjes en beginnen met een letter."
         )), 400
     active = _list_active_interactive_jobs()
     # Naam-uniekheid binnen actieve sessies (historische namen mogen

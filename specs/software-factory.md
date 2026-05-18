@@ -544,7 +544,8 @@ cluster-pod.
 
 - Hard cap: **max 3** sessies tegelijk (systeem-breed; single-admin-app).
 - Naamveld is verplicht en uniek binnen actieve sessies (regex
-  `^[a-z][a-z0-9-]{0,29}$`).
+  `^[a-z][a-z0-9-]{0,21}$`, max 22 chars zodat de afgeleide pod-naam
+  binnen de 63-char DNS-label-limit blijft).
 - Pod-spec: image `claude-tester` (heeft Claude CLI, kubectl, oc, psql,
   Playwright), restartPolicy `OnFailure`, backoffLimit 3, resources
   500m CPU / 1Gi memory, `tty + stdin` enabled. Verse `git clone --branch
