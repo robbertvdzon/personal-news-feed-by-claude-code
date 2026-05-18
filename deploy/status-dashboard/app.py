@@ -2331,15 +2331,20 @@ echo "[claude-interactive] claude start in --remote-control-modus…"
 # `claude --remote-control <name>` start direct met Remote Control aan,
 # zonder dat we de slash-command via de TUI-autocomplete hoeven te typen.
 # Naam wordt de pod-sessie-naam zodat 'ie herkenbaar is in de mobiele
-# Claude-app. tail -f houdt de stream open zodat claude niet meteen
-# EOF ziet.
+# Claude-app. tail -f houdt de stream open zodat claude niet meteen EOF
+# ziet.
+#
+# --permission-mode bypassPermissions: pre-approve alle tool-calls. De
+# pod heeft toch al cluster-admin via z'n SA (zie deploy/claude-
+# interactive/rbac.yaml), dus elke individuele bevestigings-prompt op de
+# mobiel toevoegt 0 extra veiligheid en kost wel een toetsbreak per
+# commando. Zelfde keuze als de factory-runner Jobs.
 #
 # --debug-file schrijft naar /tmp/claude-debug.log; via `oc exec <pod> --
 # tail /tmp/claude-debug.log` kunnen we [remote-bridge]-events bekijken
-# wanneer een sessie niet op mobiel verschijnt. Bestand groeit naar
-# ~MB-schaal; pod-FS is ephemeral dus geen ruimte-probleem.
+# wanneer een sessie niet op mobiel verschijnt.
 { tail -f /dev/null; } | \
-  script -q -c "claude --debug-file /tmp/claude-debug.log --remote-control \"$SESSION_NAME\" --append-system-prompt \"$(cat /tmp/welcome.md)\"" /dev/null
+  script -q -c "claude --debug-file /tmp/claude-debug.log --remote-control \"$SESSION_NAME\" --permission-mode bypassPermissions --append-system-prompt \"$(cat /tmp/welcome.md)\"" /dev/null
 echo "[claude-interactive] claude is afgesloten — exit"
 """
 
