@@ -450,6 +450,35 @@ paths:
               schema:
                 $ref: '#/components/schemas/StatusOk'
 
+  /api/rss/{id}/transcript:
+    get:
+      tags: [RSS Items]
+      operationId: getRssItemTranscript
+      summary: Ruw Whisper-transcript voor één podcast-aflevering
+      description: |
+        KAN-62: laadt het volledige Whisper-transcript voor een
+        podcast-rss-item. Apart endpoint (niet inline in `/api/rss`)
+        zodat de transcript-tekst (50-90k chars per aflevering) de
+        feed-listing niet opblaast — de Flutter-app fetcht 'm pas
+        wanneer de gebruiker de transcript-sectie op het detail-scherm
+        uitklapt. 404 als er geen transcript is (niet-podcast item of
+        `summary_source='show_notes'`).
+      parameters:
+        - $ref: '#/components/parameters/ItemId'
+      responses:
+        '200':
+          description: Transcript-tekst
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transcript:
+                    type: string
+                required: [transcript]
+        '404':
+          description: Geen transcript beschikbaar voor dit item
+
   # ── Feed Items ────────────────────────────────────────────────────────────────
 
   /api/feed:
@@ -1051,6 +1080,28 @@ components:
             summarySource='show_notes' is. Voor podcast-feeds met
             transcribeEnabled=false blijft 'show_notes' permanent.
             Klassieke RSS-artikelen krijgen altijd 'transcript' (default).
+        longSummary:
+          type: string
+          nullable: true
+          description: |
+            KAN-62: lange Nederlandse samenvatting (~400-600 woorden, 3-5
+            alinea's plain-text prose, geen markdown-headers) voor het
+            podcast-detail-scherm. `null` voor (a) niet-podcast items en
+            (b) podcast cards die nog niet door de uitgebreide Claude-
+            prompt heen zijn — de frontend valt in dat geval terug op
+            `summary`. Wordt voor bestaande DONE-rijen achteraf gevuld
+            door de PodcastBackfillRunner (binnen 20-30 min na deploy).
+        keyTakeaways:
+          type: array
+          items:
+            type: string
+          default: []
+          description: |
+            KAN-62: 5-10 concrete takeaway-bullets uit de podcast-
+            aflevering. Eén regel per bullet (max ~20 woorden), geen
+            sub-bullets, geen markdown-headers. Lege lijst voor niet-
+            podcast items en cards die nog niet door de uitgebreide
+            Claude-prompt heen zijn — detail-scherm verbergt de sectie.
 
     # Feed Items
 

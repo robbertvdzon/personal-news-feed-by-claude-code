@@ -228,12 +228,12 @@ Variaties:
 **Snelle fase (binnen 30s na refresh, AC #1):**
 1. Per `<item>` uit de feed-fetch: top-7-window (zelfde logica als KAN-56 — sorteer op `<pubDate>` DESC, neem 7) en filter op nieuwe GUIDs. Idempotency-cache: `(username, guid)` in `podcast_episodes`.
 2. Voor elke écht nieuwe aflevering: schrijf een `podcast_episodes`-rij (status `PENDING`) en kick een async-task ([PodcastEpisodeProcessor.processShowNotes]) per aflevering.
-3. `SUMMARIZING_FROM_NOTES`: Claude krijgt de `<description>` (show-notes) als input en levert `shortSummary`, `category`, `topics`. Geen MP3-download, geen Whisper-call. Resultaat: een `rss_items`-rij met `media_type='PODCAST'`, `summary_source='show_notes'`. De RSS-tab toont de card direct met een `📝 voorlopig`-badge.
+3. `SUMMARIZING_FROM_NOTES`: Claude krijgt de `<description>` (show-notes) als input en levert in één call `shortSummary`, `longSummary`, `keyTakeaways`, `topics` en `category` (KAN-62). Geen MP3-download, geen Whisper-call. Resultaat: een `rss_items`-rij met `media_type='PODCAST'`, `summary_source='show_notes'`. De RSS-tab toont de card direct met een `📝 voorlopig`-badge.
 4. Status naar `NEEDS_TRANSCRIPT` (of `SHOW_NOTES_DONE` bij uitgeschakelde transcriptie).
 
 **Async transcript-fase ([PodcastTranscriptWorker], @Scheduled fixedDelay):**
 - Tickt elke `app.podcast.transcript-worker.interval-ms` (default 2 min). Pakt **maximaal één aflevering per tick** op met `status=NEEDS_TRANSCRIPT` en `next_attempt_at <= now()` (FIFO over alle gebruikers, oudste eerst). AC #3.
-- Doorloopt `DOWNLOADING` → `TRANSCRIBING` → `SUMMARIZING` → `DONE`. Het transcript wordt opgeslagen, Claude genereert een nieuwe samenvatting en overschrijft `rss_items.summary` + zet `summary_source='transcript'` (badge verdwijnt — AC #5).
+- Doorloopt `DOWNLOADING` → `TRANSCRIBING` → `SUMMARIZING` → `DONE`. Het transcript wordt opgeslagen, Claude genereert een nieuwe samenvatting en overschrijft `rss_items.summary` + `rss_items.long_summary` + `rss_items.key_takeaways` + zet `summary_source='transcript'` (badge verdwijnt — AC #5). KAN-62: Claude krijgt tot 80.000 chars transcript-input zodat de lange samenvatting (3-5 alinea's, ~400-600 woorden) het inhoudelijk verloop van een 60-90-min aflevering reflecteert i.p.v. alleen de opening.
 - **Rate-limit-retry (AC #4):** bij HTTP 429 of 5xx van Whisper blijft de aflevering op `NEEDS_TRANSCRIPT` met `retry_count++` en `next_attempt_at = now() + backoff`:
   - 1e mislukte poging → wacht 5 min
   - 2e → wacht 15 min
@@ -254,6 +254,8 @@ Variaties:
 **Validatie bij toevoegen:** `PUT /api/podcast-feeds` toetst nieuwe URLs synchroon door één feed-fetch te doen. Faalt die binnen ~10s → HTTP 400 met Nederlandse foutmelding ("Kon feed niet ophalen: ..."). Bestaande URLs worden niet hertoetst.
 
 **Kosten:** ~$0.05 per aflevering (Whisper $0.006/min × ~7 min + Claude-samenvatting ~$0.011). Gelogd in `external_calls` als `podcast_transcribe`, `podcast_episode_summarize`, `podcast_audio_download`, `podcast_feed_fetch`.
+
+**KAN-62 retroactieve verrijking ([PodcastBackfillRunner]):** bij elke app-start scant een achtergrond-runner alle `podcast_episodes` met `status=DONE`, `summary_source='transcript'` en `long_summary IS NULL` en draait Claude opnieuw op het al opgeslagen transcript om alsnog `long_summary` + `key_takeaways` te vullen. Geen nieuwe Whisper-call — transcript zit al in DB. Tempo: 5 seconden pauze tussen Claude-calls (single-threaded, daemon-thread) zodat een lopende backfill nieuwe live-podcast-ingest niet blokkeert en de Claude-quota gespaard blijven. Voor 14 bestaande rijen ≈ 8 min totaal. Idempotent — een tweede run vindt geen werk meer.
 
 ---
 
