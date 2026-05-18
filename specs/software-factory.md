@@ -524,6 +524,59 @@ Daarmee blijft elke log eeuwig toegankelijk vanuit het dashboard, ook lang na de
 - Full-text-zoek over `agent_events.payload` (welke story heeft ooit `flutter_bootstrap.js` aangeraakt)
 - Voor later — geen prio in eerste implementatie.
 
+### 9.5 Claude-tab — factory-agents + interactieve sessies (KAN-61)
+
+Naast de bestaande "AI bezig"-sectie heeft de dashboard-app een
+eigen **"Claude"-tab** in de hoofdnavigatie. Twee secties onder elkaar:
+
+**Factory agents (read-only).** Live lijst van alle K8s Jobs met label
+`app=claude-runner` die nog niet `Complete`/`Failed` zijn. Per item:
+story-key (`KAN-XX`), rol (refiner/developer/reviewer/tester),
+gestart-op (live-tikkende duur), status. Auto-refresh elke 10s. Klik
+op een kaartje → bestaand story-detail-scherm.
+
+**Interactieve sessies (volledig beheerd vanuit het dashboard).**
+Handmatig gestarte long-running pods met de Claude Code CLI in
+`/remote`-modus. De pod registreert zich onder het PO-account via
+`CLAUDE_CODE_OAUTH_TOKEN` zodat de sessie binnen ~30s in de mobiele
+Claude-app verschijnt; commando's vanuit de mobiel landen direct in de
+cluster-pod.
+
+- Hard cap: **max 3** sessies tegelijk (systeem-breed; single-admin-app).
+- Naamveld is verplicht en uniek binnen actieve sessies (regex
+  `^[a-z][a-z0-9-]{0,29}$`).
+- Pod-spec: image `claude-tester` (heeft Claude CLI, kubectl, oc, psql,
+  Playwright), restartPolicy `OnFailure`, backoffLimit 3, resources
+  500m CPU / 1Gi memory, `tty + stdin` enabled. Verse `git clone --branch
+  main` bij elke start in `/work/repo`.
+- Welkomstprompt waarschuwt expliciet over de scope: **schrijfbare
+  cluster-admin RBAC** op `pnf-software-factory`, `personal-news-feed`
+  en `pnf-pr-*`. Geen safe-mode in v1.
+- Stop-knop → `DELETE /api/v1/claude-sessions/<name>` → `kubectl
+  delete job --cascade=background`. Sessie verdwijnt binnen ~10s uit
+  de lijst én uit de mobiele Claude-app.
+
+**RBAC.** Aparte ServiceAccount `claude-interactive` in
+`pnf-software-factory`, gebonden aan de built-in `cluster-admin`
+ClusterRole via ClusterRoleBinding. De status-dashboard SA krijgt
+namespace-scope `create/delete` op Jobs + ConfigMaps in
+`pnf-software-factory` zodat 'ie de sessie-Jobs kan spawnen/stoppen.
+
+**DB.** Tabel `factory.interactive_sessions(id, name, job_name,
+started_at, ended_at, status)`. K8s blijft leidend voor de actieve
+lijst; de DB-tabel is een historisch record voor debugging.
+
+**API.** Drie nieuwe endpoints onder `/api/v1/claude-sessions` (list,
+create, delete) + `/api/v1/claude-factory-agents` (list). Alles
+beveiligd met het bestaande JWT-mechanisme.
+
+**Buiten scope (v2):**
+- Streaming-logs binnen de tab zelf (gebruik de mobiele app of het
+  bestaande `/api/v1/runner/<job>/log`-endpoint).
+- Re-attach bij verbindingsverlies — Anthropic regelt z'n eigen
+  reconnect-protocol.
+- Per-sessie aparte git-branch/werktree of cost-tracking.
+
 ---
 
 ## 10. Namespace-indeling
@@ -590,3 +643,4 @@ Bij hitting van de cap: stories die gedispatched zouden worden blijven op `AI Re
   - [deploy/jira-poller/poller.py](../deploy/jira-poller/poller.py) — wordt uitgebreid tot orchestrator
   - [deploy/claude-runner/runner.sh](../deploy/claude-runner/runner.sh) — wordt uitgebreid voor rol-injectie + DB-rapportage
   - [deploy/status-dashboard/app.py](../deploy/status-dashboard/app.py) — wordt uitgebreid voor pipeline-visualisatie
+  - [deploy/claude-interactive/](../deploy/claude-interactive/) — ServiceAccount + entrypoint voor de "Claude"-tab-sessies (KAN-61)
