@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'claude_tab.dart';
 import 'dashboard_tab.dart';
 import 'stories_tab.dart';
 import 'releases_tab.dart';
@@ -7,7 +8,8 @@ import 'downloads_tab.dart';
 import 'settings_tab.dart';
 
 /// Hoofdscaffold met sidebar (desktop) of hamburger-drawer (mobiel).
-/// Vijf tabs: Dashboard, Stories, Recent gemerged, Downloads, Settings.
+/// Zes tabs: Dashboard, Stories, Claude, Recent gemerged, Downloads,
+/// Settings.
 class AppShell extends ConsumerStatefulWidget {
   const AppShell({super.key});
   @override
@@ -30,6 +32,9 @@ class _AppShellState extends ConsumerState<AppShell> {
         const DashboardTab()),
     _NavItem('Stories', Icons.list_alt_outlined, Icons.list_alt,
         const StoriesTab()),
+    // KAN-61: lopende factory-agents + interactieve Claude-sessies.
+    _NavItem('Claude', Icons.smart_toy_outlined, Icons.smart_toy,
+        const ClaudeTab()),
     _NavItem('Recent gemerged', Icons.history_outlined, Icons.history,
         const ReleasesTab()),
     _NavItem('Downloads', Icons.download_outlined, Icons.download,

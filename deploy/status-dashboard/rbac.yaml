@@ -6,9 +6,10 @@
 #       pnf-pr-*            (preview-deploys, dynamisch)
 #   - Namespaces listen om de pnf-pr-* set te ontdekken
 #
-# We gebruiken een ClusterRole met read-only verbs. Geen patch/delete,
-# geen secret-access. Risico-arm: alleen wat al sowieso op het cluster
-# zichtbaar is voor wie naar de console kijkt.
+# Cluster-wide is alles read-only. KAN-61 voegt een namespace-Role
+# toe waarmee het dashboard claude-interactive-Jobs kan spawnen +
+# stoppen binnen pnf-software-factory; dat is bewust namespace-scope
+# zodat we cluster-wide nog steeds geen mutaties kunnen doen.
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -46,3 +47,39 @@ roleRef:
   kind: ClusterRole
   name: status-dashboard-reader
   apiGroup: rbac.authorization.k8s.io
+---
+# KAN-61 — namespace-scope mutatie-rechten voor claude-interactive-
+# Jobs. Dashboard spawnt/stopt sessie-pods in pnf-software-factory; de
+# pod zelf draait onder de aparte ServiceAccount `claude-interactive`
+# (zie deploy/claude-interactive/rbac.yaml). create/delete op
+# ConfigMaps voor de welcome-prompt-mount (zelfde patroon als de
+# jira-poller).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: status-dashboard-claude-sessions
+  namespace: pnf-software-factory
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "create", "patch", "update", "delete"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: status-dashboard-claude-sessions
+  namespace: pnf-software-factory
+subjects:
+  - kind: ServiceAccount
+    name: status-dashboard
+    namespace: pnf-software-factory
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: status-dashboard-claude-sessions

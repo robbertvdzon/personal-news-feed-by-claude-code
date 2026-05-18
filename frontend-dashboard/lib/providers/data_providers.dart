@@ -54,6 +54,23 @@ final screenshotsProvider =
   (ref, key) => ref.read(apiProvider).attachments(key),
 );
 
+/// KAN-61: factory-agents (claude-runner Jobs) en interactieve
+/// Claude-sessies. Beide tabs op de Claude-pagina pollen los van het
+/// home-state om de bottom-nav refresh-frequentie laag te houden.
+final claudeFactoryAgentsProvider =
+    StreamProvider<List<ClaudeFactoryAgent>>((ref) async* {
+  final api = ref.read(apiProvider);
+  yield* _poll(() => api.claudeFactoryAgents(),
+      interval: const Duration(seconds: 10), ref: ref);
+});
+
+final claudeSessionsProvider =
+    StreamProvider<ClaudeSessionList>((ref) async* {
+  final api = ref.read(apiProvider);
+  yield* _poll(() => api.claudeSessions(),
+      interval: const Duration(seconds: 10), ref: ref);
+});
+
 Stream<T> _poll<T>(Future<T> Function() fn,
     {required Duration interval, Ref? ref}) async* {
   while (true) {

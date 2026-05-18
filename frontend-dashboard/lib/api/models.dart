@@ -589,6 +589,76 @@ class ClosedPr {
       );
 }
 
+/// KAN-61: één claude-runner Job uit de factory-pipeline (refiner/
+/// developer/reviewer/tester), zoals het dashboard 'm exposeert via
+/// /api/v1/claude-factory-agents.
+class ClaudeFactoryAgent {
+  final String jobName;
+  final String storyKey;
+  final String role;
+  final String mode;        // 'story' / 'comment' (label uit poller)
+  final String? startedAt;  // ISO timestamp
+  final String state;       // 'running' / 'completing' / 'failed' / 'finished'
+
+  ClaudeFactoryAgent({
+    required this.jobName,
+    required this.storyKey,
+    required this.role,
+    required this.mode,
+    required this.startedAt,
+    required this.state,
+  });
+
+  factory ClaudeFactoryAgent.fromJson(Map<String, dynamic> j) =>
+      ClaudeFactoryAgent(
+        jobName: j['job_name'] as String? ?? '',
+        storyKey: j['story_key'] as String? ?? '',
+        role: j['role'] as String? ?? '',
+        mode: j['mode'] as String? ?? '',
+        startedAt: j['started_at'] as String?,
+        state: j['state'] as String? ?? 'running',
+      );
+}
+
+/// KAN-61: één interactieve Claude-sessie (handmatig gestarte
+/// long-running pod met de Claude Code CLI in /remote-modus).
+class ClaudeSession {
+  final String name;
+  final String jobName;
+  final String? startedAt;
+  final String state;       // 'running' / 'stopped' / 'failed'
+
+  ClaudeSession({
+    required this.name,
+    required this.jobName,
+    required this.startedAt,
+    required this.state,
+  });
+
+  factory ClaudeSession.fromJson(Map<String, dynamic> j) => ClaudeSession(
+        name: j['name'] as String? ?? '',
+        jobName: j['job_name'] as String? ?? '',
+        startedAt: j['started_at'] as String?,
+        state: j['state'] as String? ?? 'running',
+      );
+}
+
+class ClaudeSessionList {
+  final List<ClaudeSession> sessions;
+  final int cap;            // hard cap (typisch 3)
+
+  ClaudeSessionList({required this.sessions, required this.cap});
+
+  factory ClaudeSessionList.fromJson(Map<String, dynamic> j) =>
+      ClaudeSessionList(
+        sessions: (j['sessions'] as List? ?? [])
+            .map((s) =>
+                ClaudeSession.fromJson(Map<String, dynamic>.from(s as Map)))
+            .toList(),
+        cap: (j['cap'] as num?)?.toInt() ?? 3,
+      );
+}
+
 class HomeState {
   final String fetchedAt;
   final MainBuild main;

@@ -103,6 +103,17 @@ spec:
             # CORS-origin voor de Flutter-dashboard-app.
             - name: DASHBOARD_CORS_ORIGIN
               value: "https://dashboard.vdzonsoftware.nl"
+            # KAN-61: Claude-tab — start/stop van interactieve sessies.
+            # Repo-URL voor de verse clone in elke sessie-pod; image en
+            # ServiceAccount sturen naar de claude-interactive setup.
+            - name: REPO_URL
+              value: "https://github.com/robbertvdzon/personal-news-feed-by-claude-code.git"
+            - name: CLAUDE_INTERACTIVE_IMAGE
+              value: "ghcr.io/robbertvdzon/claude-tester:main"
+            - name: CLAUDE_INTERACTIVE_SA
+              value: "claude-interactive"
+            - name: MAX_INTERACTIVE_SESSIONS
+              value: "3"
           readinessProbe:
             httpGet:
               path: /api/v1/healthz
