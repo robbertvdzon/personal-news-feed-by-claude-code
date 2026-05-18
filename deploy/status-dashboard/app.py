@@ -2329,12 +2329,17 @@ fi
 
 echo "[claude-interactive] claude start in --remote-control-modus…"
 # `claude --remote-control <name>` start direct met Remote Control aan,
-# zonder dat we de slash-command via de TUI-autocomplete hoeven te typen
-# (wat eerder vastliep op de open autocomplete-dropdown). Naam wordt de
-# pod-sessie-naam zodat 'ie herkenbaar is in de mobiele Claude-app.
-# tail -f houdt de stream open zodat claude niet meteen EOF ziet.
+# zonder dat we de slash-command via de TUI-autocomplete hoeven te typen.
+# Naam wordt de pod-sessie-naam zodat 'ie herkenbaar is in de mobiele
+# Claude-app. tail -f houdt de stream open zodat claude niet meteen
+# EOF ziet.
+#
+# --debug-file schrijft naar /tmp/claude-debug.log; via `oc exec <pod> --
+# tail /tmp/claude-debug.log` kunnen we [remote-bridge]-events bekijken
+# wanneer een sessie niet op mobiel verschijnt. Bestand groeit naar
+# ~MB-schaal; pod-FS is ephemeral dus geen ruimte-probleem.
 { tail -f /dev/null; } | \
-  script -q -c "claude --remote-control \"$SESSION_NAME\" --append-system-prompt \"$(cat /tmp/welcome.md)\"" /dev/null
+  script -q -c "claude --debug-file /tmp/claude-debug.log --remote-control \"$SESSION_NAME\" --append-system-prompt \"$(cat /tmp/welcome.md)\"" /dev/null
 echo "[claude-interactive] claude is afgesloten — exit"
 """
 

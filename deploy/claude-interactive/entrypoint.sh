@@ -155,6 +155,6 @@ echo "[claude-interactive] claude start in /remote-modus…"
   # tail -f houdt de stream open zodat claude niet meteen EOF ziet en
   # blokkeert tot de pod gedeleted wordt.
   tail -f /dev/null
-} | script -q -c "claude --remote-control \"$SESSION_NAME\" --append-system-prompt \"$(cat /tmp/welcome.md)\"" /dev/null
+} | script -q -c "claude --debug-file /tmp/claude-debug.log --remote-control \"$SESSION_NAME\" --append-system-prompt \"$(cat /tmp/welcome.md)\"" /dev/null
 
 echo "[claude-interactive] claude is afgesloten — exit"
