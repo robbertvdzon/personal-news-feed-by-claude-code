@@ -2303,6 +2303,30 @@ cat > "$HOME/.claude/settings.json" <<'JSON'
 JSON
 echo "[claude-interactive] config pre-seeded (skip onboarding wizard + folder-trust)"
 
+# ----- schrijf claude-credentials weg zodat --remote-control werkt -----
+# Op Mac haalt claude credentials uit de keychain (key "Claude Code-
+# credentials"). Op Linux faalt dat → claude valt terug op de env-var
+# CLAUDE_CODE_OAUTH_TOKEN, maar die heeft alleen user:inference scope
+# (lager dan user:sessions:claude_code). Resultaat: claude logt in als
+# "Claude API"-tier, en remote-control bestaat daar niet.
+#
+# Oplossing: lever de FULL keychain-blob via CLAUDE_AI_OAUTH_CREDENTIALS_JSON
+# (gegenereerd lokaal met: security find-generic-password -s "Claude Code-
+# credentials" -w) en schrijf 'm naar ~/.claude/.credentials.json met
+# 0600-perms. Claude leest die file op startup en refreshet zelf de
+# accessToken via de refreshToken.
+if [[ -n "${CLAUDE_AI_OAUTH_CREDENTIALS_JSON:-}" ]]; then
+  echo "$CLAUDE_AI_OAUTH_CREDENTIALS_JSON" > "$HOME/.claude/.credentials.json"
+  chmod 600 "$HOME/.claude/.credentials.json"
+  # Voorkomen dat CLAUDE_CODE_OAUTH_TOKEN (per ongeluk meegegeven) de
+  # credentials-file overrulet en claude in API-tier dwingt.
+  unset CLAUDE_CODE_OAUTH_TOKEN
+  echo "[claude-interactive] full OAuth credentials written → ~/.claude/.credentials.json"
+else
+  echo "[claude-interactive] WARNING: CLAUDE_AI_OAUTH_CREDENTIALS_JSON ontbreekt" >&2
+  echo "[claude-interactive]   → --remote-control gaat niet werken (mobile-sync uit)" >&2
+fi
+
 echo "[claude-interactive] claude start in --remote-control-modus…"
 # `claude --remote-control <name>` start direct met Remote Control aan,
 # zonder dat we de slash-command via de TUI-autocomplete hoeven te typen
@@ -2416,11 +2440,17 @@ def _build_interactive_resources(name: str) -> dict:
         {"name": "REPO_URL", "value": REPO_URL},
         {"name": "GITHUB_OWNER", "value": GITHUB_OWNER},
         {"name": "GITHUB_REPO", "value": GITHUB_REPO},
-        # OAuth-token = de sleutel die de pod aan de PO's Anthropic-
-        # account koppelt; daardoor verschijnt de sessie binnen ~30s in
-        # de mobiele Claude-app. ANTHROPIC_API_KEY NIET óók meegeven,
-        # die zou de OAuth-route overschrijven (zie poller.py).
-        _secret_env("CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"),
+        # Voor --remote-control hebben we de FULL Claude Max-OAuth-credentials
+        # nodig (scopes user:sessions:claude_code + user:mcp_servers); de
+        # setup-token in CLAUDE_CODE_OAUTH_TOKEN heeft alleen user:inference
+        # en valt daardoor terug op "Claude API" tier waarin remote-control
+        # niet bestaat. CLAUDE_AI_OAUTH_CREDENTIALS_JSON bevat de JSON-blob
+        # uit ~/.claude/.credentials.json (claudeAiOauth-wrapper);
+        # entrypoint.sh schrijft 'm naar ~/.claude/.credentials.json zodat
+        # claude 'm leest als ware de pod een Mac met keychain. Belangrijk:
+        # CLAUDE_CODE_OAUTH_TOKEN MAG hier NIET worden gezet — die overrulet
+        # de credentials-file en forceert API-tier.
+        _secret_env("CLAUDE_AI_OAUTH_CREDENTIALS_JSON", "CLAUDE_AI_OAUTH_CREDENTIALS_JSON"),
         _secret_env("GITHUB_TOKEN", "GITHUB_TOKEN"),
         _secret_env("JIRA_API_KEY", "ATLASSIAN_API_KEY"),
         _secret_env("PNF_DATABASE_URL", "PNF_DATABASE_URL"),

@@ -121,6 +121,25 @@ cat > "$HOME/.claude/settings.json" <<'JSON'
 JSON
 echo "[claude-interactive] config pre-seeded"
 
+# ---------- full OAuth credentials (voor --remote-control) ----------
+# Op Mac haalt claude credentials uit de keychain. Op Linux faalt dat;
+# als alleen CLAUDE_CODE_OAUTH_TOKEN is gezet valt claude terug op een
+# beperkte "Claude API"-tier (user:inference scope) waarin
+# --remote-control niet bestaat. Daarom leveren we de FULL keychain-blob
+# (5 scopes incl. user:sessions:claude_code + user:mcp_servers) via
+# de env-var CLAUDE_AI_OAUTH_CREDENTIALS_JSON en schrijven 'm naar
+# ~/.claude/.credentials.json — claude leest die file als ware de pod
+# een Mac.
+if [[ -n "${CLAUDE_AI_OAUTH_CREDENTIALS_JSON:-}" ]]; then
+  echo "$CLAUDE_AI_OAUTH_CREDENTIALS_JSON" > "$HOME/.claude/.credentials.json"
+  chmod 600 "$HOME/.claude/.credentials.json"
+  unset CLAUDE_CODE_OAUTH_TOKEN
+  echo "[claude-interactive] full OAuth credentials geschreven"
+else
+  echo "[claude-interactive] WAARSCHUWING: CLAUDE_AI_OAUTH_CREDENTIALS_JSON ontbreekt" >&2
+  echo "[claude-interactive]   → --remote-control zal niet werken (mobile-sync uit)" >&2
+fi
+
 # ---------- claude start ----------
 # claude weigert te starten zonder PTY. We wrappen 'm met `script` (uit
 # util-linux, aanwezig in de claude-tester-image) zodat we een fake-TTY
