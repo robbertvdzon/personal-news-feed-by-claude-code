@@ -2304,14 +2304,18 @@ JSON
 echo "[claude-interactive] config pre-seeded (skip onboarding wizard + folder-trust)"
 
 echo "[claude-interactive] claude start in /remote-control-modus…"
-# Wacht 6s zodat claude volledig is opgestart (config gelezen, welkomst-
-# banner getoond, prompt-ready) voordat we /remote-control intypen.
-# Anders consumeert claude's input-buffer de slash-command tijdens
-# startup en blijft de autocomplete-dropdown openstaan. De extra \n
-# bevestigt de autocomplete-selectie ("druk ENTER om te kiezen").
+# Claude's TUI heeft een slash-command-autocomplete die opent zodra "/"
+# verschijnt. Volgorde voor 'm robuust te triggeren:
+#   1. wacht 10s tot claude volledig boot-ready is (welkomst-banner +
+#      marketplace-notificatie + lege prompt)
+#   2. typ "/remote-control" + \n  → autocomplete pakt de exact-match
+#   3. wacht 2s zodat claude de autocomplete-selectie verwerkt
+#   4. extra \n → submit (= execute van het slash-command)
 {
-  sleep 6
-  printf '/remote-control\n\n'
+  sleep 10
+  printf '/remote-control\n'
+  sleep 2
+  printf '\n'
   tail -f /dev/null
 } | script -q -c "claude --append-system-prompt \"$(cat /tmp/welcome.md)\"" /dev/null
 echo "[claude-interactive] claude is afgesloten — exit"

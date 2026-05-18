@@ -130,15 +130,16 @@ echo "[claude-interactive] config pre-seeded"
 # z'n eerste mobiele prompt kan oproepen ("toon /tmp/welcome.md").
 echo "[claude-interactive] claude start in /remote-modus…"
 {
-  # Wacht 6s zodat claude volledig opgestart is (config gelezen, welkomst-
-  # banner getoond, prompt-ready) voordat we /remote-control intypen.
-  # Anders eet claude's startup-input-buffer het commando op en blijft
-  # de autocomplete-dropdown openstaan.
-  sleep 6
-  # `/remote-control` is de slash-command waarmee de sessie via
-  # Anthropic's multi-device-sync op de mobiele Claude-app verschijnt.
-  # Dubbele \n: 1e is text-confirm, 2e bevestigt de autocomplete-selectie.
-  printf '/remote-control\n\n'
+  # Volgorde van events voor de slash-command-autocomplete:
+  #   1. wacht 10s tot claude volledig boot-ready is (welkomst-banner +
+  #      marketplace-notificatie + lege prompt)
+  #   2. typ "/remote-control" + \n  → autocomplete pakt de exact-match
+  #   3. wacht 2s zodat claude de autocomplete-selectie verwerkt
+  #   4. extra \n → submit (= execute van het slash-command)
+  sleep 10
+  printf '/remote-control\n'
+  sleep 2
+  printf '\n'
   # Houd de stream open zodat claude niet meteen EOF ziet. `tail -f`
   # blokkeert tot de pod gedeleted wordt.
   tail -f /dev/null
