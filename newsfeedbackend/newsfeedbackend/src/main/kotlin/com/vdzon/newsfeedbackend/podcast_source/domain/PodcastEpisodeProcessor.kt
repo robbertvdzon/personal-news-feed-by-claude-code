@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.vdzon.newsfeedbackend.ai.AnthropicClient
 import com.vdzon.newsfeedbackend.podcast_source.PodcastEpisode
 import com.vdzon.newsfeedbackend.podcast_source.PodcastEpisodeStatus
+import com.vdzon.newsfeedbackend.podcast_source.infrastructure.AudioTranscoder
 import com.vdzon.newsfeedbackend.podcast_source.infrastructure.PodcastAudioDownloader
 import com.vdzon.newsfeedbackend.podcast_source.infrastructure.PodcastEpisodeRepository
 import com.vdzon.newsfeedbackend.podcast_source.infrastructure.WhisperClient
@@ -52,6 +53,7 @@ class PodcastEpisodeProcessor(
     private val episodeRepo: PodcastEpisodeRepository,
     private val rssRepo: RssItemRepository,
     private val downloader: PodcastAudioDownloader,
+    private val transcoder: AudioTranscoder,
     private val whisper: WhisperClient,
     private val anthropic: AnthropicClient,
     private val settings: SettingsService,
@@ -59,6 +61,15 @@ class PodcastEpisodeProcessor(
     private val events: ApplicationEventPublisher
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
+
+    companion object {
+        /**
+         * Whisper's harde limit is 26.214.400 bytes (25 MiB). We compress
+         * naar deze drempel zodat we ruim onder de limit blijven (1 MiB
+         * marge dekt eventuele afronding/header-overhead).
+         */
+        private const val MAX_WHISPER_BYTES = 25L * 1024 * 1024 - 1024 * 1024  // = 24 MiB
+    }
 
     /**
      * Fase 1 — show-notes-summary. Wordt vanuit
@@ -153,6 +164,10 @@ class PodcastEpisodeProcessor(
     fun processTranscript(username: String, guid: String): TranscriptResult {
         MDC.put("username", username)
         var audioFile: java.io.File? = null
+        // Aparte var voor 't (mogelijk gecomprimeerde) bestand dat naar
+        // Whisper gaat. Kan dezelfde zijn als audioFile bij kleine episodes,
+        // of een ge-transcodeerde temp-file bij grote (>24 MiB).
+        var transcodedForWhisper: AudioTranscoder.TranscodeResult? = null
         return try {
             val initial = episodeRepo.get(username, guid)
                 ?: return TranscriptResult.Skipped("episode verdwenen uit DB").also {
@@ -180,10 +195,17 @@ class PodcastEpisodeProcessor(
             }
 
             ep = save(ep.copy(status = PodcastEpisodeStatus.TRANSCRIBING))
+            // KAN-60-followup: Whisper accepteert max 25 MiB. ThoughtWorks-
+            // afleveringen zaten net boven die limit en faalden met HTTP 413.
+            // We comprimeren pre-upload naar mono 32 kbps MP3 wanneer 't
+            // origineel te groot is. Bij ffmpeg-fout valt de transcoder
+            // terug op het originele bestand zodat Whisper z'n eigen 413
+            // teruggeeft en de bestaande SHOW_NOTES_DONE-fallback werkt.
+            transcodedForWhisper = transcoder.ensureBelowSize(audioFile, MAX_WHISPER_BYTES)
             val outcome = whisper.transcribe(
                 username = username,
                 episodeGuid = guid,
-                audioFile = audioFile,
+                audioFile = transcodedForWhisper.file,
                 audioFilename = guessFilename(ep.audioUrl),
                 audioDurationSec = (ep.durationSeconds ?: 0).toLong()
             )
@@ -271,6 +293,15 @@ class PodcastEpisodeProcessor(
             }
             TranscriptResult.Fatal(e.message ?: e.javaClass.simpleName)
         } finally {
+            // Ge-transcodeerde tussenfile opruimen als 't een aparte temp
+            // was (anders is 'ie hetzelfde object als audioFile, één delete
+            // is genoeg). Beide afzonderlijk in try/catch zodat een fout op
+            // de ene de andere niet blokkeert.
+            try {
+                transcodedForWhisper?.takeIf { it.isTemporary }?.file?.delete()
+            } catch (e: Exception) {
+                log.warn("[PodcastEpisode] kon transcoded temp-file niet verwijderen: {}", e.message)
+            }
             try {
                 audioFile?.delete()
             } catch (e: Exception) {

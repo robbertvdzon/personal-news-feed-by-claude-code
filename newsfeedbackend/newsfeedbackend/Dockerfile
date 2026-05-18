@@ -24,6 +24,14 @@ RUN --mount=type=cache,target=/root/.m2 mvn -q -B -DskipTests package \
 # kan met sommige libs ongelukken geven.
 FROM eclipse-temurin:21-jre AS runtime
 
+# ffmpeg is nodig voor AudioTranscoder (KAN-60-followup): comprimeert
+# podcast-MP3's die > 25 MiB zijn naar mono 32 kbps zodat Whisper ze
+# wel accepteert. Eclipse Temurin JRE image is Ubuntu-based, dus apt.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ffmpeg \
+ && apt-get clean \
+ && rm -rf /var/lib/apt/lists/*
+
 # OpenShift draait pods met een arbitrary UID die in de root-group
 # zit. Files moeten group-writable zijn (gid=0). De /data-dir wordt
 # door OpenShift gemount via een PVC; we leggen 'm hier al aan voor
