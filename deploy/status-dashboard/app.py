@@ -2298,10 +2298,12 @@ cat > "$HOME/.claude.json" <<JSON
 JSON
 cat > "$HOME/.claude/settings.json" <<'JSON'
 {
-  "theme": "dark"
+  "theme": "dark",
+  "skipDangerousModePermissionPrompt": true,
+  "skipAutoPermissionPrompt": true
 }
 JSON
-echo "[claude-interactive] config pre-seeded (skip onboarding wizard + folder-trust)"
+echo "[claude-interactive] config pre-seeded (skip onboarding + folder-trust + bypass-mode-confirm)"
 
 # ----- schrijf claude-credentials weg zodat --remote-control werkt -----
 # Op Mac haalt claude credentials uit de keychain (key "Claude Code-

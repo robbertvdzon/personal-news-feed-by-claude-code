@@ -119,7 +119,9 @@ cat > "$HOME/.claude.json" <<JSON
 JSON
 cat > "$HOME/.claude/settings.json" <<'JSON'
 {
-  "theme": "dark"
+  "theme": "dark",
+  "skipDangerousModePermissionPrompt": true,
+  "skipAutoPermissionPrompt": true
 }
 JSON
 echo "[claude-interactive] config pre-seeded"
