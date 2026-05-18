@@ -14,18 +14,20 @@ handmatig gestart vanuit de status-dashboard "Claude"-tab (KAN-61).
 
 Hergebruikt `ghcr.io/robbertvdzon/claude-tester:main` — die heeft al
 Claude CLI, kubectl, oc, psql, git, expect/script en Playwright. Het
-`entrypoint.sh` wordt door de status-dashboard backend via een
-ConfigMap-mount geleverd op `/opt/claude-interactive/entrypoint.sh`;
-de Job-spec overschrijft de container-command zodat dit script de
-plek van `/usr/local/bin/runner.sh` overneemt.
+`entrypoint.sh` in deze directory is de canonieke versie; de status-
+dashboard backend houdt ditzelfde script inline (zie `app.py` →
+`_INTERACTIVE_ENTRYPOINT_SH`) en injecteert 'm op de Job-container via
+`command: ["bash", "-c", <script>]`. Daardoor is er géén ConfigMap-
+mount nodig en heeft het dashboard ook geen `configmaps/create`-RBAC
+nodig.
 
 ## Lifecycle
 
 1. PO klikt "+ Nieuwe sessie" in de dashboard-tab → `POST /api/v1/claude-sessions`.
-2. Backend bouwt een ConfigMap (entrypoint.sh) + Job en past 'm toe in `pnf-software-factory`.
+2. Backend bouwt een Job (entrypoint inline in `command`) en past 'm toe in `pnf-software-factory`.
 3. Pod start, kloont `main`, registreert zich onder het PO-account via `CLAUDE_CODE_OAUTH_TOKEN`.
 4. Sessie verschijnt binnen ~30 sec in de Claude-app van de PO.
-5. Stop-knop: `DELETE /api/v1/claude-sessions/<name>` → `kubectl delete job` (ownerRef veegt de ConfigMap mee).
+5. Stop-knop: `DELETE /api/v1/claude-sessions/<name>` → `kubectl delete job` (ownerRef ruimt de pod op).
 6. Crash (geen stop-knop): `restartPolicy=OnFailure` herstart de pod automatisch (verse clone).
 
 ## Cap

@@ -2231,12 +2231,13 @@ REPO_URL = os.environ.get(
 _SESSION_NAME_RE = re.compile(r"^[a-z][a-z0-9-]{0,21}$")
 _SESSION_NAME_MAX = 22
 
-# Entrypoint-script dat in de pod draait. Wordt als ConfigMap-binaryData
-# meegegeven en op /opt/claude-interactive/entrypoint.sh gemount. We
-# houden 'm hier inline (i.p.v. in een aparte file lezen) zodat het
-# dashboard-image self-contained blijft — geen kustomize-mount nodig.
-_INTERACTIVE_ENTRYPOINT_SH = r"""#!/usr/bin/env bash
-set -euo pipefail
+# Entrypoint-script dat in de pod draait. We injecteren 'm via
+# `command: ["bash", "-c", <script>]` op de Job-container; géén ConfigMap-
+# mount (voorheen was dat wel zo, maar dat kostte een extra RBAC-rule
+# voor configmaps/create én een 2e kubectl-apply met owner-ref-patch —
+# foutgevoelig). Self-contained in deze module zodat het dashboard-image
+# geen kustomize-mount nodig heeft.
+_INTERACTIVE_ENTRYPOINT_SH = r"""set -euo pipefail
 echo "[claude-interactive] sessie '${SESSION_NAME:-?}' start"
 for v in CLAUDE_CODE_OAUTH_TOKEN GITHUB_TOKEN REPO_URL SESSION_NAME; do
   if [[ -z "${!v:-}" ]]; then
@@ -2361,27 +2362,16 @@ def _list_active_interactive_jobs() -> list[dict]:
     return [j for j in items if _job_is_active(j)]
 
 
-def _build_interactive_resources(name: str) -> tuple[dict, dict]:
-    """Bouw (ConfigMap, Job)-paar voor één sessie. De Job mount de
-    ConfigMap als entrypoint-script; ownerReference op de ConfigMap
-    wordt ná Job-create gepatched zodat 'm mee-GC't met de Job."""
+def _build_interactive_resources(name: str) -> dict:
+    """Bouw de Job-spec voor één interactieve sessie. Het entrypoint-
+    script wordt inline meegegeven als `bash -c <script>` — voorheen
+    ging dat via een ConfigMap-mount, maar dat vereiste een extra
+    RBAC-rule (configmaps/create) en een follow-up owner-ref-patch.
+    Inline is simpeler én cluster-pod heeft geen extra mount nodig."""
     job_name = _interactive_job_name(name)
-    cm_name = f"{job_name}-entry"
     labels = {
         "app": "claude-interactive",
         "session-name": _sanitize_session_name(name)[:_SESSION_NAME_MAX],
-    }
-    cm = {
-        "apiVersion": "v1",
-        "kind": "ConfigMap",
-        "metadata": {
-            "name": cm_name,
-            "namespace": FACTORY_NS,
-            "labels": labels,
-        },
-        "data": {
-            "entrypoint.sh": _INTERACTIVE_ENTRYPOINT_SH,
-        },
     }
     env = [
         {"name": "SESSION_NAME", "value": _sanitize_session_name(name)[:_SESSION_NAME_MAX]},
@@ -2426,29 +2416,17 @@ def _build_interactive_resources(name: str) -> tuple[dict, dict]:
                             "name": "claude",
                             "image": CLAUDE_INTERACTIVE_IMAGE,
                             "imagePullPolicy": "Always",
-                            "command": ["bash", "/opt/claude-interactive/entrypoint.sh"],
+                            # Inline entrypoint via `bash -c <script>` —
+                            # geen ConfigMap-mount nodig. Bash leest het
+                            # script als positional $0, niet als stdin,
+                            # dus stdin blijft beschikbaar voor claude.
+                            "command": ["bash", "-c", _INTERACTIVE_ENTRYPOINT_SH],
                             "tty": True,
                             "stdin": True,
                             "env": env,
-                            "volumeMounts": [
-                                {
-                                    "name": "entry",
-                                    "mountPath": "/opt/claude-interactive",
-                                    "readOnly": True,
-                                },
-                            ],
                             "resources": {
                                 "requests": {"cpu": "100m", "memory": "256Mi"},
                                 "limits": {"cpu": "500m", "memory": "1Gi"},
-                            },
-                        },
-                    ],
-                    "volumes": [
-                        {
-                            "name": "entry",
-                            "configMap": {
-                                "name": cm_name,
-                                "defaultMode": 0o755,
                             },
                         },
                     ],
@@ -2456,7 +2434,7 @@ def _build_interactive_resources(name: str) -> tuple[dict, dict]:
             },
         },
     }
-    return cm, job
+    return job
 
 
 def _secret_env(name: str, key: str) -> dict:
@@ -2548,46 +2526,14 @@ def api_claude_sessions() -> Response:
             "stop er eentje of wacht tot een afloopt."
         )), 409
 
-    cm, job = _build_interactive_resources(name)
-    cm_out = kubectl_run(
-        "apply", "-f", "-",
-        input_data=json.dumps(cm),
-    )
-    if cm_out.returncode != 0:
-        log.warning("ConfigMap apply faalde: %s", cm_out.stderr[:200])
-        return jsonify(error=f"ConfigMap apply faalde: {cm_out.stderr[:200]}"), 502
+    job = _build_interactive_resources(name)
     job_out = kubectl_run(
         "apply", "-f", "-", "-o", "json",
         input_data=json.dumps(job),
     )
     if job_out.returncode != 0:
-        # Roll back de zojuist aangemaakte CM zodat we geen weeskinderen
-        # achterlaten in de namespace.
-        kubectl_run("delete", "configmap", cm["metadata"]["name"],
-                    "-n", FACTORY_NS, "--ignore-not-found=true")
         log.warning("Job apply faalde: %s", job_out.stderr[:200])
         return jsonify(error=f"Job apply faalde: {job_out.stderr[:200]}"), 502
-    try:
-        job_uid = json.loads(job_out.stdout)["metadata"]["uid"]
-    except (json.JSONDecodeError, KeyError, TypeError):
-        job_uid = None
-    if job_uid:
-        # Plak de CM aan de Job zodat ie mee-GC't bij stop-knop.
-        patch = {
-            "metadata": {
-                "ownerReferences": [{
-                    "apiVersion": "batch/v1",
-                    "kind": "Job",
-                    "name": job["metadata"]["name"],
-                    "uid": job_uid,
-                }],
-            },
-        }
-        kubectl_run(
-            "patch", "configmap", cm["metadata"]["name"],
-            "-n", FACTORY_NS, "--type=merge",
-            "-p", json.dumps(patch),
-        )
     _factory_db_record_session(name, job["metadata"]["name"])
     log.info("interactive sessie '%s' gestart (job=%s)", name, job["metadata"]["name"])
     return jsonify(
@@ -2626,9 +2572,8 @@ def api_claude_session_delete(name: str) -> Response:
             "-n", FACTORY_NS,
             "--ignore-not-found=true",
             # propagationPolicy=Background zodat de DELETE-call snel
-            # terugkomt (geen sync-wait op pod-termination), terwijl
-            # ownerReferences alsnog ervoor zorgen dat ConfigMap + pods
-            # mee-GC't worden.
+            # terugkomt (geen sync-wait op pod-termination); pods worden
+            # via ownerReferences alsnog opgeruimd.
             "--cascade=background",
         )
         if out.returncode != 0:

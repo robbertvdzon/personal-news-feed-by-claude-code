@@ -51,9 +51,13 @@ roleRef:
 # KAN-61 — namespace-scope mutatie-rechten voor claude-interactive-
 # Jobs. Dashboard spawnt/stopt sessie-pods in pnf-software-factory; de
 # pod zelf draait onder de aparte ServiceAccount `claude-interactive`
-# (zie deploy/claude-interactive/rbac.yaml). create/delete op
-# ConfigMaps voor de welcome-prompt-mount (zelfde patroon als de
-# jira-poller).
+# (zie deploy/claude-interactive/rbac.yaml).
+#
+# Géén ConfigMap-rechten meer (KAN-61-followup): het entrypoint-script
+# wordt sinds dat fix inline meegegeven via `command: ["bash","-c",…]`
+# op de Job-container, zodat de welcome-prompt geen mount nodig heeft.
+# Dat is robuuster (één kubectl-call i.p.v. twee + owner-ref-patch) en
+# scheelt RBAC-oppervlak.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -63,9 +67,6 @@ rules:
   - apiGroups: ["batch"]
     resources: ["jobs"]
     verbs: ["get", "list", "watch", "create", "delete"]
-  - apiGroups: [""]
-    resources: ["configmaps"]
-    verbs: ["get", "list", "create", "patch", "update", "delete"]
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "list", "delete"]
