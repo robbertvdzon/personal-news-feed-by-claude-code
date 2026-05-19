@@ -153,8 +153,18 @@ class ApiClient {
   /// KAN-61: start een nieuwe sessie. Server-side caps + naam-validatie;
   /// 409 of 400 als de input ongeldig is. ApiException-statusCode is wat
   /// de UI gebruikt om de inline foutmelding te tonen.
-  Future<ClaudeSession> createClaudeSession(String name) async {
-    final r = await _send('POST', '/api/v1/claude-sessions', body: {'name': name});
+  Future<ClaudeSession> createClaudeSession(
+    String name, {
+    bool bypassPermissions = false,
+  }) async {
+    final r = await _send(
+      'POST',
+      '/api/v1/claude-sessions',
+      body: {
+        'name': name,
+        'bypass_permissions': bypassPermissions,
+      },
+    );
     final m = Map<String, dynamic>.from(r as Map);
     return ClaudeSession.fromJson(
         Map<String, dynamic>.from(m['session'] as Map));

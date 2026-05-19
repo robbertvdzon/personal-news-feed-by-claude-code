@@ -2299,12 +2299,27 @@ cat > "$HOME/.claude.json" <<JSON
   }
 }
 JSON
-cat > "$HOME/.claude/settings.json" <<'JSON'
+# settings.json: in bypass-mode ook de "WARNING: BypassPermissions"-
+# acceptatie-dialog uitschakelen via skipDangerousModePermissionPrompt.
+# De env-var BYPASS_PERMISSIONS=1 wordt door de dashboard-backend gezet
+# als de PO de toggle aanvinkt bij sessie-aanmaak.
+if [[ "${BYPASS_PERMISSIONS:-0}" == "1" ]]; then
+  cat > "$HOME/.claude/settings.json" <<'JSON'
+{
+  "theme": "dark",
+  "skipDangerousModePermissionPrompt": true,
+  "skipAutoPermissionPrompt": true
+}
+JSON
+  echo "[claude-interactive] config pre-seeded (incl. bypass-permissions skip-prompts)"
+else
+  cat > "$HOME/.claude/settings.json" <<'JSON'
 {
   "theme": "dark"
 }
 JSON
-echo "[claude-interactive] config pre-seeded (skip onboarding wizard + folder-trust)"
+  echo "[claude-interactive] config pre-seeded (standaard, met permission-prompts)"
+fi
 
 # ----- schrijf claude-credentials weg zodat --remote-control werkt -----
 # Op Mac haalt claude credentials uit de keychain (key "Claude Code-
@@ -2345,24 +2360,21 @@ unset KUBERNETES_SERVICE_HOST KUBERNETES_SERVICE_PORT \
 touch /.dockerenv 2>/dev/null || true
 echo "[claude-interactive] kubernetes-fingerprint gemaskeerd"
 
-echo "[claude-interactive] claude start in --remote-control-modus…"
-# `claude --remote-control <name>` start direct met Remote Control aan,
-# zonder dat we de slash-command via de TUI-autocomplete hoeven te typen.
-# Naam wordt de pod-sessie-naam zodat 'ie herkenbaar is in de mobiele
-# Claude-app. tail -f houdt de stream open zodat claude niet meteen EOF
-# ziet.
-#
-# --permission-mode bypassPermissions: pre-approve alle tool-calls. De
-# pod heeft toch al cluster-admin via z'n SA (zie deploy/claude-
-# interactive/rbac.yaml), dus elke individuele bevestigings-prompt op de
-# mobiel toevoegt 0 extra veiligheid en kost wel een toetsbreak per
-# commando. Zelfde keuze als de factory-runner Jobs.
-#
-# --debug-file schrijft naar /tmp/claude-debug.log; via `oc exec <pod> --
-# tail /tmp/claude-debug.log` kunnen we [remote-bridge]-events bekijken
-# wanneer een sessie niet op mobiel verschijnt.
+# Bouw de claude-flags voorwaardelijk. `--permission-mode bypassPermissions`
+# alleen toevoegen als de PO-toggle dat heeft aangezet (env BYPASS_PERMISSIONS=1).
+EXTRA_FLAGS=""
+if [[ "${BYPASS_PERMISSIONS:-0}" == "1" ]]; then
+  EXTRA_FLAGS="--permission-mode bypassPermissions"
+  echo "[claude-interactive] claude start in --remote-control-modus + bypass-permissions…"
+else
+  echo "[claude-interactive] claude start in --remote-control-modus (standaard)…"
+fi
+
+# `claude --remote-control <name>` start direct met Remote Control aan;
+# tail -f houdt de stream open zodat claude niet meteen EOF ziet.
+# --debug-file schrijft naar /tmp/claude-debug.log voor diagnostiek.
 { tail -f /dev/null; } | \
-  script -q -c "claude --debug-file /tmp/claude-debug.log --remote-control \"$SESSION_NAME\" --append-system-prompt \"$(cat /tmp/welcome.md)\"" /dev/null
+  script -q -c "claude --debug-file /tmp/claude-debug.log --remote-control \"$SESSION_NAME\" $EXTRA_FLAGS --append-system-prompt \"$(cat /tmp/welcome.md)\"" /dev/null
 echo "[claude-interactive] claude is afgesloten — exit"
 """
 
@@ -2452,12 +2464,19 @@ def _list_active_interactive_jobs() -> list[dict]:
     return [j for j in items if _job_is_active(j)]
 
 
-def _build_interactive_resources(name: str) -> dict:
+def _build_interactive_resources(name: str, bypass_permissions: bool = False) -> dict:
     """Bouw de Job-spec voor één interactieve sessie. Het entrypoint-
     script wordt inline meegegeven als `bash -c <script>` — voorheen
     ging dat via een ConfigMap-mount, maar dat vereiste een extra
     RBAC-rule (configmaps/create) en een follow-up owner-ref-patch.
-    Inline is simpeler én cluster-pod heeft geen extra mount nodig."""
+    Inline is simpeler én cluster-pod heeft geen extra mount nodig.
+
+    `bypass_permissions`: als True, draait claude in
+    --permission-mode bypassPermissions en wordt de bypass-WARNING-
+    acceptatie-dialog overgeslagen via settings.json. Handig voor
+    mobiele bediening — anders moet PO per tool-call (Bash, Edit, …)
+    op de mobiel toestemming geven. De pod heeft sowieso cluster-admin
+    via z'n SA, dus de prompt voegt 0 extra veiligheid toe."""
     job_name = _interactive_job_name(name)
     labels = {
         "app": "claude-interactive",
@@ -2468,6 +2487,9 @@ def _build_interactive_resources(name: str) -> dict:
         {"name": "REPO_URL", "value": REPO_URL},
         {"name": "GITHUB_OWNER", "value": GITHUB_OWNER},
         {"name": "GITHUB_REPO", "value": GITHUB_REPO},
+        # Toggle voor entrypoint.sh: "1" = enable bypass-permissions
+        # (skip settings-dialog + voeg --permission-mode flag toe).
+        {"name": "BYPASS_PERMISSIONS", "value": "1" if bypass_permissions else "0"},
         # Voor --remote-control hebben we de FULL Claude Max-OAuth-credentials
         # nodig (scopes user:sessions:claude_code + user:mcp_servers); de
         # setup-token in CLAUDE_CODE_OAUTH_TOKEN heeft alleen user:inference
@@ -2605,6 +2627,11 @@ def api_claude_sessions() -> Response:
     data = request.get_json(silent=True) or {}
     raw_name = (data.get("name") or "").strip()
     name = _sanitize_session_name(raw_name)
+    # `bypass_permissions`: optionele PO-toggle. Default false zodat
+    # claude voor elk tool-call op de mobiel om approval vraagt. True
+    # = volledig auto-approve (de pod heeft cluster-admin dus de
+    # prompt voegt 0 extra veiligheid toe — het is puur UX).
+    bypass_permissions = bool(data.get("bypass_permissions", False))
     if not _SESSION_NAME_RE.match(name):
         return jsonify(error=(
             f"Naam moet 1-{_SESSION_NAME_MAX} tekens zijn: kleine letters/"
@@ -2622,7 +2649,7 @@ def api_claude_sessions() -> Response:
             "stop er eentje of wacht tot een afloopt."
         )), 409
 
-    job = _build_interactive_resources(name)
+    job = _build_interactive_resources(name, bypass_permissions=bypass_permissions)
     job_out = kubectl_run(
         "apply", "-f", "-", "-o", "json",
         input_data=json.dumps(job),

@@ -120,11 +120,21 @@ cat > "$HOME/.claude.json" <<JSON
   }
 }
 JSON
-cat > "$HOME/.claude/settings.json" <<'JSON'
+if [[ "${BYPASS_PERMISSIONS:-0}" == "1" ]]; then
+  cat > "$HOME/.claude/settings.json" <<'JSON'
+{
+  "theme": "dark",
+  "skipDangerousModePermissionPrompt": true,
+  "skipAutoPermissionPrompt": true
+}
+JSON
+else
+  cat > "$HOME/.claude/settings.json" <<'JSON'
 {
   "theme": "dark"
 }
 JSON
+fi
 echo "[claude-interactive] config pre-seeded"
 
 # ---------- full OAuth credentials (voor --remote-control) ----------
@@ -164,11 +174,17 @@ touch /.dockerenv 2>/dev/null || true
 #
 # De welkomstprompt staat in /tmp/welcome.md zodat de gebruiker 'm vanuit
 # z'n eerste mobiele prompt kan oproepen ("toon /tmp/welcome.md").
-echo "[claude-interactive] claude start in /remote-modus…"
+EXTRA_FLAGS=""
+if [[ "${BYPASS_PERMISSIONS:-0}" == "1" ]]; then
+  EXTRA_FLAGS="--permission-mode bypassPermissions"
+  echo "[claude-interactive] claude start in /remote-modus + bypass-permissions…"
+else
+  echo "[claude-interactive] claude start in /remote-modus (standaard)…"
+fi
 {
   # tail -f houdt de stream open zodat claude niet meteen EOF ziet en
   # blokkeert tot de pod gedeleted wordt.
   tail -f /dev/null
-} | script -q -c "claude --debug-file /tmp/claude-debug.log --remote-control \"$SESSION_NAME\" --append-system-prompt \"$(cat /tmp/welcome.md)\"" /dev/null
+} | script -q -c "claude --debug-file /tmp/claude-debug.log --remote-control \"$SESSION_NAME\" $EXTRA_FLAGS --append-system-prompt \"$(cat /tmp/welcome.md)\"" /dev/null
 
 echo "[claude-interactive] claude is afgesloten — exit"

@@ -455,6 +455,10 @@ class _CreateSessionDialog extends ConsumerStatefulWidget {
 class _CreateSessionDialogState extends ConsumerState<_CreateSessionDialog> {
   final _ctrl = TextEditingController();
   bool _busy = false;
+  // Default = false: claude vraagt per tool-call op je mobiel om approval.
+  // Toggle aan = volledige bypass (geen prompts). Zie ook KAN-61
+  // overwegingen — de pod heeft toch cluster-admin via z'n SA.
+  bool _bypassPermissions = false;
   String? _error;
 
   @override
@@ -474,7 +478,10 @@ class _CreateSessionDialogState extends ConsumerState<_CreateSessionDialog> {
       _error = null;
     });
     try {
-      await ref.read(apiProvider).createClaudeSession(name);
+      await ref.read(apiProvider).createClaudeSession(
+            name,
+            bypassPermissions: _bypassPermissions,
+          );
       if (mounted) Navigator.of(context).pop();
     } on ApiException catch (e) {
       setState(() => _error = _humanizeApiError(e));
@@ -510,6 +517,24 @@ class _CreateSessionDialogState extends ConsumerState<_CreateSessionDialog> {
                 border: OutlineInputBorder(),
               ),
               onSubmitted: (_) => _submit(),
+            ),
+            const SizedBox(height: 8),
+            // Bypass-permissions toggle. Met bypass werkt mobile-bediening
+            // soepel (geen approval per tool-call), maar de pod kan dan
+            // wel direct alles uitvoeren — incl. PRODUCTIE — zonder
+            // tussenklik. Default = uit zodat de PO bewust kiest.
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              value: _bypassPermissions,
+              onChanged: _busy
+                  ? null
+                  : (v) => setState(() => _bypassPermissions = v),
+              title: const Text('Bypass tool-permissies',
+                  style: TextStyle(fontSize: 13)),
+              subtitle: const Text(
+                  'Geen approval per Bash/Edit/etc. Direct uitvoeren — handig op mobiel, maar voorzichtig met productie-commando\'s.',
+                  style: TextStyle(fontSize: 11)),
             ),
             if (_error != null)
               Padding(
