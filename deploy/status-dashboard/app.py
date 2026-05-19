@@ -2286,6 +2286,9 @@ cat > "$HOME/.claude.json" <<JSON
   "hasCompletedOnboarding": true,
   "lastOnboardingVersion": "${CLAUDE_VER:-99.99.99}",
   "numStartups": 1,
+  "remoteControlAtStartup": true,
+  "hasUsedRemoteControl": true,
+  "remoteDialogSeen": true,
   "projects": {
     "/work/repo": {
       "hasTrustDialogAccepted": true,
