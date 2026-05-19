@@ -37,7 +37,13 @@ class PodcastRepository(
         customTopics = json.readList(rs, "custom_topics", String::class.java),
         ttsProvider = TtsProvider.valueOf(rs.getString("tts_provider")),
         podcastNumber = rs.getInt("podcast_number"),
-        generationSeconds = rs.getObject("generation_seconds") as? Int
+        generationSeconds = rs.getObject("generation_seconds") as? Int,
+        translatedFromEpisodeGuid = rs.getString("translated_from_episode_guid"),
+        translatedFromFeedUrl = rs.getString("translated_from_feed_url"),
+        translatedFromFeedName = rs.getString("translated_from_feed_name"),
+        translatedFromEpisodeTitle = rs.getString("translated_from_episode_title"),
+        translatedFromRssItemId = rs.getString("translated_from_rss_item_id"),
+        errorMessage = rs.getString("error_message")
     )
 
     private fun params(username: String, p: Podcast) = MapSqlParameterSource()
@@ -56,16 +62,43 @@ class PodcastRepository(
         .addValue("tts_provider", p.ttsProvider.name)
         .addValue("podcast_number", p.podcastNumber)
         .addValue("generation_seconds", p.generationSeconds)
+        .addValue("translated_from_episode_guid", p.translatedFromEpisodeGuid)
+        .addValue("translated_from_feed_url", p.translatedFromFeedUrl)
+        .addValue("translated_from_feed_name", p.translatedFromFeedName)
+        .addValue("translated_from_episode_title", p.translatedFromEpisodeTitle)
+        .addValue("translated_from_rss_item_id", p.translatedFromRssItemId)
+        .addValue("error_message", p.errorMessage)
 
     fun load(username: String): MutableList<Podcast> =
         jdbc.query(
             "SELECT id, title, period_description, period_days, duration_minutes, status, " +
                 "created_at, script_text, topics, duration_seconds, custom_topics, tts_provider, " +
-                "podcast_number, generation_seconds " +
+                "podcast_number, generation_seconds, translated_from_episode_guid, " +
+                "translated_from_feed_url, translated_from_feed_name, translated_from_episode_title, " +
+                "translated_from_rss_item_id, error_message " +
                 "FROM podcasts WHERE username = :u ORDER BY created_at DESC",
             MapSqlParameterSource("u", username),
             ::map
         ).toMutableList()
+
+    /**
+     * KAN-63: idempotency-lookup voor de translate-knop. Returnt de
+     * bestaande vertaling voor [episodeGuid] (ongeacht status), of `null`
+     * als er nog geen vertaling bestaat. Maakt gebruik van de partial
+     * index `podcasts_translated_from_idx`.
+     */
+    fun findByTranslatedFromEpisodeGuid(username: String, episodeGuid: String): Podcast? =
+        jdbc.query(
+            "SELECT id, title, period_description, period_days, duration_minutes, status, " +
+                "created_at, script_text, topics, duration_seconds, custom_topics, tts_provider, " +
+                "podcast_number, generation_seconds, translated_from_episode_guid, " +
+                "translated_from_feed_url, translated_from_feed_name, translated_from_episode_title, " +
+                "translated_from_rss_item_id, error_message " +
+                "FROM podcasts WHERE username = :u AND translated_from_episode_guid = :g " +
+                "ORDER BY created_at DESC LIMIT 1",
+            MapSqlParameterSource().addValue("u", username).addValue("g", episodeGuid),
+            ::map
+        ).firstOrNull()
 
     fun save(username: String, all: List<Podcast>) {
         jdbc.update("DELETE FROM podcasts WHERE username = :u", MapSqlParameterSource("u", username))
@@ -107,27 +140,39 @@ class PodcastRepository(
                 username, id, title, period_description, period_days,
                 duration_minutes, status, created_at, script_text, topics,
                 duration_seconds, custom_topics, tts_provider,
-                podcast_number, generation_seconds
+                podcast_number, generation_seconds,
+                translated_from_episode_guid, translated_from_feed_url,
+                translated_from_feed_name, translated_from_episode_title,
+                translated_from_rss_item_id, error_message
             ) VALUES (
                 :username, :id, :title, :period_description, :period_days,
                 :duration_minutes, :status, :created_at, :script_text, :topics,
                 :duration_seconds, :custom_topics, :tts_provider,
-                :podcast_number, :generation_seconds
+                :podcast_number, :generation_seconds,
+                :translated_from_episode_guid, :translated_from_feed_url,
+                :translated_from_feed_name, :translated_from_episode_title,
+                :translated_from_rss_item_id, :error_message
             )
             ON CONFLICT (username, id) DO UPDATE SET
-                title              = EXCLUDED.title,
-                period_description = EXCLUDED.period_description,
-                period_days        = EXCLUDED.period_days,
-                duration_minutes   = EXCLUDED.duration_minutes,
-                status             = EXCLUDED.status,
-                created_at         = EXCLUDED.created_at,
-                script_text        = EXCLUDED.script_text,
-                topics             = EXCLUDED.topics,
-                duration_seconds   = EXCLUDED.duration_seconds,
-                custom_topics      = EXCLUDED.custom_topics,
-                tts_provider       = EXCLUDED.tts_provider,
-                podcast_number     = EXCLUDED.podcast_number,
-                generation_seconds = EXCLUDED.generation_seconds
+                title                         = EXCLUDED.title,
+                period_description            = EXCLUDED.period_description,
+                period_days                   = EXCLUDED.period_days,
+                duration_minutes              = EXCLUDED.duration_minutes,
+                status                        = EXCLUDED.status,
+                created_at                    = EXCLUDED.created_at,
+                script_text                   = EXCLUDED.script_text,
+                topics                        = EXCLUDED.topics,
+                duration_seconds              = EXCLUDED.duration_seconds,
+                custom_topics                 = EXCLUDED.custom_topics,
+                tts_provider                  = EXCLUDED.tts_provider,
+                podcast_number                = EXCLUDED.podcast_number,
+                generation_seconds            = EXCLUDED.generation_seconds,
+                translated_from_episode_guid  = EXCLUDED.translated_from_episode_guid,
+                translated_from_feed_url      = EXCLUDED.translated_from_feed_url,
+                translated_from_feed_name     = EXCLUDED.translated_from_feed_name,
+                translated_from_episode_title = EXCLUDED.translated_from_episode_title,
+                translated_from_rss_item_id   = EXCLUDED.translated_from_rss_item_id,
+                error_message                 = EXCLUDED.error_message
         """
     }
 }

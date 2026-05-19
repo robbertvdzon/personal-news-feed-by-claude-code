@@ -37,23 +37,81 @@ class TtsClient(
         }
     }
 
+    /**
+     * KAN-63: single-voice OpenAI TTS-call voor de vertaalde podcast-
+     * stream. Anders dan [generate] is dit voor één doorlopende
+     * Nederlandse aflevering (geen INTERVIEWER/GAST-wissel) en logt
+     * onder een eigen [action]-constant (`podcast_translate_tts`) zodat
+     * de kosten apart zichtbaar zijn in het dashboard. Tekst moet ≤ 4096
+     * tekens zijn (OpenAI tts-1-limiet); de caller hakt het transcript
+     * op en concatenate later met ffmpeg.
+     */
+    fun generateOpenAiSingleVoice(
+        username: String,
+        subjectId: String,
+        text: String,
+        voice: String,
+        action: String
+    ): ByteArray? = openaiSingleVoice(username, subjectId, text, voice, action)
+
     enum class SpeakerRole { INTERVIEWER, GUEST }
 
     private fun openai(username: String, podcastId: String, role: SpeakerRole, text: String): ByteArray? {
+        val voice = if (role == SpeakerRole.INTERVIEWER) "onyx" else "alloy"
+        return openaiCall(
+            username = username,
+            subject = "Podcast id=$podcastId role=${role.name}",
+            text = text,
+            voice = voice,
+            speed = 1.2,
+            action = ExternalCall.ACTION_PODCAST_TTS
+        )
+    }
+
+    private fun openaiSingleVoice(
+        username: String,
+        subjectId: String,
+        text: String,
+        voice: String,
+        action: String
+    ): ByteArray? = openaiCall(
+        username = username,
+        subject = "Podcast id=$subjectId voice=$voice",
+        text = text,
+        voice = voice,
+        // Natuurlijke spreeksnelheid voor de vertaalde NL-podcast (geen
+        // sneller-getrokken DevTalk-interview-formaat).
+        speed = 1.0,
+        action = action
+    )
+
+    /**
+     * Gedeelde OpenAI TTS-call. Voor het interview-formaat is dit
+     * INTERVIEWER/GAST-rol-gestuurd met speed=1.2; voor de KAN-63
+     * vertaal-flow is het één vaste stem (nova/shimmer) op speed=1.0.
+     * De [action]-constant bepaalt onder welke noemer de call in het
+     * kostendashboard verschijnt.
+     */
+    private fun openaiCall(
+        username: String,
+        subject: String,
+        text: String,
+        voice: String,
+        speed: Double,
+        action: String
+    ): ByteArray? {
         val started = Instant.now()
         val chars = text.length.toLong()
-        val subj = "Podcast id=$podcastId role=${role.name}"
         if (openaiKey.isBlank()) {
-            logTts(ExternalCall.PROVIDER_OPENAI, username, started, chars, 0.0, "error", "no API key", subj)
+            logTts(ExternalCall.PROVIDER_OPENAI, action, username, started, chars, 0.0, "error", "no API key", subject)
             return null
         }
-        val voice = if (role == SpeakerRole.INTERVIEWER) "onyx" else "alloy"
         val body = mapper.writeValueAsString(
             mapOf(
                 "model" to "tts-1",
                 "voice" to voice,
                 "input" to text,
-                "speed" to 1.2
+                "speed" to speed
             )
         )
         val req = HttpRequest.newBuilder()
@@ -66,18 +124,18 @@ class TtsClient(
         return try {
             val resp = http.send(req, HttpResponse.BodyHandlers.ofByteArray())
             if (resp.statusCode() >= 400) {
-                log.warn("[TTS] OpenAI -> {}", resp.statusCode())
-                logTts(ExternalCall.PROVIDER_OPENAI, username, started, chars, 0.0,
-                    "error", "http ${resp.statusCode()}", subj)
+                log.warn("[TTS] OpenAI -> {} action={} voice={}", resp.statusCode(), action, voice)
+                logTts(ExternalCall.PROVIDER_OPENAI, action, username, started, chars, 0.0,
+                    "error", "http ${resp.statusCode()}", subject)
                 null
             } else {
-                logTts(ExternalCall.PROVIDER_OPENAI, username, started, chars,
-                    Pricing.openaiTtsCost(chars), "ok", null, subj)
+                logTts(ExternalCall.PROVIDER_OPENAI, action, username, started, chars,
+                    Pricing.openaiTtsCost(chars), "ok", null, subject)
                 resp.body()
             }
         } catch (e: Exception) {
-            log.warn("[TTS] OpenAI failed: {}", e.message)
-            logTts(ExternalCall.PROVIDER_OPENAI, username, started, chars, 0.0, "error", e.message, subj)
+            log.warn("[TTS] OpenAI failed action={}: {}", action, e.message)
+            logTts(ExternalCall.PROVIDER_OPENAI, action, username, started, chars, 0.0, "error", e.message, subject)
             null
         }
     }
@@ -87,7 +145,7 @@ class TtsClient(
         val chars = text.length.toLong()
         val subj = "Podcast id=$podcastId role=${role.name}"
         if (elevenKey.isBlank()) {
-            logTts(ExternalCall.PROVIDER_ELEVENLABS, username, started, chars, 0.0, "error", "no API key", subj)
+            logTts(ExternalCall.PROVIDER_ELEVENLABS, ExternalCall.ACTION_PODCAST_TTS, username, started, chars, 0.0, "error", "no API key", subj)
             return null
         }
         val voiceId = if (role == SpeakerRole.INTERVIEWER) voiceInterviewer else voiceGuest
@@ -110,23 +168,24 @@ class TtsClient(
             val resp = http.send(req, HttpResponse.BodyHandlers.ofByteArray())
             if (resp.statusCode() >= 400) {
                 log.warn("[TTS] ElevenLabs -> {}", resp.statusCode())
-                logTts(ExternalCall.PROVIDER_ELEVENLABS, username, started, chars, 0.0,
+                logTts(ExternalCall.PROVIDER_ELEVENLABS, ExternalCall.ACTION_PODCAST_TTS, username, started, chars, 0.0,
                     "error", "http ${resp.statusCode()}", subj)
                 null
             } else {
-                logTts(ExternalCall.PROVIDER_ELEVENLABS, username, started, chars,
+                logTts(ExternalCall.PROVIDER_ELEVENLABS, ExternalCall.ACTION_PODCAST_TTS, username, started, chars,
                     Pricing.elevenlabsTtsCost(chars), "ok", null, subj)
                 stripId3(resp.body())
             }
         } catch (e: Exception) {
             log.warn("[TTS] ElevenLabs failed: {}", e.message)
-            logTts(ExternalCall.PROVIDER_ELEVENLABS, username, started, chars, 0.0, "error", e.message, subj)
+            logTts(ExternalCall.PROVIDER_ELEVENLABS, ExternalCall.ACTION_PODCAST_TTS, username, started, chars, 0.0, "error", e.message, subj)
             null
         }
     }
 
     private fun logTts(
         provider: String,
+        action: String,
         username: String,
         started: Instant,
         chars: Long,
@@ -141,7 +200,7 @@ class TtsClient(
                 ExternalCall(
                     id = UUID.randomUUID().toString(),
                     provider = provider,
-                    action = ExternalCall.ACTION_PODCAST_TTS,
+                    action = action,
                     username = username,
                     startTime = started,
                     endTime = end,
