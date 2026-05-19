@@ -372,6 +372,39 @@ class PodcastNotifier extends AsyncNotifier<List<Podcast>> {
     state = AsyncData(state.value!.where((p) => p.id != id).toList());
     try { await _api.delete('/api/podcasts/$id'); } catch (_) {}
   }
+
+  /// KAN-63: start een NL-vertaling van een RSS-podcast-aflevering.
+  /// Returnt de (nieuwe of bestaande) podcast en voegt 'm bovenaan de
+  /// state-lijst toe wanneer 'ie nieuw is. Idempotent — de server
+  /// herkent een tweede klik en hergebruikt de bestaande podcast-id.
+  Future<Podcast> startTranslation(String episodeGuid) async {
+    final r = await _api
+        .post('/api/podcast-source/$episodeGuid/translate') as Map<String, dynamic>;
+    final podcastId = r['podcastId'] as String;
+    final detail = await _api.get('/api/podcasts/$podcastId') as Map<String, dynamic>;
+    final podcast = Podcast.fromJson(detail);
+    final current = state.value ?? const <Podcast>[];
+    final exists = current.any((p) => p.id == podcastId);
+    if (!exists) {
+      state = AsyncData([podcast, ...current]);
+    } else {
+      state = AsyncData(current.map((p) => p.id == podcastId ? podcast : p).toList());
+    }
+    return podcast;
+  }
+
+  /// KAN-63: lookup van episode-metadata voor de translate-knop op het
+  /// RSS-podcast-detail-scherm.
+  Future<EpisodeLookup?> lookupEpisode(String rssItemId) async {
+    try {
+      final r = await _api.get('/api/podcast-source/by-rss-item/$rssItemId')
+          as Map<String, dynamic>;
+      return EpisodeLookup.fromJson(r);
+    } on ApiException catch (e) {
+      if (e.statusCode == 404) return null;
+      rethrow;
+    }
+  }
 }
 
 class AppearanceState {

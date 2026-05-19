@@ -367,6 +367,18 @@ class Podcast {
   final String ttsProvider;
   final int podcastNumber;
   final int? generationSeconds;
+  /// KAN-63: bron-aflevering-guid bij een podcast die een NL-vertaling
+  /// is van een RSS-podcast-aflevering. Null voor de zelf-gegenereerde
+  /// DevTalk-podcasts.
+  final String? translatedFromEpisodeGuid;
+  final String? translatedFromFeedUrl;
+  /// Display-naam van de bron-podcast voor de "vertaald van X"-badge.
+  final String? translatedFromFeedName;
+  final String? translatedFromEpisodeTitle;
+  /// rss_items.id van de bron-aflevering — voor de tap-actie op de badge.
+  final String? translatedFromRssItemId;
+  /// Bij status=FAILED: korte foutomschrijving.
+  final String? errorMessage;
 
   Podcast({
     required this.id,
@@ -384,7 +396,15 @@ class Podcast {
     this.ttsProvider = 'OPENAI',
     this.podcastNumber = 0,
     this.generationSeconds,
+    this.translatedFromEpisodeGuid,
+    this.translatedFromFeedUrl,
+    this.translatedFromFeedName,
+    this.translatedFromEpisodeTitle,
+    this.translatedFromRssItemId,
+    this.errorMessage,
   });
+
+  bool get isTranslation => translatedFromEpisodeGuid != null;
 
   factory Podcast.fromJson(Map<String, dynamic> j) => Podcast(
         id: j['id'] ?? '',
@@ -402,5 +422,71 @@ class Podcast {
         ttsProvider: j['ttsProvider'] ?? 'OPENAI',
         podcastNumber: j['podcastNumber'] ?? 0,
         generationSeconds: j['generationSeconds'],
+        translatedFromEpisodeGuid: j['translatedFromEpisodeGuid'],
+        translatedFromFeedUrl: j['translatedFromFeedUrl'],
+        translatedFromFeedName: j['translatedFromFeedName'],
+        translatedFromEpisodeTitle: j['translatedFromEpisodeTitle'],
+        translatedFromRssItemId: j['translatedFromRssItemId'],
+        errorMessage: j['errorMessage'],
       );
+}
+
+/// KAN-63: respons van `GET /api/podcast-source/by-rss-item/{rssItemId}`.
+/// Wordt door [RssPodcastDetailScreen] gefetcht bij openen om te bepalen
+/// of de translate-knop "Vertaal & genereer" of "Bekijk vertaling" moet
+/// tonen, en om de kosten-schatting te berekenen.
+class EpisodeLookup {
+  final String episodeGuid;
+  final String episodeTitle;
+  final String episodeStatus;
+  final int transcriptCharCount;
+  final String feedUrl;
+  final String feedName;
+  final String? rssItemId;
+  final String? translatedPodcastId;
+  final String? translatedPodcastStatus;
+  final String? translatedPodcastTitle;
+  final String? translatedPodcastErrorMessage;
+
+  EpisodeLookup({
+    required this.episodeGuid,
+    this.episodeTitle = '',
+    this.episodeStatus = '',
+    this.transcriptCharCount = 0,
+    this.feedUrl = '',
+    this.feedName = '',
+    this.rssItemId,
+    this.translatedPodcastId,
+    this.translatedPodcastStatus,
+    this.translatedPodcastTitle,
+    this.translatedPodcastErrorMessage,
+  });
+
+  factory EpisodeLookup.fromJson(Map<String, dynamic> j) => EpisodeLookup(
+        episodeGuid: j['episodeGuid'] ?? '',
+        episodeTitle: j['episodeTitle'] ?? '',
+        episodeStatus: j['episodeStatus'] ?? '',
+        transcriptCharCount: j['transcriptCharCount'] ?? 0,
+        feedUrl: j['feedUrl'] ?? '',
+        feedName: j['feedName'] ?? '',
+        rssItemId: j['rssItemId'],
+        translatedPodcastId: j['translatedPodcastId'],
+        translatedPodcastStatus: j['translatedPodcastStatus'],
+        translatedPodcastTitle: j['translatedPodcastTitle'],
+        translatedPodcastErrorMessage: j['translatedPodcastErrorMessage'],
+      );
+
+  /// True als er nog geen translate-poging gedaan is.
+  bool get hasNoTranslation => translatedPodcastId == null;
+
+  /// True wanneer een eerdere translate-poging op FAILED is geëindigd.
+  bool get translationFailed => translatedPodcastStatus == 'FAILED';
+
+  /// True wanneer de vertaling klaar is en de "Bekijk vertaling"-knop
+  /// naar de podcast-detail-screen mag navigeren.
+  bool get translationDone => translatedPodcastStatus == 'DONE';
+
+  /// True wanneer de vertaling op de achtergrond loopt.
+  bool get translationInProgress => translatedPodcastStatus != null &&
+      const ['PENDING', 'TRANSLATING', 'TTS_GENERATING'].contains(translatedPodcastStatus);
 }

@@ -6,6 +6,7 @@ import '../api/api_client.dart';
 import '../models/models.dart';
 import '../providers/auth_provider.dart';
 import '../providers/data_providers.dart';
+import 'podcast_detail_screen.dart';
 
 /// KAN-62: detail-scherm voor RSS podcast-afleveringen (mediaType=PODCAST).
 ///
@@ -139,6 +140,39 @@ class _PodcastDetailBody extends ConsumerStatefulWidget {
 
 class _PodcastDetailBodyState extends ConsumerState<_PodcastDetailBody> {
   Future<String?>? _transcriptFuture;
+  EpisodeLookup? _lookup;
+  bool _lookupLoading = false;
+  bool _translating = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchLookup();
+  }
+
+  @override
+  void didUpdateWidget(covariant _PodcastDetailBody oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.item.id != widget.item.id) {
+      _lookup = null;
+      _transcriptFuture = null;
+      _fetchLookup();
+    }
+  }
+
+  Future<void> _fetchLookup() async {
+    if (_lookupLoading) return;
+    setState(() => _lookupLoading = true);
+    try {
+      final lookup =
+          await ref.read(podcastProvider.notifier).lookupEpisode(widget.item.id);
+      if (mounted) setState(() => _lookup = lookup);
+    } catch (_) {
+      // Niet-blokkerend: zonder lookup verbergen we gewoon de translate-knop.
+    } finally {
+      if (mounted) setState(() => _lookupLoading = false);
+    }
+  }
 
   Future<String?> _fetchTranscript() async {
     try {
@@ -158,6 +192,114 @@ class _PodcastDetailBodyState extends ConsumerState<_PodcastDetailBody> {
 
   void _ensureTranscriptStarted() {
     _transcriptFuture ??= _fetchTranscript();
+  }
+
+  /// KAN-63: client-side cost-schatting voor de translate-popup.
+  ///
+  /// Aannames (story-tarieven):
+  ///   - Vertaling gpt-4o-mini: $0.0005 / 1k input tokens,
+  ///     $0.002 / 1k output tokens.
+  ///   - TTS tts-1: $15 / 1M chars.
+  ///   - Token ≈ 4 chars (OpenAI vuistregel).
+  ///   - Output-tokens ≈ input-tokens (NL is ~gelijk in lengte aan EN).
+  ///   - TTS-input = output-chars ≈ input-chars (zelfde aanname).
+  ({double translate, double tts, double total}) _estimateCost(int chars) {
+    final tokens = chars / 4.0;
+    final translateCost = (tokens / 1000.0) * 0.0005 + (tokens / 1000.0) * 0.002;
+    final ttsCost = (chars / 1000000.0) * 15.0;
+    return (
+      translate: translateCost,
+      tts: ttsCost,
+      total: translateCost + ttsCost,
+    );
+  }
+
+  Future<void> _openTranslateDialog() async {
+    final lookup = _lookup;
+    if (lookup == null) return;
+    final cost = _estimateCost(lookup.transcriptCharCount);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('🇳🇱 Vertaal & genereer Nederlandse podcast'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Bron: ${lookup.feedName}'),
+            const SizedBox(height: 4),
+            Text(
+              'Transcript: ${lookup.transcriptCharCount} tekens',
+              style: Theme.of(ctx).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            const Text('Geschatte kosten:'),
+            const SizedBox(height: 4),
+            Text('• Vertaling (gpt-4o-mini): \$${cost.translate.toStringAsFixed(2)}'),
+            Text('• TTS (tts-1): \$${cost.tts.toStringAsFixed(2)}'),
+            const Divider(height: 16),
+            Text(
+              'Totaal: \$${cost.total.toStringAsFixed(2)}',
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'De vertaling draait op de achtergrond en duurt enkele minuten.',
+              style: Theme.of(ctx).textTheme.bodySmall,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Annuleren'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Starten'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    if (!mounted) return;
+    setState(() => _translating = true);
+    try {
+      final podcast = await ref
+          .read(podcastProvider.notifier)
+          .startTranslation(lookup.episodeGuid);
+      if (!mounted) return;
+      // Refresh lookup zodat de knop direct "Bekijk vertaling" toont.
+      await _fetchLookup();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Vertaling gestart — ${podcast.title}'),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      // De backend gooit 409 wanneer het transcript nog niet klaar is.
+      String message = 'Vertaling kon niet starten';
+      if (e.statusCode == 409) {
+        message = 'Transcript is nog niet klaar voor vertaling';
+      }
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Fout: $e')));
+    } finally {
+      if (mounted) setState(() => _translating = false);
+    }
+  }
+
+  void _openExistingTranslation(String podcastId) {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => PodcastDetailScreen(podcastId: podcastId)),
+    );
   }
 
   @override
@@ -199,6 +341,14 @@ class _PodcastDetailBodyState extends ConsumerState<_PodcastDetailBody> {
             future: () => _transcriptFuture,
           ),
           const SizedBox(height: 24),
+          _TranslateSection(
+            lookup: _lookup,
+            loading: _lookupLoading,
+            translating: _translating,
+            onTranslate: _openTranslateDialog,
+            onOpenExisting: _openExistingTranslation,
+          ),
+          const SizedBox(height: 16),
           if (it.url.isNotEmpty)
             FilledButton.icon(
               onPressed: () =>
@@ -441,5 +591,129 @@ class _TranscriptSectionState extends State<_TranscriptSection> {
         ],
       ),
     );
+  }
+}
+
+/// KAN-63: knop "🇳🇱 Vertaal & genereer Nederlandse podcast" of, indien
+/// er al een vertaling bestaat, "Bekijk vertaling". Alleen actief als
+/// het Engelse transcript klaar is op de bron-aflevering (lookup-call
+/// returnt 404 voordat de transcript-fase klaar is).
+class _TranslateSection extends StatelessWidget {
+  final EpisodeLookup? lookup;
+  final bool loading;
+  final bool translating;
+  final VoidCallback onTranslate;
+  final void Function(String podcastId) onOpenExisting;
+
+  const _TranslateSection({
+    required this.lookup,
+    required this.loading,
+    required this.translating,
+    required this.onTranslate,
+    required this.onOpenExisting,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (loading && lookup == null) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+            SizedBox(width: 8),
+            Text('Bron-aflevering laden…'),
+          ],
+        ),
+      );
+    }
+    final lk = lookup;
+    if (lk == null) return const SizedBox.shrink();
+
+    // Transcript moet klaar zijn — anders mag de knop niet actief zijn
+    // (story AC #1).
+    final transcriptReady =
+        lk.episodeStatus == 'DONE' && lk.transcriptCharCount > 0;
+
+    if (lk.translationDone && lk.translatedPodcastId != null) {
+      return FilledButton.icon(
+        onPressed: () => onOpenExisting(lk.translatedPodcastId!),
+        icon: const Icon(Icons.translate),
+        label: const Text('🇳🇱 Bekijk vertaling'),
+      );
+    }
+    if (lk.translationInProgress && lk.translatedPodcastId != null) {
+      // Lopende vertaling: zelfde "Bekijk vertaling"-knop maar met
+      // sub-label voor de huidige fase, en de gebruiker landt op de
+      // podcast-detail-pagina waar de polling al draait.
+      final phase = _phaseLabel(lk.translatedPodcastStatus);
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          FilledButton.icon(
+            onPressed: () => onOpenExisting(lk.translatedPodcastId!),
+            icon: const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            label: Text('🇳🇱 Bekijk vertaling — $phase'),
+          ),
+        ],
+      );
+    }
+
+    if (!transcriptReady) {
+      // Transcribe-fase is nog niet klaar; knop hard uit zodat de
+      // gebruiker geen 409 oploopt.
+      return Tooltip(
+        message: 'Vertalen kan pas wanneer het Engelse transcript klaar is.',
+        child: FilledButton.icon(
+          onPressed: null,
+          icon: const Icon(Icons.translate),
+          label: const Text('🇳🇱 Vertaal & genereer Nederlandse podcast'),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        FilledButton.icon(
+          onPressed: translating ? null : onTranslate,
+          icon: translating
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.translate),
+          label: const Text('🇳🇱 Vertaal & genereer Nederlandse podcast'),
+        ),
+        if (lk.translationFailed && lk.translatedPodcastErrorMessage != null) ...[
+          const SizedBox(height: 6),
+          Text(
+            'Vorige poging mislukte: ${lk.translatedPodcastErrorMessage}',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.error,
+                ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  String _phaseLabel(String? status) {
+    switch (status) {
+      case 'PENDING':
+        return 'in wachtrij…';
+      case 'TRANSLATING':
+        return 'vertalen…';
+      case 'TTS_GENERATING':
+        return 'audio genereren…';
+      default:
+        return 'bezig…';
+    }
   }
 }

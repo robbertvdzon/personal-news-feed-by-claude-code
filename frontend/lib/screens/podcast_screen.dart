@@ -17,7 +17,9 @@ bool _isInProgress(String status) =>
     status == 'PENDING' ||
     status == 'DETERMINING_TOPICS' ||
     status == 'GENERATING_SCRIPT' ||
-    status == 'GENERATING_AUDIO';
+    status == 'GENERATING_AUDIO' ||
+    status == 'TRANSLATING' ||
+    status == 'TTS_GENERATING';
 
 String _statusLabel(String status) {
   switch (status) {
@@ -28,6 +30,10 @@ String _statusLabel(String status) {
     case 'GENERATING_SCRIPT':
       return 'Script schrijven…';
     case 'GENERATING_AUDIO':
+      return 'Audio genereren…';
+    case 'TRANSLATING':
+      return 'Vertalen…';
+    case 'TTS_GENERATING':
       return 'Audio genereren…';
     case 'DONE':
       return 'Klaar';
@@ -108,7 +114,24 @@ class _PodcastScreenState extends ConsumerState<PodcastScreen> {
                               color: _isInProgress(p.status) ? Theme.of(context).colorScheme.primary : null,
                               fontWeight: _isInProgress(p.status) ? FontWeight.bold : null,
                             )),
-                            Text('Duur: ${p.durationMinutes}min · TTS: ${p.ttsProvider}'),
+                            if (p.isTranslation)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 2),
+                                child: Row(children: [
+                                  const Icon(Icons.translate, size: 14),
+                                  const SizedBox(width: 4),
+                                  Expanded(
+                                    child: Text(
+                                      'Vertaald van ${p.translatedFromFeedName ?? "RSS podcast"}',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: Theme.of(context).textTheme.bodySmall,
+                                    ),
+                                  ),
+                                ]),
+                              )
+                            else
+                              Text('Duur: ${p.durationMinutes}min · TTS: ${p.ttsProvider}'),
                           ]),
                           onTap: () => Navigator.of(context).push(
                             MaterialPageRoute(builder: (_) => PodcastDetailScreen(podcastId: p.id)),
