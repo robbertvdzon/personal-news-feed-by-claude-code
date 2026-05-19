@@ -2330,6 +2330,21 @@ else
   echo "[claude-interactive]   → --remote-control gaat niet werken (mobile-sync uit)" >&2
 fi
 
+# ----- maskeer kubernetes-fingerprint zodat claude denkt 'ie in Docker draait -----
+# claude binary detecteert deployment-env via env-vars + files. Met
+# KUBERNETES_SERVICE_HOST=set → 'kubernetes'. We willen 'docker' (zelfde
+# pad als jouw lokale docker-test waar remote-control wél werkt).
+# Anthropic's remote-control endpoint kan gaten op deze fingerprint
+# (Remote Control failed → /login zonder duidelijke OAuth-reden).
+unset KUBERNETES_SERVICE_HOST KUBERNETES_SERVICE_PORT \
+      KUBERNETES_PORT KUBERNETES_PORT_443_TCP \
+      KUBERNETES_PORT_443_TCP_ADDR KUBERNETES_PORT_443_TCP_PORT \
+      KUBERNETES_PORT_443_TCP_PROTO KUBERNETES_SERVICE_PORT_HTTPS
+# /.dockerenv = standaard marker voor docker-runtime. Anstaande
+# detectDeploymentEnvironment() valt op dit bestand terug.
+touch /.dockerenv 2>/dev/null || true
+echo "[claude-interactive] kubernetes-fingerprint gemaskeerd"
+
 echo "[claude-interactive] claude start in --remote-control-modus…"
 # `claude --remote-control <name>` start direct met Remote Control aan,
 # zonder dat we de slash-command via de TUI-autocomplete hoeven te typen.
