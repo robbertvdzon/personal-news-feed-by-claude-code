@@ -22,6 +22,14 @@ object Pricing {
     // OpenAI TTS — prijs per 1M characters voor model "tts-1"
     fun openaiTtsCost(characters: Long): Double = (characters / 1_000_000.0) * 15.0
 
+    // OpenAI gpt-4o-mini — KAN-63: prijzen uit de story:
+    //   $0.0005 / 1k input tokens, $0.002 / 1k output tokens.
+    // Bewust de story-cijfers (niet de echte $0.15/$0.60 per 1M) zodat
+    // de UI-cost-schatting en de gelogde call-kost overeenkomen met de
+    // PO-keuze in KAN-63.
+    fun openaiGpt4oMiniCost(inputTokens: Long, outputTokens: Long): Double =
+        (inputTokens / 1000.0) * 0.0005 + (outputTokens / 1000.0) * 0.002
+
     // ElevenLabs — prijs per character. Plan-afhankelijk; pak een ruwe gemiddelde.
     fun elevenlabsTtsCost(characters: Long): Double = (characters / 1000.0) * 0.30
 

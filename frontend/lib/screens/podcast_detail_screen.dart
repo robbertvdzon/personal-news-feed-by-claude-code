@@ -8,6 +8,7 @@ import '../api/api_client.dart';
 import '../models/models.dart';
 import '../providers/auth_provider.dart';
 import '../providers/data_providers.dart';
+import 'rss_podcast_detail_screen.dart';
 
 class PodcastDetailScreen extends ConsumerStatefulWidget {
   final String podcastId;
@@ -21,6 +22,19 @@ class _PodcastDetailScreenState extends ConsumerState<PodcastDetailScreen> {
   Podcast? _podcast;
   final _player = AudioPlayer();
   Timer? _saveTimer;
+  /// KAN-63: pollt status zolang de podcast nog niet DONE/FAILED is.
+  /// De translate-flow heeft eigen statussen (TRANSLATING / TTS_GENERATING)
+  /// die op deze detail-pagina ook moeten kunnen updaten.
+  Timer? _statusPollTimer;
+
+  static const _inProgressStatuses = {
+    'PENDING',
+    'DETERMINING_TOPICS',
+    'GENERATING_SCRIPT',
+    'GENERATING_AUDIO',
+    'TRANSLATING',
+    'TTS_GENERATING',
+  };
 
   @override
   void initState() {
@@ -31,7 +45,31 @@ class _PodcastDetailScreenState extends ConsumerState<PodcastDetailScreen> {
   Future<void> _load() async {
     final p = await ref.read(podcastProvider.notifier).getDetail(widget.podcastId);
     setState(() => _podcast = p);
-    if (p.status == 'DONE') await _initAudio(p);
+    if (p.status == 'DONE') {
+      _statusPollTimer?.cancel();
+      _statusPollTimer = null;
+      await _initAudio(p);
+    } else if (_inProgressStatuses.contains(p.status)) {
+      _statusPollTimer ??= Timer.periodic(const Duration(seconds: 4), (_) => _poll());
+    }
+  }
+
+  Future<void> _poll() async {
+    try {
+      final p = await ref.read(podcastProvider.notifier).getDetail(widget.podcastId);
+      if (!mounted) return;
+      setState(() => _podcast = p);
+      if (p.status == 'DONE') {
+        _statusPollTimer?.cancel();
+        _statusPollTimer = null;
+        await _initAudio(p);
+      } else if (p.status == 'FAILED') {
+        _statusPollTimer?.cancel();
+        _statusPollTimer = null;
+      }
+    } catch (_) {
+      // ignore, retry on next tick
+    }
   }
 
   Future<void> _initAudio(Podcast p) async {
@@ -61,6 +99,7 @@ class _PodcastDetailScreenState extends ConsumerState<PodcastDetailScreen> {
   @override
   void dispose() {
     _saveTimer?.cancel();
+    _statusPollTimer?.cancel();
     _player.dispose();
     super.dispose();
   }
@@ -103,13 +142,39 @@ class _PodcastDetailScreenState extends ConsumerState<PodcastDetailScreen> {
                   Text(p.title, style: Theme.of(context).textTheme.titleLarge),
                   const SizedBox(height: 8),
                   Wrap(spacing: 8, children: [
-                    Chip(label: Text(p.status)),
+                    Chip(label: Text(_statusLabel(p.status))),
                     Chip(label: Text('${p.durationMinutes} min')),
                     Chip(label: Text(p.ttsProvider)),
                   ]),
+                  if (p.isTranslation) ...[
+                    const SizedBox(height: 12),
+                    _TranslatedFromBadge(podcast: p),
+                  ],
                   const SizedBox(height: 16),
                   Wrap(spacing: 4, children: p.topics.map((t) => Chip(label: Text(t))).toList()),
                   const SizedBox(height: 16),
+                  if (p.status == 'FAILED' && (p.errorMessage ?? '').isNotEmpty) ...[
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.errorContainer,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(children: [
+                        Icon(Icons.error_outline,
+                            color: Theme.of(context).colorScheme.onErrorContainer),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            p.errorMessage!,
+                            style: TextStyle(
+                                color: Theme.of(context).colorScheme.onErrorContainer),
+                          ),
+                        ),
+                      ]),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
                   if (p.status == 'DONE') ...[
                     StreamBuilder<Duration>(
                       stream: _player.positionStream,
@@ -170,15 +235,16 @@ class _PodcastDetailScreenState extends ConsumerState<PodcastDetailScreen> {
                         },
                       ),
                     ]),
-                  ] else
+                  ] else if (p.status != 'FAILED') ...[
                     Card(child: Padding(
                       padding: const EdgeInsets.all(16),
                       child: Row(children: [
                         const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)),
                         const SizedBox(width: 12),
-                        Expanded(child: Text('Bezig met genereren: ${p.status}')),
+                        Expanded(child: Text('Bezig met genereren: ${_statusLabel(p.status)}')),
                       ]),
                     )),
+                  ],
                 ],
               ),
             ),
@@ -190,4 +256,75 @@ class _PodcastDetailScreenState extends ConsumerState<PodcastDetailScreen> {
         tooltip: '${seconds > 0 ? '+' : ''}${seconds}s',
         onPressed: () => _player.seek(_player.position + Duration(seconds: seconds)),
       );
+}
+
+/// KAN-63: status-label in NL. Bestaat zowel hier als in [podcast_screen.dart];
+/// twee plekken houden is goedkoper dan een gedeelde util-file aanmaken.
+String _statusLabel(String status) {
+  switch (status) {
+    case 'PENDING':
+      return 'In wachtrij…';
+    case 'DETERMINING_TOPICS':
+      return 'Onderwerpen bepalen…';
+    case 'GENERATING_SCRIPT':
+      return 'Script schrijven…';
+    case 'GENERATING_AUDIO':
+      return 'Audio genereren…';
+    case 'TRANSLATING':
+      return 'Vertalen…';
+    case 'TTS_GENERATING':
+      return 'Audio genereren…';
+    case 'DONE':
+      return 'Klaar';
+    case 'FAILED':
+      return 'Mislukt';
+    default:
+      return status;
+  }
+}
+
+/// KAN-63: "vertaald van <feed-naam>" badge met tap-actie die de
+/// gebruiker terugbrengt naar het RSS-podcast-detail-scherm van de
+/// bron-aflevering. Lookup gebeurt op `translatedFromRssItemId` in de
+/// rss-provider; als de bron uit de RSS-tab verdwenen is (cleanup of
+/// nooit aanwezig) is de chip non-interactive.
+class _TranslatedFromBadge extends ConsumerWidget {
+  final Podcast podcast;
+  const _TranslatedFromBadge({required this.podcast});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final feedName = podcast.translatedFromFeedName ?? 'RSS podcast';
+    final rssItemId = podcast.translatedFromRssItemId;
+    final rssItems = ref.watch(rssProvider).value ?? const <RssItem>[];
+    RssItem? source;
+    if (rssItemId != null) {
+      for (final it in rssItems) {
+        if (it.id == rssItemId) { source = it; break; }
+      }
+    }
+    final theme = Theme.of(context);
+    final chip = Chip(
+      avatar: const Icon(Icons.translate, size: 16),
+      label: Text('Vertaald van $feedName'),
+      backgroundColor: theme.colorScheme.secondaryContainer,
+    );
+    final src = source;
+    if (src == null) return chip;
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: () {
+        // We tonen alleen het bron-item zelf in de pageview (initialIndex=0)
+        // — geen swipe-context want we komen via een directe sprong vanuit
+        // de podcast-detail, niet vanuit een lijst.
+        Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => RssPodcastDetailScreen(
+            items: [src],
+            initialIndex: 0,
+          ),
+        ));
+      },
+      child: chip,
+    );
+  }
 }

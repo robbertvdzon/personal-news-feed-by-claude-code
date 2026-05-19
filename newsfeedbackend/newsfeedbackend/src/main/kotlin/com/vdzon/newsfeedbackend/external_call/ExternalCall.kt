@@ -65,6 +65,10 @@ data class ExternalCall(
         const val ACTION_PODCAST_TRANSCRIBE = "podcast_transcribe"
         const val ACTION_PODCAST_EPISODE_SUMMARIZE = "podcast_episode_summarize"
 
+        // KAN-63: vertaling van een RSS-podcast-aflevering naar een NL audio-podcast.
+        const val ACTION_PODCAST_TRANSLATE = "podcast_translate"
+        const val ACTION_PODCAST_TRANSLATE_TTS = "podcast_translate_tts"
+
         // UnitType-constants
         const val UNIT_TOKENS = "tokens"
         const val UNIT_CHARACTERS = "characters"
