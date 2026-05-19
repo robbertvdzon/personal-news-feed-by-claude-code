@@ -168,7 +168,14 @@ Het scherm gebruikt dezelfde PageView-navigatie en AppBar-acties (👍/👎/⭐/
 2. **Key takeaways**: bullet-list van `keyTakeaways` (5-10 regels). Sectie wordt verborgen wanneer de lijst leeg is.
 3. **Ruw transcript**: `ExpansionTile`, default ingeklapt. Bij eerste uitklap fetcht het scherm `GET /api/rss/{id}/transcript` (lazy — feed-listing transporteert geen 50-90k chars per podcast). Voor `summarySource='show_notes'`-items toont 'ie geen knop maar een placeholder *"Transcript wordt nog verwerkt"* (AC #5).
 
-Onderaan staat een **"Origineel afspelen"**-knop die `url` (de MP3) in een externe player opent.
+Onderaan staat een **"🇳🇱 Vertaal & genereer Nederlandse podcast"**-knop (KAN-63) en een **"Origineel afspelen"**-knop die `url` (de MP3) in een externe player opent.
+
+**Translate-knop (KAN-63):** bij openen van het scherm fetcht de body `GET /api/podcast-source/by-rss-item/{rssItemId}` om de bron-aflevering-guid, transcript-lengte en (eventueel) een bestaande vertaling op te halen. De knop heeft drie staten:
+- **"🇳🇱 Vertaal & genereer Nederlandse podcast"** (default) — actief zodra het Engelse transcript klaar is (`episodeStatus='DONE'`). Tik opent een dialog met de geschatte kosten (vertaling + TTS in $, 2 decimalen) op basis van de transcript-lengte. Bij "Starten": `POST /api/podcast-source/{episodeGuid}/translate`. HTTP 202 → nieuwe podcast verschijnt bovenaan de Podcast-tab; HTTP 409 → snackbar "Transcript is nog niet klaar voor vertaling".
+- **"🇳🇱 Bekijk vertaling"** — zodra er een DONE-vertaling bestaat. Tik navigeert naar `PodcastDetailScreen` van die podcast.
+- **"🇳🇱 Bekijk vertaling — vertalen… / audio genereren…"** — wanneer de vertaling op de achtergrond loopt (status `PENDING` / `TRANSLATING` / `TTS_GENERATING`). De detail-pagina pollt zelf elke 4 seconden tot de status `DONE`/`FAILED` is.
+
+**Client-side cost-schatting** (geen apart API-endpoint, refiner-keuze): `tokens ≈ transcriptChars / 4`; `translateCost = (tokens/1000) × (0.0005 + 0.002)`; `ttsCost = transcriptChars / 1_000_000 × 15`. Dit is een vuistregel — de echte kosten worden achteraf via `external_calls` per call gelogd.
 
 ### Toolbar-acties
 - **Vernieuwen (van bron) (`cloud_download`):** roept POST `/api/rss/refresh` aan, daarna periodiek (elke 4 seconden) opnieuw GET `/api/rss` tot verversing klaar is.
@@ -212,7 +219,9 @@ Toont gegenereerde podcasts: `GET /api/podcasts`.
 ### PodcastCard (in de lijst)
 Toont: podcastnummer, titel, datum, duur, status, kosten, TTS-provider.
 
-**Visuele progress-indicatie:** zolang de podcast nog niet `DONE` of `FAILED` is, vervangt een `CircularProgressIndicator` het podcasts-icoon, en wordt het Nederlandse statuslabel ("In wachtrij…", "Onderwerpen bepalen…", "Script schrijven…", "Audio genereren…") in primaire kleur en bold getoond. Bij `FAILED` toont een rood error-icon en label "Mislukt".
+**Visuele progress-indicatie:** zolang de podcast nog niet `DONE` of `FAILED` is, vervangt een `CircularProgressIndicator` het podcasts-icoon, en wordt het Nederlandse statuslabel ("In wachtrij…", "Onderwerpen bepalen…", "Script schrijven…", "Audio genereren…", "Vertalen…") in primaire kleur en bold getoond. Bij `FAILED` toont een rood error-icon en label "Mislukt".
+
+**KAN-63 — vertaal-badge:** voor podcasts met `translatedFromEpisodeGuid != null` toont de subtitle in plaats van "Duur: Xmin · TTS: Y" de chip-tekst *"Vertaald van \<feed-naam\>"* (een `Icons.translate` + 1-regel waarde uit `translatedFromFeedName`). Op de detail-pagina komt deze info terug als een aparte `Chip` die navigeert naar het bron-RSS-podcast-detail-scherm (lookup op `translatedFromRssItemId` in de rssProvider; niet-tappable als de bron-aflevering inmiddels uit de RSS-tab is opgeruimd).
 
 **Acties:**
 - **Play/pause-icoon op kaart:** laadt audio en speelt af / pauzeert (zie audiospeler)
@@ -229,6 +238,8 @@ Toont: podcastnummer, titel, datum, duur, status, kosten, TTS-provider.
 
 ### PodcastDetailScreen
 Toont: titel, periode, duur, kosten, TTS-provider, onderwerp-chips, volledig audiospeler-paneel.
+
+**KAN-63 — vertaling-modus:** wanneer `podcast.isTranslation` (d.w.z. `translatedFromEpisodeGuid != null`) staat er onder de status-chips een chip "Vertaald van \<feed-naam\>" met tap-actie die terugnavigeert naar de bron `RssPodcastDetailScreen` (lookup via rssProvider op `translatedFromRssItemId`). Bij status `FAILED` toont het scherm bovenaan een rode foutbox met `errorMessage`. De detail-pagina pollt elke 4 seconden zolang de status nog `PENDING` / `TRANSLATING` / `TTS_GENERATING` is en switcht automatisch naar de audiospeler zodra `DONE`.
 
 **Audiospeler:**
 - Play/pause-knop

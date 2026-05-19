@@ -283,6 +283,32 @@ Wordt asynchroon gestart bij `POST /api/podcasts`.
 
 ---
 
+### 6.5b Podcast-aflevering vertalen (KAN-63)
+
+Naast de zelf-gegenereerde DevTalk-podcasts kan een gebruiker een Engelse RSS-podcast-aflevering ([6.4]) door de pipeline halen om er een Nederlandse audio-podcast van te maken. Een rij in `podcasts` met de nieuwe velden `translated_from_episode_guid`, `translated_from_feed_url`, `translated_from_feed_name`, `translated_from_episode_title`, `translated_from_rss_item_id` en `error_message` (V10-migratie).
+
+**Statusverloop (translate-flow):** `PENDING` → `TRANSLATING` → `TTS_GENERATING` → `DONE` / `FAILED`. Twee extra waarden op de bestaande `PodcastStatus`-enum; geen DDL-constraint omdat het status-veld een `TEXT`-kolom is.
+
+**Trigger:** `POST /api/podcast-source/{episodeGuid}/translate`. Pre-condities: de bron-aflevering bestaat voor deze user én staat op `PodcastEpisodeStatus.DONE` (transcript klaar). Bij conflict → HTTP 409 met Nederlandse foutmelding.
+
+**Idempotency:** als er al een vertaling bestaat voor deze (`username`, `translated_from_episode_guid`) met status `PENDING`/`TRANSLATING`/`TTS_GENERATING`/`DONE`, returnt de API HTTP 200 met de bestaande `podcastId`. Alleen na een eerdere `FAILED` start de API opnieuw (HTTP 202).
+
+**Lookup-helper:** `GET /api/podcast-source/by-rss-item/{rssItemId}` returnt episode-metadata + transcript-char-count + eventueel bestaande vertaling. Wordt door de Flutter-app gebruikt om te bepalen of de knop "Vertaal & genereer" of "Bekijk vertaling" toont, en om de cost-popup te vullen.
+
+**Pipeline ([PodcastTranslator] in `podcast/domain`, dispatch via Spring `@Async`):**
+1. **TRANSLATING** — één `gpt-4o-mini`-call (`/v1/chat/completions`) met als input het volledige Whisper-transcript van de bron-aflevering. System-prompt: vertaal Engels → Nederlands, houd Engelse vaktermen letterlijk (RLHF, transformer, embeddings, prompt-engineering, MoE, fine-tuning, RAG, etc.), kort zelf in tot maximaal 9000 Nederlandse woorden (≈ 1 uur audio bij 150 wpm) als de letterlijke vertaling langer zou worden, schrap filler ("uh", "you know") maar behoud inhoud + argumentatielijn, geen markdown / spreker-attributies, alleen platte zinnen.
+2. **TTS_GENERATING** — splits het vertaalde script op zin-grenzen in chunks van ≤4000 tekens (OpenAI tts-1-limiet = 4096). Per chunk: één `tts-1`-call met vaste stem `nova` en speed 1.0. MP3-snippets worden via ffmpeg's concat-demuxer (`-f concat -safe 0 -c copy`) samengevoegd tot één doorlopende MP3 in een tempdir die na afronding wordt opgeruimd ([Mp3Concatenator]).
+3. Opslag: MP3-bytes in `podcasts.audio_bytes` (zelfde route als de DevTalk-podcasts). Titel: `"${origineleTitel} (NL)"`. `durationSeconds` wordt geschat als `aantalWoorden × 60 / 150`.
+4. **DONE** / **FAILED** — bij elke fout (translate-call faalt, TTS-chunk faalt, ffmpeg-concat faalt) wordt de podcast op `FAILED` gezet met een korte `error_message` die de UI mag tonen.
+
+**External call-logging:** elke OpenAI-call wordt gelogd via `ExternalCallLogger`:
+- `provider=openai`, `action=podcast_translate`, `unitType=tokens`, kosten op basis van `Pricing.openaiGpt4oMiniCost` ($0.0005 / 1k input, $0.002 / 1k output — story-tarieven).
+- `provider=openai`, `action=podcast_translate_tts`, `unitType=characters`, kosten op basis van `Pricing.openaiTtsCost` ($15 / 1M chars).
+
+**UI-gedrag:** de "Vertaal & genereer"-knop staat op het RSS-podcast-detail-scherm. Vóór start verschijnt een dialog met de geschatte kosten (vertaling + TTS in $, 2 decimalen) die de Flutter-app client-side berekent uit de transcript-lengte. Zodra een vertaling bestaat (in progress of DONE) verandert de knop in "Bekijk vertaling" die naar het bestaande podcast-detail-scherm navigeert. In de Podcast-tab krijgt iedere vertaal-podcast een chip "Vertaald van \<feed-naam\>" met een tap-actie die teruggaat naar de bron-aflevering.
+
+---
+
 ### 6.6 Opstartgedrag
 
 Bij serverstart worden alle verzoeken met status `PENDING` of `PROCESSING` gereset naar `FAILED` (herstel na herstart).

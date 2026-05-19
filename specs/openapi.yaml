@@ -844,6 +844,74 @@ paths:
         '404':
           description: Audio nog niet beschikbaar
 
+  # ── Podcast-source translate (KAN-63) ────────────────────────────────────────
+
+  /api/podcast-source/by-rss-item/{rssItemId}:
+    get:
+      tags: [Podcasts]
+      operationId: lookupEpisodeByRssItem
+      summary: Lookup episode-metadata voor de translate-knop
+      description: |
+        KAN-63: wordt door het RSS-podcast-detail-scherm aangeroepen bij
+        openen om te bepalen of de knop "Vertaal & genereer" of
+        "Bekijk vertaling" moet tonen, en om de transcript-lengte voor
+        de client-side cost-schatting op te halen.
+      parameters:
+        - name: rssItemId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Episode-metadata + eventueel bestaande vertaling
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EpisodeLookup'
+        '404':
+          description: Geen podcast-aflevering gevonden voor dit rss-item
+
+  /api/podcast-source/{episodeGuid}/translate:
+    post:
+      tags: [Podcasts]
+      operationId: translatePodcastEpisode
+      summary: Start een NL-vertaling van een RSS-podcast-aflevering
+      description: |
+        KAN-63: start de async vertaal-pipeline voor één aflevering.
+        Statusverloop: PENDING → TRANSLATING (gpt-4o-mini) →
+        TTS_GENERATING (tts-1, chunked + ffmpeg-concat) → DONE/FAILED.
+
+        Idempotent: bestaat er al een (DONE of in-progress) vertaling,
+        dan returnt de API HTTP 200 met de bestaande podcast-id i.p.v.
+        een nieuwe job te starten. Alleen na een eerdere FAILED-poging
+        wordt opnieuw begonnen (HTTP 202).
+      parameters:
+        - name: episodeGuid
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '202':
+          description: Nieuwe vertaal-job gestart
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TranslationStart'
+        '200':
+          description: Bestaande vertaling — hergebruikt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TranslationStart'
+        '404':
+          description: Aflevering niet gevonden
+        '409':
+          description: |
+            State-conflict: aflevering heeft (nog) geen transcript, of
+            de episode-status is niet DONE. Body bevat `{ "error": "…" }`.
+
 # ── Components ─────────────────────────────────────────────────────────────────
 
 components:
@@ -1350,10 +1418,49 @@ components:
           type: integer
           nullable: true
           description: Generatieduur in seconden
+        translatedFromEpisodeGuid:
+          type: string
+          nullable: true
+          description: |
+            KAN-63: bij vertalingen (POST /api/podcast-source/{guid}/translate)
+            de guid van de bron-aflevering in `podcast_episodes`. Null voor
+            de zelf-gegenereerde DevTalk-podcasts.
+        translatedFromFeedUrl:
+          type: string
+          nullable: true
+        translatedFromFeedName:
+          type: string
+          nullable: true
+          description: Display-naam voor de "vertaald van X"-badge.
+        translatedFromEpisodeTitle:
+          type: string
+          nullable: true
+        translatedFromRssItemId:
+          type: string
+          nullable: true
+          description: rss_items.id van de bron-aflevering — voor de tap-actie op de badge.
+        errorMessage:
+          type: string
+          nullable: true
+          description: Bij status=FAILED — korte foutomschrijving voor de UI.
 
     PodcastStatus:
       type: string
-      enum: [PENDING, DETERMINING_TOPICS, GENERATING_SCRIPT, GENERATING_AUDIO, DONE, FAILED]
+      description: |
+        Status-flow afhankelijk van het type podcast:
+          • Zelf-gegenereerde DevTalk-podcasts (POST /api/podcasts):
+            PENDING → DETERMINING_TOPICS → GENERATING_SCRIPT → GENERATING_AUDIO → DONE/FAILED
+          • Vertalingen van RSS-podcast-afleveringen (POST /api/podcast-source/{guid}/translate):
+            PENDING → TRANSLATING → TTS_GENERATING → DONE/FAILED
+      enum:
+        - PENDING
+        - DETERMINING_TOPICS
+        - GENERATING_SCRIPT
+        - GENERATING_AUDIO
+        - TRANSLATING
+        - TTS_GENERATING
+        - DONE
+        - FAILED
 
     TtsProvider:
       type: string
@@ -1361,6 +1468,59 @@ components:
       description: >
         OPENAI: OpenAI TTS-1, stemmen onyx (interviewer) en alloy (gast).
         ELEVENLABS: ElevenLabs eleven_multilingual_v2, configu­reerbare stemmen.
+
+    EpisodeLookup:
+      type: object
+      description: |
+        KAN-63: respons van GET /api/podcast-source/by-rss-item/{rssItemId}.
+        Bevat alles wat de translate-knop op de RSS-podcast-detail-pagina
+        nodig heeft (episode-guid voor de POST, transcript-lengte voor de
+        cost-schatting, eventueel bestaande vertaling).
+      required: [episodeGuid, episodeTitle, episodeStatus, transcriptCharCount, feedUrl, feedName]
+      properties:
+        episodeGuid:
+          type: string
+        episodeTitle:
+          type: string
+        episodeStatus:
+          type: string
+          description: PodcastEpisodeStatus-naam (DONE = transcript klaar).
+        transcriptCharCount:
+          type: integer
+        feedUrl:
+          type: string
+        feedName:
+          type: string
+        rssItemId:
+          type: string
+          nullable: true
+        translatedPodcastId:
+          type: string
+          nullable: true
+        translatedPodcastStatus:
+          type: string
+          nullable: true
+          description: Indien een vertaling bestaat, de PodcastStatus daarvan.
+        translatedPodcastTitle:
+          type: string
+          nullable: true
+        translatedPodcastErrorMessage:
+          type: string
+          nullable: true
+
+    TranslationStart:
+      type: object
+      required: [podcastId, status, created]
+      properties:
+        podcastId:
+          type: string
+        status:
+          $ref: '#/components/schemas/PodcastStatus'
+        created:
+          type: boolean
+          description: |
+            True wanneer er een nieuwe podcast-row is aangemaakt (HTTP 202),
+            false wanneer een bestaande vertaling werd hergebruikt (HTTP 200).
 
     CreatePodcastDto:
       type: object
