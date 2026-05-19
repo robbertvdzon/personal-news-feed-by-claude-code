@@ -53,7 +53,7 @@ images:
   newTag: sha-3b99a23
 - name: ghcr.io/robbertvdzon/dashboard-frontend
   newName: ghcr.io/robbertvdzon/dashboard-frontend
-  newTag: sha-7c43cb3
+  newTag: sha-3f0d811
 - name: ghcr.io/robbertvdzon/jira-poller
   newName: ghcr.io/robbertvdzon/jira-poller
   newTag: sha-7c43cb3
