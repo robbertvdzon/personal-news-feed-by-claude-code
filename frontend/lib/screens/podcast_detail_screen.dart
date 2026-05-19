@@ -309,7 +309,8 @@ class _TranslatedFromBadge extends ConsumerWidget {
       label: Text('Vertaald van $feedName'),
       backgroundColor: theme.colorScheme.secondaryContainer,
     );
-    if (source == null) return chip;
+    final src = source;
+    if (src == null) return chip;
     return InkWell(
       borderRadius: BorderRadius.circular(16),
       onTap: () {
@@ -318,7 +319,7 @@ class _TranslatedFromBadge extends ConsumerWidget {
         // de podcast-detail, niet vanuit een lijst.
         Navigator.of(context).push(MaterialPageRoute(
           builder: (_) => RssPodcastDetailScreen(
-            items: [source],
+            items: [src],
             initialIndex: 0,
           ),
         ));
