@@ -70,7 +70,11 @@ class OpenAiChatHttpClient(
             .uri(URI.create("$baseUrl/v1/chat/completions"))
             .header("Authorization", "Bearer $apiKey")
             .header("Content-Type", "application/json")
-            .timeout(Duration.ofMinutes(5))
+            // 10 min: een volledige podcast-vertaling (KAN-63, ~16k
+            // output-tokens op gpt-4o-mini) zit rond de 5 min en tikte
+            // soms net over de oude 5-min-grens ("request timed out").
+            // Ruime marge; timeout is een bovengrens, geen vaste wachttijd.
+            .timeout(Duration.ofMinutes(10))
             .POST(HttpRequest.BodyPublishers.ofString(body))
             .build()
         return try {
