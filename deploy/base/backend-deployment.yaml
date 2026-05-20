@@ -28,6 +28,15 @@ spec:
             - name: http
               containerPort: 8080
           env:
+            # JVM-heap = 70% van de container-limit (1Gi) i.p.v. de
+            # default 25% (= 256Mi). Zonder dit OOM't de KAN-63 podcast-
+            # vertaal-flow: de TTS-fase buffert per chunk de mp3-response
+            # in heap (HttpResponse.ofByteArray) + houdt alle chunks +
+            # de 60k-char vertaling tegelijk vast. 256Mi heap is daarvoor
+            # te krap (OOM op chunk 3/16). 70% laat ~300Mi over voor
+            # non-heap (metaspace, threads, direct buffers).
+            - name: JAVA_TOOL_OPTIONS
+              value: "-XX:MaxRAMPercentage=70.0"
             # JVM-tijdzone voor @Scheduled crons (en logs). Cron
             # "0 0 6 * * *" hoort op 06:00 lokaal te vuren, niet 06:00 UTC.
             - name: TZ
@@ -81,7 +90,10 @@ spec:
           resources:
             requests:
               cpu: 200m
-              memory: 256Mi
+              # 512Mi request (was 256Mi) zodat de scheduler genoeg
+              # geheugen reserveert voor de 70%-heap + non-heap; anders
+              # risico op cgroup-OOM-kill onder node-druk.
+              memory: 512Mi
             limits:
               cpu: 1000m
               memory: 1Gi
