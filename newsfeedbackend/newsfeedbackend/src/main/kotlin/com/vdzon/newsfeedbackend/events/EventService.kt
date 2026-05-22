@@ -23,6 +23,17 @@ interface EventService {
      * @Async oppakt. De call komt direct terug.
      */
     fun triggerDiscovery(username: String)
+
+    /** KAN-66: de ontdekte video's van één event, nieuwste eerst. */
+    fun listVideos(username: String, eventId: String): List<EventVideo>
+
+    /**
+     * KAN-66: start asynchroon de AI-ontdekking van video's per event voor
+     * deze gebruiker. Aparte job van [triggerDiscovery]: publiceert een
+     * event dat de [com.vdzon.newsfeedbackend.events.domain.EventVideoDiscoveryPipeline]
+     * @Async oppakt. De call komt direct terug.
+     */
+    fun triggerVideoDiscovery(username: String)
 }
 
 /**
@@ -52,6 +63,28 @@ data class Event(
     val category: String = "overig",
     /** Gekoppeld aankondigings-FeedItem (gezet bij eerste ontdekking). */
     val feedItemId: String? = null,
+    val createdAt: Instant = Instant.now(),
+    val updatedAt: Instant = Instant.now()
+)
+
+/**
+ * KAN-66: één online video (keynote/sessie) van een [Event].
+ *
+ * Wekelijks ontdekt met AI + web-search. Dedup-sleutel is de canonieke
+ * [videoUrl] per (gebruiker, event); een tweede ontdekking van dezelfde
+ * video werkt de bestaande rij bij i.p.v. te dupliceren.
+ *
+ * In deze story wordt nog GEEN samenvatting gemaakt (dat is KAN-67) —
+ * alleen de video plus een eventuele Nederlandse beschrijving.
+ */
+data class EventVideo(
+    /** Id van het event waar deze video bij hoort. */
+    val eventId: String,
+    /** Canonieke video-URL — tevens de dedup-sleutel. */
+    val videoUrl: String,
+    val title: String,
+    /** Nederlandse beschrijving van waar de video over gaat. Null wanneer onbekend. */
+    val descriptionNl: String? = null,
     val createdAt: Instant = Instant.now(),
     val updatedAt: Instant = Instant.now()
 )
