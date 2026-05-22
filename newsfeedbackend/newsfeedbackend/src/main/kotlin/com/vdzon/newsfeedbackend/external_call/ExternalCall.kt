@@ -69,6 +69,9 @@ data class ExternalCall(
         const val ACTION_PODCAST_TRANSLATE = "podcast_translate"
         const val ACTION_PODCAST_TRANSLATE_TTS = "podcast_translate_tts"
 
+        // KAN-65: wekelijkse AI-ontdekking van tech-events per gebruiker.
+        const val ACTION_EVENT_DISCOVERY = "event_discovery"
+
         // UnitType-constants
         const val UNIT_TOKENS = "tokens"
         const val UNIT_CHARACTERS = "characters"

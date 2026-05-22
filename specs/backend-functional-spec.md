@@ -317,6 +317,16 @@ Voor elke bestaande gebruiker worden de vaste verzoekrecords `hourly-update-{use
 
 ---
 
+### 6.8 Event-ontdekking (KAN-65, wekelijks + handmatig)
+
+De events-module ontdekt per gebruiker grote tech-events (conferenties zoals JavaOne, KotlinConf, Spring I/O, Devoxx, KubeCon, Google I/O, OpenAI DevDay).
+
+- **Trigger**: wekelijkse cron `0 0 2 * * SUN` (zondag 02:00), eigen `@SchedulerLock` (`weeklyEventDiscovery`, lockAtMostFor=4h), los van de RssScheduler. Ook handmatig via `POST /api/events/discover` (mirror van de RSS-refresh) — knop in de Events-tab én in Settings.
+- **Per categorie** (alleen ingeschakelde, niet-systeem categorieën) draait een Tavily-search met `days=365` zodat zowel aankomende als events tot een jaar terug gevonden worden. De resultaten gaan naar Claude (`mainModel`), die er gestructureerde events uit haalt: stabiele id (genormaliseerde naam + jaar, bv. `javaone-2026`), naam, organisatie, begin-/einddatum, locatie, Nederlandse beschrijving en bronlinks.
+- **Dedup** op de stabiele id per gebruiker: een bestaand event wordt bijgewerkt (feedItemId + createdAt behouden), een nieuw event wordt toegevoegd. Events met een begindatum ouder dan één jaar worden overgeslagen.
+- **Aankondiging**: bij een nieuw event wordt een gewoon Nederlands feed-item aangemaakt (`mediaType=ARTICLE`, categorie van het event) met een verwijzing naar de Events-sectie.
+- **Logging/metrics**: de Claude-call wordt gelogd als `event_discovery` in `external_calls`; Micrometer telt `newsfeed.events.discovered` en timet `newsfeed.events.discovery.duration`. Tavily logt zoals bestaand.
+
 ### 6.7 Onderwerp-geschiedenis
 
 De onderwerp-geschiedenis (`topic_history.json`) wordt bijgehouden per gebruiker en bijgewerkt na:
@@ -458,6 +468,7 @@ Alle configuratie via `application.properties` of omgevingsvariabelen.
 |---|---|
 | Elk uur (`0 0 * * * *`) | RSS ophalen en verwerken voor alle gebruikers |
 | Dagelijks 06:00 (`0 0 6 * * *`) | Dagelijkse AI-samenvatting genereren voor alle gebruikers |
+| Wekelijks zondag 02:00 (`0 0 2 * * SUN`) | Tech-events ontdekken voor alle gebruikers (KAN-65) |
 
 ---
 

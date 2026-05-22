@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'feed_screen.dart';
 import 'rss_screen.dart';
 import 'podcast_screen.dart';
+import 'events_screen.dart';
 import 'settings_screen.dart';
 
 class MainShell extends ConsumerStatefulWidget {
@@ -19,6 +20,7 @@ class _MainShellState extends ConsumerState<MainShell> {
     FeedScreen(),
     RssScreen(),
     PodcastScreen(),
+    EventsScreen(),
     SettingsScreen(),
   ];
 
@@ -26,6 +28,7 @@ class _MainShellState extends ConsumerState<MainShell> {
     NavigationDestination(icon: Icon(Icons.dynamic_feed), label: 'Feed'),
     NavigationDestination(icon: Icon(Icons.rss_feed), label: 'RSS'),
     NavigationDestination(icon: Icon(Icons.podcasts), label: 'Podcast'),
+    NavigationDestination(icon: Icon(Icons.event), label: 'Events'),
     NavigationDestination(icon: Icon(Icons.settings), label: 'instellingen'),
   ];
 
