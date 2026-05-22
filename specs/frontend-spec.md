@@ -38,7 +38,7 @@ De frontend is een **Flutter-app** (mobile + web) voor het lezen van een persoon
 
 ## 3. Navigatiestructuur
 
-De app heeft twee hoofdstaten: **niet ingelogd** (toont LoginScreen) en **ingelogd** (toont een shell met vier tabs).
+De app heeft twee hoofdstaten: **niet ingelogd** (toont LoginScreen) en **ingelogd** (toont een shell met vijf tabs).
 
 ```
 AuthGate
@@ -53,7 +53,9 @@ AuthGate
     │       └── dialog → NieuwePodcastDialog
     │       └── navigeer naar → PodcastDetailScreen
     │               └── bottom sheet → ScriptSheet
-    └── Tab 3: SettingsScreen
+    ├── Tab 3: EventsScreen                  (KAN-65)
+    │       └── navigeer naar → EventDetailScreen
+    └── Tab 4: SettingsScreen
             └── dialog → EditCategoryDialog
             └── dialog → AddCategoryDialog
             └── dialog → CleanupDialog
@@ -266,7 +268,18 @@ Zolang een of meer podcasts de status `PENDING`, `DETERMINING_TOPICS`, `GENERATI
 
 ---
 
-## 9. Settings-tab (Tab 3)
+## 8b. Events-tab (Tab 3) — KAN-65
+
+Toont de per-gebruiker AI-ontdekte tech-events uit `eventsProvider` (`GET /api/events`).
+
+- **Lijst**: gesplitst in twee secties, **"Aankomend"** (begindatum vandaag of later, oplopend gesorteerd) en **"Geweest"** (aflopend gesorteerd). Events zonder begindatum tellen als aankomend. Elke kaart toont naam, datum-range (Nederlands geformatteerd), locatie, organisatie en een categorie-chip.
+- **Toolbar**: een zoekknop (`Icons.travel_explore`) die `POST /api/events/discover` triggert (mirror van de RSS-refresh; toont een toast), en een herlaad-knop.
+- **EventDetailScreen**: naam, datum/locatie/organisatie als chips, de Nederlandse beschrijving (onderwerpen) als selecteerbare tekst, en de bronlinks als aantikbare tegels (openen extern via `url_launcher`). Een verwijder-knop verwijdert het event en keert terug naar de lijst.
+- De handmatige zoek-trigger zit óók in Settings onder *Achtergrond-taken* (zie §9).
+
+---
+
+## 9. Settings-tab (Tab 4)
 
 ### Account
 - Gebruikersnaam weergeven

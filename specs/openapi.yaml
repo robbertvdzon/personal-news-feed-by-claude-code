@@ -44,6 +44,8 @@ tags:
     description: Verwerkingsverzoeken (ad-hoc en dagelijkse updates)
   - name: Podcasts
     description: Gegenereerde podcasts
+  - name: Events
+    description: Wekelijks AI-ontdekte tech-events (KAN-65)
   - name: System
     description: Algemene systeem-informatie (geen authenticatie vereist)
 
@@ -912,6 +914,76 @@ paths:
             State-conflict: aflevering heeft (nog) geen transcript, of
             de episode-status is niet DONE. Body bevat `{ "error": "…" }`.
 
+  # ── Events ────────────────────────────────────────────────────────────────────
+
+  /api/events:
+    get:
+      tags: [Events]
+      operationId: getEvents
+      summary: Haal alle ontdekte tech-events op
+      description: |
+        KAN-65: per-gebruiker ontdekte tech-events, gesorteerd op
+        begindatum aflopend. De Flutter-app splitst de lijst zelf in
+        'Aankomend' en 'Geweest' op basis van `startDate`.
+      responses:
+        '200':
+          description: Lijst van events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Event'
+
+  /api/events/discover:
+    post:
+      tags: [Events]
+      operationId: discoverEvents
+      summary: Trigger handmatig de event-zoekjob
+      description: |
+        KAN-65: start asynchroon de AI + web-search ontdekking van
+        tech-events voor de ingelogde gebruiker, op basis van de
+        ingeschakelde categorie-settings. Mirror van POST /api/rss/refresh:
+        de response komt direct terug, verwerking loopt op de achtergrond.
+        Dezelfde job draait wekelijks automatisch (zondag 02:00).
+      responses:
+        '200':
+          description: Zoekopdracht gestart
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusOk'
+
+  /api/events/{id}:
+    get:
+      tags: [Events]
+      operationId: getEvent
+      summary: Haal één event op
+      parameters:
+        - $ref: '#/components/parameters/ItemId'
+      responses:
+        '200':
+          description: Het event
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Event'
+        '404':
+          description: Event niet gevonden
+    delete:
+      tags: [Events]
+      operationId: deleteEvent
+      summary: Verwijder een event
+      parameters:
+        - $ref: '#/components/parameters/ItemId'
+      responses:
+        '200':
+          description: Gelukt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusOk'
+
 # ── Components ─────────────────────────────────────────────────────────────────
 
 components:
@@ -1049,6 +1121,61 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/PodcastFeed'
+
+    # Events
+
+    Event:
+      type: object
+      description: |
+        KAN-65: een wekelijks AI-ontdekt tech-event. Per-gebruiker
+        opgeslagen; dedup op de stabiele `id` (genormaliseerde naam + jaar).
+      properties:
+        id:
+          type: string
+          example: javaone-2026
+          description: Stabiele identiteit — genormaliseerde naam + jaar
+        name:
+          type: string
+          example: JavaOne 2026
+        organization:
+          type: string
+          nullable: true
+          description: Organiserende partij; null wanneer onbekend
+        startDate:
+          type: string
+          nullable: true
+          example: '2026-03-17'
+          description: Begindatum YYYY-MM-DD; null wanneer AI geen datum vond
+        endDate:
+          type: string
+          nullable: true
+          example: '2026-03-20'
+          description: Einddatum YYYY-MM-DD; null voor één-dag-events of bij onbekend
+        location:
+          type: string
+          description: Stad/land/online; leeg wanneer onbekend
+        description:
+          type: string
+          description: Nederlandse beschrijving van het event en de onderwerpen
+        sourceLinks:
+          type: array
+          items:
+            type: string
+            format: uri
+          description: Bron-links waar de info vandaan komt
+        category:
+          type: string
+          description: Categorie-id waaronder dit event ontdekt is
+        feedItemId:
+          type: string
+          nullable: true
+          description: Gekoppeld aankondigings-FeedItem (gezet bij eerste ontdekking)
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
 
     # RSS Items
 
