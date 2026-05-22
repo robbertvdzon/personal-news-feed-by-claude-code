@@ -59,6 +59,7 @@ class EventDetailScreen extends ConsumerWidget {
               SelectableText(event.description),
               const SizedBox(height: 20),
             ],
+            _VideosSection(eventId: event.id),
             if (event.sourceLinks.isNotEmpty) ...[
               Text('Bronnen', style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 6),
@@ -74,6 +75,45 @@ class EventDetailScreen extends ConsumerWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// KAN-66: lijst van de ontdekte video's (keynotes/sessies) van het event.
+/// Een tik opent de externe video-URL in de systeembrowser. Toont niets
+/// zolang er nog geen video's zijn ontdekt.
+class _VideosSection extends ConsumerWidget {
+  final String eventId;
+  const _VideosSection({required this.eventId});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final videos = ref.watch(eventVideosProvider(eventId));
+    return videos.when(
+      data: (items) {
+        if (items.isEmpty) return const SizedBox.shrink();
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text("Video's", style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 6),
+            for (final v in items)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.play_circle_outline),
+                title: Text(v.title, maxLines: 2, overflow: TextOverflow.ellipsis),
+                subtitle: (v.descriptionNl != null && v.descriptionNl!.isNotEmpty)
+                    ? Text(v.descriptionNl!, maxLines: 3, overflow: TextOverflow.ellipsis)
+                    : null,
+                trailing: const Icon(Icons.open_in_new, size: 18),
+                onTap: () => launchUrl(Uri.parse(v.videoUrl), mode: LaunchMode.externalApplication),
+              ),
+            const SizedBox(height: 20),
+          ],
+        );
+      },
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const SizedBox.shrink(),
     );
   }
 }
