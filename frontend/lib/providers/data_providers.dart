@@ -407,6 +407,36 @@ class PodcastNotifier extends AsyncNotifier<List<Podcast>> {
   }
 }
 
+/// KAN-65: per-user lijst met ontdekte tech-events. `discover()` triggert
+/// de wekelijkse zoekjob handmatig (mirror van rssProvider.refresh()).
+final eventsProvider = AsyncNotifierProvider<EventsNotifier, List<Event>>(EventsNotifier.new);
+
+class EventsNotifier extends AsyncNotifier<List<Event>> {
+  ApiClient get _api => ref.read(apiProvider);
+  String? get _user => ref.read(authProvider).username;
+
+  @override
+  Future<List<Event>> build() async {
+    final list = await _fetchListWithCache(
+      api: _api, path: '/api/events', username: _user, cacheName: 'events');
+    return list.map((e) => Event.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  Future<void> reload() async {
+    state = const AsyncLoading();
+    state = await AsyncValue.guard(() => build());
+  }
+
+  Future<void> discover() async {
+    await _api.post('/api/events/discover');
+  }
+
+  Future<void> delete(String id) async {
+    state = AsyncData(state.value!.where((e) => e.id != id).toList());
+    try { await _api.delete('/api/events/$id'); } catch (_) {}
+  }
+}
+
 class AppearanceState {
   final bool largeFont;
   const AppearanceState({this.largeFont = false});

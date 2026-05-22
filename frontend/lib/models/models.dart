@@ -490,3 +490,58 @@ class EpisodeLookup {
   bool get translationInProgress => translatedPodcastStatus != null &&
       const ['PENDING', 'TRANSLATING', 'TTS_GENERATING'].contains(translatedPodcastStatus);
 }
+
+/// KAN-65: een ontdekt tech-event. Wekelijks per gebruiker ontdekt met
+/// AI + web-search op basis van de categorie-settings. Getoond in de
+/// Events-tab, gesorteerd op datum met onderscheid aankomend/geweest.
+class Event {
+  final String id;
+  final String name;
+  final String? organization;
+  /// Begindatum YYYY-MM-DD; null wanneer onbekend.
+  final String? startDate;
+  final String? endDate;
+  final String location;
+  final String description;
+  final List<String> sourceLinks;
+  final String category;
+  final String? feedItemId;
+
+  Event({
+    required this.id,
+    required this.name,
+    this.organization,
+    this.startDate,
+    this.endDate,
+    this.location = '',
+    this.description = '',
+    this.sourceLinks = const [],
+    this.category = 'overig',
+    this.feedItemId,
+  });
+
+  /// True wanneer de begindatum vandaag of in de toekomst ligt. Events
+  /// zonder datum behandelen we als aankomend (gebruiker beslist).
+  bool get isUpcoming {
+    final d = startDate;
+    if (d == null || d.isEmpty) return true;
+    final parsed = DateTime.tryParse(d);
+    if (parsed == null) return true;
+    final today = DateTime.now();
+    final midnight = DateTime(today.year, today.month, today.day);
+    return !parsed.isBefore(midnight);
+  }
+
+  factory Event.fromJson(Map<String, dynamic> j) => Event(
+        id: j['id'] ?? '',
+        name: j['name'] ?? '',
+        organization: j['organization'],
+        startDate: j['startDate'],
+        endDate: j['endDate'],
+        location: j['location'] ?? '',
+        description: j['description'] ?? '',
+        sourceLinks: List<String>.from(j['sourceLinks'] ?? const []),
+        category: j['category'] ?? 'overig',
+        feedItemId: j['feedItemId'],
+      );
+}
