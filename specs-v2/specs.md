@@ -9,6 +9,17 @@ opgepakt en doorloopt automatisch alle fases tot het ticket succesvol
 getest is — of vastloopt op een vraag voor de gebruiker, of het budget
 opraakt.
 
+De factory is **één centraal systeem** dat **meerdere target-repo's**
+kan bouwen. De factory-code zelf leeft in een eigen repo
+(`software-factory`, nieuw aan te maken bij deze rewrite); de
+applicatie-repo's die de factory bouwt (`personal-news-feed`,
+eventueel meer in de toekomst) staan los daarvan. Per Jira-ticket
+wordt aangegeven welke target-repo de fix/feature moet krijgen
+(zie §3.2 en §4).
+
+Eén Jira-board (één Jira-project `KAN`) bedient alle target-repo's —
+nodig omdat het gratis Jira-account maar één board ondersteunt.
+
 Deze v2 is een **complete herimplementatie in Kotlin** van de bestaande
 Python-implementatie. Onderaan staan de bestaande Python-bestanden ter
 referentie; bedoeling is dat de Kotlin-versie deze vervangt zonder dat
@@ -31,11 +42,16 @@ features verloren gaan.
   (refiner/developer/reviewer) en een **agent-tester** die extra
   browser- en cluster-tooling meebrengt.
 - **Isolatie per ticket:** elke agent-run werkt op een eigen
-  shallow git-clone van de target-repo, zodat parallelle tickets
-  elkaar niet raken.
+  shallow git-clone van de target-repo (uit het `Target Repo`-veld
+  van het ticket), zodat parallelle tickets elkaar niet raken.
+- **Multi-repo:** de factory weet vooraf niets van welke repo's
+  bestaan. De target-repo-URL komt per ticket binnen via Jira en
+  wordt direct gebruikt voor de clone. Elke target-repo bevat een
+  vaste documentatie-map `docs/factory/` waarin per-repo-config
+  staat (preview-URL, deploy-info, agent-instructies — zie §4).
 - **AI-aanroep:** agents praten met een AI-model via een CLI tool
   (placeholder; concrete tool wordt in een latere iteratie vastgelegd
-  — zie §11).
+  — zie §12).
 - **Persistentie:** **Neon Postgres**, één database, eigen schema
   `factory`. Schema-migraties via Flyway.
 
@@ -66,17 +82,27 @@ Daarmee is "draait er iets?" altijd betrouwbaar.
 
 | Veld              | Type                         | Default | Doel                                                                |
 |-------------------|------------------------------|---------|---------------------------------------------------------------------|
-| `AI Phase`        | enum (zie §4)                | leeg    | Fijnmazige state binnen de factory.                                 |
+| `Target Repo`     | free-text (git URL)          | leeg    | Welke target-repo de factory moet clone'n en bewerken. Verplicht.   |
+| `AI Phase`        | enum (zie §5)                | leeg    | Fijnmazige state binnen de factory.                                 |
 | `AI Resume Phase` | enum (active-phases)         | leeg    | Naar welke active-phase resumen na `AI Needs Info` / `AI Paused`.   |
-| `AI Level`        | number 0–10                  | 0       | Welke `(model, effort)`-matrix de agents gebruiken (zie §6).        |
-| `AI Token Budget` | number                       | 40000   | Hard cap op totaal token-verbruik (alle agents samen, zie §7).      |
+| `AI Level`        | number 0–10                  | 0       | Welke `(model, effort)`-matrix de agents gebruiken (zie §8).        |
+| `AI Token Budget` | number                       | 40000   | Hard cap op totaal token-verbruik (alle agents samen, zie §15).     |
 | `AI Tokens Used`  | number                       | 0       | Lopend totaal, onderhouden door orchestrator/cost-monitor.          |
 | `AgentStartedAt`  | timestamp                    | leeg    | Wanneer de huidige actieve agent startte (voor hang-detectie).      |
 | `AgentType`       | string                       | leeg    | Welke agent op dit moment draait — handig voor monitoring.          |
 
 `AI Phase`, `AI Resume Phase`, `AI Tokens Used`, `AgentStartedAt` en
-`AgentType` zijn systeem-velden (PO komt er niet aan). `AI Level` en
-`AI Token Budget` mag de PO bewerken op elke status.
+`AgentType` zijn systeem-velden (PO komt er niet aan). `Target Repo`,
+`AI Level` en `AI Token Budget` mag de PO bewerken op elke status.
+
+**`Target Repo`-veld** is een free-text URL (bv.
+`git@github.com:robbertvdzon/personal-news-feed-by-claude-code.git`
+of `https://github.com/…/other-app.git`). Bij een ontbrekende of
+ongeldige URL: orchestrator zet status op `AI Needs Info` met een
+uitlegcomment en wacht op correctie. Eventuele allowlist
+(GitHub-orgs/users die we accepteren) staat als config in de
+orchestrator — een latere uitbreiding; in v2 accepteren we alle URL's
+die de gebruiker zelf invult.
 
 ### 3.3 Comment-conventie
 
@@ -124,9 +150,122 @@ afgehandeld.
 
 ---
 
-## 4. Phase state machine
+## 4. Target-repo's & repo-documentatie (`docs/factory/`)
 
-### 4.1 Phase-waardes
+De factory weet vooraf niets van welke target-repo's er bestaan. Per
+ticket levert de gebruiker een git-URL aan in het `Target Repo`-veld
+(§3.2). De orchestrator clone't die en verwacht in **elke** target-repo
+een vaste documentatie-structuur waaruit agents hun context halen en
+de factory zijn per-repo-config leest.
+
+### 4.1 Standaard documentatie-structuur
+
+Elke target-repo MOET de volgende map hebben op de root:
+
+```
+<repo-root>/
+  docs/
+    factory/
+      README.md           ← index/inhoudsopgave + globale repo-context
+      secrets-local.md    ← welke secrets/env-vars nodig zijn voor lokaal
+                            draaien, en waar ze vandaan komen (bv. 1Password,
+                            .env.example, sealed secret in de cluster)
+      deployment.md       ← hoe de repo gedeployd wordt; YAML-frontmatter
+                            met preview-URL- en namespace-templates voor de
+                            factory (zie §4.3)
+      development.md      ← build- en testcommando's, repo-structuur,
+                            conventies; alles wat een developer moet
+                            weten om lokaal te kunnen werken
+      functional-spec.md  ← functionele specs (mag een sub-map worden
+                            functional-spec/ als de inhoud te groot
+                            wordt)
+      technical-spec.md   ← welke technieken, frameworks, versies en
+                            code-conventies te gebruiken
+      agents/
+        refiner.md        ← rol-specifieke aanwijzingen aan de refiner
+        developer.md      ← idem voor developer
+        reviewer.md       ← idem voor reviewer
+        tester.md         ← idem voor tester (bv. login-flow, testdata,
+                            hoe E2E te testen, welke pagina's belangrijk
+                            zijn)
+```
+
+Bestanden mogen leeg blijven als er nog niets te zeggen valt, maar
+ze moeten **bestaan** — anders weet een agent niet of er info
+ontbreekt of dat de repo nog niet factory-ready is.
+
+### 4.2 Welke documenten welke agent leest
+
+Aan het begin van elke agent-run leest de agent een vaste set
+documenten en bundelt die in zijn prompt-context:
+
+| Agent     | Leest altijd                                    | Plus rol-specifiek                                  |
+|-----------|-------------------------------------------------|-----------------------------------------------------|
+| Refiner   | `README.md` + `agents/refiner.md`               | `functional-spec.md`                                |
+| Developer | `README.md` + `agents/developer.md`             | `development.md` + `technical-spec.md`              |
+| Reviewer  | `README.md` + `agents/reviewer.md`              | `technical-spec.md`                                 |
+| Tester    | `README.md` + `agents/tester.md`                | `deployment.md` + `secrets-local.md`                |
+
+De agent-base image krijgt een Kotlin-helper `loadFactoryDocs(role)`
+die deze bestanden inleest en samenvoegt; agents geven dit blok als
+extra system-prompt mee aan de AI CLI.
+
+### 4.3 Machine-leesbare config in `deployment.md`
+
+De orchestrator heeft per target-repo enkele waardes nodig die niet
+in Jira passen (en niet door de gebruiker overgetypt moeten worden):
+preview-URL-template, preview-namespace-template, base-branch,
+branch-prefix. Die staan als YAML-frontmatter bovenaan `deployment.md`:
+
+```markdown
+---
+default_base_branch: main
+branch_prefix: ai/
+preview_url_template: "https://pnf-pr-{pr_num}.vdzonsoftware.nl"
+preview_namespace_template: "pnf-pr-{pr_num}"
+---
+
+# Deployment
+
+(Verdere vrije tekst voor agents — vooral de tester — om te weten
+waar de app draait, hoe ArgoCD het oppakt, etc.)
+```
+
+De orchestrator parseert deze frontmatter bij elke story-pickup
+(eventueel gecached per `Target Repo`-URL + commit) en gebruikt de
+waardes om de juiste env-vars aan de agent-Job mee te geven.
+
+### 4.4 Wat als `docs/factory/` ontbreekt
+
+Bij een nieuwe target-repo waar de map nog niet bestaat:
+
+1. De refiner is de eerste agent die de repo clone't. Hij detecteert
+   het ontbreken van `docs/factory/`.
+2. Hij plaatst een `[REFINER]`-comment met een uitleg en een verwijzing
+   naar de skeleton-template, en zet phase → `awaiting-po`, status →
+   `AI Needs Info`.
+3. De gebruiker voegt de map handmatig toe (eventueel met behulp van
+   het CLI-commando hieronder), commit + push, en hervat de story.
+
+### 4.5 `factory init-repo` — bootstrap-commando
+
+De orchestrator-image bevat een klein CLI-commando dat de skeleton
+in een bestaande repo aanlegt:
+
+```
+factory init-repo .
+```
+
+Dit zet alle bestanden uit §4.1 neer met placeholder-content en de
+juiste YAML-frontmatter-keuzes uit een paar interactieve prompts
+(of via flags). Bedoeld om eenmalig aan te roepen per nieuwe
+target-repo.
+
+---
+
+## 5. Phase state machine
+
+### 5.1 Phase-waardes
 
 **Active phases** (er draait een Job — orchestrator zet deze):
 
@@ -156,7 +295,7 @@ afgehandeld.
 | `awaiting-po`     | Een agent wacht op de gebruiker (gecombineerd met status `AI Needs Info`). `AI Resume Phase` houdt vast welke active-phase hervat moet worden. |
 | `questions-answered` | Gebruiker heeft vragen beantwoord — markeert "klaar om weer te dispatchen". Orchestrator vertaalt dit naar de actieve `*ing`-phase via `AI Resume Phase`. |
 
-### 4.2 Transitietabel (door de orchestrator, behalve waar anders aangegeven)
+### 5.2 Transitietabel (door de orchestrator, behalve waar anders aangegeven)
 
 ```
 (leeg)                                 → start refiner    → AI In Progress + phase=refining
@@ -178,36 +317,36 @@ poll, zet status op `AI In Progress`, schrijft de bijbehorende
 
 ---
 
-## 5. Orchestrator
+## 6. Orchestrator
 
-### 5.1 Polling
+### 6.1 Polling
 
 - **Poll-interval:** 15 seconden.
 - **Per cyclus:** haal alle tickets op met Jira-status in
   `{AI, AI Queued, AI In Progress, AI Needs Info, AI Paused}`. Voor
   elk ticket:
   1. Bepaal aan de hand van Phase + Status wat de volgende actie is
-     (zie §4.2).
+     (zie §5.2).
   2. Als een agent gestart moet worden (concurrency-cap toelaat — zie
-     §5.4): zet `AI Phase` op de actieve waarde (`refining`,
+     §6.4): zet `AI Phase` op de actieve waarde (`refining`,
      `developing`, …), zet `AgentStartedAt` op nu, zet `AgentType`,
      en start de bijbehorende K8s-Job.
   3. Als Phase een `*ing`-waarde is (er hoort een agent te draaien):
-     check K8s of de Job nog bestaat en actief is. Zo niet → §5.3
+     check K8s of de Job nog bestaat en actief is. Zo niet → §6.3
      stuck-detection.
   4. Als Phase een wacht-op-gebruiker waarde is
      (`refined-with-questions-for-user`, `awaiting-po`): niets doen.
   5. Als Phase `tested-succesfully` is: status → `Done` afronden.
 
-### 5.2 Merge-detectie
+### 6.2 Merge-detectie
 
 Naast de phase-driven dispatch monitort de orchestrator open PR's
 van actieve stories. Als een mens een PR mergt en de bijbehorende
 story op `tested-succesfully` staat (of de gebruiker mergde voortijdig
-via een handmatig commando — zie §10), zet de orchestrator de status
+via een handmatig commando — zie §11), zet de orchestrator de status
 op `Done` en sluit het story-run-record af.
 
-### 5.3 Stuck-detection & recovery
+### 6.3 Stuck-detection & recovery
 
 Phase staat op `*ing` maar er draait geen K8s-Job (gecrashte agent,
 node-eviction, OOM, etc.). De orchestrator scant elke cyclus op deze
@@ -229,7 +368,7 @@ inconsistentie en herstelt:
   alleen loggen + status op `AI Needs Info`; later eventueel
   automatisch kill + retry.
 
-### 5.4 Concurrency
+### 6.4 Concurrency
 
 Caps per rol (configureerbaar, defaults):
 
@@ -250,15 +389,17 @@ voorkomen dat twee dispatch-paden tegelijk dezelfde branch verbouwen.
 
 ---
 
-## 6. Agents
+## 7. Agents
 
-### 6.1 Algemeen
+### 7.1 Algemeen
 
 Alle agents:
 
 - Lezen het ticket (inclusief comments + reacties) uit Jira.
+- Lezen de per-rol `docs/factory/`-documenten uit de target-repo
+  (zie §4.2).
 - Hebben toegang tot de tips-database (lezen + schrijven, alleen
-  eigen rol — zie §8).
+  eigen rol — zie §9).
 - Hebben toegang tot een AI-model via een CLI tool (placeholder).
 - Werken aan een eigen shallow git-clone van de target-repo.
 - Schrijven hun resultaat terug naar Jira: nieuwe Phase + eventuele
@@ -270,10 +411,11 @@ Alle agents:
 - Exit-code 0 = succes, non-zero = fout (orchestrator logt en
   triggert stuck-detection bij volgende cyclus).
 
-### 6.2 Refiner
+### 7.2 Refiner
 
 - Input: ruwe story + alle prior comments (met respect voor reacties
-  uit §3.4 — eerder verwerkte comments mag hij negeren).
+  uit §3.4 — eerder verwerkte comments mag hij negeren) +
+  `docs/factory/functional-spec.md` van de target-repo.
 - Output: opgeschoonde story (acceptatie-criteria, scope-afbakening)
   → Phase `refined-finished`,
   óf openstaande vragen als comment → Phase
@@ -283,54 +425,63 @@ Alle agents:
 - Belangrijk: bij een tweede ronde refinen leest hij **alleen**
   user-comments zonder zijn reactie. Comments waarop hij al
   gereageerd heeft zijn afgehandeld.
+- Detecteert ook of `docs/factory/` ontbreekt en triggert de flow
+  uit §4.4.
 
-### 6.3 Developer
+### 7.3 Developer
 
 - Input: refined story + review- en test-feedback uit comments
-  (alleen die zonder zijn reactie zijn nieuw).
+  (alleen die zonder zijn reactie zijn nieuw) +
+  `docs/factory/development.md` + `docs/factory/technical-spec.md`.
 - Krijgt via env-var `DEVELOPER_LOOPBACK_REASON` een hint mee als hij
   vanuit een review- of test-loopback is gespawnd: "lees eerst het
   laatste `[REVIEWER]`/`[TESTER]`-comment".
-- Output: code-wijzigingen in een branch (`ai/<TICKET_KEY>`), commit
-  + push, GitHub PR open of bestaande PR updaten → Phase `developed`.
+- Output: code-wijzigingen in een branch (`<BRANCH_PREFIX><TICKET_KEY>`,
+  bv. `ai/KAN-42`), commit + push, GitHub PR open of bestaande PR
+  updaten → Phase `developed`.
 - Markeert verwerkte reviewer-/tester-comments met een reactie (§3.4).
 
-### 6.4 Reviewer
+### 7.4 Reviewer
 
-- Input: de PR-diff (via `gh pr diff` of equivalent) + refined story.
+- Input: de PR-diff (via `gh pr diff` of equivalent) + refined story
+  + `docs/factory/technical-spec.md`.
 - **Tool-allowlist:** read-only op repo, `gh` CLI, Jira-API; **geen**
   edit/write, **geen** git push.
 - Output: review-feedback als comment (met `[REVIEWER]`-prefix) →
   Phase `reviewed-with-feedback-for-developer`,
   óf goedkeuring → Phase `review-finished`.
 
-### 6.5 Tester
+### 7.5 Tester
 
 De gevaarlijkste agent qua blast-radius — verdient extra grenzen.
 
-- Image: **agent-tester** (zie §11).
+- Image: **agent-tester** (zie §12).
+- Input: refined story + PR-diff + `docs/factory/deployment.md` +
+  `docs/factory/secrets-local.md` + `docs/factory/agents/tester.md`.
 - **Tool-allowlist:** Playwright/Chromium voor headless browser,
   `psql` tegen de preview-DB, `kubectl`/`oc` met read-only RBAC
-  cluster-wide + schrijfrechten alleen in `pnf-pr-*`-namespaces.
+  cluster-wide + schrijfrechten alleen in de preview-namespace die
+  uit `deployment.md` komt (zie §10).
 - Wacht aan het begin tot de **preview-deploy** van de PR live is
-  (HTTP 200 op `pnf-pr-<num>.<host>`, max 10 min polling per 15s —
-  zie §9).
+  (HTTP 200 op de preview-URL die door de orchestrator uit
+  `deployment.md` getemplate't is, max 10 min polling per 15 s — zie
+  §10).
 - Krijgt `PREVIEW_URL` + `PREVIEW_DB_URL` als env-vars mee.
 - Output: bij bug(s) → comment met reproductie-stappen + logs →
   Phase `tested-with-feedback-for-developer`. Bij OK → Phase
   `tested-succesfully`.
 - **System-prompt-grenzen** (in aanvulling op RBAC):
-  - **MAG NIET**: infrastructuur muteren in `personal-news-feed`,
-    git-commits maken, secrets aanpassen, prod-namespace muteren.
-  - **MAG WEL**: lezen van alles in `personal-news-feed` en
-    `pnf-pr-*`, `oc exec` in pnf-pr-pods, DB-queries lezen + schrijven
-    in de preview-DB, een pod-restart forceren in een pnf-pr-namespace.
+  - **MAG NIET**: infrastructuur muteren in productie-namespaces,
+    git-commits maken, secrets aanpassen.
+  - **MAG WEL**: lezen van alles in de cluster, `oc exec` in de
+    preview-pods, DB-queries lezen + schrijven in de preview-DB,
+    een pod-restart forceren in de preview-namespace.
 
 ---
 
-## 7. AI CLI tool & model-routing
+## 8. AI CLI tool & model-routing
 
-### 7.1 Placeholder-interface
+### 8.1 Placeholder-interface
 
 De agent-code definieert een Kotlin-interface `AiClient` met één
 implementatie die een externe CLI binary aanroept. Concrete keuze
@@ -338,7 +489,7 @@ implementatie die een externe CLI binary aanroept. Concrete keuze
 iteratie vastgelegd, samen met het wire-protocol (stdin/stdout JSON?
 command-line prompts?).
 
-### 7.2 Level-matrix
+### 8.2 Level-matrix
 
 Per ticket geldt een `AI Level` (0–10). Een ConfigMap mapt elk level
 naar een `(model, effort)`-combinatie per rol. Cheapest first.
@@ -371,14 +522,14 @@ De orchestrator leest het level bij dispatch, mapt het via deze
 ConfigMap, en geeft `CLAUDE_MODEL` + `CLAUDE_EFFORT` als env-vars
 mee aan de Job.
 
-### 7.3 Override via comment
+### 8.3 Override via comment
 
 De gebruiker kan `AI Level` op elk moment aanpassen via het
-Jira-veld, of via een comment-trigger `LEVEL=N` (zie §10.2).
+Jira-veld, of via een comment-trigger `LEVEL=N` (zie §11.2).
 
 ---
 
-## 8. Tips-database (agent-knowledge)
+## 9. Tips-database (agent-knowledge)
 
 Agents bewaren herbruikbare kennis. Bv. de tester ontdekt hoe je in
 een specifieke applicatie inlogt — die kennis slaat hij op zodat hij
@@ -394,38 +545,55 @@ dat de volgende keer niet opnieuw hoeft uit te zoeken.
   AI-CLI ze in z'n context kan opnemen. Aan het einde schrijft de
   agent eventuele nieuwe/gewijzigde tips als JSON-blok in zijn
   output; de runner POST't die naar de orchestrator.
-- **Velden** (zie ook §13): `id`, `role`, `category`, `key`,
+- **Velden** (zie ook §14): `id`, `role`, `category`, `key`,
   `content`, `created_at`, `updated_at`, `updated_by_story`.
+
+Cross-repo: de `agent_knowledge`-tabel is **globaal**, niet per
+target-repo. Een tester die leert hoe Playwright-screenshots in
+OpenShift een eigenaardigheid hebben, deelt dat met testers van alle
+repo's. Als een tip repo-specifiek is, hoort die in de
+`docs/factory/agents/tester.md` van die repo, niet in de DB.
 
 ---
 
-## 9. PR-flow & preview-deploy
+## 10. PR-flow & preview-deploy
 
-### 9.1 Branch & PR
+### 10.1 Branch & PR
 
-- Branch-naam: `ai/<TICKET_KEY>` (configureerbaar `BRANCH_PREFIX`).
-- Developer doet `git clone --depth 50` en checkt de branch uit (of
-  maakt 'm aan vanaf `BASE_BRANCH`, default `main`).
+- Branch-naam: `<BRANCH_PREFIX><TICKET_KEY>`. `BRANCH_PREFIX` komt
+  uit `docs/factory/deployment.md`-frontmatter van de target-repo,
+  default `ai/`.
+- Developer doet `git clone --depth 50` van de URL uit `Target Repo`
+  en checkt de branch uit (of maakt 'm aan vanaf `BASE_BRANCH` —
+  default `main`, override via deployment.md-frontmatter).
 - Bij voltooiing: `git push` + (indien nog niet bestaand)
   `gh pr create`. Bestaande PR wordt vanzelf bijgewerkt door de push.
 - Bij loopback (review/test → developer): dezelfde branch en PR
   worden hergebruikt — geen nieuwe PR per iteratie.
 
-### 9.2 Preview-deploy per PR
+### 10.2 Preview-deploy per PR
 
-Voor elke open PR wordt automatisch een **preview-deploy** in een
-eigen namespace `pnf-pr-<num>` opgeslingerd (door externe tooling;
-buiten scope van deze spec, maar de factory leunt erop).
+Voor elke open PR wordt automatisch een **preview-deploy** opgeslingerd
+in een eigen namespace (door externe tooling per target-repo; buiten
+scope van deze spec, maar de factory leunt erop).
 
-- De tester krijgt `PREVIEW_URL` (`pnf-pr-<num>.<host>`) en
-  `PREVIEW_DB_URL` (apart Postgres-schema per PR) als env-vars.
+- De **preview-URL en preview-namespace komen uit
+  `docs/factory/deployment.md`** van de target-repo via het
+  `preview_url_template` / `preview_namespace_template`-veld in de
+  YAML-frontmatter (zie §4.3). De orchestrator vult `{pr_num}` in en
+  geeft de resulterende strings als `PREVIEW_URL` en
+  `PREVIEW_NAMESPACE` env-vars mee aan de tester-Job.
+- De tester krijgt ook `PREVIEW_DB_URL` als env-var (apart
+  Postgres-schema per PR, default-conventie: zelfde Neon-DB, schema
+  per PR; concrete waarde komt uit de cluster-secret die per PR
+  wordt aangemaakt door de preview-deploy-tooling).
 - De tester wacht tot de preview HTTP 200 geeft voor hij begint.
-- De orchestrator ruimt de pnf-pr-namespace op bij merge of bij een
-  handmatig commando (delete/re-implement — zie §10).
+- De orchestrator ruimt de preview-namespace op bij merge of bij een
+  handmatig commando (delete/re-implement — zie §11).
 
 ---
 
-## 10. Handmatige bediening via comments
+## 11. Handmatige bediening via comments
 
 De gebruiker kan op elk moment via Jira-comments ingrijpen. De
 orchestrator scant alle actieve stories per poll-cyclus op
@@ -433,7 +601,7 @@ commando-comments en triggers, en is idempotent (een verwerkte
 comment krijgt een marker-reactie of marker-suffix zodat 'ie maar
 één keer wordt uitgevoerd).
 
-### 10.1 Commando's
+### 11.1 Commando's
 
 | Comment                         | Effect                                                                                                                |
 |---------------------------------|-----------------------------------------------------------------------------------------------------------------------|
@@ -446,7 +614,7 @@ Hervatten uit `AI Paused`: gebruiker zet de status terug op
 `AI Queued`. De orchestrator leest `AI Resume Phase` en dispatcht
 die agent opnieuw.
 
-### 10.2 Triggers in vrije comments
+### 11.2 Triggers in vrije comments
 
 | Patroon       | Effect                                                                                                          |
 |---------------|-----------------------------------------------------------------------------------------------------------------|
@@ -454,7 +622,7 @@ die agent opnieuw.
 | `BUDGET=N`    | Zet `AI Token Budget` op N tokens (absoluut). Gebruikelijk om de pipeline te hervatten uit `AI Needs Info`.     |
 | `CONTINUE`    | Verhoogt `AI Token Budget` met +50% en hervat. Alleen actief op stories in `AI Needs Info` na een budget-stop.  |
 
-### 10.3 PR-comment iteratie
+### 11.3 PR-comment iteratie
 
 Na het openen van een PR kan iemand in de PR-comments verder
 ingrijpen met een `@claude`-mention. De orchestrator scant open
@@ -472,7 +640,7 @@ PR's op zulke triggers:
 
 ---
 
-## 11. Docker images
+## 12. Docker images
 
 Drie images, gescheiden zodat agents alleen pullen wat ze nodig
 hebben.
@@ -497,10 +665,12 @@ Notities:
   fat-jar in een slanke final layer).
 - CI tagt op `:sha-<commit>` én `:main`; deployments verwijzen naar
   de SHA-tag voor reproduceerbaarheid.
+- Beide image-Dockerfiles wonen in de `software-factory`-repo, naast
+  de Kotlin-modules.
 
 ---
 
-## 12. K8s-runner
+## 13. K8s-runner
 
 Per agent-Job:
 
@@ -512,34 +682,37 @@ Per agent-Job:
 - **Labels:** `app=factory-agent`, `story-key=<KAN-XX>`, `role=<role>`,
   `mode=story|comment`, optioneel `pr-num=<num>`.
 - **ServiceAccount:** default voor refiner/developer/reviewer;
-  aparte `agent-tester` SA voor de tester (met de RBAC uit §6.5).
+  aparte `agent-tester` SA voor de tester (met de RBAC uit §7.5
+  en §16).
 - **Env-vars** (selectie): `TICKET_KEY`, `JOB_NAME`,
   `FACTORY_ORCHESTRATOR_URL`, `AGENT_TYPE`, `AI_LEVEL`, `CLAUDE_MODEL`,
-  `CLAUDE_EFFORT`, `REPO_URL`, `BASE_BRANCH`, `BRANCH_PREFIX`,
+  `CLAUDE_EFFORT`, `REPO_URL` (uit Jira `Target Repo`), `BASE_BRANCH`
+  + `BRANCH_PREFIX` (uit `docs/factory/deployment.md`),
   `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_FIELD_AI_PHASE`,
   `JIRA_FIELD_AI_RESUME_PHASE`, `JIRA_FIELD_AGENT_STARTED_AT`,
-  `JIRA_FIELD_AGENT_TYPE`, `PREVIEW_URL`, `PREVIEW_DB_URL`,
-  `PR_NUMBER`, `DEVELOPER_LOOPBACK_REASON`, plus secrets
-  (`GITHUB_TOKEN`, `JIRA_API_KEY`, AI-CLI-credentials).
+  `JIRA_FIELD_AGENT_TYPE`, `PREVIEW_URL`, `PREVIEW_NAMESPACE`,
+  `PREVIEW_DB_URL`, `PR_NUMBER`, `DEVELOPER_LOOPBACK_REASON`, plus
+  secrets (`GITHUB_TOKEN`, `JIRA_API_KEY`, AI-CLI-credentials).
 - **Task-payload:** de orchestrator schrijft een ConfigMap met
   `task.md` (de samengestelde context: story + relevante comments
-  + tips) en mount die in de Job. ConfigMap krijgt een
-  ownerReference naar de Job zodat hij auto-cleaned wordt.
+  + tips + `docs/factory/`-documenten) en mount die in de Job.
+  ConfigMap krijgt een ownerReference naar de Job zodat hij
+  auto-cleaned wordt.
 
-De runner-flow zelf: `git clone` → tips ophalen → AI CLI aanroepen
-→ output verwerken → Jira bijwerken (phase + comment + reacties op
-verwerkte user-comments) → `POST /agent-run/complete` naar de
-orchestrator → exit.
+De runner-flow zelf: `git clone` → `docs/factory/`-documenten lezen
+→ tips ophalen → AI CLI aanroepen → output verwerken → Jira bijwerken
+(phase + comment + reacties op verwerkte user-comments) →
+`POST /agent-run/complete` naar de orchestrator → exit.
 
 ---
 
-## 13. Persistentie (Neon Postgres)
+## 14. Persistentie (Neon Postgres)
 
 Eén Neon-database, eigen schema `factory`. Migraties via Flyway
 (versioned SQL onder `db/migration/`). Connection-string via env-var
 `FACTORY_DATABASE_URL` (`postgresql://…`-formaat).
 
-### 13.1 Tabellen
+### 14.1 Tabellen
 
 ```sql
 CREATE SCHEMA IF NOT EXISTS factory;
@@ -548,6 +721,7 @@ CREATE SCHEMA IF NOT EXISTS factory;
 CREATE TABLE factory.story_runs (
   id                          BIGSERIAL PRIMARY KEY,
   story_key                   TEXT NOT NULL,
+  target_repo                 TEXT NOT NULL,        -- waarde uit Jira `Target Repo`
   started_at                  TIMESTAMPTZ NOT NULL DEFAULT now(),
   ended_at                    TIMESTAMPTZ,
   final_status                TEXT,                 -- 'Done', 'paused', 'budget-exceeded', ...
@@ -589,7 +763,7 @@ CREATE TABLE factory.agent_events (
   payload         JSONB NOT NULL
 );
 
--- Tips per rol.
+-- Tips per rol (globaal — cross-repo, zie §9).
 CREATE TABLE factory.agent_knowledge (
   id                BIGSERIAL PRIMARY KEY,
   role              TEXT NOT NULL,
@@ -614,7 +788,7 @@ CREATE TABLE factory.processed_comments (
 );
 ```
 
-### 13.2 Secret-redactie
+### 14.2 Secret-redactie
 
 Vóór events naar `agent_events.payload` geschreven worden, draait een
 regex-filter dat de volgende patronen vervangt door `<REDACTED>`:
@@ -629,9 +803,9 @@ Bewaartermijn: vooralsnog ongelimiteerd.
 
 ---
 
-## 14. Cost-monitor & token-budget
+## 15. Cost-monitor & token-budget
 
-### 14.1 Wat hij doet
+### 15.1 Wat hij doet
 
 - Sommeert per actieve story het token-verbruik uit `factory.agent_runs`.
 - Vergelijkt met `AI Token Budget` (default 40.000).
@@ -645,7 +819,7 @@ Bewaartermijn: vooralsnog ongelimiteerd.
 Idempotent: bestaande `[COST-MONITOR] N%`-markers blokkeren
 herhaalde posts van dezelfde drempel.
 
-### 14.2 Twee triggers
+### 15.2 Twee triggers
 
 - **Realtime** — de runner POST't z'n usage naar
   `POST /agent-run/complete` op de orchestrator direct na completion.
@@ -655,7 +829,7 @@ herhaalde posts van dezelfde drempel.
   doet over alle actieve `story_runs`. Vangt het geval op dat de
   runner crasht vóór hij kan rapporteren.
 
-### 14.3 Hervatten
+### 15.3 Hervatten
 
 - `BUDGET=N` in een comment op een story in `AI Needs Info`: zet het
   budget absoluut, status terug naar `AI Queued`, orchestrator
@@ -665,7 +839,7 @@ herhaalde posts van dezelfde drempel.
 
 ---
 
-## 15. RBAC & secrets
+## 16. RBAC & secrets
 
 - **Orchestrator-SA**: read/write Jira (via API-key), read/write op
   `factory.*`-tabellen in Neon, full CRUD op K8s Jobs + ConfigMaps in
@@ -675,8 +849,13 @@ herhaalde posts van dezelfde drempel.
   nodig — alleen Jira-API + GitHub via secret.
 - **Agent-tester SA**: cluster-wide read op pods, logs, services,
   configmaps, secrets, namespaces, events; create op `pods/exec`
-  alleen in `pnf-pr-*`-namespaces; delete op pods alleen in
-  `pnf-pr-*`. NetworkPolicy beperkt egress.
+  + delete op pods alleen in preview-namespaces. NetworkPolicy
+  beperkt egress.
+  - Welke namespaces "preview" zijn, hangt af van de target-repo's
+    `deployment.md`-config (zie §4.3). In v2 is de tester-RBAC
+    cluster-breed write op een lijst van namespace-patronen die de
+    factory-deploy-manifesten onderhouden. Elke nieuwe target-repo
+    voegt zijn pattern toe (bv. `pnf-pr-*`, `other-app-pr-*`).
 - **Secrets**: één Kubernetes Secret met alle credentials
   (`JIRA_API_KEY`, `GITHUB_TOKEN`, AI-CLI-credentials,
   `FACTORY_DATABASE_URL`), gemount als env-vars in
@@ -685,7 +864,7 @@ herhaalde posts van dezelfde drempel.
 
 ---
 
-## 16. Open punten / later te beslissen
+## 17. Open punten / later te beslissen
 
 - **Concrete AI CLI** en het wire-protocol (stdin/stdout JSON?
   command-line prompts?).
@@ -700,6 +879,14 @@ herhaalde posts van dezelfde drempel.
 - **Jira-comment-reactie API**: of `eyes`/`checkmark` werkbaar zijn
   via de REST-API in onze Jira-versie. Zo niet, dan vervalt §3.4
   terug naar de `processed_comments`-tabel.
+- **Cross-repo tester-RBAC**: of we voor elke nieuwe target-repo
+  handmatig een namespace-pattern toevoegen aan de tester-Role, of
+  dat we de orchestrator dynamisch per Job een Role-binding laten
+  aanmaken. Voor v2 het eerste.
+- **Allowlist op `Target Repo`-URL's**: voorkomt dat een random
+  Jira-account de factory een willekeurige repo laat clonen.
+  Nu nog open (alleen vertrouwde gebruikers hebben toegang tot het
+  board).
 - **Dashboard** is bewust buiten scope in v2 (komt later).
 - **Interactieve Claude-sessies** (KAN-61 in de huidige Python-impl)
   zijn ook buiten scope in v2.
