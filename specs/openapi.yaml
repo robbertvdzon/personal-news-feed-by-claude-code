@@ -980,7 +980,8 @@ paths:
       summary: Haal de video's van één event op
       description: |
         KAN-66: de ontdekte video's (keynotes/sessies) van een event,
-        nieuwste eerst. Nog zonder samenvatting (KAN-67).
+        nieuwste eerst. Optioneel veld `summaryNl` is gevuld als de
+        gebruiker eerder een samenvatting heeft aangevraagd (KAN-67).
       parameters:
         - $ref: '#/components/parameters/ItemId'
       responses:
@@ -992,6 +993,49 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/EventVideo'
+
+  /api/events/{id}/videos/summarize:
+    post:
+      tags: [Events]
+      operationId: summarizeEventVideo
+      summary: Maak (of geef bestaande) Nederlandse samenvatting van één video
+      description: |
+        KAN-67: synchrone on-demand-flow. De backend haalt het transcript
+        op (eerst YouTube-ondertiteling — nl/en/asr — anders Whisper na
+        yt-dlp audio-download), stuurt het naar Claude voor een
+        uitgebreide Nederlandse samenvatting en slaat die op in
+        `event_videos.summary_nl`. Idempotent: een tweede call met een
+        al opgeslagen samenvatting komt direct terug zonder AI-calls.
+        Duur: seconden tot enkele minuten — frontend toont een
+        laad-indicator.
+      parameters:
+        - $ref: '#/components/parameters/ItemId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [videoUrl]
+              properties:
+                videoUrl:
+                  type: string
+                  description: Canonieke video-URL (zoals teruggegeven door /videos).
+      responses:
+        '200':
+          description: De bijgewerkte video met gevulde `summaryNl`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventVideo'
+        '400':
+          description: Lege of ontbrekende videoUrl in de request body.
+        '404':
+          description: Video bestaat niet voor deze gebruiker/event.
+        '502':
+          description: |
+            Zowel YouTube-transcript als Whisper konden niets opleveren.
+            Gebruiker mag opnieuw proberen — de knop blijft staan.
 
   /api/events/{id}:
     get:
@@ -1221,7 +1265,9 @@ components:
       description: |
         KAN-66: een wekelijks AI-ontdekte online video (keynote/sessie) van
         een event. Dedup op de canonieke `videoUrl` per (gebruiker, event).
-        Nog zonder samenvatting (KAN-67).
+        KAN-67: bevat optioneel `summaryNl` (on-demand Nederlandse
+        samenvatting); null tot de gebruiker er via
+        `POST /api/events/{id}/videos/summarize` om vraagt.
       properties:
         eventId:
           type: string
@@ -1238,6 +1284,14 @@ components:
           type: string
           nullable: true
           description: Nederlandse beschrijving van de video; null wanneer onbekend
+        summaryNl:
+          type: string
+          nullable: true
+          description: |
+            KAN-67: uitgebreide Nederlandse samenvatting van de video-
+            inhoud (Claude op basis van YouTube- of Whisper-transcript).
+            Null tot de gebruiker op "Maak samenvatting" drukt; daarna
+            voor altijd aanwezig (server-side gecachet).
         createdAt:
           type: string
           format: date-time

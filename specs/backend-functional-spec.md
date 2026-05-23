@@ -338,6 +338,22 @@ Per al ontdekt event (zie 6.8) worden wekelijks de online video's (keynotes/sess
 - **Tonen**: in het event-detailscherm verschijnt een lijst klikbare video's; een tik opent de externe URL in de systeembrowser (`GET /api/events/{id}/videos`).
 - **Logging/metrics**: de Claude-call wordt gelogd als `event_video_discovery` in `external_calls`; Micrometer telt `newsfeed.event_videos.discovered` en timet `newsfeed.event_videos.discovery.duration`. Tavily logt zoals bestaand.
 
+### 6.10 Event-video-samenvatting on demand (KAN-67)
+
+Per event-video kan de gebruiker een uitgebreide Nederlandse samenvatting laten maken. Synchrone flow vanuit het event-detailscherm — de wekelijkse discovery (zie 6.9) maakt zelf nooit samenvattingen aan.
+
+- **Trigger**: knop "Maak samenvatting" in de video-kaart van het event-detailscherm. Stuurt `POST /api/events/{id}/videos/summarize` met body `{"videoUrl": "..."}`. De frontend toont een laad-indicator tot de response binnen is.
+- **Transcript-stap** (in volgorde, eerste succes wint):
+  1. YouTube `timedtext`-API met `lang=nl`.
+  2. Idem met `lang=en`.
+  3. Idem met `lang=en&kind=asr` (auto-gegenereerd).
+  4. Whisper-fallback: `yt-dlp` downloadt de audio als MP3 naar een temp-file, [`AudioTranscoder`] zorgt dat 'ie onder de 24 MiB Whisper-limit blijft, [`WhisperClient`] transcribeert (zelfde foutbeleid als de podcast-flow: 429/5xx levert mislukking op, gebruiker mag opnieuw proberen).
+- **Samenvatting**: Claude (`mainModel`) maakt op basis van het transcript een 4-7 alinea NL plain-text samenvatting met focus op tools, sprekers, voorbeelden en concrete inhoud.
+- **Persistentie**: de samenvatting wordt opgeslagen in `event_videos.summary_nl` via een aparte `UPDATE` (de discovery-upsert raakt dit veld bewust niet aan, anders zou een tweede discovery de samenvatting wissen). Het discovery-pad behoudt `summary_nl` bij `ON CONFLICT`.
+- **Idempotentie**: een tweede call met een al opgeslagen samenvatting komt direct terug zonder AI-calls. Een per-(user, event, video) `ReentrantLock` voorkomt dat twee gelijktijdige drukken op de knop twee Whisper-/Claude-calls triggeren.
+- **Foutgedrag**: als zowel YouTube-transcript als Whisper niets oplevert, geeft het endpoint `502 Bad Gateway`; de UI toont "Samenvatting kon niet worden gemaakt" en de knop blijft beschikbaar.
+- **Logging/metrics**: Claude wordt gelogd als `event_video_summarize`, yt-dlp als `event_video_audio_download`, YouTube-timedtext als `event_video_transcript_fetch`, Whisper als bestaand `podcast_transcribe`. Micrometer registreert `newsfeed.event_videos.summary.duration` en `newsfeed.event_videos.summary.count` (beide met `result`-tag: `ok`, `cache_hit`, `no_transcript`, `summarize_failed`, `error`, `not_found`).
+
 ### 6.7 Onderwerp-geschiedenis
 
 De onderwerp-geschiedenis (`topic_history.json`) wordt bijgehouden per gebruiker en bijgewerkt na:
