@@ -3,6 +3,7 @@ package com.vdzon.newsfeedbackend.settings.infrastructure
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate
 import org.springframework.stereotype.Component
+import org.springframework.transaction.annotation.Transactional
 
 /**
  * KAN-68: per-user lijst met event-namen (seeds) die de gebruiker wil
@@ -23,6 +24,11 @@ class EventPreferencesRepository(
             String::class.java
         )
 
+    /**
+     * DELETE + N INSERTs in één transactie zodat een mid-save fout de
+     * gebruiker niet met een lege of half-opgeslagen lijst achterlaat.
+     */
+    @Transactional
     fun save(username: String, names: List<String>) {
         jdbc.update(
             "DELETE FROM event_preferences WHERE username = :u",
