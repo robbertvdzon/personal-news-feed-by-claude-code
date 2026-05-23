@@ -3,12 +3,17 @@ package com.vdzon.newsfeedbackend.settings.api
 import com.vdzon.newsfeedbackend.podcast_source.PodcastIngestionTrigger
 import com.vdzon.newsfeedbackend.podcast_source.infrastructure.PodcastFeedFetcher
 import com.vdzon.newsfeedbackend.settings.CategorySettings
+import com.vdzon.newsfeedbackend.settings.EventDenylist
+import com.vdzon.newsfeedbackend.settings.EventPreferences
 import com.vdzon.newsfeedbackend.settings.PodcastFeedsSettings
 import com.vdzon.newsfeedbackend.settings.RssFeedsSettings
 import com.vdzon.newsfeedbackend.settings.SettingsService
 import com.vdzon.newsfeedbackend.common.SecurityHelpers
 import org.springframework.http.HttpStatus
+import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.PathVariable
+import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.PutMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RestController
@@ -68,4 +73,51 @@ class SettingsController(
         podcastTrigger.trigger(u)
         return saved
     }
+
+    // ── KAN-68: event-voorkeuren ────────────────────────────────────
+
+    @GetMapping("/api/settings/event-preferences")
+    fun getEventPreferences(): EventPreferences = service.getEventPreferences(user())
+
+    /**
+     * Vervangt de volledige lijst event-voorkeuren in één call. Lege
+     * en duplicaat-namen worden door de service genegeerd.
+     */
+    @PutMapping("/api/settings/event-preferences")
+    fun saveEventPreferences(@RequestBody body: EventPreferences): EventPreferences =
+        service.saveEventPreferences(user(), body)
+
+    /**
+     * Voegt één naam toe. Idempotent — bestaat 'ie al dan blijft de
+     * lijst onveranderd. Returnt de actuele lijst zodat de frontend
+     * niet apart hoeft te herfetchen.
+     */
+    @PostMapping("/api/settings/event-preferences")
+    fun addEventPreference(@RequestBody body: AddEventPreferenceRequest): EventPreferences {
+        val name = body.name.trim()
+        if (name.isBlank()) {
+            throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Naam mag niet leeg zijn")
+        }
+        return service.addEventPreference(user(), name)
+    }
+
+    @DeleteMapping("/api/settings/event-preferences/{name}")
+    fun removeEventPreference(@PathVariable name: String): EventPreferences =
+        service.removeEventPreference(user(), name)
+
+    // ── KAN-68: event-denylist ──────────────────────────────────────
+
+    @GetMapping("/api/settings/event-denylist")
+    fun getEventDenylist(): EventDenylist = service.getEventDenylist(user())
+
+    /**
+     * Haal één id van de denylist af. De eerstvolgende discovery-run
+     * vindt 'm dan weer als seed/match.
+     */
+    @DeleteMapping("/api/settings/event-denylist/{normalizedId}")
+    fun removeFromEventDenylist(@PathVariable normalizedId: String): EventDenylist =
+        service.removeEventFromDenylist(user(), normalizedId)
 }
+
+/** KAN-68: body voor POST /api/settings/event-preferences. */
+data class AddEventPreferenceRequest(val name: String)
