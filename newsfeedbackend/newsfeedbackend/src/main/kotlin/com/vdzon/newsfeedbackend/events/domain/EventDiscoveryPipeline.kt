@@ -8,6 +8,7 @@ import com.vdzon.newsfeedbackend.external_call.ExternalCall
 import com.vdzon.newsfeedbackend.feed.FeedItem
 import com.vdzon.newsfeedbackend.feed.FeedService
 import com.vdzon.newsfeedbackend.request.infrastructure.TavilyClient
+import com.vdzon.newsfeedbackend.request.infrastructure.TavilyResult
 import com.vdzon.newsfeedbackend.settings.CategorySettings
 import com.vdzon.newsfeedbackend.settings.SettingsService
 import io.micrometer.core.instrument.MeterRegistry
@@ -26,17 +27,24 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.locks.ReentrantLock
 
 /**
- * KAN-65: ontdekt per gebruiker grote tech-events met Tavily web-search +
- * Claude, op basis van de ingeschakelde categorieën. Mirror van de
- * [com.vdzon.newsfeedbackend.rss.domain.RssRefreshPipeline]-architectuur:
- * een @Async @EventListener met een per-user ReentrantLock zodat een
- * handmatige trigger en de wekelijkse cron elkaar niet in de wielen rijden.
+ * KAN-65 + KAN-68: ontdekt per gebruiker grote tech-events met Tavily
+ * web-search + Claude.
  *
- * Per ontdekt event:
- *  - dedup op de stabiele id (genormaliseerde naam + jaar) per gebruiker;
- *    een bestaand event wordt bijgewerkt, niet gedupliceerd.
- *  - bij een NIEUW event wordt een Nederlands aankondigings-FeedItem
- *    aangemaakt met verwijzing naar de Events-sectie.
+ * KAN-68 verandert de seed-strategie:
+ *  - Primaire bron: de per-user lijst event-voorkeuren (vrije namen,
+ *    bv. "JavaOne", "KotlinConf"). Per naam doen we één gerichte
+ *    Tavily-search + één Claude-extract.
+ *  - Secundaire bron: de bestaande categorie-settings (KAN-65 gedrag).
+ *  - Ná de seed-pass één extra "similar"-Claude-call die op basis van de
+ *    voorkeuren-lijst soortgelijke events binnen dezelfde scene/community
+ *    voorstelt. Cap: 1 extra call per run per user.
+ *  - Events zonder valide start_date krijgen één extra Tavily-lookup;
+ *    levert die nog steeds niets op dan wordt het event verworpen.
+ *  - De denylist filtert weg: een eerder verwijderd event wordt niet
+ *    opnieuw aangemaakt.
+ *
+ * Per-user ReentrantLock + Spring @EventListener/@Async — identiek
+ * patroon als [com.vdzon.newsfeedbackend.rss.domain.RssRefreshPipeline].
  */
 @Component
 class EventDiscoveryPipeline(
@@ -50,6 +58,13 @@ class EventDiscoveryPipeline(
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
     private val locks = ConcurrentHashMap<String, ReentrantLock>()
+
+    /**
+     * Max aantal voorkeuren dat we per run als seed gebruiken. Boven
+     * deze cap kappen we af zodat één gebruiker met een rare lange
+     * lijst (50+ namen) niet ineens 50× Tavily belt.
+     */
+    private val maxSeedQueries = 20
 
     @EventListener
     @Async
@@ -65,18 +80,61 @@ class EventDiscoveryPipeline(
         try {
             val started = Instant.now()
             log.info("[Events] start event-discovery voor '{}'", username)
+
+            val preferences = settings.getEventPreferences(username).names.take(maxSeedQueries)
+            val denylist = settings.getEventDenylist(username).entries.map { it.normalizedId }.toHashSet()
             val cats = settings.getCategories(username).filter { it.enabled && !it.isSystem }
-            if (cats.isEmpty()) {
-                log.info("[Events] geen ingeschakelde categorieën voor '{}' — niets te zoeken", username)
+
+            if (preferences.isEmpty() && cats.isEmpty()) {
+                log.info("[Events] geen voorkeuren én geen categorieën voor '{}' — niets te zoeken", username)
                 return
             }
-            // Mutable working-set zodat dedup ook binnen één run werkt
-            // (twee categorieën kunnen hetzelfde event vinden).
+
             val existing = repo.load(username)
-            val knownIds = existing.map { it.id }.toHashSet()
             var newCount = 0
             var updatedCount = 0
+            var rejectedNoDate = 0
+            var rejectedDenylisted = 0
 
+            // ── 1. Per voorkeur (PRIMAIRE seed) ──────────────────────
+            for (pref in preferences) {
+                val today = LocalDate.now()
+                val year = today.year
+                val query = "$pref conference $year ${year + 1} dates location"
+                log.info("[Events] seed '{}' → Tavily-search: {}", pref, query)
+                val results = tavily.search(username, query, days = 365, maxResults = 10)
+                if (results.isEmpty()) {
+                    log.info("[Events]   geen zoekresultaten voor seed '{}'", pref)
+                    continue
+                }
+                val discovered = extractEventsForSeed(username, pref, results)
+                log.info("[Events]   AI haalde {} events uit {} resultaten voor seed '{}'",
+                    discovered.size, results.size, pref)
+                val outcome = persistDiscovered(
+                    username, discovered, existing, denylist
+                )
+                newCount += outcome.created
+                updatedCount += outcome.updated
+                rejectedNoDate += outcome.rejectedNoDate
+                rejectedDenylisted += outcome.rejectedDenylisted
+            }
+
+            // ── 2. Eén "similar"-call op basis van de voorkeuren ────
+            if (preferences.isNotEmpty()) {
+                val similar = discoverSimilar(username, preferences)
+                if (similar.isNotEmpty()) {
+                    log.info("[Events] similar-call gaf {} kandidaten", similar.size)
+                    val outcome = persistDiscovered(
+                        username, similar, existing, denylist
+                    )
+                    newCount += outcome.created
+                    updatedCount += outcome.updated
+                    rejectedNoDate += outcome.rejectedNoDate
+                    rejectedDenylisted += outcome.rejectedDenylisted
+                }
+            }
+
+            // ── 3. Secundair: categorie-gebaseerde discovery (KAN-65) ─
             for (cat in cats) {
                 val query = "${cat.name} tech conference event keynote sessions 2025 2026"
                 log.info("[Events] categorie '{}' → Tavily-search: {}", cat.id, query)
@@ -85,41 +143,26 @@ class EventDiscoveryPipeline(
                     log.info("[Events]   geen zoekresultaten voor '{}'", cat.id)
                     continue
                 }
-                val discovered = extractEvents(username, cat, results)
+                val discovered = extractEventsForCategory(username, cat, results)
                 log.info("[Events]   AI haalde {} events uit {} resultaten voor '{}'",
                     discovered.size, results.size, cat.id)
-                for (ev in discovered) {
-                    if (!withinWindow(ev.startDate)) {
-                        log.debug("[Events]   skip '{}' — buiten window (start={})", ev.id, ev.startDate)
-                        continue
-                    }
-                    val prior = existing.find { it.id == ev.id }
-                    if (prior != null) {
-                        repo.upsert(username, ev.copy(
-                            feedItemId = prior.feedItemId,
-                            createdAt = prior.createdAt,
-                            updatedAt = Instant.now()
-                        ))
-                        updatedCount++
-                    } else {
-                        val feedItem = announcementFeedItem(ev)
-                        feed.save(username, feedItem)
-                        val saved = ev.copy(feedItemId = feedItem.id)
-                        repo.upsert(username, saved)
-                        existing.add(saved)
-                        knownIds.add(saved.id)
-                        newCount++
-                        log.info("[Events]   NIEUW event '{}' ({}) + aankondiging in feed", ev.id, ev.name)
-                    }
-                }
+                val outcome = persistDiscovered(
+                    username, discovered, existing, denylist
+                )
+                newCount += outcome.created
+                updatedCount += outcome.updated
+                rejectedNoDate += outcome.rejectedNoDate
+                rejectedDenylisted += outcome.rejectedDenylisted
             }
 
             meters.counter("newsfeed.events.discovered", "username", username).increment(newCount.toDouble())
             meters.timer("newsfeed.events.discovery.duration", "username", username)
                 .record(Duration.between(started, Instant.now()))
             val took = Duration.between(started, Instant.now()).seconds.toInt()
-            log.info("[Events] klaar voor '{}': {} nieuw, {} bijgewerkt, duur {}s",
-                username, newCount, updatedCount, took)
+            log.info(
+                "[Events] klaar voor '{}': {} nieuw, {} bijgewerkt, {} verworpen (no-date), {} overgeslagen (denylist), duur {}s",
+                username, newCount, updatedCount, rejectedNoDate, rejectedDenylisted, took
+            )
         } catch (e: Exception) {
             log.error("[Events] discovery mislukt voor '{}': {}", username, e.message, e)
         } finally {
@@ -128,10 +171,258 @@ class EventDiscoveryPipeline(
         }
     }
 
-    private fun extractEvents(
+    private data class PersistOutcome(
+        val created: Int,
+        val updated: Int,
+        val rejectedNoDate: Int,
+        val rejectedDenylisted: Int
+    )
+
+    /**
+     * Verwerkt een verzameling discovered events: dedup, denylist,
+     * date-recovery-via-Tavily, opslag + aankondigings-FeedItem voor
+     * écht nieuwe events. De `existing`-lijst wordt in-place
+     * geüpdatet zodat een tweede call binnen dezelfde run ook
+     * direct dedup op de net-aangemaakte events.
+     */
+    private fun persistDiscovered(
+        username: String,
+        discovered: List<Event>,
+        existing: MutableList<Event>,
+        denylist: HashSet<String>
+    ): PersistOutcome {
+        var created = 0
+        var updated = 0
+        var rejectedNoDate = 0
+        var rejectedDenylisted = 0
+
+        for (raw in discovered) {
+            if (raw.id in denylist) {
+                log.debug("[Events]   skip '{}' — staat op denylist", raw.id)
+                rejectedDenylisted++
+                continue
+            }
+            // KAN-68 AC: events zonder geldige start_date worden niet opgeslagen.
+            // Probeer eerst één extra Tavily-lookup om de datum te
+            // vinden voordat we 'm weggooien.
+            val ev = ensureStartDate(username, raw)
+            if (!hasValidStartDate(ev.startDate)) {
+                log.info("[Events]   verwerp '{}' ({}) — geen geldige datum gevonden", ev.id, ev.name)
+                rejectedNoDate++
+                continue
+            }
+            if (!withinWindow(ev.startDate)) {
+                log.debug("[Events]   skip '{}' — buiten window (start={})", ev.id, ev.startDate)
+                continue
+            }
+            val prior = existing.find { it.id == ev.id }
+            if (prior != null) {
+                val merged = ev.copy(
+                    feedItemId = prior.feedItemId,
+                    createdAt = prior.createdAt,
+                    updatedAt = Instant.now()
+                )
+                repo.upsert(username, merged)
+                val idx = existing.indexOf(prior)
+                if (idx >= 0) existing[idx] = merged
+                updated++
+            } else {
+                val feedItem = announcementFeedItem(ev)
+                feed.save(username, feedItem)
+                val saved = ev.copy(feedItemId = feedItem.id)
+                repo.upsert(username, saved)
+                existing.add(saved)
+                created++
+                log.info("[Events]   NIEUW event '{}' ({}) + aankondiging in feed", ev.id, ev.name)
+            }
+        }
+        return PersistOutcome(created, updated, rejectedNoDate, rejectedDenylisted)
+    }
+
+    /** True alleen voor een ISO-8601 YYYY-MM-DD-string die parsebaar is. */
+    private fun hasValidStartDate(startDate: String?): Boolean {
+        if (startDate.isNullOrBlank()) return false
+        return runCatching { LocalDate.parse(startDate) }.isSuccess
+    }
+
+    /**
+     * Eén extra Tavily-lookup voor events zonder valide datum. We
+     * proberen één gerichte query ("<naam> dates 2025 2026") en
+     * vragen Claude alleen om een datum te extraheren. Faalt dat,
+     * dan komt het event terug met onveranderde (nog steeds null)
+     * startDate en wordt later in de pipeline verworpen.
+     */
+    private fun ensureStartDate(username: String, ev: Event): Event {
+        if (hasValidStartDate(ev.startDate)) return ev
+        val today = LocalDate.now()
+        val query = "${ev.name} conference dates ${today.year} ${today.year + 1}"
+        log.info("[Events]   date-lookup voor '{}': {}", ev.id, query)
+        val results = tavily.search(username, query, days = 365, maxResults = 6)
+        if (results.isEmpty()) return ev
+        return enrichWithDate(username, ev, results)
+    }
+
+    private fun enrichWithDate(username: String, ev: Event, results: List<TavilyResult>): Event {
+        val sources = results.joinToString("\n\n") { r ->
+            "URL: ${r.url}\nTitel: ${r.title}\nFragment: ${r.snippet.take(500)}"
+        }
+        val ai = anthropic.complete(
+            operation = "discoverEventDate",
+            action = ExternalCall.ACTION_EVENT_DISCOVERY,
+            username = username,
+            subject = "Datum-lookup voor ${ev.name}",
+            model = anthropic.summaryModel(),
+            maxTokens = 500,
+            system = """
+                Je bent een tech-event-analist. Uit zoekresultaten haal je de
+                begin- en einddatum van één specifiek event.
+
+                Regels:
+                - startDate / endDate in YYYY-MM-DD-formaat. Laat null wanneer
+                  je echt geen datum kunt vinden.
+                - Antwoord met ALLEEN een puur JSON-object, geen markdown-fences,
+                  geen prose ervoor of erna.
+            """.trimIndent(),
+            user = """
+                Event: ${ev.name}${ev.organization?.let { " (van $it)" } ?: ""}
+
+                Zoekresultaten:
+                $sources
+
+                Antwoord met een JSON-object:
+                {"startDate":"2026-03-17","endDate":"2026-03-20"}
+            """.trimIndent()
+        )
+        return try {
+            val tree = mapper.readTree(extractJson(ai.text))
+            val start = tree.path("startDate").asText(null)?.takeIf { it.isNotBlank() }
+            val end = tree.path("endDate").asText(null)?.takeIf { it.isNotBlank() }
+            if (start == null || runCatching { LocalDate.parse(start) }.isFailure) {
+                ev
+            } else {
+                ev.copy(
+                    startDate = start,
+                    endDate = end ?: ev.endDate,
+                    sourceLinks = (ev.sourceLinks + results.map { it.url }).distinct()
+                )
+            }
+        } catch (e: Exception) {
+            log.warn("[Events]   date-lookup parse-fout voor '{}': {}", ev.id, e.message)
+            ev
+        }
+    }
+
+    /**
+     * Voor één voorkeur (vrije naam) uit zoekresultaten events
+     * extraheren. De prompt stuurt expliciet op die specifieke naam —
+     * we accepteren ook duidelijke jaar-varianten ("JavaOne 2026"
+     * matched op "JavaOne").
+     */
+    private fun extractEventsForSeed(
+        username: String,
+        seedName: String,
+        results: List<TavilyResult>
+    ): List<Event> {
+        val today = LocalDate.now()
+        val sources = results.joinToString("\n\n") { r ->
+            "URL: ${r.url}\nTitel: ${r.title}\nFragment: ${r.snippet.take(500)}"
+        }
+        val ai = anthropic.complete(
+            operation = "discoverEventsSeed",
+            action = ExternalCall.ACTION_EVENT_DISCOVERY,
+            username = username,
+            subject = "Seed-event '$seedName'",
+            model = anthropic.mainModel(),
+            maxTokens = 4000,
+            system = """
+                Je bent een tech-event-analist. Uit zoekresultaten haal je de
+                edities van één specifiek event (de "seed") en eventueel
+                gerelateerde, sterk overlappende edities (bv. een regionaal
+                zusterevent met dezelfde organisatie).
+
+                Regels:
+                - Geef per editie een stabiele id: genormaliseerde naam + jaar in
+                  kleine letters met streepjes, bv. "javaone-2026", "kubecon-eu-2026".
+                - Begin- en einddatum in YYYY-MM-DD. Laat null wanneer je de
+                  datum niet zeker weet — er volgt nog een extra check.
+                - De beschrijving is in het NEDERLANDS en benoemt onderwerpen/thema's.
+                - organization mag null zijn wanneer onbekend.
+                - sourceLinks: de URL('s) waar de info vandaan komt.
+                - Negeer kleine meetups, webinars, cursussen, niet-tech events.
+                - Antwoord met ALLEEN een pure JSON-array, geen markdown-codefences,
+                  geen prose ervoor of erna.
+            """.trimIndent(),
+            user = """
+                Vandaag is het $today. We zoeken alleen edities die nog komen of
+                die maximaal één jaar geleden waren (dus vanaf ${today.minusYears(1)}).
+
+                Seed-event: $seedName
+
+                Zoekresultaten:
+                $sources
+
+                Antwoord met een JSON-array. Voor elke editie één object:
+                [{"id":"javaone-2026","name":"JavaOne 2026","organization":"Oracle",
+                  "startDate":"2026-03-17","endDate":"2026-03-20","location":"Redwood Shores, CA",
+                  "description":"Nederlandse beschrijving van de onderwerpen","sourceLinks":["https://..."]}]
+            """.trimIndent()
+        )
+        return parseEvents(ai.text, "seed:$seedName", "overig")
+    }
+
+    /**
+     * Eén Claude-call die op basis van de hele voorkeuren-lijst
+     * vergelijkbare events binnen dezelfde scene/community/technologie
+     * voorstelt. Geen Tavily-grounding — Claude valt terug op zijn
+     * eigen kennis. Cap: 1 call per run.
+     */
+    private fun discoverSimilar(username: String, preferences: List<String>): List<Event> {
+        val today = LocalDate.now()
+        val prefList = preferences.joinToString("\n") { "- $it" }
+        val ai = anthropic.complete(
+            operation = "discoverEventsSimilar",
+            action = ExternalCall.ACTION_EVENT_DISCOVERY,
+            username = username,
+            subject = "Vergelijkbare events voor ${preferences.size} voorkeuren",
+            model = anthropic.mainModel(),
+            maxTokens = 4000,
+            system = """
+                Je bent een tech-event-analist. Op basis van een lijst events
+                waar de gebruiker in geïnteresseerd is stel je vergelijkbare
+                edities voor: events binnen dezelfde scene, community of
+                technologie. Bv. iemand met "KotlinConf" en "Devoxx" zou ook
+                "JetBrains Day" en "Devoxx UK" willen zien.
+
+                Regels:
+                - Geef alleen events die in de toekomst liggen of maximaal één
+                  jaar geleden waren.
+                - Stel maximaal 12 events voor; kies kwaliteit boven kwantiteit.
+                - Geef per event een stabiele id: genormaliseerde naam + jaar.
+                - Begin- en einddatum in YYYY-MM-DD wanneer je 'm met zekerheid
+                  weet, anders null.
+                - De beschrijving is in het NEDERLANDS en legt kort uit waarom
+                  dit event matcht ("vergelijkbaar met …").
+                - Geen events die letterlijk in de voorkeuren-lijst staan.
+                - Antwoord met ALLEEN een pure JSON-array, geen markdown-fences.
+            """.trimIndent(),
+            user = """
+                Vandaag is het $today. Hier is de voorkeuren-lijst van de gebruiker:
+
+                $prefList
+
+                Antwoord met een JSON-array. Voor elk vergelijkbaar event één object:
+                [{"id":"jetbrains-day-2026","name":"JetBrains Day 2026","organization":"JetBrains",
+                  "startDate":null,"endDate":null,"location":"Online",
+                  "description":"Nederlandse beschrijving + waarom dit matcht","sourceLinks":[]}]
+            """.trimIndent()
+        )
+        return parseEvents(ai.text, "similar", "overig")
+    }
+
+    private fun extractEventsForCategory(
         username: String,
         cat: CategorySettings,
-        results: List<com.vdzon.newsfeedbackend.request.infrastructure.TavilyResult>
+        results: List<TavilyResult>
     ): List<Event> {
         val today = LocalDate.now()
         val sources = results.joinToString("\n\n") { r ->
@@ -176,11 +467,19 @@ class EventDiscoveryPipeline(
                   "description":"Nederlandse beschrijving van de onderwerpen","sourceLinks":["https://..."]}]
             """.trimIndent()
         )
+        return parseEvents(ai.text, "category:${cat.id}", cat.id)
+    }
+
+    /**
+     * Common parsing van een JSON-array Claude-response naar [Event]s.
+     * `tag` is alleen voor logging zodat we in de stack zien welke
+     * seed/categorie de output gaf.
+     */
+    private fun parseEvents(text: String, tag: String, defaultCategory: String): List<Event> {
         return try {
-            val tree = mapper.readTree(extractJson(ai.text))
+            val tree = mapper.readTree(extractJson(text))
             if (!tree.isArray) {
-                log.warn("[Events] AI gaf geen JSON-array voor '{}' — eerste 300 chars: {}",
-                    cat.id, ai.text.take(300))
+                log.warn("[Events] AI gaf geen JSON-array voor '{}' — eerste 300 chars: {}", tag, text.take(300))
                 return emptyList()
             }
             tree.mapNotNull { node ->
@@ -196,12 +495,11 @@ class EventDiscoveryPipeline(
                     location = node.path("location").asText(""),
                     description = node.path("description").asText(""),
                     sourceLinks = node.path("sourceLinks").mapNotNull { it.asText(null) }.filter { it.isNotBlank() },
-                    category = cat.id
+                    category = defaultCategory
                 )
             }
         } catch (e: Exception) {
-            log.warn("[Events] parse-fout voor '{}': {} — eerste 300 chars: {}",
-                cat.id, e.message, ai.text.take(300))
+            log.warn("[Events] parse-fout voor '{}': {} — eerste 300 chars: {}", tag, e.message, text.take(300))
             emptyList()
         }
     }
@@ -238,8 +536,8 @@ class EventDiscoveryPipeline(
 
     /** Houd events die in de toekomst liggen of maximaal één jaar terug zijn. */
     private fun withinWindow(startDate: String?): Boolean {
-        if (startDate == null) return true // datum onbekend → behouden, gebruiker beslist
-        val d = runCatching { LocalDate.parse(startDate) }.getOrNull() ?: return true
+        if (startDate == null) return false // KAN-68: null mag hier niet meer doorkomen
+        val d = runCatching { LocalDate.parse(startDate) }.getOrNull() ?: return false
         return !d.isBefore(LocalDate.now().minusYears(1))
     }
 
