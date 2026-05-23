@@ -84,12 +84,15 @@ De factory gebruikt **één Jira-status: `AI`**. Zolang een ticket op
 binnen die status wordt bepaald door de custom fields uit §3.2
 (vooral `AI Phase`, `Paused`, en `Error`).
 
-Eindstatus is **`Done`**, die de orchestrator zelf zet als de
-pipeline klaar is (na `tested-succesfully` of na een handmatig
-afsluitcommando — zie §11). Alle andere Jira-statussen (`Todo`,
-`In Progress`, etc.) zijn buiten scope van de factory: een ticket
-moet eerst handmatig op `AI` gezet worden voordat de factory 'm
-oppakt.
+**De orchestrator wijzigt nooit zelf de Jira-status.** Status-wisselen
+is altijd een mensactie. Wanneer de factory klaar is met haar werk
+(phase = `tested-succesfully`) doet de orchestrator niets meer met
+het ticket — de gebruiker test desgewenst zelf, mergt zelf, en zet
+zelf de status op `Done` (of geeft via een comment/PR-mention extra
+feedback waardoor het ticket terug de loop ingaat — zie §5 en §11).
+Alle andere Jira-statussen (`Todo`, `In Progress`, etc.) zijn buiten
+scope van de factory: een ticket moet eerst handmatig op `AI` gezet
+worden voordat de factory 'm oppakt.
 
 ### 3.2 Custom fields
 
@@ -227,21 +230,51 @@ Bestanden mogen leeg blijven als er nog niets te zeggen valt, maar
 ze moeten **bestaan** — anders weet een agent niet of er info
 ontbreekt of dat de repo nog niet factory-ready is.
 
-### 4.2 Welke documenten welke agent leest
+### 4.2 Hoe agents de docs gebruiken
 
-Aan het begin van elke agent-run leest de agent een vaste set
-documenten en bundelt die in zijn prompt-context:
+Elke agent krijgt aan het begin van zijn run **dezelfde index van
+alle aanwezige docs** + de **inhoud van zijn eigen
+`agents/<role>.md`**. Op die manier weet hij van alle bestanden
+*dat ze er zijn* (zonder ze allemaal volledig in de prompt te
+proppen), én heeft hij zijn rol-specifieke aanwijzingen direct
+beschikbaar.
 
-| Agent     | Leest altijd                                    | Plus rol-specifiek                                  |
-|-----------|-------------------------------------------------|-----------------------------------------------------|
-| Refiner   | `README.md` + `agents/refiner.md`               | `functional-spec.md`                                |
-| Developer | `README.md` + `agents/developer.md`             | `development.md` + `technical-spec.md`              |
-| Reviewer  | `README.md` + `agents/reviewer.md`              | `technical-spec.md`                                 |
-| Tester    | `README.md` + `agents/tester.md`                | `deployment.md` + `secrets-local.md`                |
+Voorbeeld van wat de agent in z'n prompt-context krijgt:
+
+```
+docs/factory/ — repo-documentatie voor de software factory.
+  README.md           — globale repo-context
+  secrets-local.md    — secrets voor lokaal draaien
+  deployment.md       — deploy-info + factory-config (preview-URL,
+                        preview-namespace, …)
+  development.md      — build/test-commando's, repo-structuur
+  functional-spec.md  — wat de app doet
+  technical-spec.md   — welke technieken/conventies te gebruiken
+  agents/refiner.md   — instructies voor de refiner
+  agents/developer.md — instructies voor de developer
+  agents/reviewer.md  — instructies voor de reviewer
+  agents/tester.md    — instructies voor de tester
+
+Lees deze bestanden via je file-tools als je extra context nodig
+hebt. Hieronder volgen je eigen rol-specifieke instructies:
+
+<<inhoud van docs/factory/agents/<role>.md>>
+```
 
 De agent-base image krijgt een Kotlin-helper `loadFactoryDocs(role)`
-die deze bestanden inleest en samenvoegt; agents geven dit blok als
-extra system-prompt mee aan de AI CLI.
+die de index opbouwt (op basis van wat er fysiek bestaat in de
+clone) en de eigen rol-doc inleest. Agents geven dit blok als
+extra system-prompt mee aan de AI CLI. Wat ze daarna verder lezen,
+bepalen ze zelf via hun gewone Read-tool.
+
+In de praktijk kies elke rol typisch:
+
+- **Refiner** → `functional-spec.md`
+- **Developer** → `development.md` + `technical-spec.md`
+- **Reviewer** → `technical-spec.md`
+- **Tester** → `deployment.md` + `secrets-local.md`
+
+Maar agents zijn vrij om verder te lezen als de story dat vraagt.
 
 ### 4.3 Machine-leesbare config in `deployment.md`
 
@@ -276,16 +309,33 @@ zijn gemounte kubeconfig.
 
 ### 4.4 Wat als `docs/factory/` ontbreekt
 
-Bij een nieuwe target-repo waar de map nog niet bestaat:
+Bij een nieuwe target-repo waar de map nog niet bestaat: **gewoon
+doorgaan**. Het is een soft-signaal, geen blokkade.
 
-1. De refiner is de eerste agent die de repo clone't. Hij detecteert
-   het ontbreken van `docs/factory/`.
-2. Hij schrijft een uitlegtekst in het `Error`-veld
-   (§3.2) en stopt. De gebruiker ziet het ticket geblokkeerd staan.
-3. De gebruiker voegt de map handmatig toe (eventueel met behulp van
-   het CLI-commando hieronder), commit + push, leegt het
-   `Error`-veld, en de orchestrator pakt de story automatisch weer
-   op.
+1. De runner detecteert bij het clone'n dat `docs/factory/`
+   ontbreekt en voegt een **bootstrap-notice** toe aan de task-context
+   die naar de agent gaat:
+
+   > Deze repo heeft nog geen `docs/factory/`-map. Er is dus nog
+   > geen extra info over deze codebase beschikbaar buiten wat in
+   > de Jira-story staat. De **developer** wordt geacht de map en
+   > de standaardbestanden aan te maken op basis van de skeleton-
+   > template (gemount op `/usr/local/share/factory/docs-skeleton/`)
+   > en aan te vullen met informatie uit deze story en de
+   > bestaande repo-structuur, als onderdeel van zijn PR.
+2. De **refiner** neemt dit op als extra acceptance-criterion in
+   zijn refined story ("plus: maak `docs/factory/` aan en vul de
+   bestanden").
+3. De **developer** voert dat criterion samen met de feature uit
+   in dezelfde PR — `docs/factory/` aanmaken vanuit de skeleton-
+   template, en de bestanden vullen met wat hij weet over de repo
+   en de story.
+4. Vanaf de volgende story heeft die repo z'n docs en gedraagt 'ie
+   zich normaal.
+
+De skeleton-template (`/usr/local/share/factory/docs-skeleton/` in
+de agent-image) bevat alle bestanden uit §4.1 met placeholder-content
+en commentaarregels die de developer helpen invullen.
 
 ### 4.5 `factory init-repo` — bootstrap-commando
 
@@ -326,7 +376,7 @@ target-repo.
 | `reviewed-with-feedback-for-developer` | Reviewer heeft op- of aanmerkingen.                    | developer → `developing`      |
 | `review-finished`                      | Review akkoord.                                        | tester → `testing`            |
 | `tested-with-feedback-for-developer`   | Tester vond bug(s).                                    | developer → `developing`      |
-| `tested-succesfully`                   | Eindstatus: alles klaar.                               | status → `Done`               |
+| `tested-succesfully`                   | Factory is klaar. Orchestrator doet niets meer met dit ticket. | niets — gebruiker test zelf, mergt, en zet Jira-status op `Done`. Of geeft feedback (zie hieronder). |
 
 **Speciale phase:**
 
@@ -345,7 +395,7 @@ developed                               → start reviewer   → phase=reviewing
 reviewed-with-feedback-for-developer    → start developer  → phase=developing
 review-finished                         → start tester     → phase=testing
 tested-with-feedback-for-developer      → start developer  → phase=developing
-tested-succesfully                      → status=Done
+tested-succesfully                      → (orchestrator stopt; gebruiker is aan zet — zie §5.3)
 ```
 
 Agents zetten zelf de "klare" phase (`developed`, `review-finished`,
@@ -355,6 +405,20 @@ poll, schrijft de bijbehorende `*ing`-phase en start de volgende agent.
 **Geen aparte phase voor "wacht op PO" buiten de refiner.** Andere
 agents die ergens niet uitkomen schrijven in `Error` en stoppen
 (zie §3.2 / §3.4). De orchestrator pakt op zodra `Error` weer leeg is.
+
+### 5.3 Na `tested-succesfully`
+
+De orchestrator stopt met dit ticket — er gebeurt niets meer
+automatisch. De gebruiker heeft nu drie opties:
+
+1. **Accepteren:** zelf de PR mergen en de Jira-status op `Done`
+   zetten. Klaar.
+2. **Feedback geven via Jira-comment:** een comment schrijven en
+   de phase terug zetten naar `tested-with-feedback-for-developer`
+   (of `reviewed-with-feedback-for-developer`). Orchestrator pakt
+   weer op en stuurt naar de developer.
+3. **Feedback geven via PR-comment:** een `@claude`-mention in
+   de PR plaatsen. De PR-comment-iteratie-flow (§11.3) pakt 'm op.
 
 ---
 
@@ -379,7 +443,8 @@ agents die ergens niet uitkomen schrijven in `Error` en stoppen
      check via de Docker daemon of de container nog bestaat en actief
      is. Zo niet → §6.3 stuck-detection.
   6. Als Phase `refined-with-questions-for-user` is: niets doen.
-  7. Als Phase `tested-succesfully` is: status → `Done` afronden.
+  7. Als Phase `tested-succesfully` is: niets doen — gebruiker is
+     aan zet (zie §5.3).
 
 ### 6.2 Merge-detectie
 
