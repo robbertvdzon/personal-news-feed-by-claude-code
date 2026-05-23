@@ -27,8 +27,15 @@ FROM eclipse-temurin:21-jre AS runtime
 # ffmpeg is nodig voor AudioTranscoder (KAN-60-followup): comprimeert
 # podcast-MP3's die > 25 MiB zijn naar mono 32 kbps zodat Whisper ze
 # wel accepteert. Eclipse Temurin JRE image is Ubuntu-based, dus apt.
+#
+# KAN-67: yt-dlp is de fallback voor de Nederlandse video-samenvatting —
+# als YouTube geen ondertiteling teruggeeft, downloadt yt-dlp de audio
+# als MP3 zodat WhisperClient 'm kan transcriberen. yt-dlp wordt vaak
+# geüpdate (YouTube wijzigt z'n player); we installeren via pip i.p.v.
+# apt om sneller op een nieuwere versie te kunnen ouderwetsen.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ffmpeg \
+ && apt-get install -y --no-install-recommends ffmpeg python3 python3-pip \
+ && pip3 install --no-cache-dir --break-system-packages "yt-dlp>=2024.0.0" \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
 
