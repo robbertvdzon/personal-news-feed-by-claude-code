@@ -34,6 +34,19 @@ interface EventService {
      * @Async oppakt. De call komt direct terug.
      */
     fun triggerVideoDiscovery(username: String)
+
+    /**
+     * KAN-67: maak (of geef bestaande) Nederlandse samenvatting van één
+     * video op aanvraag. Synchroon: de frontend toont een laad-indicator
+     * tot deze call terugkomt. Idempotent — een tweede call op dezelfde
+     * video met een al bestaande samenvatting doet geen AI-calls en geeft
+     * direct de opgeslagen tekst terug.
+     *
+     * Returnt de bijgewerkte [EventVideo]. Bij `null` heeft de transcript-
+     * fase niets opgeleverd (YouTube zonder ondertiteling én Whisper
+     * faalde) — caller mag een 502/error-response sturen.
+     */
+    fun ensureVideoSummary(username: String, eventId: String, videoUrl: String): EventVideo?
 }
 
 /**
@@ -74,8 +87,11 @@ data class Event(
  * [videoUrl] per (gebruiker, event); een tweede ontdekking van dezelfde
  * video werkt de bestaande rij bij i.p.v. te dupliceren.
  *
- * In deze story wordt nog GEEN samenvatting gemaakt (dat is KAN-67) —
- * alleen de video plus een eventuele Nederlandse beschrijving.
+ * KAN-67: voegt [summaryNl] toe — een on-demand Nederlandse samenvatting
+ * van de video-inhoud (op basis van transcript). Default null; wordt pas
+ * gevuld wanneer de gebruiker er expliciet om vraagt. De wekelijkse
+ * discovery-upsert (zie [com.vdzon.newsfeedbackend.events.infrastructure.EventVideoRepository])
+ * raakt dit veld bewust niet aan.
  */
 data class EventVideo(
     /** Id van het event waar deze video bij hoort. */
@@ -85,6 +101,13 @@ data class EventVideo(
     val title: String,
     /** Nederlandse beschrijving van waar de video over gaat. Null wanneer onbekend. */
     val descriptionNl: String? = null,
+    /**
+     * KAN-67: Nederlandse on-demand samenvatting van de video-inhoud
+     * (Claude op basis van YouTube- of Whisper-transcript). Null tot de
+     * gebruiker op "Maak samenvatting" drukt. Wordt nooit overschreven
+     * door de wekelijkse discovery.
+     */
+    val summaryNl: String? = null,
     val createdAt: Instant = Instant.now(),
     val updatedAt: Instant = Instant.now()
 )

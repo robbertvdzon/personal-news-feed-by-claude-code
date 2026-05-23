@@ -458,6 +458,25 @@ final eventVideosProvider =
   return list.map((e) => EventVideo.fromJson(e as Map<String, dynamic>)).toList();
 });
 
+/// KAN-67: trigger de on-demand Nederlandse samenvatting van één video.
+/// Synchroon (kan minuten duren — backend doet YouTube-transcript of
+/// Whisper + Claude). Bij succes invalidate'n we [eventVideosProvider]
+/// zodat het scherm de nieuwe `summaryNl` ophaalt en de knop verdwijnt.
+/// Gooit door bij 502/5xx zodat de UI een foutmelding kan tonen.
+Future<EventVideo> requestVideoSummary(
+  WidgetRef ref, {
+  required String eventId,
+  required String videoUrl,
+}) async {
+  final api = ref.read(apiProvider);
+  final json = await api.post(
+    '/api/events/$eventId/videos/summarize',
+    {'videoUrl': videoUrl},
+  ) as Map<String, dynamic>;
+  ref.invalidate(eventVideosProvider(eventId));
+  return EventVideo.fromJson(json);
+}
+
 class AppearanceState {
   final bool largeFont;
   const AppearanceState({this.largeFont = false});

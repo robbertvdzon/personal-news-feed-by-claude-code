@@ -547,25 +547,39 @@ class Event {
 }
 
 /// KAN-66: één online video (keynote/sessie) van een [Event]. Wekelijks
-/// ontdekt met AI + web-search. Nog GEEN samenvatting — alleen titel,
-/// URL en een eventuele Nederlandse beschrijving.
+/// ontdekt met AI + web-search.
+///
+/// KAN-67: voegt [summaryNl] toe — een Nederlandse on-demand samenvatting
+/// (transcript + Claude). Null tot de gebruiker op "Maak samenvatting"
+/// drukt; daarna voor altijd aanwezig (server-side gecachet).
 class EventVideo {
   final String eventId;
   final String videoUrl;
   final String title;
   final String? descriptionNl;
+  final String? summaryNl;
 
   EventVideo({
     required this.eventId,
     required this.videoUrl,
     required this.title,
     this.descriptionNl,
+    this.summaryNl,
   });
+
+  EventVideo copyWith({String? summaryNl}) => EventVideo(
+        eventId: eventId,
+        videoUrl: videoUrl,
+        title: title,
+        descriptionNl: descriptionNl,
+        summaryNl: summaryNl ?? this.summaryNl,
+      );
 
   factory EventVideo.fromJson(Map<String, dynamic> j) => EventVideo(
         eventId: j['eventId'] ?? '',
         videoUrl: j['videoUrl'] ?? '',
         title: j['title'] ?? '',
         descriptionNl: j['descriptionNl'],
+        summaryNl: j['summaryNl'],
       );
 }

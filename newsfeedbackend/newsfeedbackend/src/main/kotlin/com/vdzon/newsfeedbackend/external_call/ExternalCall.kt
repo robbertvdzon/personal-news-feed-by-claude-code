@@ -75,6 +75,13 @@ data class ExternalCall(
         // KAN-66: wekelijkse AI-ontdekking van video's (keynotes/sessies) per event.
         const val ACTION_EVENT_VIDEO_DISCOVERY = "event_video_discovery"
 
+        // KAN-67: on-demand Nederlandse samenvatting van één event-video.
+        const val ACTION_EVENT_VIDEO_SUMMARIZE = "event_video_summarize"
+        /** KAN-67: yt-dlp audio-download voor de Whisper-fallback. */
+        const val ACTION_EVENT_VIDEO_AUDIO_DOWNLOAD = "event_video_audio_download"
+        /** KAN-67: YouTube timedtext-fetch voor de transcript-stap. */
+        const val ACTION_EVENT_VIDEO_TRANSCRIPT_FETCH = "event_video_transcript_fetch"
+
         // UnitType-constants
         const val UNIT_TOKENS = "tokens"
         const val UNIT_CHARACTERS = "characters"
