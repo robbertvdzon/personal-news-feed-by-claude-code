@@ -160,19 +160,17 @@ onderscheiden welke comments hij al verwerkt heeft en welke nieuw
 zijn — anders raakt hij de draad kwijt bij meerdere antwoord-rondes.
 
 **Mechanisme:** zodra een agent een gebruiker-comment heeft gelezen
-én verwerkt, zet hij een **reactie** op die comment (bijvoorbeeld 👀
-of ✅). Bij een volgende run weet hij: alleen comments **zonder** mijn
-eigen reactie zijn nieuw. Comments waarop hij al heeft gereageerd zijn
-afgehandeld.
+én verwerkt, zet hij een **👀-reactie** op die comment via de
+Jira REST API. Bij een volgende run weet hij: alleen comments
+**zonder** zijn 👀 zijn nieuw. Comments waarop hij al heeft gereageerd
+zijn afgehandeld.
 
-- De Jira-comment-reactie is **visueel zichtbaar** voor de gebruiker,
-  zodat die weet dat zijn antwoord is opgepikt.
-- De reactie wordt gezet via de Jira REST API. Als reactie-endpoints
-  in onze Jira-versie niet beschikbaar blijken, valt de agent terug
-  op een **marker-tag in de body van zijn eigen reply-comment**
-  (bv. een verborgen suffix `<!-- ack:<comment_id> -->`) of een tabel
-  in de factory-DB die per (ticket, comment_id, role) een
-  `processed_at`-record bijhoudt.
+- De 👀-reactie is **visueel zichtbaar** voor de gebruiker, zodat
+  die weet dat zijn antwoord is opgepikt.
+- Als de Jira REST API in onze instance om wat voor reden ook geen
+  reacties accepteert, valt de agent terug op een tabel in de
+  factory-DB (`factory.processed_comments`, §14.1) die per
+  (ticket, comment_id, role) een `processed_at`-record bijhoudt.
 - Dezelfde regel geldt voor de **developer** bij `[REVIEWER]`- en
   `[TESTER]`-comments: hij plaatst een reactie zodra hij die feedback
   heeft verwerkt, zodat hij bij een volgende loopback alleen nieuwe
@@ -471,7 +469,7 @@ orchestrator scant elke cyclus op deze inconsistentie en herstelt:
   zodat dezelfde agent opnieuw start. Hard cap: **max 2 opeenvolgende
   transient retries** per rol per story; daarna schrijft de
   orchestrator naar `Error` met een uitleg.
-- **Hard timeout** — `AgentStartedAt` ouder dan **30 minuten** zonder
+- **Hard timeout** — `AgentStartedAt` ouder dan **60 minuten** zonder
   voortgang (configureerbaar): log + schrijf naar `Error`.
 
 ### 6.4 Concurrency
@@ -492,6 +490,24 @@ poll-tick probeert opnieuw.
 
 Per **PR** geldt bovendien een cap van **1 actieve agent**, om te
 voorkomen dat twee dispatch-paden tegelijk dezelfde branch verbouwen.
+
+### 6.5 Developer-loopback cap
+
+Om te voorkomen dat een ticket eindeloos heen-en-weer kaatst tussen
+developer ↔ reviewer of developer ↔ tester, is er een harde cap van
+**5 developer-loopbacks** per story. De orchestrator telt in
+`factory.agent_runs` hoe vaak hij voor deze story al `developing`
+heeft gedispatcht (excl. de eerste, initiële run). Bij de zesde
+keer dispatcht 'ie niet opnieuw maar schrijft naar `Error`:
+
+```
+[ORCHESTRATOR] Developer-loopback cap bereikt (5×). Handmatige
+triage nodig. Geef feedback en leeg `Error` om opnieuw te proberen,
+of zet `Paused = true` en parkeer dit ticket.
+```
+
+Cap is configureerbaar via env-var (`MAX_DEVELOPER_LOOPBACKS`,
+default 5).
 
 ---
 
@@ -604,54 +620,60 @@ De gevaarlijkste agent qua blast-radius — verdient extra grenzen.
 
 ---
 
-## 8. AI CLI tool & model-routing
+## 8. AI-aanroep — dummy in v2
 
-### 8.1 Placeholder-interface
+De keuze tussen Claude Code CLI, Codex of een andere AI-CLI is voor
+v2 **uitgesteld**. In v2 doet elke agent zijn werk met een **dummy
+implementatie** die random gedrag genereert. Dat is genoeg om de
+hele factory-flow (orchestrator, phase-machine, Docker-runner,
+cost-monitor, tips-DB, error-handling) end-to-end te testen zonder
+AI-credits te verbruiken of vast te zitten aan een CLI-keuze.
 
-De agent-code definieert een Kotlin-interface `AiClient` met één
-implementatie die een externe CLI binary aanroept. Concrete keuze
-(bv. Claude Code CLI, Aider, een eigen wrapper) wordt in een volgende
-iteratie vastgelegd, samen met het wire-protocol (stdin/stdout JSON?
-command-line prompts?).
+### 8.1 Interface
 
-### 8.2 Level-matrix
+De agent-code definieert een Kotlin-interface `AiClient`. In v2 is
+er één implementatie: `DummyAiClient`. Later komt er een tweede
+implementatie (`ClaudeCliClient`, `CodexCliClient`, ...) die dezelfde
+interface implementeert, plug-and-play.
 
-Per ticket geldt een `AI Level` (0–10). Een YAML-config-bestand in de
-factory-repo mapt elk level naar een `(model, effort)`-combinatie
-per rol. Cheapest first.
+### 8.2 Dummy-gedrag per rol
 
-```yaml
-models:
-  cheap:    { model: claude-haiku-4-5,   effort: quick   }
-  cheap+:   { model: claude-haiku-4-5,   effort: default }
-  mid:      { model: claude-sonnet-4-6,  effort: quick   }
-  mid+:     { model: claude-sonnet-4-6,  effort: default }
-  mid++:    { model: claude-sonnet-4-6,  effort: deep    }
-  premium:  { model: claude-opus-4-7,    effort: default }
-  premium+: { model: claude-opus-4-7,    effort: deep    }
+Iedere agent in v2 doet het volgende met de dummy:
 
-levels:
-  0:  { refiner: cheap,  developer: cheap,    reviewer: cheap,    tester: cheap   }
-  1:  { refiner: cheap,  developer: cheap+,   reviewer: cheap,    tester: cheap   }
-  2:  { refiner: cheap,  developer: mid,      reviewer: cheap,    tester: cheap   }
-  3:  { refiner: cheap,  developer: mid,      reviewer: cheap+,   tester: cheap+  }
-  4:  { refiner: cheap+, developer: mid+,     reviewer: mid,      tester: mid     }
-  5:  { refiner: cheap+, developer: mid+,     reviewer: mid+,     tester: mid+    }
-  6:  { refiner: mid,    developer: mid++,    reviewer: mid+,     tester: mid+    }
-  7:  { refiner: mid,    developer: premium,  reviewer: mid+,     tester: mid+    }
-  8:  { refiner: mid,    developer: premium,  reviewer: mid++,    tester: mid+    }
-  9:  { refiner: mid+,   developer: premium+, reviewer: premium,  tester: mid++   }
-  10: { refiner: mid+,   developer: premium+, reviewer: premium+, tester: premium }
-```
+| Rol       | Gedrag                                                                                                                          |
+|-----------|---------------------------------------------------------------------------------------------------------------------------------|
+| Refiner   | 70 % → `phase=refined-finished` + comment `[REFINER] (dummy) refinement OK`. 30 % → `phase=refined-with-questions-for-user` + comment `[REFINER] (dummy) vraag aan PO: …`. |
+| Developer | Altijd: voeg een placeholder-regel toe aan een bestand in de repo (bv. een timestamp in `docs/factory/.dummy-log`), commit + push, open of update PR, `phase=developed`, comment `[DEVELOPER] (dummy) placeholder-wijziging gepushed`. |
+| Reviewer  | 70 % → `phase=review-finished` + comment `[REVIEWER] (dummy) review OK`. 30 % → `phase=reviewed-with-feedback-for-developer` + comment `[REVIEWER] (dummy) feedback: …`. |
+| Tester    | 70 % → `phase=tested-succesfully` + comment `[TESTER] (dummy) tests OK`. 30 % → `phase=tested-with-feedback-for-developer` + comment `[TESTER] (dummy) bug: …`. |
 
-De orchestrator leest het level bij dispatch, mapt het via deze
-config, en geeft `CLAUDE_MODEL` + `CLAUDE_EFFORT` als env-vars mee
-aan de container.
+De dummy:
 
-### 8.3 Override via comment
+- Rapporteert **fake token-tellingen** via `POST /agent-run/complete`
+  (random input 1.000–5.000, output 500–2.000) zodat de cost-monitor
+  een realistisch beeld krijgt en je de budget-pauze-flow kunt testen.
+- Negeert `AI Level`, `CLAUDE_MODEL` en `CLAUDE_EFFORT` env-vars
+  (deze blijven wel gezet zodat de orchestrator-flow ongewijzigd is).
+- Slaapt **5–15 s** voordat hij rapporteert, om realistische timing
+  te simuleren.
+- Kan via env-var `DUMMY_FORCE_OUTCOME=ok|questions|feedback|bug|error`
+  geforceerd worden tot een specifieke uitkomst — handig voor
+  integratie-tests waarbij je een bepaalde flow wilt valideren.
+
+### 8.3 Toekomstige model-routing (uit v2)
+
+De level-matrix uit de huidige Python-impl (11 levels × 4 rollen →
+`(model, effort)`-mapping) blijft in de specs een **open ontwerp**
+maar wordt pas geïmplementeerd zodra een echte AI-CLI gekozen is.
+Tot dan negeert de dummy de waardes; de orchestrator zet de env-vars
+wel om de plumbing alvast te valideren.
+
+### 8.4 Override via comment
 
 De gebruiker kan `AI Level` op elk moment aanpassen via het
-Jira-veld, of via een comment-trigger `LEVEL=N` (zie §11.2).
+Jira-veld, of via een comment-trigger `LEVEL=N` (zie §11.2). Het
+veld wordt netjes opgeslagen en doorgegeven, maar heeft pas effect
+wanneer de echte AI-CLI is aangesloten.
 
 ---
 
@@ -1050,7 +1072,7 @@ tijdelijk onbruikbaar.
 Bij ontvangst van een `credits-exhausted`-outcome:
 
 1. Lees uit de AI CLI-output (indien beschikbaar) een retry-time;
-   anders default **1 uur** (configureerbaar).
+   anders default **30 minuten** (configureerbaar).
 2. Schrijf naar `factory.system_state`:
    - `credits_paused_until = now() + retry_duration`
    - `credits_paused_reason = "<korte uitleg + bron-ticket>"`
@@ -1162,33 +1184,4 @@ ze moeten invullen.
 
 ---
 
-## 18. Open punten / later te beslissen
 
-- **Concrete AI CLI** en het wire-protocol (stdin/stdout JSON?
-  command-line prompts?). Bepaalt ook of we
-  `AI_CREDENTIALS_DIR`-mount of `AI_OAUTH_TOKEN`-env-var gebruiken
-  (§17), én hoe we exact "credits exhausted" detecteren (§16.1).
-- **Drempelwaarde voor "agent is vastgelopen"** (default-voorstel:
-  30 min) + gedrag (alleen `Error` zetten vs kill + retry).
-- **Retry-beleid op de loop-back** (review/test → developer): nu
-  ongelimiteerd; later eventueel max N pogingen + escalatie naar
-  `Error` met een samenvatting.
-- **Jira-comment-reactie API**: of `eyes`/`checkmark` werkbaar zijn
-  via de REST-API in onze Jira-versie. Zo niet, dan vervalt §3.4
-  terug naar de `processed_comments`-tabel.
-- **Allowlist op `Target Repo`-URL's**: voorkomt dat een random
-  Jira-account de factory een willekeurige repo laat clonen.
-- **Per-rol vragen-mechanisme**: in v2 stelt alleen de refiner vragen
-  aan de PO; andere agents gebruiken `Error`. Later eventueel ook
-  een symmetrisch `*-with-questions-for-user`-pad voor developer,
-  reviewer, tester.
-- **Headless-mode / autostart**: of de orchestrator als
-  `launchd`-service (macOS) of systemd-unit (Linux) moet draaien
-  zodat hij automatisch start bij login. Voor v2 handmatig
-  (`./factory start` in een terminal).
-- **Default retry-duration voor AI-credits-pauze** (§16.2): 1 uur
-  is een gok; voor Claude Pro/Max het 5-uur-window kennen of uit
-  `Retry-After`-header lezen.
-- **Dashboard** is bewust buiten scope in v2 (komt later).
-- **Interactieve Claude-sessies** (KAN-61 in de huidige Python-impl)
-  zijn ook buiten scope in v2.
