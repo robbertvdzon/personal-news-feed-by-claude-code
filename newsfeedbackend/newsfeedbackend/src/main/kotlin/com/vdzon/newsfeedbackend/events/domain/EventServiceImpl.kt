@@ -18,7 +18,8 @@ data class EventVideoDiscoveryRequested(val username: String)
 class EventServiceImpl(
     private val repo: EventRepository,
     private val videoRepo: EventVideoRepository,
-    private val events: ApplicationEventPublisher
+    private val events: ApplicationEventPublisher,
+    private val summaryPipeline: EventVideoSummaryPipeline
 ) : EventService {
 
     override fun list(username: String): List<Event> = repo.load(username)
@@ -38,4 +39,7 @@ class EventServiceImpl(
     override fun triggerVideoDiscovery(username: String) {
         events.publishEvent(EventVideoDiscoveryRequested(username))
     }
+
+    override fun ensureVideoSummary(username: String, eventId: String, videoUrl: String): EventVideo? =
+        summaryPipeline.ensureSummary(username, eventId, videoUrl)
 }
