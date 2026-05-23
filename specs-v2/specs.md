@@ -44,8 +44,7 @@ features verloren gaan.
   lokale HTTP-endpoints voor de agents (usage-rapportage,
   tips-database).
 - **Jira-detectie:** polling (geen webhooks). De orchestrator polt elke
-  **15 seconden** alle tickets met status `AI` (en de andere
-  factory-statussen — zie §3.1).
+  **15 seconden** alle tickets met status `AI`.
 - **Agent-runtime:** elke agent draait als losse **Docker container**
   (één container per agent-run) die wordt gestart door de orchestrator
   via de lokale Docker daemon (`docker run --rm …` of de Docker SDK
@@ -65,7 +64,7 @@ features verloren gaan.
   (placeholder; concrete tool wordt in een latere iteratie vastgelegd
   — zie §8). De CLI gebruikt de **lokale gebruikers-licentie** die
   via een gemounte credentials-directory of env-var token wordt
-  doorgegeven aan elke container — zie §13 en §16.
+  doorgegeven aan elke container — zie §13 en §17.
 - **Persistentie:** **Neon Postgres**, één database, eigen schema
   `factory`. Schema-migraties via Flyway. Connection-string via
   env-var op de orchestrator én op elke agent-container.
@@ -80,48 +79,57 @@ features verloren gaan.
 
 ### 3.1 Status
 
-Er zijn meerdere statussen nodig — niet alleen `AI` en `Done`. Zonder
-extra statussen kan de orchestrator niet onderscheiden tussen "agent
-draait" en "wacht op gebruiker", en kan een gepauzeerde story niet
-betrouwbaar hervat worden.
+De factory gebruikt **één Jira-status: `AI`**. Zolang een ticket op
+`AI` staat, monitort de orchestrator het. Wat er precies gebeurt
+binnen die status wordt bepaald door de custom fields uit §3.2
+(vooral `AI Phase`, `Paused`, en `Error`).
 
-| Status           | Betekenis                                                                          | Wie zet 'm                                |
-|------------------|------------------------------------------------------------------------------------|-------------------------------------------|
-| `AI`             | Nieuwe story, opgepakt door de factory.                                            | gebruiker (initiële markering)            |
-| `AI Queued`      | Een agent-fase is afgerond; de orchestrator dispatcht zo de volgende agent.        | agent (na completion) of gebruiker        |
-| `AI In Progress` | Een agent-container draait nu echt.                                                | orchestrator (alleen die mag deze status) |
-| `AI Needs Info`  | Een agent heeft een vraag of het budget is op — gebruiker is aan zet.              | agent of cost-monitor                     |
-| `AI Paused`      | Handmatig stilgezet (lopende container wordt hard-gekilled).                       | gebruiker                                 |
-| `Done`           | Pipeline klaar (eindstatus na `tested-succesfully` of na een handmatig commando).  | orchestrator                              |
-
-**Regel:** alleen de orchestrator mag status op `AI In Progress` zetten.
-Daarmee is "draait er iets?" altijd betrouwbaar.
+Eindstatus is **`Done`**, die de orchestrator zelf zet als de
+pipeline klaar is (na `tested-succesfully` of na een handmatig
+afsluitcommando — zie §11). Alle andere Jira-statussen (`Todo`,
+`In Progress`, etc.) zijn buiten scope van de factory: een ticket
+moet eerst handmatig op `AI` gezet worden voordat de factory 'm
+oppakt.
 
 ### 3.2 Custom fields
 
 | Veld              | Type                         | Default | Doel                                                                |
 |-------------------|------------------------------|---------|---------------------------------------------------------------------|
 | `Target Repo`     | free-text (git URL)          | leeg    | Welke target-repo de factory moet clone'n en bewerken. Verplicht.   |
-| `AI Phase`        | enum (zie §5)                | leeg    | Fijnmazige state binnen de factory.                                 |
-| `AI Resume Phase` | enum (active-phases)         | leeg    | Naar welke active-phase resumen na `AI Needs Info` / `AI Paused`.   |
+| `AI Phase`        | enum (zie §5)                | leeg    | Fijnmazige state binnen de factory. Bepaalt wat de orchestrator doet.|
 | `AI Level`        | number 0–10                  | 0       | Welke `(model, effort)`-matrix de agents gebruiken (zie §8).        |
 | `AI Token Budget` | number                       | 40000   | Hard cap op totaal token-verbruik (alle agents samen, zie §15).     |
 | `AI Tokens Used`  | number                       | 0       | Lopend totaal, onderhouden door orchestrator/cost-monitor.          |
 | `AgentStartedAt`  | timestamp                    | leeg    | Wanneer de huidige actieve agent startte (voor hang-detectie).      |
-| `AgentType`       | string                       | leeg    | Welke agent op dit moment draait — handig voor monitoring.          |
+| `Paused`          | boolean                      | false   | Als `true`: orchestrator slaat dit ticket over tot 'ie weer `false` is. |
+| `Error`           | text                         | leeg    | Als gevuld: ticket is in fout-toestand en orchestrator pakt 'm niet op. Wordt door agents geschreven; gebruiker leegt na oplossen. |
 
-`AI Phase`, `AI Resume Phase`, `AI Tokens Used`, `AgentStartedAt` en
-`AgentType` zijn systeem-velden (PO komt er niet aan). `Target Repo`,
-`AI Level` en `AI Token Budget` mag de PO bewerken op elke status.
+`AI Phase`, `AgentStartedAt` en `Error` zijn systeem-velden die door
+agents en orchestrator worden gezet (gebruiker mag ze handmatig
+overschrijven, vooral `Error` leegmaken om hervatten). `Target Repo`,
+`AI Level`, `AI Token Budget` en `Paused` worden door de gebruiker
+gezet of bewerkt; `AI Tokens Used` is informatief.
 
 **`Target Repo`-veld** is een free-text URL (bv.
 `git@github.com:robbertvdzon/personal-news-feed-by-claude-code.git`
 of `https://github.com/…/other-app.git`). Bij een ontbrekende of
-ongeldige URL: orchestrator zet status op `AI Needs Info` met een
-uitlegcomment en wacht op correctie. Eventuele allowlist
-(GitHub-orgs/users die we accepteren) staat als config in de
-orchestrator — een latere uitbreiding; in v2 accepteren we alle URL's
-die de gebruiker zelf invult.
+ongeldige URL: de eerste agent (refiner) schrijft een uitleg in
+`Error` en stopt. In v2 accepteren we alle URL's die de gebruiker
+zelf invult (later eventueel een allowlist).
+
+**`Paused`-veld** is een handgrepen-noodknop: zet 'm op `true` om
+een ticket "stil" te leggen (lopende containers worden niet gekild,
+maar als de huidige agent klaar is wordt er niet verder
+gedispatched). De cost-monitor zet 'm ook automatisch op `true` bij
+budget-overschrijding (§15). Hervatten = `false` zetten.
+
+**`Error`-veld** is voor onherstelbare blokkades. Voorbeelden:
+target-repo niet kunnen clone'n, `docs/factory/` ontbreekt,
+deployment.md kapot, GitHub-PAT expired. Een agent die zo'n
+probleem detecteert schrijft een korte beschrijving in `Error` en
+stopt. De orchestrator dispatcht **niets** zolang `Error` gevuld is.
+Hervatten = gebruiker leegt het veld (eventueel na een fix in
+de repo / config).
 
 ### 3.3 Comment-conventie
 
@@ -134,6 +142,7 @@ filterbaar door de orchestrator:
 [REVIEWER]     Op regel 42 mist een try/catch rond …
 [TESTER]       Reproductie: open /admin/users, klik "+", crasht …
 [COST-MONITOR] Budget bereikt: 47K/40K tokens. Verhoog of bevestig.
+[ORCHESTRATOR] Tijdelijk gepauzeerd: AI-credits uitgeput, retry over 47 min.
 ```
 
 De orchestrator herkent agent-comments aan deze prefix en negeert ze
@@ -142,11 +151,10 @@ de developer steeds opnieuw).
 
 ### 3.4 Feedback van de gebruiker — comment-tracking met reacties
 
-Een agent (vooral de refiner, maar in principe elke rol) kan vragen
-stellen aan de gebruiker. De gebruiker antwoordt in een Jira-comment.
-Bij re-spawn moet de agent kunnen onderscheiden welke comments hij al
-verwerkt heeft en welke nieuw zijn — anders raakt hij de draad kwijt
-bij meerdere antwoord-rondes.
+De refiner kan vragen stellen aan de gebruiker. De gebruiker
+antwoordt in een Jira-comment. Bij re-spawn moet de agent kunnen
+onderscheiden welke comments hij al verwerkt heeft en welke nieuw
+zijn — anders raakt hij de draad kwijt bij meerdere antwoord-rondes.
 
 **Mechanisme:** zodra een agent een gebruiker-comment heeft gelezen
 én verwerkt, zet hij een **reactie** op die comment (bijvoorbeeld 👀
@@ -157,15 +165,20 @@ afgehandeld.
 - De Jira-comment-reactie is **visueel zichtbaar** voor de gebruiker,
   zodat die weet dat zijn antwoord is opgepikt.
 - De reactie wordt gezet via de Jira REST API. Als reactie-endpoints
-  in een toekomstige Jira-versie niet beschikbaar blijken, valt de
-  agent terug op een **marker-tag in de body van zijn eigen
-  reply-comment** (bv. een verborgen suffix `<!-- ack:<comment_id> -->`)
-  of een tabel in de factory-DB die per (ticket, comment_id, role) een
+  in onze Jira-versie niet beschikbaar blijken, valt de agent terug
+  op een **marker-tag in de body van zijn eigen reply-comment**
+  (bv. een verborgen suffix `<!-- ack:<comment_id> -->`) of een tabel
+  in de factory-DB die per (ticket, comment_id, role) een
   `processed_at`-record bijhoudt.
 - Dezelfde regel geldt voor de **developer** bij `[REVIEWER]`- en
   `[TESTER]`-comments: hij plaatst een reactie zodra hij die feedback
   heeft verwerkt, zodat hij bij een volgende loopback alleen nieuwe
   feedback hoeft te lezen.
+
+In v2 stellen alleen de refiner vragen aan de PO. Andere agents die
+ergens niet uitkomen, schrijven in plaats daarvan in het `Error`-veld
+(§3.2) en stoppen. De PO leest het probleem, lost het op (bv. door
+de target-repo te corrigeren), en leegt `Error` om verder te gaan.
 
 ---
 
@@ -267,11 +280,12 @@ Bij een nieuwe target-repo waar de map nog niet bestaat:
 
 1. De refiner is de eerste agent die de repo clone't. Hij detecteert
    het ontbreken van `docs/factory/`.
-2. Hij plaatst een `[REFINER]`-comment met een uitleg en een verwijzing
-   naar de skeleton-template, en zet phase → `awaiting-po`, status →
-   `AI Needs Info`.
+2. Hij schrijft een uitlegtekst in het `Error`-veld
+   (§3.2) en stopt. De gebruiker ziet het ticket geblokkeerd staan.
 3. De gebruiker voegt de map handmatig toe (eventueel met behulp van
-   het CLI-commando hieronder), commit + push, en hervat de story.
+   het CLI-commando hieronder), commit + push, leegt het
+   `Error`-veld, en de orchestrator pakt de story automatisch weer
+   op.
 
 ### 4.5 `factory init-repo` — bootstrap-commando
 
@@ -306,7 +320,7 @@ target-repo.
 
 | Phase                                  | Betekenis                                              | Orchestrator dispatcht hierna |
 |----------------------------------------|--------------------------------------------------------|-------------------------------|
-| `refined-with-questions-for-user`      | Refiner heeft openstaande vragen.                      | niets (wacht op gebruiker)    |
+| `refined-with-questions-for-user`      | Refiner heeft openstaande vragen — wacht op gebruiker. | niets (wacht op antwoord)     |
 | `refined-finished`                     | Refinement klaar, klaar om te ontwikkelen.             | developer → `developing`      |
 | `developed`                            | Developer-code in branch + PR open.                    | reviewer → `reviewing`        |
 | `reviewed-with-feedback-for-developer` | Reviewer heeft op- of aanmerkingen.                    | developer → `developing`      |
@@ -314,32 +328,33 @@ target-repo.
 | `tested-with-feedback-for-developer`   | Tester vond bug(s).                                    | developer → `developing`      |
 | `tested-succesfully`                   | Eindstatus: alles klaar.                               | status → `Done`               |
 
-**Speciale phases:**
+**Speciale phase:**
 
-| Phase             | Betekenis                                                                                       |
-|-------------------|-------------------------------------------------------------------------------------------------|
-| `awaiting-po`     | Een agent wacht op de gebruiker (gecombineerd met status `AI Needs Info`). `AI Resume Phase` houdt vast welke active-phase hervat moet worden. |
-| `questions-answered` | Gebruiker heeft vragen beantwoord — markeert "klaar om weer te dispatchen". Orchestrator vertaalt dit naar de actieve `*ing`-phase via `AI Resume Phase`. |
+| Phase                                   | Betekenis                                                                                  |
+|-----------------------------------------|--------------------------------------------------------------------------------------------|
+| `questions-answered-for-refinement`     | Gebruiker heeft de refiner-vragen beantwoord (eventueel via comment-trigger of handmatig de phase gezet). Orchestrator dispatcht de refiner opnieuw. |
 
 ### 5.2 Transitietabel (door de orchestrator, behalve waar anders aangegeven)
 
 ```
-(leeg)                                 → start refiner    → AI In Progress + phase=refining
-refined-with-questions-for-user        → (wachten op gebruiker, status=AI Needs Info)
-questions-answered                     → start refiner    → AI In Progress + phase=refining
-refined-finished                       → start developer  → AI In Progress + phase=developing
-developed                              → start reviewer   → AI In Progress + phase=reviewing
-reviewed-with-feedback-for-developer   → start developer  → AI In Progress + phase=developing
-review-finished                        → start tester     → AI In Progress + phase=testing
-tested-with-feedback-for-developer     → start developer  → AI In Progress + phase=developing
-tested-succesfully                     → status=Done
-awaiting-po                            → status=AI Needs Info (niets doen tot gebruiker reageert)
+(leeg)                                  → start refiner    → phase=refining
+refined-with-questions-for-user         → (wachten — gebruiker antwoordt en zet phase=questions-answered-for-refinement)
+questions-answered-for-refinement       → start refiner    → phase=refining
+refined-finished                        → start developer  → phase=developing
+developed                               → start reviewer   → phase=reviewing
+reviewed-with-feedback-for-developer    → start developer  → phase=developing
+review-finished                         → start tester     → phase=testing
+tested-with-feedback-for-developer      → start developer  → phase=developing
+tested-succesfully                      → status=Done
 ```
 
 Agents zetten zelf de "klare" phase (`developed`, `review-finished`,
 etc.) bij voltooiing. De orchestrator detecteert die bij de volgende
-poll, zet status op `AI In Progress`, schrijft de bijbehorende
-`*ing`-phase en start de volgende agent.
+poll, schrijft de bijbehorende `*ing`-phase en start de volgende agent.
+
+**Geen aparte phase voor "wacht op PO" buiten de refiner.** Andere
+agents die ergens niet uitkomen schrijven in `Error` en stoppen
+(zie §3.2 / §3.4). De orchestrator pakt op zodra `Error` weer leeg is.
 
 ---
 
@@ -348,21 +363,23 @@ poll, zet status op `AI In Progress`, schrijft de bijbehorende
 ### 6.1 Polling
 
 - **Poll-interval:** 15 seconden (Spring Scheduled-task).
-- **Per cyclus:** haal alle tickets op met Jira-status in
-  `{AI, AI Queued, AI In Progress, AI Needs Info, AI Paused}`. Voor
-  elk ticket:
-  1. Bepaal aan de hand van Phase + Status wat de volgende actie is
+- **Globale checks vooraf** (per cyclus, één keer voor alle stories):
+  - Staan we in een **AI-credits-pauze** (§16)? Zo ja → niets dispatchen
+    deze ronde.
+- **Per ticket** (alle Jira-tickets met status `AI`):
+  1. **Skip** als `Paused = true` (§3.2).
+  2. **Skip** als `Error` gevuld (§3.2).
+  3. Bepaal aan de hand van `AI Phase` wat de volgende actie is
      (zie §5.2).
-  2. Als een agent gestart moet worden (concurrency-cap toelaat — zie
-     §6.4): zet `AI Phase` op de actieve waarde (`refining`,
-     `developing`, …), zet `AgentStartedAt` op nu, zet `AgentType`,
-     en start de bijbehorende Docker container (zie §13).
-  3. Als Phase een `*ing`-waarde is (er hoort een agent te draaien):
+  4. Als een agent gestart moet worden (concurrency-cap toelaat —
+     zie §6.4): zet `AI Phase` op de actieve waarde (`refining`,
+     `developing`, …), zet `AgentStartedAt` op nu, start de
+     bijbehorende Docker container (zie §13).
+  5. Als Phase een `*ing`-waarde is (er hoort een agent te draaien):
      check via de Docker daemon of de container nog bestaat en actief
      is. Zo niet → §6.3 stuck-detection.
-  4. Als Phase een wacht-op-gebruiker waarde is
-     (`refined-with-questions-for-user`, `awaiting-po`): niets doen.
-  5. Als Phase `tested-succesfully` is: status → `Done` afronden.
+  6. Als Phase `refined-with-questions-for-user` is: niets doen.
+  7. Als Phase `tested-succesfully` is: status → `Done` afronden.
 
 ### 6.2 Merge-detectie
 
@@ -387,12 +404,10 @@ orchestrator scant elke cyclus op deze inconsistentie en herstelt:
   transient fout (HTTP 429, "API error 500", "rate limit", "timeout"
   in de samenvatting): zet phase terug naar de vorige completed-phase
   zodat dezelfde agent opnieuw start. Hard cap: **max 2 opeenvolgende
-  transient retries** per rol per story; daarna `AI Needs Info` met
-  een uitlegcomment.
+  transient retries** per rol per story; daarna schrijft de
+  orchestrator naar `Error` met een uitleg.
 - **Hard timeout** — `AgentStartedAt` ouder dan **30 minuten** zonder
-  voortgang (configureerbaar): log + markeer. In de eerste iteratie
-  alleen loggen + status op `AI Needs Info`; later eventueel
-  automatisch kill + retry.
+  voortgang (configureerbaar): log + schrijf naar `Error`.
 
 ### 6.4 Concurrency
 
@@ -407,8 +422,8 @@ MAX_PARALLEL_TOTAAL    = 4   # globale veiligheid (passen op laptop-resources)
 ```
 
 Bij hitting van een cap: stories die gedispatched zouden worden
-blijven in `AI Queued` (of `AI`) staan; volgende poll-tick probeert
-opnieuw.
+blijven gewoon op `AI` staan met hun huidige phase; volgende
+poll-tick probeert opnieuw.
 
 Per **PR** geldt bovendien een cap van **1 actieve agent**, om te
 voorkomen dat twee dispatch-paden tegelijk dezelfde branch verbouwen.
@@ -429,13 +444,15 @@ Alle agents:
 - Hebben toegang tot een AI-model via een CLI tool (placeholder).
   De auth gaat via de **lokale gebruikers-licentie** die de
   orchestrator in de container mount of als env-var doorgeeft —
-  zie §16.
+  zie §17.
 - Werken aan een eigen shallow git-clone van de target-repo in
   een tempdir op de laptop, die als volume in de container gemount
   is.
 - Schrijven hun resultaat terug naar Jira: nieuwe Phase + eventuele
   comment (met `[ROLE]`-prefix).
 - Plaatsen reacties op user-comments die ze hebben verwerkt (§3.4).
+- Schrijven bij een onherstelbare blokkade naar het `Error`-veld
+  (§3.2 / §3.4) en stoppen.
 - Rapporteren bij voltooiing token-usage + events naar de
   orchestrator (HTTP `POST /agent-run/complete` op
   `http://host.docker.internal:<port>`) — voor cost-monitor en
@@ -451,14 +468,14 @@ Alle agents:
 - Output: opgeschoonde story (acceptatie-criteria, scope-afbakening)
   → Phase `refined-finished`,
   óf openstaande vragen als comment → Phase
-  `refined-with-questions-for-user` + status `AI Needs Info`.
+  `refined-with-questions-for-user`.
 - **Tool-allowlist:** alleen Jira-API + read op de repo; **geen**
   edit/write tools (zodat de refiner per ongeluk geen code schrijft).
 - Belangrijk: bij een tweede ronde refinen leest hij **alleen**
   user-comments zonder zijn reactie. Comments waarop hij al
   gereageerd heeft zijn afgehandeld.
-- Detecteert ook of `docs/factory/` ontbreekt en triggert de flow
-  uit §4.4.
+- Detecteert ook of `docs/factory/` ontbreekt → schrijft naar
+  `Error` en stopt (zie §4.4).
 
 ### 7.3 Developer
 
@@ -472,6 +489,8 @@ Alle agents:
   bv. `ai/KAN-42`), commit + push, GitHub PR open of bestaande PR
   updaten → Phase `developed`.
 - Markeert verwerkte reviewer-/tester-comments met een reactie (§3.4).
+- Bij blokkade (bv. merge-conflict op de basebranch): schrijft naar
+  `Error` en stopt.
 
 ### 7.4 Reviewer
 
@@ -492,7 +511,7 @@ De gevaarlijkste agent qua blast-radius — verdient extra grenzen.
   `docs/factory/secrets-local.md` + `docs/factory/agents/tester.md`.
 - **Tooling in de container:** Playwright + Chromium voor headless
   browser, `psql` tegen de preview-DB, `kubectl`/`oc` tegen de
-  cluster via een **gemounte kubeconfig** (zie §13 en §16).
+  cluster via een **gemounte kubeconfig** (zie §13 en §17).
 - **Toegang tot OpenShift:** de tester praat met de remote cluster
   vanaf de laptop met de kubeconfig die de gebruiker zelf gebruikt.
   Wat hij wel/niet mag is dus dezelfde set rechten als de gebruiker
@@ -633,7 +652,7 @@ erop).
 - Opruimen van de preview-namespace bij merge of bij een handmatig
   commando (delete/re-implement — zie §11) gebeurt door de
   orchestrator via remote `oc delete project` met de gemounte
-  kubeconfig (zie §16).
+  kubeconfig (zie §17).
 
 ---
 
@@ -649,22 +668,23 @@ comment krijgt een marker-reactie of marker-suffix zodat 'ie maar
 
 | Comment                         | Effect                                                                                                                |
 |---------------------------------|-----------------------------------------------------------------------------------------------------------------------|
-| `@claude:command:pause`         | Kill lopende container (`docker kill`); status → `AI Paused`; `AI Resume Phase` blijft de huidige active-phase.       |
+| `@claude:command:pause`         | Zet `Paused = true`. Lopende containers blijven draaien tot ze klaar zijn; daarna geen nieuwe dispatch.               |
+| `@claude:command:resume`        | Zet `Paused = false` (en leegt `Error` als die gevuld is door cost-monitor). Story wordt weer opgepakt.               |
+| `@claude:command:kill`          | Kill lopende container (`docker kill`) en zet `Paused = true`. Voor wanneer een agent moet stoppen, niet alleen na completion. |
 | `@claude:command:delete`        | Kill containers, sluit PR + branch, delete preview-namespace, prepend `(CANCELLED)` aan titel, status → `Done`.       |
 | `@claude:command:merge`         | Squash-merge de PR, kill containers, delete preview-namespace, status → `Done`.                                       |
-| `@claude:command:re-implement`  | Kill containers, sluit PR, delete preview-namespace, delete agent-comments, status → `AI` (start opnieuw vanaf begin).|
+| `@claude:command:re-implement`  | Kill containers, sluit PR, delete preview-namespace, delete agent-comments, wis `AI Phase` (start opnieuw vanaf begin). |
 
-Hervatten uit `AI Paused`: gebruiker zet de status terug op
-`AI Queued`. De orchestrator leest `AI Resume Phase` en dispatcht
-die agent opnieuw.
+De gebruiker kan natuurlijk ook gewoon het `Paused`- of `Error`-veld
+in Jira direct bewerken — comments zijn er voor 't gemak.
 
 ### 11.2 Triggers in vrije comments
 
 | Patroon       | Effect                                                                                                          |
 |---------------|-----------------------------------------------------------------------------------------------------------------|
 | `LEVEL=N`     | Zet `AI Level` op N (0–10).                                                                                     |
-| `BUDGET=N`    | Zet `AI Token Budget` op N tokens (absoluut). Gebruikelijk om de pipeline te hervatten uit `AI Needs Info`.     |
-| `CONTINUE`    | Verhoogt `AI Token Budget` met +50% en hervat. Alleen actief op stories in `AI Needs Info` na een budget-stop.  |
+| `BUDGET=N`    | Zet `AI Token Budget` op N tokens (absoluut) en zet `Paused = false` als de story door cost-monitor gepauzeerd was. |
+| `CONTINUE`    | Verhoogt `AI Token Budget` met +50% en zet `Paused = false`. Alleen actief op stories die door cost-monitor gepauzeerd zijn. |
 
 ### 11.3 PR-comment iteratie
 
@@ -727,7 +747,7 @@ docker run --rm \
   -v <workspace-tempdir>:/work \
   -v ~/.claude:/home/runner/.claude:ro          # AI-licentie van de gebruiker
   -v ~/.kube/config:/home/runner/.kube/config:ro # alleen voor tester
-  --env-file <factory-secrets-env>              # zie §16
+  --env-file <factory-secrets-env>              # zie §17
   -e TICKET_KEY=KAN-42 \
   -e AGENT_TYPE=developer \
   -e AI_LEVEL=3 \
@@ -760,7 +780,7 @@ Concrete punten:
   wordt **read-only** in de container gemount. Alternatief: één
   env-var met een OAuth-token (`CLAUDE_CODE_OAUTH_TOKEN`) als de
   CLI dat ondersteunt. Concrete keuze hangt af van de gekozen CLI
-  (§8) — beide paden zijn voorzien in §16.
+  (§8) — beide paden zijn voorzien in §17.
 - **Kubeconfig (alleen tester):** `~/.kube/config` wordt read-only
   in de tester-container gemount zodat hij met `oc`/`kubectl` tegen
   de cluster kan praten met dezelfde rechten als de gebruiker.
@@ -781,8 +801,9 @@ Concrete punten:
 De runner-flow zelf (in de container): lees `/work/task.md` →
 `git clone` naar `/work/repo` → `docs/factory/`-documenten lezen →
 tips ophalen via HTTP → AI CLI aanroepen → output verwerken → Jira
-bijwerken (phase + comment + reacties op verwerkte user-comments) →
-`POST /agent-run/complete` naar de orchestrator → exit.
+bijwerken (phase + comment + reacties op verwerkte user-comments, of
+`Error`-veld bij blokkade) → `POST /agent-run/complete` naar de
+orchestrator → exit.
 
 ---
 
@@ -791,7 +812,7 @@ bijwerken (phase + comment + reacties op verwerkte user-comments) →
 Eén Neon-database, eigen schema `factory`. Migraties via Flyway
 (versioned SQL onder `db/migration/` in de factory-repo). Connection-
 string via env-var `FACTORY_DATABASE_URL` (`postgresql://…`-formaat,
-zie §16).
+zie §17).
 
 ### 14.1 Tabellen
 
@@ -805,7 +826,7 @@ CREATE TABLE factory.story_runs (
   target_repo                 TEXT NOT NULL,        -- waarde uit Jira `Target Repo`
   started_at                  TIMESTAMPTZ NOT NULL DEFAULT now(),
   ended_at                    TIMESTAMPTZ,
-  final_status                TEXT,                 -- 'Done', 'paused', 'budget-exceeded', ...
+  final_status                TEXT,                 -- 'Done', 'paused', 'budget-exceeded', 'error', ...
   total_input_tokens          INTEGER NOT NULL DEFAULT 0,
   total_output_tokens         INTEGER NOT NULL DEFAULT 0,
   total_cache_read_tokens     INTEGER NOT NULL DEFAULT 0,
@@ -818,13 +839,13 @@ CREATE TABLE factory.agent_runs (
   id                          BIGSERIAL PRIMARY KEY,
   story_run_id                BIGINT NOT NULL REFERENCES factory.story_runs(id) ON DELETE CASCADE,
   role                        TEXT NOT NULL,        -- 'refiner' | 'developer' | 'reviewer' | 'tester'
-  container_name              TEXT NOT NULL,        -- Docker container-naam
+  container_name              TEXT NOT NULL,
   model                       TEXT,
   effort                      TEXT,
   level                       SMALLINT,
   started_at                  TIMESTAMPTZ NOT NULL DEFAULT now(),
   ended_at                    TIMESTAMPTZ,
-  outcome                     TEXT,                 -- 'success' | 'failed' | 'questions' | 'killed'
+  outcome                     TEXT,                 -- 'success' | 'failed' | 'questions' | 'killed' | 'credits-exhausted'
   input_tokens                INTEGER NOT NULL DEFAULT 0,
   output_tokens               INTEGER NOT NULL DEFAULT 0,
   cache_read_input_tokens     INTEGER NOT NULL DEFAULT 0,
@@ -867,6 +888,14 @@ CREATE TABLE factory.processed_comments (
   processed_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (story_key, comment_id, role)
 );
+
+-- Globale systeem-state (één row). Wordt door de orchestrator bij
+-- start gegarandeerd via INSERT … ON CONFLICT DO NOTHING. Zie §16.
+CREATE TABLE factory.system_state (
+  id                     SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  credits_paused_until   TIMESTAMPTZ,            -- NULL of in 't verleden = niet gepauzeerd
+  credits_paused_reason  TEXT
+);
 ```
 
 ### 14.2 Secret-redactie
@@ -891,11 +920,11 @@ Bewaartermijn: vooralsnog ongelimiteerd.
 - Sommeert per actieve story het token-verbruik uit `factory.agent_runs`.
 - Vergelijkt met `AI Token Budget` (default 40.000).
 - Drempels:
-  - **≥ 75 %** → comment `[COST-MONITOR] 75% bereikt …`, geen status-wijziging.
-  - **≥ 90 %** → comment `[COST-MONITOR] 90% bereikt …`, geen status-wijziging.
-  - **≥ 100 %** → comment `[COST-MONITOR] 100% bereikt — pauzeer.`,
-    status → `AI Needs Info`, phase → `awaiting-po`,
-    `AI Resume Phase` ← huidige active-phase.
+  - **≥ 75 %** → comment `[COST-MONITOR] 75% bereikt …`, geen veld-wijziging.
+  - **≥ 90 %** → comment `[COST-MONITOR] 90% bereikt …`, geen veld-wijziging.
+  - **≥ 100 %** → comment `[COST-MONITOR] 100% bereikt — pauzeer.`
+    + `Paused = true`. PO bepaalt of hij budget verhoogt (`BUDGET=N`
+    of `CONTINUE`) of dat het ticket gepauzeerd blijft.
 
 Idempotent: bestaande `[COST-MONITOR] N%`-markers blokkeren
 herhaalde posts van dezelfde drempel.
@@ -908,26 +937,80 @@ herhaalde posts van dezelfde drempel.
   budget-check.
 - **Periodieke check** — een Spring `@Scheduled`-taak in dezelfde JVM
   draait elke 5 minuten over alle actieve `story_runs` als sanity-net
-  voor het geval een runner crasht vóór hij kan rapporteren. Geen
-  aparte CronJob meer.
+  voor het geval een runner crasht vóór hij kan rapporteren.
 
 ### 15.3 Hervatten
 
-- `BUDGET=N` in een comment op een story in `AI Needs Info`: zet het
-  budget absoluut, status terug naar `AI Queued`, orchestrator
-  hervat via `AI Resume Phase`.
-- `CONTINUE` zonder argument: `AI Token Budget *= 1.5`, status →
-  `AI Queued`, hervatten.
+- `BUDGET=N` in een comment op een gepauzeerde story: zet
+  `AI Token Budget` absoluut en `Paused = false`, orchestrator
+  hervat in de volgende cyclus.
+- `CONTINUE` zonder argument: `AI Token Budget *= 1.5` en
+  `Paused = false`.
 
 ---
 
-## 16. Secrets & lokale config
+## 16. AI-credits & systeem-pauze
+
+Anthropic-licenties hebben een gebruiks-window (bv. de 5-uur-quota
+op Claude Pro/Max). Als dat window vol zit, faalt elke nieuwe
+AI-call met een rate-limit-error tot het reset. Dit is een
+**systeem-brede** beperking, niet per ticket — alle agents zijn dan
+tijdelijk onbruikbaar.
+
+### 16.1 Detectie
+
+- De runner detecteert in zijn AI CLI-output specifieke fout-signalen
+  (HTTP 429 met body die op "credit exhausted" of "rate limit"
+  duidt, of een `Retry-After`-header in de response).
+- Hij zet `outcome = "credits-exhausted"` op zijn `agent_runs`-row
+  en eindigt met exit-code ≠ 0.
+
+### 16.2 Reactie van de orchestrator
+
+Bij ontvangst van een `credits-exhausted`-outcome:
+
+1. Lees uit de AI CLI-output (indien beschikbaar) een retry-time;
+   anders default **1 uur** (configureerbaar).
+2. Schrijf naar `factory.system_state`:
+   - `credits_paused_until = now() + retry_duration`
+   - `credits_paused_reason = "<korte uitleg + bron-ticket>"`
+3. Plaats een `[ORCHESTRATOR]`-comment op het bron-ticket met de
+   verwachte wachttijd.
+4. **Vanaf dat moment:** in elke poll-cyclus checkt de orchestrator
+   eerst `system_state.credits_paused_until` (zie §6.1). Zolang
+   `now() < credits_paused_until`: geen enkele nieuwe agent-dispatch
+   over alle tickets heen. Lopende containers blijven draaien (en
+   zullen waarschijnlijk ook falen — de stuck-detection regelt
+   herstart na de pauze).
+5. Na het verstrijken van de wachttijd: orchestrator pakt automatisch
+   weer op vanaf de eerstvolgende cyclus.
+
+### 16.3 Handmatige override
+
+- De gebruiker kan via een CLI-commando (`factory credits resume`)
+  de pauze direct opheffen door `credits_paused_until = NULL` te
+  zetten.
+- Andersom: `factory credits pause --until "2026-05-23T20:00:00Z"`
+  om handmatig een pauze in te stellen (bv. als de gebruiker weet
+  dat hij straks tokens nodig heeft voor andere doeleinden).
+
+### 16.4 Verschil met per-ticket pauze
+
+| Pauze-type        | Veld / state                           | Reset                                              |
+|-------------------|----------------------------------------|----------------------------------------------------|
+| Per ticket (PO)   | `Paused = true` in Jira (§3.2)         | PO zet `Paused = false` of comment `resume`        |
+| Per ticket (budget) | `Paused = true` door cost-monitor    | PO comment `BUDGET=…` of `CONTINUE`                |
+| Systeem-breed (credits) | `system_state.credits_paused_until` | Automatisch na de tijd, of `factory credits resume`|
+
+---
+
+## 17. Secrets & lokale config
 
 De factory draait op de laptop en heeft een handvol credentials nodig.
 Die staan **niet** in de factory-repo en **niet** in Jira — ze leven
 lokaal en worden bij start ingelezen door de orchestrator.
 
-### 16.1 Welke secrets
+### 17.1 Welke secrets
 
 | Naam (env-var)            | Doel                                                              | Bron / hoe te verkrijgen                                                  |
 |---------------------------|-------------------------------------------------------------------|---------------------------------------------------------------------------|
@@ -948,7 +1031,7 @@ van de twee werkt.
 acties (delete preview-namespace bij merge). Als je nooit een tester
 draait, kun je 'm weglaten.
 
-### 16.2 Waar de secrets staan
+### 17.2 Waar de secrets staan
 
 Eén bestand, niet gecommit, op een vaste plek. Aanbevolen locatie:
 
@@ -973,7 +1056,7 @@ In de factory-repo staat een `secrets.env.example` met dezelfde
 keys + placeholders, gecommit zodat nieuwe gebruikers weten wat
 ze moeten invullen.
 
-### 16.3 Hoe de orchestrator de secrets leest
+### 17.3 Hoe de orchestrator de secrets leest
 
 - Spring Boot leest het bestand bij start via een wrapper-script
   (`./factory start` zet `set -a; source ~/.config/software-factory/secrets.env; set +a`
@@ -986,7 +1069,7 @@ ze moeten invullen.
   - `${AI_CREDENTIALS_DIR}` → `/home/runner/.claude` (read-only),
     óf `AI_OAUTH_TOKEN` als env-var.
 
-### 16.4 Wat NIET in de secrets-file hoort
+### 17.4 Wat NIET in de secrets-file hoort
 
 - Per-target-repo credentials zoals een aparte GitHub-token per repo.
   Voor v2 gaan we uit van **één** PAT die toegang heeft tot alle
@@ -999,31 +1082,33 @@ ze moeten invullen.
 
 ---
 
-## 17. Open punten / later te beslissen
+## 18. Open punten / later te beslissen
 
 - **Concrete AI CLI** en het wire-protocol (stdin/stdout JSON?
   command-line prompts?). Bepaalt ook of we
   `AI_CREDENTIALS_DIR`-mount of `AI_OAUTH_TOKEN`-env-var gebruiken
-  (§16).
-- **Eindstatus na `tested-succesfully`** (`Done` of `Closed` —
-  afhankelijk van Jira-workflow).
+  (§17), én hoe we exact "credits exhausted" detecteren (§16.1).
 - **Drempelwaarde voor "agent is vastgelopen"** (default-voorstel:
-  30 min) + gedrag (alleen loggen vs kill + retry vs comment naar
-  gebruiker).
+  30 min) + gedrag (alleen `Error` zetten vs kill + retry).
 - **Retry-beleid op de loop-back** (review/test → developer): nu
   ongelimiteerd; later eventueel max N pogingen + escalatie naar
-  `AI Needs Info` met een samenvatting.
+  `Error` met een samenvatting.
 - **Jira-comment-reactie API**: of `eyes`/`checkmark` werkbaar zijn
   via de REST-API in onze Jira-versie. Zo niet, dan vervalt §3.4
   terug naar de `processed_comments`-tabel.
 - **Allowlist op `Target Repo`-URL's**: voorkomt dat een random
   Jira-account de factory een willekeurige repo laat clonen.
-  Nu nog open (alleen vertrouwde gebruikers hebben toegang tot het
-  board).
+- **Per-rol vragen-mechanisme**: in v2 stelt alleen de refiner vragen
+  aan de PO; andere agents gebruiken `Error`. Later eventueel ook
+  een symmetrisch `*-with-questions-for-user`-pad voor developer,
+  reviewer, tester.
 - **Headless-mode / autostart**: of de orchestrator als
   `launchd`-service (macOS) of systemd-unit (Linux) moet draaien
   zodat hij automatisch start bij login. Voor v2 handmatig
   (`./factory start` in een terminal).
+- **Default retry-duration voor AI-credits-pauze** (§16.2): 1 uur
+  is een gok; voor Claude Pro/Max het 5-uur-window kennen of uit
+  `Retry-After`-header lezen.
 - **Dashboard** is bewust buiten scope in v2 (komt later).
 - **Interactieve Claude-sessies** (KAN-61 in de huidige Python-impl)
   zijn ook buiten scope in v2.
