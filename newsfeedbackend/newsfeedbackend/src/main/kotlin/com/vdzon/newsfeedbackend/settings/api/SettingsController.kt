@@ -101,9 +101,20 @@ class SettingsController(
         return service.addEventPreference(user(), name)
     }
 
-    @DeleteMapping("/api/settings/event-preferences/{name}")
-    fun removeEventPreference(@PathVariable name: String): EventPreferences =
-        service.removeEventPreference(user(), name)
+    /**
+     * Verwijder één event-voorkeur. Naam in de request body i.p.v. als
+     * path-segment omdat default-namen als "Spring I/O" en "Google I/O"
+     * een `/` bevatten; Spring/Tomcat strippen `%2F` standaard waardoor
+     * een path-variabele de DELETE op die namen onbereikbaar maakte.
+     */
+    @PostMapping("/api/settings/event-preferences/remove")
+    fun removeEventPreference(@RequestBody body: RemoveEventPreferenceRequest): EventPreferences {
+        val name = body.name.trim()
+        if (name.isBlank()) {
+            throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Naam mag niet leeg zijn")
+        }
+        return service.removeEventPreference(user(), name)
+    }
 
     // ── KAN-68: event-denylist ──────────────────────────────────────
 
@@ -121,3 +132,6 @@ class SettingsController(
 
 /** KAN-68: body voor POST /api/settings/event-preferences. */
 data class AddEventPreferenceRequest(val name: String)
+
+/** KAN-68: body voor POST /api/settings/event-preferences/remove. */
+data class RemoveEventPreferenceRequest(val name: String)

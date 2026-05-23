@@ -320,18 +320,28 @@ paths:
         '400':
           description: Lege naam
 
-  /api/settings/event-preferences/{name}:
-    delete:
+  /api/settings/event-preferences/remove:
+    post:
       tags: [Settings]
       operationId: removeEventPreference
       summary: Verwijder één event-voorkeur
-      parameters:
-        - name: name
-          in: path
-          required: true
-          schema:
-            type: string
-          description: De event-naam zoals 'ie in de lijst staat
+      description: |
+        Naam in de request body i.p.v. als path-variabele omdat default-
+        namen als "Spring I/O" en "Google I/O" een `/` bevatten; Spring/
+        Tomcat strippen `%2F` standaard, waardoor een path-variabele
+        DELETE die namen onbereikbaar maakt.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  description: De event-naam zoals 'ie in de lijst staat
+                  example: Spring I/O
       responses:
         '200':
           description: Bijgewerkte event-voorkeuren
@@ -339,6 +349,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EventPreferences'
+        '400':
+          description: Lege naam
 
   /api/settings/event-denylist:
     get:

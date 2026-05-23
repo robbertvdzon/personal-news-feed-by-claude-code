@@ -335,7 +335,7 @@ De events-module ontdekt per gebruiker grote tech-events (conferenties zoals Jav
 
 - **`DELETE /api/events/{id}`**: verwijdert het event uit `events` (cascade ruimt `event_videos` op), én verwijdert het gekoppelde aankondigings-FeedItem (`events.feed_item_id`, géén DB-FK — explicit op service-niveau), én voegt de event-id + display-naam toe aan `event_denylist` voor deze user.
 - **Denylist-beheer**: `GET /api/settings/event-denylist` toont de lijst, `DELETE /api/settings/event-denylist/{normalizedId}` haalt 'n id eraf. Verwijderd-en-eraf-gehaald → discovery vindt 'm bij de volgende run weer.
-- **Event-voorkeuren-beheer**: `GET/PUT /api/settings/event-preferences` voor de hele lijst, `POST /api/settings/event-preferences` om er eentje bij te plaatsen, `DELETE /api/settings/event-preferences/{name}` om er eentje te verwijderen. Vrije tekst — geen autocomplete.
+- **Event-voorkeuren-beheer**: `GET/PUT /api/settings/event-preferences` voor de hele lijst, `POST /api/settings/event-preferences` om er eentje bij te plaatsen, `POST /api/settings/event-preferences/remove` (body `{"name":"..."}`) om er eentje te verwijderen. Naam in de body i.p.v. als path-segment omdat defaults als "Spring I/O" en "Google I/O" een `/` bevatten en Spring/Tomcat `%2F` standaard strippen. Vrije tekst — geen autocomplete.
 
 ### 6.9 Event-video-ontdekking (KAN-66, wekelijks + handmatig)
 
