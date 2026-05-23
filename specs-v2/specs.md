@@ -10,8 +10,7 @@ getest is — of vastloopt op een vraag voor de gebruiker, of het budget
 opraakt.
 
 De factory is **één centraal systeem** dat **meerdere target-repo's**
-kan bouwen. De factory-code zelf leeft in een eigen repo
-(`software-factory`, nieuw aan te maken bij deze rewrite); de
+kan bouwen. De factory-code zelf leeft in een eigen repo, de
 applicatie-repo's die de factory bouwt (`personal-news-feed`,
 eventueel meer in de toekomst) staan los daarvan. Per Jira-ticket
 wordt aangegeven welke target-repo de fix/feature moet krijgen
@@ -29,7 +28,7 @@ features verloren gaan.
 
 ## 2. Architectuur op hoofdlijnen
 
-- **Taal/stack:** Kotlin, JDK 21, Spring Boot, Maven multi-module,
+- **Taal/stack:** Kotlin, JDK 21, Spring Boot, Maven,
   Spring Modulith.
 - **Orchestrator:** één Spring Boot service die polt, dispatcht,
   K8s-Jobs spawnt, recovery doet, en HTTP-endpoints biedt voor de
