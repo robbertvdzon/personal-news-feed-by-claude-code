@@ -1,4 +1,4 @@
-# Software Factory — Specs (v2)
+# Software Factory — Specs
 
 ## 1. Doel
 
@@ -26,11 +26,6 @@ OpenShift voor de factory zelf — OpenShift is alleen relevant als
 **deploy-target** van de target-apps (waar de tester naartoe praat
 om preview-deploys te testen). De AI-licentie waarmee de gebruiker
 op zijn laptop is ingelogd wordt door alle agents hergebruikt.
-
-Deze v2 is een **complete herimplementatie in Kotlin** van de bestaande
-Python-implementatie. Onderaan staan de bestaande Python-bestanden ter
-referentie; bedoeling is dat de Kotlin-versie deze vervangt zonder dat
-features verloren gaan.
 
 ---
 
@@ -117,8 +112,9 @@ gezet of bewerkt; `AI Tokens Used` is informatief.
 `git@github.com:robbertvdzon/personal-news-feed-by-claude-code.git`
 of `https://github.com/…/other-app.git`). Bij een ontbrekende of
 ongeldige URL: de eerste agent (refiner) schrijft een uitleg in
-`Error` en stopt. In v2 accepteren we alle URL's die de gebruiker
-zelf invult (later eventueel een allowlist).
+`Error` en stopt. Alle URL's die de gebruiker invult worden
+geaccepteerd (er is geen allowlist — alleen vertrouwde gebruikers
+hebben toegang tot het Jira-board).
 
 **`Paused`-veld** is een handgrepen-noodknop: zet 'm op `true` om
 een ticket "stil" te leggen (lopende containers worden niet gekild,
@@ -176,8 +172,8 @@ zijn afgehandeld.
   heeft verwerkt, zodat hij bij een volgende loopback alleen nieuwe
   feedback hoeft te lezen.
 
-In v2 stellen alleen de refiner vragen aan de PO. Andere agents die
-ergens niet uitkomen, schrijven in plaats daarvan in het `Error`-veld
+Alleen de refiner stelt vragen aan de PO. Andere agents die ergens
+niet uitkomen, schrijven in plaats daarvan in het `Error`-veld
 (§3.2) en stoppen. De PO leest het probleem, lost het op (bv. door
 de target-repo te corrigeren), en leegt `Error` om verder te gaan.
 
@@ -597,7 +593,7 @@ De gevaarlijkste agent qua blast-radius — verdient extra grenzen.
   vanaf de laptop met de kubeconfig die de gebruiker zelf gebruikt.
   Wat hij wel/niet mag is dus dezelfde set rechten als de gebruiker
   in zijn `oc whoami` heeft — er is geen aparte ServiceAccount of
-  RBAC voor de tester in v2.
+  cluster-RBAC voor de tester.
 - Wacht aan het begin tot de **preview-deploy** van de PR live is
   (HTTP 200 op de preview-URL die door de orchestrator uit
   `deployment.md` getemplate't is, max 10 min polling per 15 s — zie
@@ -620,25 +616,27 @@ De gevaarlijkste agent qua blast-radius — verdient extra grenzen.
 
 ---
 
-## 8. AI-aanroep — dummy in v2
+## 8. AI-aanroep — dummy-implementatie
 
-De keuze tussen Claude Code CLI, Codex of een andere AI-CLI is voor
-v2 **uitgesteld**. In v2 doet elke agent zijn werk met een **dummy
-implementatie** die random gedrag genereert. Dat is genoeg om de
-hele factory-flow (orchestrator, phase-machine, Docker-runner,
-cost-monitor, tips-DB, error-handling) end-to-end te testen zonder
-AI-credits te verbruiken of vast te zitten aan een CLI-keuze.
+De keuze voor een concrete AI-CLI (Claude Code CLI, Codex, of iets
+anders) is **uitgesteld**. Elke agent doet zijn werk via een
+**dummy-implementatie** die random gedrag genereert. Dat is genoeg
+om de hele factory-flow (orchestrator, phase-machine, Docker-runner,
+cost-monitor, tips-DB, error-handling) end-to-end te laten draaien
+zonder AI-credits te verbruiken of vast te zitten aan een CLI-keuze.
+Zodra een AI-CLI gekozen is wordt de dummy vervangen door een echte
+implementatie zonder dat de orchestratie eromheen verandert.
 
 ### 8.1 Interface
 
-De agent-code definieert een Kotlin-interface `AiClient`. In v2 is
-er één implementatie: `DummyAiClient`. Later komt er een tweede
-implementatie (`ClaudeCliClient`, `CodexCliClient`, ...) die dezelfde
-interface implementeert, plug-and-play.
+De agent-code definieert een Kotlin-interface `AiClient` met één
+concrete implementatie: `DummyAiClient`. Een echte implementatie
+(`ClaudeCliClient`, `CodexCliClient`, …) implementeert dezelfde
+interface zodat hij plug-and-play wisselbaar is.
 
 ### 8.2 Dummy-gedrag per rol
 
-Iedere agent in v2 doet het volgende met de dummy:
+Iedere agent doet het volgende met de dummy:
 
 | Rol       | Gedrag                                                                                                                          |
 |-----------|---------------------------------------------------------------------------------------------------------------------------------|
@@ -660,13 +658,20 @@ De dummy:
   geforceerd worden tot een specifieke uitkomst — handig voor
   integratie-tests waarbij je een bepaalde flow wilt valideren.
 
-### 8.3 Toekomstige model-routing (uit v2)
+### 8.3 Toekomstige model-routing
 
-De level-matrix uit de huidige Python-impl (11 levels × 4 rollen →
-`(model, effort)`-mapping) blijft in de specs een **open ontwerp**
-maar wordt pas geïmplementeerd zodra een echte AI-CLI gekozen is.
-Tot dan negeert de dummy de waardes; de orchestrator zet de env-vars
-wel om de plumbing alvast te valideren.
+Wanneer een echte AI-CLI wordt aangesloten komt er een level-matrix
+die per `AI Level` (0–10) en per rol een `(model, effort)`-paar
+oplevert. Voorbeeld-ontwerp (concretiseren bij CLI-keuze):
+
+- Per level 0..10 een mapping naar een tier (`cheap`, `mid`,
+  `premium`, …).
+- Per tier een concreet model + effort/thinking-budget.
+- Goedkoper voor lage levels, duurder/diepgaander voor hogere.
+
+Zolang de dummy-implementatie actief is worden `AI Level`,
+`CLAUDE_MODEL` en `CLAUDE_EFFORT` wel netjes doorgegeven aan de
+container (om de plumbing te valideren), maar de dummy negeert ze.
 
 ### 8.4 Override via comment
 
@@ -1174,7 +1179,7 @@ ze moeten invullen.
 ### 17.4 Wat NIET in de secrets-file hoort
 
 - Per-target-repo credentials zoals een aparte GitHub-token per repo.
-  Voor v2 gaan we uit van **één** PAT die toegang heeft tot alle
+  We gaan uit van **één** PAT die toegang heeft tot alle
   target-repo's van de gebruiker.
 - Preview-DB-credentials. Die haalt de tester zelf op uit de cluster
   via `preview_db_secret_recipe` in `docs/factory/deployment.md`
@@ -1183,5 +1188,3 @@ ze moeten invullen.
   geen losse API-key.
 
 ---
-
-
