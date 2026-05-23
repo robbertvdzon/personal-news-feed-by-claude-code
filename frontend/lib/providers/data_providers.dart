@@ -431,11 +431,32 @@ class EventsNotifier extends AsyncNotifier<List<Event>> {
     await _api.post('/api/events/discover');
   }
 
+  /// KAN-66: trigger de wekelijkse video-zoekjob handmatig (apart van de
+  /// event-job). Mirror van [discover].
+  Future<void> discoverVideos() async {
+    await _api.post('/api/events/videos/discover');
+  }
+
   Future<void> delete(String id) async {
     state = AsyncData(state.value!.where((e) => e.id != id).toList());
     try { await _api.delete('/api/events/$id'); } catch (_) {}
   }
 }
+
+/// KAN-66: per-event ontdekte video's, geladen wanneer het detailscherm
+/// opent. Valt bij netwerk-fout terug op de gecachete lijst per event.
+final eventVideosProvider =
+    FutureProvider.family<List<EventVideo>, String>((ref, eventId) async {
+  final api = ref.read(apiProvider);
+  final user = ref.read(authProvider).username;
+  final list = await _fetchListWithCache(
+    api: api,
+    path: '/api/events/$eventId/videos',
+    username: user,
+    cacheName: 'event_videos_$eventId',
+  );
+  return list.map((e) => EventVideo.fromJson(e as Map<String, dynamic>)).toList();
+});
 
 class AppearanceState {
   final bool largeFont;

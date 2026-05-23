@@ -327,6 +327,17 @@ De events-module ontdekt per gebruiker grote tech-events (conferenties zoals Jav
 - **Aankondiging**: bij een nieuw event wordt een gewoon Nederlands feed-item aangemaakt (`mediaType=ARTICLE`, categorie van het event) met een verwijzing naar de Events-sectie.
 - **Logging/metrics**: de Claude-call wordt gelogd als `event_discovery` in `external_calls`; Micrometer telt `newsfeed.events.discovered` en timet `newsfeed.events.discovery.duration`. Tavily logt zoals bestaand.
 
+### 6.9 Event-video-ontdekking (KAN-66, wekelijks + handmatig)
+
+Per al ontdekt event (zie 6.8) worden wekelijks de online video's (keynotes/sessies) ontdekt. Aparte job van de event-discovery — er wordt in deze story nog **geen** samenvatting gemaakt, alleen de video plus een eventuele Nederlandse beschrijving opgeslagen.
+
+- **Trigger**: tweede wekelijkse cron `0 0 3 * * SUN` (zondag 03:00, één uur na de event-job), eigen `@SchedulerLock` (`weeklyEventVideoDiscovery`, lockAtMostFor=4h). Ook handmatig via `POST /api/events/videos/discover` — aparte knop in Settings naast de event-discovery-knop.
+- **Per opgeslagen event** (begindatum maximaal één jaar terug) draait een Tavily-search met `days=365` op naam + organisatie van het event. De resultaten gaan naar Claude (`mainModel`), die er de video's uit haalt: titel, video-URL en — indien beschikbaar — een Nederlandse beschrijving.
+- **Dedup** op de canonieke video-URL per (gebruiker, event): een bestaande video wordt bijgewerkt, een nieuwe toegevoegd. Maximaal 10 video's per event per run om de Tavily/Claude-kosten te beperken.
+- **Geen aankondiging**: video's genereren geen FeedItem (alleen events doen dat).
+- **Tonen**: in het event-detailscherm verschijnt een lijst klikbare video's; een tik opent de externe URL in de systeembrowser (`GET /api/events/{id}/videos`).
+- **Logging/metrics**: de Claude-call wordt gelogd als `event_video_discovery` in `external_calls`; Micrometer telt `newsfeed.event_videos.discovered` en timet `newsfeed.event_videos.discovery.duration`. Tavily logt zoals bestaand.
+
 ### 6.7 Onderwerp-geschiedenis
 
 De onderwerp-geschiedenis (`topic_history.json`) wordt bijgehouden per gebruiker en bijgewerkt na:

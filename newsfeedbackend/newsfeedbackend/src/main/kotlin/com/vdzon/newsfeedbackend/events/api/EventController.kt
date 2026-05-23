@@ -3,6 +3,7 @@ package com.vdzon.newsfeedbackend.events.api
 import com.vdzon.newsfeedbackend.common.SecurityHelpers
 import com.vdzon.newsfeedbackend.events.Event
 import com.vdzon.newsfeedbackend.events.EventService
+import com.vdzon.newsfeedbackend.events.EventVideo
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
@@ -34,6 +35,23 @@ class EventController(
     @PostMapping("/discover")
     fun discover(): Map<String, String> {
         service.triggerDiscovery(user())
+        return mapOf("status" to "ok")
+    }
+
+    /**
+     * KAN-66: de ontdekte video's (keynotes/sessies) van één event.
+     */
+    @GetMapping("/{id}/videos")
+    fun videos(@PathVariable id: String): List<EventVideo> = service.listVideos(user(), id)
+
+    /**
+     * KAN-66: handmatige trigger vanuit Settings voor de video-zoekjob.
+     * Apart van /discover (de event-job). Start asynchroon; de response
+     * komt direct terug.
+     */
+    @PostMapping("/videos/discover")
+    fun discoverVideos(): Map<String, String> {
+        service.triggerVideoDiscovery(user())
         return mapOf("status" to "ok")
     }
 

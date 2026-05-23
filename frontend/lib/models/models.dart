@@ -545,3 +545,27 @@ class Event {
         feedItemId: j['feedItemId'],
       );
 }
+
+/// KAN-66: één online video (keynote/sessie) van een [Event]. Wekelijks
+/// ontdekt met AI + web-search. Nog GEEN samenvatting — alleen titel,
+/// URL en een eventuele Nederlandse beschrijving.
+class EventVideo {
+  final String eventId;
+  final String videoUrl;
+  final String title;
+  final String? descriptionNl;
+
+  EventVideo({
+    required this.eventId,
+    required this.videoUrl,
+    required this.title,
+    this.descriptionNl,
+  });
+
+  factory EventVideo.fromJson(Map<String, dynamic> j) => EventVideo(
+        eventId: j['eventId'] ?? '',
+        videoUrl: j['videoUrl'] ?? '',
+        title: j['title'] ?? '',
+        descriptionNl: j['descriptionNl'],
+      );
+}

@@ -72,6 +72,9 @@ data class ExternalCall(
         // KAN-65: wekelijkse AI-ontdekking van tech-events per gebruiker.
         const val ACTION_EVENT_DISCOVERY = "event_discovery"
 
+        // KAN-66: wekelijkse AI-ontdekking van video's (keynotes/sessies) per event.
+        const val ACTION_EVENT_VIDEO_DISCOVERY = "event_video_discovery"
+
         // UnitType-constants
         const val UNIT_TOKENS = "tokens"
         const val UNIT_CHARACTERS = "characters"
