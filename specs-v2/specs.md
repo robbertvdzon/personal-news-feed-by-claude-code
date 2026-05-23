@@ -137,12 +137,16 @@ gedispatched). De cost-monitor zet 'm ook automatisch op `true` bij
 budget-overschrijding (§15). Hervatten = `false` zetten.
 
 **`Error`-veld** is voor onherstelbare blokkades. Voorbeelden:
-target-repo niet kunnen clone'n, `docs/factory/` ontbreekt,
-deployment.md kapot, GitHub-PAT expired. Een agent die zo'n
-probleem detecteert schrijft een korte beschrijving in `Error` en
-stopt. De orchestrator dispatcht **niets** zolang `Error` gevuld is.
-Hervatten = gebruiker leegt het veld (eventueel na een fix in
-de repo / config).
+target-repo niet kunnen clone'n, `deployment.md`-frontmatter
+onleesbaar of incompleet, GitHub-PAT expired, push naar de branch
+geweigerd. Een agent die zo'n probleem detecteert schrijft een
+korte beschrijving in `Error` en stopt. De orchestrator dispatcht
+**niets** zolang `Error` gevuld is. Hervatten = gebruiker leegt het
+veld (eventueel na een fix in de repo / config).
+
+Een ontbrekende `docs/factory/`-map is **géén** Error — dat is een
+soft-signaal dat de developer als onderdeel van zijn PR oplost
+(zie §4.4 en §7.3).
 
 ### 3.3 Comment-conventie
 
