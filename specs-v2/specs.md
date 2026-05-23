@@ -661,23 +661,36 @@ Agents bewaren herbruikbare kennis. Bv. de tester ontdekt hoe je in
 een specifieke applicatie inlogt — die kennis slaat hij op zodat hij
 dat de volgende keer niet opnieuw hoeft uit te zoeken.
 
-- **Eén tabel** `factory.agent_knowledge` met `(role, category, key)`
-  als unieke sleutel. Upsert-semantiek: last-writer-wins.
+- **Tips zijn per target-repo geïsoleerd.** De refiner-tips van repo
+  X zijn niet zichtbaar voor agents die aan repo Y werken. Iedere
+  repo bouwt z'n eigen kennisbestand op per rol.
+- **Eén tabel** `factory.agent_knowledge` met
+  `(target_repo, role, category, key)` als unieke sleutel.
+  Upsert-semantiek: last-writer-wins binnen dezelfde repo+rol+key.
 - **Toegang:** elke agent leest/schrijft alleen records van zijn
-  eigen rol. Afgedwongen door de HTTP-endpoints (`GET
-  /agent-knowledge?role=<role>` en `POST /agent-knowledge/update`)
-  die de orchestrator serveert.
+  eigen rol én zijn eigen target-repo. Afgedwongen door de
+  HTTP-endpoints (`GET /agent-knowledge?target_repo=<repo>&role=<role>`
+  en `POST /agent-knowledge/update` met `target_repo` + `role` in
+  de body) die de orchestrator serveert. De runner geeft beide
+  waarden mee uit de env-vars `REPO_URL` + `AGENT_TYPE`.
+  De orchestrator normaliseert `REPO_URL` (strip protocol +
+  `.git`-suffix → bv. `github.com/robbertvdzon/personal-news-feed-by-claude-code`)
+  voordat 'ie 'm als `target_repo` opslaat in de DB, zodat HTTPS-
+  en SSH-URL's naar dezelfde repo niet twee aparte tips-buckets
+  opleveren.
 - **Flow:** runner pakt aan het begin de tips op (geserialiseerd als
   markdown) en zet ze in `/work/repo/.agent-tips.md` zodat de
   AI-CLI ze in z'n context kan opnemen. Aan het einde schrijft de
   agent eventuele nieuwe/gewijzigde tips als JSON-blok in zijn
   output; de runner POST't die naar de orchestrator.
-- **Velden** (zie ook §14): `id`, `role`, `category`, `key`,
-  `content`, `created_at`, `updated_at`, `updated_by_story`.
+- **Velden** (zie ook §14): `id`, `target_repo`, `role`, `category`,
+  `key`, `content`, `created_at`, `updated_at`, `updated_by_story`.
 
-Cross-repo: de `agent_knowledge`-tabel is **globaal**, niet per
-target-repo. Als een tip repo-specifiek is, hoort die in de
-`docs/factory/agents/<rol>.md` van die repo, niet in de DB.
+Tips die over de AI CLI of de factory zelf gaan (bv. "Playwright in
+deze image kan flaky zijn met `goto()` zonder waitFor") en dus voor
+alle repo's gelden, horen niet in de tips-DB maar in de
+`docs/factory/agents/<rol>.md` van de **factory-repo zelf**, of als
+hard-coded richtlijn in de agent-system-prompt.
 
 ---
 
@@ -930,17 +943,19 @@ CREATE TABLE factory.agent_events (
   payload         JSONB NOT NULL
 );
 
--- Tips per rol (globaal — cross-repo, zie §9).
+-- Tips per (target-repo, rol). Per repo bouwt elke rol z'n eigen
+-- kennisbestand op (zie §9).
 CREATE TABLE factory.agent_knowledge (
   id                BIGSERIAL PRIMARY KEY,
-  role              TEXT NOT NULL,
+  target_repo       TEXT NOT NULL,                -- waarde uit Jira `Target Repo`
+  role              TEXT NOT NULL,                -- 'refiner' | 'developer' | 'reviewer' | 'tester'
   category          TEXT NOT NULL,
   key               TEXT NOT NULL,
   content           TEXT NOT NULL,
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_by_story  TEXT,
-  UNIQUE (role, category, key)
+  UNIQUE (target_repo, role, category, key)
 );
 
 -- Verwerkte user-comments (fallback voor §3.4 als Jira-reacties
