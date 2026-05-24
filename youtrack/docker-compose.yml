@@ -1,0 +1,48 @@
+# YouTrack Server (free voor ≤10 users) — lokale self-host.
+#
+# Single-container setup. JetBrains' image bundelt YouTrack + Hub (auth)
+# in één JVM, dus geen aparte Postgres/Redis nodig.
+#
+# Start:
+#   cd youtrack
+#   docker compose up -d
+#   open http://localhost:9700
+#
+# First-run wizard:
+#   YouTrack vraagt bij eerste start om een wizard-token. Die staat in de
+#   container-log; haal 'm op met:
+#     docker compose logs youtrack | grep -i "wizard token"
+#   of bekijk de hele log voor de eerste-start-banner:
+#     docker compose logs -f youtrack
+#   Plak het token in de browser → volg de wizard → kies een vrije
+#   "JetBrains Account"-license (gratis voor ≤10 users; vereist account).
+#
+# Stop / reset:
+#   docker compose down              # stoppen, data behouden
+#   docker compose down -v           # alles weg incl. data + config
+#
+# Logs:
+#   docker compose logs -f youtrack
+#
+# Binding: poort 9700 is gebonden aan 127.0.0.1 zodat YouTrack alleen
+# vanaf deze Mac bereikbaar is. Wil je 'm vanaf je LAN benaderen?
+# Vervang "127.0.0.1:9700:8080" door "9700:8080" en restart.
+
+services:
+  youtrack:
+    image: jetbrains/youtrack:2026.1.13570
+    container_name: youtrack
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9700:8080"
+    volumes:
+      - data:/opt/youtrack/data
+      - conf:/opt/youtrack/conf
+      - logs:/opt/youtrack/logs
+      - backups:/opt/youtrack/backups
+
+volumes:
+  data:
+  conf:
+  logs:
+  backups:
