@@ -328,10 +328,18 @@ oc rollout status -n "$FACTORY_NS" deploy/status-dashboard --timeout=120s 2>/dev
 # JetBrains-image). Restricted-v2 SCC overschrijft elke UID naar een
 # random waarde uit de namespace's range, wat YouTrack's bin/-scripts
 # laat falen. Daarom granten we `anyuid` aan de default-SA in `youtrack`.
-# Cluster-scoped operatie → niet via ArgoCD, hier in bootstrap.
+#
+# Daarnaast `privileged` voor de init-container die de SELinux-labels
+# van local-path-provisioner PV's relabelt naar container_file_t (zonder
+# die fix krijgt YouTrack permission-denied op /opt/youtrack/logs, zelfs
+# met 0777 perms — SELinux denial). Zelfde patroon als local-path-
+# provisioner's eigen helper-pod (stap 5).
+#
+# Cluster-scoped operaties → niet via ArgoCD, hier in bootstrap.
 echo
-echo "[16/16] YouTrack (anyuid SCC + Application via ArgoCD)"
-oc adm policy add-scc-to-user anyuid -z default -n "$YOUTRACK_NS" >/dev/null
+echo "[16/16] YouTrack (anyuid + privileged SCC + Application via ArgoCD)"
+oc adm policy add-scc-to-user anyuid     -z default -n "$YOUTRACK_NS" >/dev/null
+oc adm policy add-scc-to-user privileged -z default -n "$YOUTRACK_NS" >/dev/null
 oc apply -n "$ARGOCD_NS" -f "$DEPLOY_DIR/youtrack-application.yaml"
 oc rollout status -n "$YOUTRACK_NS" deploy/youtrack --timeout=300s 2>/dev/null || \
   echo "       (warning: youtrack niet ready binnen 5 min — check oc logs -n $YOUTRACK_NS deploy/youtrack)"

@@ -57,6 +57,56 @@ spec:
         # 20Gi-data-volumes zou full-tree-chown bij elke pod-start
         # tientallen seconden duren.
         fsGroupChangePolicy: OnRootMismatch
+      # ── Init-container: volume-perms + SELinux-relabel ────────────────
+      # local-path-provisioner maakt PV-dirs aan als root:root met
+      # SELinux-label `container_var_lib_t`. UID 13001 mag daar niet in
+      # schrijven (zelfs niet met chmod 0777 — SELinux denial).
+      # Backend-pod werkt om dit heen via een ACL die OpenShift's MCS-range
+      # erin zet, maar die ACL geldt alleen voor UIDs in de project-range.
+      # YouTrack draait als hard-coded 13001 (buiten range) en heeft die
+      # ACL niet — vandaar deze handmatige fix.
+      #
+      # Vereist `privileged` SCC granted aan de default-SA in `youtrack`
+      # (zie bootstrap.sh stap 16). Eenmalig per pod-start (~1 sec); main-
+      # container draait daarna unprivileged.
+      initContainers:
+        - name: fix-perms
+          image: registry.access.redhat.com/ubi9-minimal:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            # Privileged + root nodig voor `chcon` op container_var_lib_t.
+            privileged: true
+            runAsUser: 0
+            runAsGroup: 0
+            # Override de pod-level securityContext.runAsNonRoot.
+            runAsNonRoot: false
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              for d in /vol-data /vol-conf /vol-logs /vol-backups; do
+                echo "fixing $d ..."
+                chown -R 13001:13001 "$d"
+                chcon -R -t container_file_t "$d" 2>&1 || echo "(chcon op $d gaf warning — ok als label al klopt)"
+              done
+              echo "init-container klaar."
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "32Mi"
+            limits:
+              cpu: "200m"
+              memory: "64Mi"
+          volumeMounts:
+            - name: data
+              mountPath: /vol-data
+            - name: conf
+              mountPath: /vol-conf
+            - name: logs
+              mountPath: /vol-logs
+            - name: backups
+              mountPath: /vol-backups
       containers:
         - name: youtrack
           image: jetbrains/youtrack:2026.1.13570
