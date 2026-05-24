@@ -250,6 +250,149 @@ paths:
         '400':
           description: Ongeldige podcast-RSS-URL (zie message-veld)
 
+  # ── Event Preferences (KAN-68) ────────────────────────────────────────────────
+
+  /api/settings/event-preferences:
+    get:
+      tags: [Settings]
+      operationId: getEventPreferences
+      summary: Haal de event-voorkeuren-lijst op
+      description: |
+        KAN-68: per-user lijst event-namen die als seed voor de
+        [EventDiscoveryPipeline] dient (vrije namen zoals "JavaOne",
+        "KotlinConf"). Bij de eerste call van een nieuwe gebruiker
+        wordt een sensible default geïnitialiseerd (JavaOne, KotlinConf,
+        Spring I/O, Code with Claude, OpenAI DevDay, Google I/O, Devoxx,
+        KubeCon) — zelfde patroon als `/api/settings`.
+      responses:
+        '200':
+          description: Event-voorkeuren
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventPreferences'
+    put:
+      tags: [Settings]
+      operationId: saveEventPreferences
+      summary: Vervang de event-voorkeuren-lijst
+      description: |
+        Vervangt de volledige lijst in één call. Lege of duplicate
+        namen worden door de service genegeerd.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventPreferences'
+      responses:
+        '200':
+          description: Opgeslagen event-voorkeuren
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventPreferences'
+    post:
+      tags: [Settings]
+      operationId: addEventPreference
+      summary: Voeg één event-voorkeur toe
+      description: |
+        Idempotent: bestaat de naam al, dan blijft de lijst onveranderd.
+        Returnt altijd de actuele lijst zodat de frontend niet apart hoeft
+        te refetchen.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  example: KotlinConf
+      responses:
+        '200':
+          description: Bijgewerkte event-voorkeuren
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventPreferences'
+        '400':
+          description: Lege naam
+
+  /api/settings/event-preferences/remove:
+    post:
+      tags: [Settings]
+      operationId: removeEventPreference
+      summary: Verwijder één event-voorkeur
+      description: |
+        Naam in de request body i.p.v. als path-variabele omdat default-
+        namen als "Spring I/O" en "Google I/O" een `/` bevatten; Spring/
+        Tomcat strippen `%2F` standaard, waardoor een path-variabele
+        DELETE die namen onbereikbaar maakt.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  description: De event-naam zoals 'ie in de lijst staat
+                  example: Spring I/O
+      responses:
+        '200':
+          description: Bijgewerkte event-voorkeuren
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventPreferences'
+        '400':
+          description: Lege naam
+
+  /api/settings/event-denylist:
+    get:
+      tags: [Settings]
+      operationId: getEventDenylist
+      summary: Haal de event-denylist op
+      description: |
+        KAN-68: per-user lijst met genormaliseerde event-ids van eerder
+        verwijderde events. De discovery-pipeline slaat ids op de
+        denylist over zodat verwijderde events bij de volgende run
+        niet opnieuw worden aangemaakt.
+      responses:
+        '200':
+          description: Event-denylist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventDenylist'
+
+  /api/settings/event-denylist/{normalizedId}:
+    delete:
+      tags: [Settings]
+      operationId: removeFromEventDenylist
+      summary: Haal één event-id van de denylist
+      description: |
+        Na verwijdering vindt de eerstvolgende discovery het event weer
+        als seed/match.
+      parameters:
+        - name: normalizedId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: De genormaliseerde event-id (zelfde slug als `events.id`, bv. 'javaone-2026')
+      responses:
+        '200':
+          description: Bijgewerkte event-denylist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventDenylist'
+
   # ── RSS Items ─────────────────────────────────────────────────────────────────
 
   /api/rss:
@@ -1057,6 +1200,11 @@ paths:
       tags: [Events]
       operationId: deleteEvent
       summary: Verwijder een event
+      description: |
+        KAN-68: bij verwijdering wordt ook het gekoppelde aankondigings-
+        FeedItem opgeruimd (het event verdwijnt uit alle views) en het
+        event-id op de per-user denylist gezet zodat de eerstvolgende
+        discovery-run het niet opnieuw toevoegt.
       parameters:
         - $ref: '#/components/parameters/ItemId'
       responses:
@@ -1204,6 +1352,56 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/PodcastFeed'
+
+    # Event Preferences (KAN-68)
+
+    EventPreferences:
+      type: object
+      description: |
+        KAN-68: per-user lijst event-namen die als seed voor de
+        wekelijkse event-discovery dient. Vrije tekst — geen
+        autocomplete.
+      properties:
+        names:
+          type: array
+          items:
+            type: string
+          example:
+            - JavaOne
+            - KotlinConf
+            - Spring I/O
+            - Code with Claude
+            - OpenAI DevDay
+            - Google I/O
+            - Devoxx
+            - KubeCon
+
+    EventDenylistEntry:
+      type: object
+      required: [normalizedId, name, addedAt]
+      properties:
+        normalizedId:
+          type: string
+          example: javaone-2026
+          description: Zelfde slug-vorm als `events.id`
+        name:
+          type: string
+          example: JavaOne 2026
+          description: Snapshot van de display-naam op het moment van verwijderen
+        addedAt:
+          type: string
+          format: date-time
+
+    EventDenylist:
+      type: object
+      description: |
+        KAN-68: per-user denylist met eerder verwijderde events.
+        De discovery-pipeline slaat ids op de denylist over.
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventDenylistEntry'
 
     # Events
 

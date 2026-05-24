@@ -317,15 +317,25 @@ Voor elke bestaande gebruiker worden de vaste verzoekrecords `hourly-update-{use
 
 ---
 
-### 6.8 Event-ontdekking (KAN-65, wekelijks + handmatig)
+### 6.8 Event-ontdekking (KAN-65 + KAN-68, wekelijks + handmatig)
 
 De events-module ontdekt per gebruiker grote tech-events (conferenties zoals JavaOne, KotlinConf, Spring I/O, Devoxx, KubeCon, Google I/O, OpenAI DevDay).
 
-- **Trigger**: wekelijkse cron `0 0 2 * * SUN` (zondag 02:00), eigen `@SchedulerLock` (`weeklyEventDiscovery`, lockAtMostFor=4h), los van de RssScheduler. Ook handmatig via `POST /api/events/discover` (mirror van de RSS-refresh) — knop in de Events-tab én in Settings.
-- **Per categorie** (alleen ingeschakelde, niet-systeem categorieën) draait een Tavily-search met `days=365` zodat zowel aankomende als events tot een jaar terug gevonden worden. De resultaten gaan naar Claude (`mainModel`), die er gestructureerde events uit haalt: stabiele id (genormaliseerde naam + jaar, bv. `javaone-2026`), naam, organisatie, begin-/einddatum, locatie, Nederlandse beschrijving en bronlinks.
+- **Trigger**: wekelijkse cron `0 0 2 * * SUN` (zondag 02:00), eigen `@SchedulerLock` (`weeklyEventDiscovery`, lockAtMostFor=4h), los van de RssScheduler. Ook handmatig via `POST /api/events/discover` (mirror van de RSS-refresh) — knop in de Events-tab én in Settings. De handmatige trigger respecteert dezelfde voorkeuren-lijst.
+- **Primaire seed (KAN-68)**: een per-user lijst event-voorkeuren in Settings (`/api/settings/event-preferences`). Per naam draait één gerichte Tavily-search (`"<naam> conference <year> <year+1> dates location"`, max-results 10), gevolgd door één Claude-extract die de edities + sterk overlappende zuster-edities uithaalt. Max 20 seed-queries per run om kosten te begrenzen. Sensible defaults bij eerste aanmaak van een user: JavaOne, KotlinConf, Spring I/O, Code with Claude, OpenAI DevDay, Google I/O, Devoxx, KubeCon.
+- **"Similar"-aanvulling (KAN-68)**: na de seed-pass één extra Claude-call (`discoverEventsSimilar`) die op basis van de hele voorkeuren-lijst events binnen dezelfde scene/community/technologie voorstelt. Eén call per run per user — geen Tavily-grounding, valt terug op Claude's eigen kennis.
+- **Secundair: per categorie** (alleen ingeschakelde, niet-systeem categorieën, KAN-65 gedrag) draait nog steeds een Tavily-search met `days=365`. Blijft als aanvulling actief; dedup vangt overlap met de seed-pass op.
+- **Datum-recovery (KAN-68)**: events die uit Claude komen zonder valide `start_date` krijgen één extra gerichte Tavily-lookup (`"<naam> conference dates <year> <year+1>"`) + één kleine Claude-call die alleen de datum extraheert. Lukt dat niet, dan wordt het event verworpen (`rejectedNoDate`-counter in de log).
+- **Denylist (KAN-68)**: bij het verwerken van Claude-output worden events waarvan de genormaliseerde id op de per-user `/api/settings/event-denylist` staat overgeslagen. De denylist wordt door [Event-verwijdering](#evt-delete) gevuld; de gebruiker kan ids er via Settings weer afhalen.
 - **Dedup** op de stabiele id per gebruiker: een bestaand event wordt bijgewerkt (feedItemId + createdAt behouden), een nieuw event wordt toegevoegd. Events met een begindatum ouder dan één jaar worden overgeslagen.
 - **Aankondiging**: bij een nieuw event wordt een gewoon Nederlands feed-item aangemaakt (`mediaType=ARTICLE`, categorie van het event) met een verwijzing naar de Events-sectie.
-- **Logging/metrics**: de Claude-call wordt gelogd als `event_discovery` in `external_calls`; Micrometer telt `newsfeed.events.discovered` en timet `newsfeed.events.discovery.duration`. Tavily logt zoals bestaand.
+- **Logging/metrics**: alle Claude-calls (`discoverEventsSeed`, `discoverEventsSimilar`, `discoverEventDate`, `discoverEvents`) worden gelogd als `event_discovery` in `external_calls`; Micrometer telt `newsfeed.events.discovered` en timet `newsfeed.events.discovery.duration`. Tavily logt zoals bestaand.
+
+### 6.8.1 Event-verwijdering en denylist (KAN-68) <a id="evt-delete"></a>
+
+- **`DELETE /api/events/{id}`**: verwijdert het event uit `events` (cascade ruimt `event_videos` op), én verwijdert het gekoppelde aankondigings-FeedItem (`events.feed_item_id`, géén DB-FK — explicit op service-niveau), én voegt de event-id + display-naam toe aan `event_denylist` voor deze user.
+- **Denylist-beheer**: `GET /api/settings/event-denylist` toont de lijst, `DELETE /api/settings/event-denylist/{normalizedId}` haalt 'n id eraf. Verwijderd-en-eraf-gehaald → discovery vindt 'm bij de volgende run weer.
+- **Event-voorkeuren-beheer**: `GET/PUT /api/settings/event-preferences` voor de hele lijst, `POST /api/settings/event-preferences` om er eentje bij te plaatsen, `POST /api/settings/event-preferences/remove` (body `{"name":"..."}`) om er eentje te verwijderen. Naam in de body i.p.v. als path-segment omdat defaults als "Spring I/O" en "Google I/O" een `/` bevatten en Spring/Tomcat `%2F` standaard strippen. Vrije tekst — geen autocomplete.
 
 ### 6.9 Event-video-ontdekking (KAN-66, wekelijks + handmatig)
 
