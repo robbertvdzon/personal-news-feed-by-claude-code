@@ -19,6 +19,8 @@
 #   13. JIRA-poller RBAC (Deployment komt via ArgoCD tooling-app)
 #   14. Status-dashboard RBAC (Deployment komt via ArgoCD tooling-app)
 #   15. Tooling-Application apply'en (poller + dashboard Deployments)
+#   16. YouTrack: namespace + anyuid SCC + Application (de toekomstige
+#       JIRA-vervanger; deployment via ArgoCD)
 #
 # Aannames:
 #   - `oc` is geïnstalleerd en ingelogd op het juiste cluster (`oc whoami`).
@@ -42,6 +44,7 @@ REPO_ROOT="$(cd "$DEPLOY_DIR/.." && pwd)"
 
 NAMESPACE="personal-news-feed"
 FACTORY_NS="pnf-software-factory"
+YOUTRACK_NS="youtrack"
 ARGOCD_NS="argocd"
 LOCAL_PATH_NS="local-path-storage"
 LOCAL_PATH_SA="local-path-provisioner-service-account"
@@ -71,7 +74,7 @@ echo "[bootstrap] user:    $(oc whoami)"
 # laat 'm zichzelf upgraden binnen het channel. Op fresh clusters duurt
 # de eerste install ~2 min (catalog-resolve + image-pull).
 echo
-echo "[1/15] argocd-operator subscription"
+echo "[1/16] argocd-operator subscription"
 oc apply -f "$DEPLOY_DIR/argocd-operator-subscription.yaml"
 
 echo "       wachten op argocd CRD (signal dat de operator klaar is)..."
@@ -92,7 +95,7 @@ echo "       operator ready"
 # vervolgens argocd-server, repo-server, redis, application-controller en
 # applicationset-controller.
 echo
-echo "[2/15] ArgoCD instance ($ARGOCD_NS)"
+echo "[2/16] ArgoCD instance ($ARGOCD_NS)"
 oc create namespace "$ARGOCD_NS" --dry-run=client -o yaml | oc apply -f -
 oc apply -f "$DEPLOY_DIR/argocd-cr.yaml"
 echo "       wachten op argocd-server..."
@@ -102,7 +105,7 @@ oc rollout status -n "$ARGOCD_NS" deploy/argocd-applicationset-controller --time
 
 # ─── 3. Sealed Secrets controller ─────────────────────────────────────
 echo
-echo "[3/15] Sealed Secrets controller ($SEALED_SECRETS_VERSION)"
+echo "[3/16] Sealed Secrets controller ($SEALED_SECRETS_VERSION)"
 oc apply -f "https://github.com/bitnami-labs/sealed-secrets/releases/download/${SEALED_SECRETS_VERSION}/controller.yaml"
 oc rollout status -n kube-system deploy/sealed-secrets-controller --timeout=180s
 
@@ -120,7 +123,7 @@ oc rollout status -n kube-system deploy/sealed-secrets-controller --timeout=180s
 #       ./deploy/seal-secrets.sh
 #       git add deploy/base/sealed-secret-api-keys.yaml && git commit && git push
 echo
-echo "[4/15] Cluster public-cert ophalen → $CERT_FILE"
+echo "[4/16] Cluster public-cert ophalen → $CERT_FILE"
 if [[ -f "$CERT_FILE" ]]; then
   tmp="$(mktemp)"
   trap 'rm -f "$tmp"' EXIT
@@ -142,7 +145,7 @@ fi
 # enforcing — daarom moet de helper-pod privileged draaien. Daarnaast
 # is /opt read-only op RHCOS, dus we routeren naar /var/lib.
 echo
-echo "[5/15] Local-path-provisioner ($LOCAL_PATH_VERSION)"
+echo "[5/16] Local-path-provisioner ($LOCAL_PATH_VERSION)"
 
 # Install
 oc apply -f "https://raw.githubusercontent.com/rancher/local-path-provisioner/${LOCAL_PATH_VERSION}/deploy/local-path-storage.yaml"
@@ -208,7 +211,7 @@ oc rollout status  -n "$LOCAL_PATH_NS" deploy/local-path-provisioner --timeout=6
 # (gestuurd via annotations op de Secret). Zonder reflector zou elke
 # preview-namespace een eigen SealedSecret nodig hebben.
 echo
-echo "[6/15] Reflector ($REFLECTOR_VERSION)"
+echo "[6/16] Reflector ($REFLECTOR_VERSION)"
 oc apply -f "https://github.com/emberstack/kubernetes-reflector/releases/download/${REFLECTOR_VERSION}/reflector.yaml"
 oc rollout status -n kube-system deploy/reflector --timeout=120s
 
@@ -216,8 +219,8 @@ oc rollout status -n kube-system deploy/reflector --timeout=120s
 # personal-news-feed = de applicatie zelf
 # pnf-software-factory = poller, dashboard en alle runner-Jobs
 echo
-echo "[7/15] Namespaces met argocd-label"
-for ns in "$NAMESPACE" "$FACTORY_NS"; do
+echo "[7/16] Namespaces met argocd-label"
+for ns in "$NAMESPACE" "$FACTORY_NS" "$YOUTRACK_NS"; do
   echo "       $ns"
   oc create namespace "$ns" --dry-run=client -o yaml | oc apply -f -
   oc label namespace "$ns" "argocd.argoproj.io/managed-by=$ARGOCD_NS" --overwrite
@@ -227,7 +230,7 @@ done
 # De ArgoCD CR (stap 2) zet `applicationSet: {}` al; deze patch is een
 # safety net voor het geval iemand de CR handmatig gewijzigd heeft.
 echo
-echo "[8/15] Verify ApplicationSet-controller"
+echo "[8/16] Verify ApplicationSet-controller"
 oc patch argocd argocd -n "$ARGOCD_NS" --type merge -p '{"spec":{"applicationSet":{}}}' >/dev/null
 oc rollout status -n "$ARGOCD_NS" deploy/argocd-applicationset-controller --timeout=120s 2>/dev/null || true
 
@@ -236,7 +239,7 @@ oc rollout status -n "$ARGOCD_NS" deploy/argocd-applicationset-controller --time
 # om open PR's te lezen. We hergebruiken de GITHUB_TOKEN uit de sealed
 # secret in personal-news-feed (zelfde token als de claude-runner).
 echo
-echo "[9/15] github-pr-token secret in $ARGOCD_NS"
+echo "[9/16] github-pr-token secret in $ARGOCD_NS"
 if oc get secret -n "$NAMESPACE" newsfeed-api-keys >/dev/null 2>&1; then
   GH_TOKEN="$(oc get secret -n "$NAMESPACE" newsfeed-api-keys -o jsonpath='{.data.GITHUB_TOKEN}' | base64 -d)"
   if [[ -n "$GH_TOKEN" ]]; then
@@ -257,19 +260,19 @@ fi
 # Watcht Application-objecten en labelt pnf-pr-* namespaces zodat de
 # argocd-operator ze accepteert ("namespace not managed"-fout omzeilen).
 echo
-echo "[10/15] Preview-ns-labeller (RBAC + deployment)"
+echo "[10/16] Preview-ns-labeller (RBAC + deployment)"
 oc apply -f "$DEPLOY_DIR/preview-ns-labeller/rbac.yaml"
 oc apply -f "$DEPLOY_DIR/preview-ns-labeller/deployment.yaml"
 oc rollout status -n "$ARGOCD_NS" deploy/preview-ns-labeller --timeout=60s 2>/dev/null || true
 
 # ─── 11. ArgoCD Application (prod) ────────────────────────────────────
 echo
-echo "[11/15] ArgoCD Application apply"
+echo "[11/16] ArgoCD Application apply"
 oc apply -n "$ARGOCD_NS" -f "$DEPLOY_DIR/argocd-application.yaml"
 
 # ─── 12. ApplicationSet (preview-deploys per PR) ──────────────────────
 echo
-echo "[12/15] ApplicationSet voor preview-deploys"
+echo "[12/16] ApplicationSet voor preview-deploys"
 oc apply -n "$ARGOCD_NS" -f "$DEPLOY_DIR/applicationset.yaml"
 
 # ─── 13. JIRA-poller RBAC (Deployment komt via ArgoCD) ──────────────
@@ -277,7 +280,7 @@ oc apply -n "$ARGOCD_NS" -f "$DEPLOY_DIR/applicationset.yaml"
 # RBAC is cluster-scoped en blijft hier; de Deployment wordt door
 # ArgoCD beheerd via deploy/tooling/.
 echo
-echo "[13/15] JIRA-poller (RBAC only)"
+echo "[13/16] JIRA-poller (RBAC only)"
 oc apply -f "$DEPLOY_DIR/jira-poller/rbac.yaml"
 
 # ─── 13b. Claude-tester RBAC (KAN-43) ──────────────────────────────
@@ -285,7 +288,7 @@ oc apply -f "$DEPLOY_DIR/jira-poller/rbac.yaml"
 # die de poller spawnt met serviceAccountName=claude-tester. Cluster-
 # scoped → niet via ArgoCD.
 echo
-echo "[13b/15] Claude-tester (RBAC only)"
+echo "[13b/16] Claude-tester (RBAC only)"
 oc apply -f "$DEPLOY_DIR/claude-tester/rbac.yaml"
 
 # ─── 13c. Claude-interactive RBAC (KAN-61) ──────────────────────────
@@ -296,7 +299,7 @@ oc apply -f "$DEPLOY_DIR/claude-tester/rbac.yaml"
 # falen pod-creates óf draaien ze zonder admin-rechten (waardoor de
 # hele waarde van de feature wegvalt).
 echo
-echo "[13c/15] Claude-interactive (RBAC only)"
+echo "[13c/16] Claude-interactive (RBAC only)"
 oc apply -f "$DEPLOY_DIR/claude-interactive/rbac.yaml"
 
 # ─── 14. Status-dashboard RBAC (Deployment komt via ArgoCD) ─────────
@@ -306,7 +309,7 @@ oc apply -f "$DEPLOY_DIR/claude-interactive/rbac.yaml"
 # wijst.
 # RBAC blijft hier (ClusterRole); Deployment via ArgoCD.
 echo
-echo "[14/15] Status-dashboard (RBAC only)"
+echo "[14/16] Status-dashboard (RBAC only)"
 oc apply -f "$DEPLOY_DIR/status-dashboard/rbac.yaml"
 
 # ─── 15. Tooling-Application (poller + dashboard Deployments) ────────
@@ -315,10 +318,23 @@ oc apply -f "$DEPLOY_DIR/status-dashboard/rbac.yaml"
 # GitHub Actions auto-gebumpt (zie .github/workflows/{jira-poller,
 # status-dashboard}-image.yml). Geen handmatige rollout-restart meer.
 echo
-echo "[15/15] Tooling-Application (poller + dashboard via ArgoCD)"
+echo "[15/16] Tooling-Application (poller + dashboard via ArgoCD)"
 oc apply -n "$ARGOCD_NS" -f "$DEPLOY_DIR/tooling-application.yaml"
 oc rollout status -n "$FACTORY_NS" deploy/jira-poller --timeout=120s 2>/dev/null || true
 oc rollout status -n "$FACTORY_NS" deploy/status-dashboard --timeout=120s 2>/dev/null || true
+
+# ─── 16. YouTrack (JIRA-vervanger) ───────────────────────────────────
+# YouTrack draait als UID 13001 in z'n container (vaste user in de
+# JetBrains-image). Restricted-v2 SCC overschrijft elke UID naar een
+# random waarde uit de namespace's range, wat YouTrack's bin/-scripts
+# laat falen. Daarom granten we `anyuid` aan de default-SA in `youtrack`.
+# Cluster-scoped operatie → niet via ArgoCD, hier in bootstrap.
+echo
+echo "[16/16] YouTrack (anyuid SCC + Application via ArgoCD)"
+oc adm policy add-scc-to-user anyuid -z default -n "$YOUTRACK_NS" >/dev/null
+oc apply -n "$ARGOCD_NS" -f "$DEPLOY_DIR/youtrack-application.yaml"
+oc rollout status -n "$YOUTRACK_NS" deploy/youtrack --timeout=300s 2>/dev/null || \
+  echo "       (warning: youtrack niet ready binnen 5 min — check oc logs -n $YOUTRACK_NS deploy/youtrack)"
 
 echo
 echo "[bootstrap] klaar."
@@ -328,3 +344,6 @@ echo "  oc get pods -n $NAMESPACE -w"
 echo
 echo "ArgoCD UI: oc get route -n $ARGOCD_NS argocd-server -o jsonpath='{.spec.host}{\"\\n\"}'"
 echo "App UI:    oc get route -n $NAMESPACE frontend -o jsonpath='{.spec.host}{\"\\n\"}'"
+echo "YouTrack:  oc get route -n $YOUTRACK_NS youtrack -o jsonpath='{.spec.host}{\"\\n\"}'"
+echo "           wizard-token (eenmalig, bij eerste start):"
+echo "           oc logs -n $YOUTRACK_NS deploy/youtrack | grep -oE 'wizard_token=[A-Za-z0-9]+'"
