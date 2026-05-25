@@ -27,3 +27,34 @@ Aangemaakt `docs/factory/` directory met alle skeleton-bestanden, ingevuld met c
 - `README.md`, `development.md`, `technical-spec.md`, `functional-spec.md`, `deployment.md`, `secrets-local.md`
 - `agents/developer.md`, `agents/refiner.md`, `agents/reviewer.md`, `agents/tester.md`
 - `docs/stories/.gitkeep`
+
+Done / rationale:
+- Developer-run gestart: story en factory-docs gelezen zodat het plan in de target-repo zichtbaar is.
+- Claude developer-run is afgerond. De factory heeft de branch gepusht en de PR geopend of hergebruikt.
+
+Commit geslaagd. 12 bestanden aangemaakt.
+
+---
+
+## Samenvatting
+
+De story PNF-1 ("Option to remove events") was al volledig geïmplementeerd in de codebase vanuit eerdere tickets (KAN-65–68). De enige openstaande taak was het aanmaken van `docs/factory/` op basis van de skeleton-template.
+
+## Gedaan
+
+- `docs/factory/README.md` — projectoverzicht en index
+- `docs/factory/development.md` — build- en testcommando's voor backend (Maven) en frontend (Flutter/Make), codeconventies
+- `docs/factory/technical-spec.md` — tech stack, Spring Modulith modules, architectuurregels, bekende valkuilen
+- `docs/factory/functional-spec.md` — kernfunctionaliteit, event-lifecycle, acceptatiecriteria
+- `docs/factory/deployment.md` — OpenShift/ArgoCD flow, preview-deploys, secrets-beheer (met factory-YAML frontmatter)
+- `docs/factory/secrets-local.md` — alle benodigde env-vars voor lokaal draaien
+- `docs/factory/agents/{developer,refiner,reviewer,tester}.md` — rol-specifieke agent-instructies
+- `docs/stories/.gitkeep` en `docs/stories/PNF-1-option-to-remove-events.md` — story-log
+
+## Niet gedaan / aangepast
+
+- Geen codewijzigingen — de implementatie (delete-endpoint, denylist, frontend prullenbak-knop) was al aanwezig.
+
+{"agent_tips_update":[{"category":"repo-context","key":"pnf-docs-factory-created","content":"docs/factory/ is aangemaakt in PNF-1 met volledige repo-context: Spring Boot 4/Kotlin 2 backend (Maven), Flutter frontend, PostgreSQL (Neon), Flyway, Spring Modulith. Deployment via OpenShift + ArgoCD. Preview URL template: https://pnf-pr-{pr_num}.vdzonsoftware.nl. Backend Maven-root: newsfeedbackend/newsfeedbackend/."}]}
+
+{"phase":"developing-finished"}
