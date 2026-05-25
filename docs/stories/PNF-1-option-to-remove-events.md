@@ -54,3 +54,24 @@ De story PNF-1 ("Option to remove events") was al volledig geïmplementeerd in d
 ## Niet gedaan / aangepast
 
 - Geen codewijzigingen — de implementatie (delete-endpoint, denylist, frontend prullenbak-knop) was al aanwezig.
+- Claude developer-run is afgerond. De factory heeft de branch gepusht en de PR geopend of hergebruikt.
+
+Commit geslaagd.
+
+---
+
+## Samenvatting
+
+Reviewer-feedback voor PNF-1 verwerkt: twee cosmetische bevindingen opgelost in één commit.
+
+## Gedaan
+
+- **`docs/stories/PNF-1-option-to-remove-events.md`**: Twee raw JSON-artefacten verwijderd die achterbleven aan het einde van het bestand (`agent_tips_update` en `phase`-object).
+- **`docs/factory/agents/tester.md`**: Story-specifieke noot verwijderd ("Voor event-delete stories: ...") die snel zou verouderen in een generiek agent-instructiebestand.
+
+## Niet gedaan / aangepast
+
+- Commit-bericht `be633d6` ("PNF-1: AI developer changes") is niet gewijzigd — dat is historische git-history op een gedeelde branch, niet veilig te herschrijven zonder afstemming.
+- Geen codewijzigingen — de story-implementatie zelf was al compleet.
+
+{"agent_tips_update":[{"category":"repo-conventions","key":"story-log-no-json-artifacts","content":"Laat geen raw agent_tips_update of phase JSON-objecten achter in docs/stories/*.md bestanden. Reviewer in PNF signaleert dit consequent als [suggestie]. Verwijder deze artefacten voor de commit."}]}
