@@ -27,25 +27,3 @@ Aangemaakt `docs/factory/` met alle skeleton-bestanden ingevuld met concrete rep
 ## Niet gedaan / aangepast
 
 - Geen codewijzigingen — de implementatie (delete-endpoint, denylist, frontend prullenbak-knop) was al aanwezig.
-
-Done / rationale:
-- Developer-run gestart: story en factory-docs gelezen zodat het plan in de target-repo zichtbaar is.
-- Claude developer-run is afgerond. De factory heeft de branch gepusht en de PR geopend of hergebruikt.
-
-Commit geslaagd.
-
----
-
-## Samenvatting
-
-Reviewer-feedback verwerkt: het blokkerende JSON-artefact (`agent_tips_update`-blok) is verwijderd van regel 77 en de drie aaneengeplakte run-samenvattingen zijn gecondenseerd tot één coherent story-log.
-
-## Gedaan
-
-- **`docs/stories/PNF-1-option-to-remove-events.md`**: JSON-artefact verwijderd (blokkerende bevinding), drie losse run-samenvattingen samengevoegd tot één helder bestand zonder procesnotities.
-
-## Niet gedaan / aangepast
-
-- Geen codewijzigingen — de story-implementatie (delete-endpoint, denylist, frontend) was al aanwezig en is niet gewijzigd.
-
-{"agent_tips_update":[{"category":"repo-conventions","key":"story-log-no-json-artifacts","content":"Laat geen raw agent_tips_update of phase JSON-objecten achter in docs/stories/*.md bestanden. Dit patroon is in PNF-1 drie keer opgetreden. Verwijder altijd vóór commit."}]}
