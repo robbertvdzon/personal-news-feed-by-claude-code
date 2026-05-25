@@ -54,7 +54,3 @@ De story PNF-1 ("Option to remove events") was al volledig geïmplementeerd in d
 ## Niet gedaan / aangepast
 
 - Geen codewijzigingen — de implementatie (delete-endpoint, denylist, frontend prullenbak-knop) was al aanwezig.
-
-{"agent_tips_update":[{"category":"repo-context","key":"pnf-docs-factory-created","content":"docs/factory/ is aangemaakt in PNF-1 met volledige repo-context: Spring Boot 4/Kotlin 2 backend (Maven), Flutter frontend, PostgreSQL (Neon), Flyway, Spring Modulith. Deployment via OpenShift + ArgoCD. Preview URL template: https://pnf-pr-{pr_num}.vdzonsoftware.nl. Backend Maven-root: newsfeedbackend/newsfeedbackend/."}]}
-
-{"phase":"developing-finished"}
