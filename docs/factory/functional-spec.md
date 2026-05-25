@@ -22,9 +22,9 @@ een leesbare feed.
 ### Event verwijderen (PNF-1 / KAN-68)
 1. Gebruiker opent een event in `EventDetailScreen`.
 2. Tikt op het prullenbak-icoon (rechts in de AppBar).
-3. Backend: `DELETE /api/events/{id}` → markeert het event als verwijderd:
-   - Feed-item wordt verwijderd.
-   - Event wordt op `event_denylist` gezet (normalized_id + naam).
+3. Backend: `DELETE /api/events/{id}` → verwijdert het event hard uit de DB en voegt het toe aan de denylist:
+   - Feed-item wordt hard-verwijderd uit de DB.
+   - Event-record wordt hard-verwijderd uit de DB en toegevoegd aan `event_denylist` (normalized_id + naam).
 4. `EventDiscoveryPipeline` slaat alle denylist-items over bij volgende discovery-run.
 5. Het event keert niet terug bij volgende discovery-runs.
    > Backend-endpoints voor denylistbeheer (`GET /api/settings/event-denylist`,

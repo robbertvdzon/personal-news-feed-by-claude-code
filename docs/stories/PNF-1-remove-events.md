@@ -9,6 +9,7 @@
 - [x] Implementatie verifiëren: prullenbak-icoon in EventDetailScreen
 - [x] Developer loopback (ronde 1): functional-spec.md corrigeren n.a.v. reviewer-bevinding
 - [x] Developer loopback (ronde 2): Kernfuncties-tabel inconsistentie oplossen
+- [x] Developer loopback (ronde 3): gebruikersflow stap 3 hard-delete formulering corrigeren
 
 ## Wat is gedaan
 
@@ -56,11 +57,23 @@ de denylist-UI nog niet in de frontend bestaat.
 - Was: `RSS-broncategorieën, event-voorkeuren en denylist beheren`
 - Nu: `RSS-broncategorieën en event-voorkeuren beheren; denylist beheren _(toekomstig)_`
 
+### Developer loopback ronde 3 (reviewer-feedback verwerkt)
+
+De reviewer signaleerde dat de inleidende formulering van gebruikersflow stap 3
+("markeert het event als verwijderd") een soft-delete impliceert, terwijl de
+werkelijke implementatie (`EventServiceImpl.kt:55`) een hard-delete uitvoert van
+zowel het feed-item als het event-record, gevolgd door een insert in `event_denylist`.
+
+**Oplossing**: stap 3 in `functional-spec.md` is herschreven naar:
+- `DELETE /api/events/{id}` → verwijdert het event hard uit de DB en voegt het
+  toe aan de denylist.
+- Bullets specificeren nu expliciet "hard-verwijderd" voor beide DB-acties.
+
 ## Wat is aangemaakt/gewijzigd in deze PR
 
 - `docs/factory/` compleet ingevuld (README, technical-spec, development,
   functional-spec, deployment, secrets-local, agents/*).
-- `docs/factory/functional-spec.md` gecorrigeerd n.a.v. reviewer-feedback (2 rondes).
+- `docs/factory/functional-spec.md` gecorrigeerd n.a.v. reviewer-feedback (3 rondes).
 - `docs/stories/PNF-1-remove-events.md` (dit bestand).
 
 Geen wijzigingen aan bestaande code.
