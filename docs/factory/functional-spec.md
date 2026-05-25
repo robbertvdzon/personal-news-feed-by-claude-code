@@ -15,7 +15,7 @@ een leesbare feed.
 | Events | Ontdekking en weergave van tech-conferenties (JavaOne, KotlinConf, …) |
 | Event-videos | YouTube-opnames van keynotes/sessies per event, inclusief NL-samenvatting |
 | Podcasts | Podcast-feeds bewaken en aflevering-samenvattingen genereren |
-| Settings | RSS-broncategorieën, event-voorkeuren en denylist beheren |
+| Settings | RSS-broncategorieën en event-voorkeuren beheren; denylist beheren _(toekomstig)_ |
 
 ## Gebruikersflows
 

@@ -7,7 +7,8 @@
 - [x] Implementatie verifiëren: V14 Flyway-migratie (event_denylist)
 - [x] Implementatie verifiëren: EventDiscoveryPipeline past denylist toe
 - [x] Implementatie verifiëren: prullenbak-icoon in EventDetailScreen
-- [x] Developer loopback: functional-spec.md corrigeren n.a.v. reviewer-bevinding
+- [x] Developer loopback (ronde 1): functional-spec.md corrigeren n.a.v. reviewer-bevinding
+- [x] Developer loopback (ronde 2): Kernfuncties-tabel inconsistentie oplossen
 
 ## Wat is gedaan
 
@@ -28,7 +29,7 @@ Verificatie bevestigt:
   als `IconButton` in de AppBar; tikt men erop dan roept de Riverpod-notifier
   `eventsProvider.notifier.delete(event.id)` aan.
 
-### Developer loopback (reviewer-feedback verwerkt)
+### Developer loopback ronde 1 (reviewer-feedback verwerkt)
 
 De reviewer signaleerde dat `functional-spec.md` een acceptatiecriterium bevatte
 dat niet overeenkomt met de werkelijke implementatie: "Settings toont de denylist
@@ -44,11 +45,22 @@ Backend-endpoints bestaan wel (`GET /api/settings/event-denylist` en
 - Het derde acceptatiecriterium is omgeschreven naar de feitelijke situatie
   (backend-endpoints aanwezig, frontend-UI nog niet geïmplementeerd).
 
+### Developer loopback ronde 2 (reviewer-feedback verwerkt)
+
+De reviewer signaleerde een interne inconsistentie in de Kernfuncties-tabel:
+de Settings-rij vermeldde "denylist beheren" zonder voorbehoud, terwijl
+Gebruikersflows stap 5 en het derde acceptatiecriterium expliciet aangaven dat
+de denylist-UI nog niet in de frontend bestaat.
+
+**Oplossing**: de Settings-rij in de Kernfuncties-tabel is aangepast:
+- Was: `RSS-broncategorieën, event-voorkeuren en denylist beheren`
+- Nu: `RSS-broncategorieën en event-voorkeuren beheren; denylist beheren _(toekomstig)_`
+
 ## Wat is aangemaakt/gewijzigd in deze PR
 
 - `docs/factory/` compleet ingevuld (README, technical-spec, development,
   functional-spec, deployment, secrets-local, agents/*).
-- `docs/factory/functional-spec.md` gecorrigeerd n.a.v. reviewer-feedback.
+- `docs/factory/functional-spec.md` gecorrigeerd n.a.v. reviewer-feedback (2 rondes).
 - `docs/stories/PNF-1-remove-events.md` (dit bestand).
 
 Geen wijzigingen aan bestaande code.
