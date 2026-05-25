@@ -121,29 +121,32 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
-class _EventTile extends StatelessWidget {
+class _EventTile extends ConsumerWidget {
   final Event event;
   const _EventTile({required this.event});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final subtitleParts = <String>[
       if (event.startDate != null && event.startDate!.isNotEmpty) formatEventDate(event),
       if (event.location.isNotEmpty) event.location,
     ];
+    final subtitleLines = [
+      if (subtitleParts.isNotEmpty) subtitleParts.join(' · '),
+      if (event.organization != null && event.organization!.isNotEmpty) event.organization!,
+      event.category,
+    ].where((s) => s.isNotEmpty).join('\n');
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       child: ListTile(
         leading: const Icon(Icons.event),
         title: Text(event.name, style: const TextStyle(fontWeight: FontWeight.w600)),
-        subtitle: Text([
-          if (subtitleParts.isNotEmpty) subtitleParts.join(' · '),
-          if (event.organization != null && event.organization!.isNotEmpty) event.organization!,
-        ].where((s) => s.isNotEmpty).join('\n')),
-        isThreeLine: subtitleParts.isNotEmpty && (event.organization?.isNotEmpty ?? false),
-        trailing: Chip(
-          visualDensity: VisualDensity.compact,
-          label: Text(event.category),
+        subtitle: Text(subtitleLines),
+        isThreeLine: subtitleLines.split('\n').length >= 3,
+        trailing: IconButton(
+          tooltip: 'Verwijderen',
+          icon: const Icon(Icons.delete_outline),
+          onPressed: () => ref.read(eventsProvider.notifier).delete(event.id),
         ),
         onTap: () => Navigator.of(context).push(
           MaterialPageRoute<void>(builder: (_) => EventDetailScreen(event: event)),

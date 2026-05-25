@@ -438,8 +438,13 @@ class EventsNotifier extends AsyncNotifier<List<Event>> {
   }
 
   Future<void> delete(String id) async {
+    final previous = state;
     state = AsyncData(state.value!.where((e) => e.id != id).toList());
-    try { await _api.delete('/api/events/$id'); } catch (_) {}
+    try {
+      await _api.delete('/api/events/$id');
+    } catch (_) {
+      state = previous;
+    }
   }
 }
 
