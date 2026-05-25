@@ -26,10 +26,14 @@ een leesbare feed.
    - Feed-item wordt verwijderd.
    - Event wordt op `event_denylist` gezet (normalized_id + naam).
 4. `EventDiscoveryPipeline` slaat alle denylist-items over bij volgende discovery-run.
-5. Het event keert dus niet terug tenzij de gebruiker het zelf van de denylist verwijdert (via Settings).
+5. Het event keert niet terug bij volgende discovery-runs.
+   > Backend-endpoints voor denylistbeheer (`GET /api/settings/event-denylist`,
+   > `DELETE /api/settings/event-denylist/{normalizedId}`) bestaan, maar een
+   > frontend-UI hiervoor is nog niet geïmplementeerd (zie follow-up PNF-2).
 
 ## Acceptatiecriteria (structureel)
 
 - Verwijderd event verschijnt niet meer in de Events-lijst.
 - Een volgende discovery-run maakt het event niet opnieuw aan.
-- Settings toont de denylist zodat gebruiker een event kan herstellen.
+- _(Niet geïmplementeerd in frontend)_ De backend biedt `GET /api/settings/event-denylist`
+  en `DELETE /api/settings/event-denylist/{normalizedId}` voor toekomstige herstel-UI.
