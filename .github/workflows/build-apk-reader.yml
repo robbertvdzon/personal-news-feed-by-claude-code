@@ -1,0 +1,83 @@
+name: Build Reader Android APK
+
+# Bouwt een release-APK voor de read-only reader-app op main-pushes en
+# attached 'm aan een GitHub Release. Aparte release-asset-naam
+# (reader-...apk) zodat 'ie naast de hoofd-app-APK kan bestaan.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'frontend-reader/**'
+      - '.github/workflows/build-apk-reader.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write  # nodig om Releases aan te maken
+
+env:
+  FLUTTER_VERSION: '3.35.0'
+  JDK_VERSION: '17'
+  # Backend-hostname die in de APK gebakken wordt (zelfde backend als de hoofd-app).
+  PROD_API: https://news.vdzonsoftware.nl
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: ${{ env.JDK_VERSION }}
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Build APK
+        working-directory: frontend-reader
+        run: |
+          set -euo pipefail
+          flutter pub get
+          flutter build apk --release \
+            --dart-define=API_BASE_URL="${PROD_API}"
+
+      - name: Stage release-asset met timestamp + SHA
+        id: stage
+        run: |
+          set -euo pipefail
+          ts=$(date -u +"%Y%m%d-%H%M%S")
+          sha=$(echo "${{ github.sha }}" | head -c 7)
+          filename="news-reader-${ts}-${sha}.apk"
+          tag="reader-apk-${ts}-${sha}"
+          mkdir -p artifacts
+          cp frontend-reader/build/app/outputs/flutter-apk/app-release.apk "artifacts/${filename}"
+          # Stabiele kopie zodat releases/latest/download/news-reader.apk blijft werken.
+          cp frontend-reader/build/app/outputs/flutter-apk/app-release.apk artifacts/news-reader.apk
+          ls -la artifacts/
+          echo "filename=${filename}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "ts=${ts}" >> "$GITHUB_OUTPUT"
+
+      - name: GitHub Release met APK
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.stage.outputs.tag }}
+          name: "News Reader APK · ${{ steps.stage.outputs.ts }}"
+          body: |
+            Read-only News Reader APK gebouwd uit `main` @ `${{ github.sha }}`.
+
+            Backend: `${{ env.PROD_API }}` (alleen `/api/shared/feed`)
+            Build-time: `${{ steps.stage.outputs.ts }}` UTC
+
+            Download het `.apk`-bestand hieronder en sideload op je Android.
+          files: |
+            artifacts/${{ steps.stage.outputs.filename }}
+            artifacts/news-reader.apk
+          make_latest: false
+          generate_release_notes: false

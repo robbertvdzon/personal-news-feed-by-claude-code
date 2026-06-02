@@ -21,6 +21,9 @@ resources:
 - frontend-deployment.yaml
 - frontend-service.yaml
 - frontend-route.yaml
+- reader-deployment.yaml
+- reader-service.yaml
+- reader-route.yaml
 - cloudflared-deployment.yaml
 - preview-router-config.yaml
 - preview-router-deployment.yaml
@@ -36,4 +39,7 @@ images:
   newTag: sha-65a5e2f
 - name: frontend
   newName: ghcr.io/robbertvdzon/personal-news-feed-frontend
+  newTag: sha-65a5e2f
+- name: reader
+  newName: ghcr.io/robbertvdzon/personal-news-feed-reader
   newTag: sha-65a5e2f

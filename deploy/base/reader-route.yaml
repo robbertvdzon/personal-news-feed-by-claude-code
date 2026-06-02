@@ -1,0 +1,24 @@
+# OpenShift Route voor de read-only reader-app. `host` leeg → OpenShift
+# genereert er zelf één (<route-name>-<ns>.apps.<base-domain>).
+#
+# Publieke toegang loopt via de Cloudflare Tunnel: voeg in Cloudflare's
+# Zero Trust dashboard een public hostname `reader.vdzonsoftware.nl` toe
+# die naar de in-cluster service `http://reader:8080` routeert (net zoals
+# news.vdzonsoftware.nl → frontend:8080).
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: reader
+  labels:
+    app: reader
+spec:
+  to:
+    kind: Service
+    name: reader
+    weight: 100
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  wildcardPolicy: None

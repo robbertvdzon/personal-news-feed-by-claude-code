@@ -1,0 +1,42 @@
+name: personal_news_feed_reader
+description: "Read-only nieuwsfeed-reader die meelift op Robbert's feed."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.9.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  http: ^1.2.2
+  shared_preferences: ^2.3.3
+  url_launcher: ^6.3.1
+  flutter_markdown: ^0.7.4
+  intl: ^0.19.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.14.1
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/app_icon.png
+
+# Genereer de Android/web-launcher-icons uit assets/app_icon.png:
+#   dart run flutter_launcher_icons
+flutter_launcher_icons:
+  android: "ic_launcher"
+  image_path: "assets/app_icon.png"
+  # Eigen kleur zodat de reader visueel verschilt van de hoofd-app
+  # (die gebruikt indigo #3F51B5). Reader = teal.
+  adaptive_icon_background: "#00897B"
+  adaptive_icon_foreground: "assets/app_icon.png"
+  web:
+    generate: true
+    background_color: "#00897B"
+    theme_color: "#00897B"
