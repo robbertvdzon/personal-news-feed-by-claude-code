@@ -32,6 +32,20 @@ class ReaderApp extends StatelessWidget {
   }
 }
 
+/// Bron-filter (mediatype) net als in de grote frontend.
+enum _MediaFilter { all, rss, podcasts }
+
+/// Vaste tab-id's voor de categorie-balk.
+const String _allTabId = '__all__';
+const String _starredTabId = '__starred__';
+const String _summaryTabId = '__summary__';
+
+class _Tab {
+  final String id;
+  final String name;
+  const _Tab(this.id, this.name);
+}
+
 class FeedListScreen extends StatefulWidget {
   const FeedListScreen({super.key});
 
@@ -41,27 +55,104 @@ class FeedListScreen extends StatefulWidget {
 
 class _FeedListScreenState extends State<FeedListScreen> {
   late Future<List<FeedItem>> _future;
+  List<CategorySettings> _cats = const [];
+  _MediaFilter _mediaFilter = _MediaFilter.all;
+  String _selectedTab = _allTabId;
   bool _hideRead = true;
-  bool _onlyStarred = false;
 
   @override
   void initState() {
     super.initState();
     _future = api.fetchFeed();
+    _loadCategories();
+  }
+
+  Future<void> _loadCategories() async {
+    final cats = await api.fetchCategories();
+    if (mounted) setState(() => _cats = cats);
   }
 
   Future<void> _reload() async {
     final f = api.fetchFeed();
     setState(() => _future = f);
+    _loadCategories();
     await f;
   }
 
-  List<FeedItem> _filter(List<FeedItem> items) {
+  bool _matchesTab(FeedItem it, String tabId) {
+    switch (tabId) {
+      case _allTabId:
+        return true;
+      case _starredTabId:
+        return readStore.isStarred(it.id);
+      case _summaryTabId:
+        return it.isSummary;
+      default:
+        return it.category == tabId;
+    }
+  }
+
+  bool _matchesMedia(FeedItem it) {
+    switch (_mediaFilter) {
+      case _MediaFilter.all:
+        return true;
+      case _MediaFilter.rss:
+        return !it.isPodcast;
+      case _MediaFilter.podcasts:
+        return it.isPodcast;
+    }
+  }
+
+  /// Telt items voor een specifieke tab, inclusief het actieve bron-filter
+  /// en de verberg-gelezen-toggle (context-afhankelijk, net als de grote app).
+  int _countFor(List<FeedItem> items, String tabId) {
     return items.where((it) {
-      if (_onlyStarred && !readStore.isStarred(it.id)) return false;
-      if (_hideRead && !_onlyStarred && readStore.isRead(it.id)) return false;
+      if (!_matchesTab(it, tabId)) return false;
+      if (!_matchesMedia(it)) return false;
+      if (_hideRead && readStore.isRead(it.id)) return false;
+      return true;
+    }).length;
+  }
+
+  List<FeedItem> _visible(List<FeedItem> items) {
+    return items.where((it) {
+      if (!_matchesTab(it, _selectedTab)) return false;
+      if (!_matchesMedia(it)) return false;
+      if (_hideRead && readStore.isRead(it.id)) return false;
       return true;
     }).toList();
+  }
+
+  List<_Tab> _tabs() => [
+        const _Tab(_allTabId, 'Alles'),
+        const _Tab(_starredTabId, 'Bewaard'),
+        const _Tab(_summaryTabId, 'Samenvatting'),
+        ..._cats.map((c) => _Tab(c.id, c.name)),
+      ];
+
+  Future<void> _confirmMarkAllRead(List<FeedItem> all) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Markeer alles als gelezen?'),
+        content: const Text(
+          'Alle items in de feed worden als gelezen aangemerkt. Je kunt dit '
+          'per item terugdraaien in het detail-scherm.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuleren')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Alles als gelezen')),
+        ],
+      ),
+    );
+    if (ok == true) {
+      final n = readStore.markAllRead(all.map((e) => e.id));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$n item(s) als gelezen gemarkeerd')),
+        );
+      }
+    }
   }
 
   @override
@@ -70,6 +161,17 @@ class _FeedListScreenState extends State<FeedListScreen> {
       appBar: AppBar(
         title: const Text('Nieuwsfeed'),
         actions: [
+          FutureBuilder<List<FeedItem>>(
+            future: _future,
+            builder: (context, snap) {
+              final all = snap.data ?? const <FeedItem>[];
+              return IconButton(
+                tooltip: 'Markeer alles als gelezen',
+                icon: const Icon(Icons.done_all),
+                onPressed: all.isEmpty ? null : () => _confirmMarkAllRead(all),
+              );
+            },
+          ),
           IconButton(
             tooltip: 'Herladen',
             icon: const Icon(Icons.refresh),
@@ -77,43 +179,41 @@ class _FeedListScreenState extends State<FeedListScreen> {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            child: Row(
-              children: [
-                FilterChip(
-                  label: const Text('Bewaard'),
-                  avatar: const Icon(Icons.star, size: 16),
-                  selected: _onlyStarred,
-                  onSelected: (v) => setState(() => _onlyStarred = v),
-                ),
-                const Spacer(),
-                const Text('Verberg gelezen'),
-                Switch(
-                  value: _hideRead,
-                  onChanged: _onlyStarred ? null : (v) => setState(() => _hideRead = v),
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: FutureBuilder<List<FeedItem>>(
-              future: _future,
-              builder: (context, snap) {
-                if (snap.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                if (snap.hasError) {
-                  return _ErrorView(onRetry: _reload, error: '${snap.error}');
-                }
-                final all = snap.data ?? const <FeedItem>[];
-                return ListenableBuilder(
-                  listenable: readStore,
-                  builder: (context, _) {
-                    final items = _filter(all);
-                    return RefreshIndicator(
+      body: FutureBuilder<List<FeedItem>>(
+        future: _future,
+        builder: (context, snap) {
+          if (snap.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snap.hasError) {
+            return _ErrorView(onRetry: _reload, error: '${snap.error}');
+          }
+          final all = snap.data ?? const <FeedItem>[];
+          return ListenableBuilder(
+            listenable: readStore,
+            builder: (context, _) {
+              final tabs = _tabs();
+              if (!tabs.any((t) => t.id == _selectedTab)) {
+                _selectedTab = _allTabId;
+              }
+              final items = _visible(all);
+              return Column(
+                children: [
+                  _MediaFilterBar(
+                    selected: _mediaFilter,
+                    onSelected: (f) => setState(() => _mediaFilter = f),
+                    hideRead: _hideRead,
+                    onHideReadChanged: (v) => setState(() => _hideRead = v),
+                  ),
+                  _CategoryTabBar(
+                    tabs: tabs,
+                    selectedId: _selectedTab,
+                    countFor: (id) => _countFor(all, id),
+                    onSelected: (id) => setState(() => _selectedTab = id),
+                  ),
+                  const Divider(height: 1),
+                  Expanded(
+                    child: RefreshIndicator(
                       onRefresh: _reload,
                       child: items.isEmpty
                           ? ListView(
@@ -129,13 +229,13 @@ class _FeedListScreenState extends State<FeedListScreen> {
                                 onTap: () => _open(items, i),
                               ),
                             ),
-                    );
-                  },
-                );
-              },
-            ),
-          ),
-        ],
+                    ),
+                  ),
+                ],
+              );
+            },
+          );
+        },
       ),
     );
   }
@@ -144,6 +244,148 @@ class _FeedListScreenState extends State<FeedListScreen> {
     Navigator.of(context).push(MaterialPageRoute(
       builder: (_) => DetailScreen(items: items, initialIndex: idx),
     ));
+  }
+}
+
+/// Bron-filterbalk (Alles / RSS / Podcasts) + verberg-gelezen-toggle.
+class _MediaFilterBar extends StatelessWidget {
+  final _MediaFilter selected;
+  final ValueChanged<_MediaFilter> onSelected;
+  final bool hideRead;
+  final ValueChanged<bool> onHideReadChanged;
+
+  const _MediaFilterBar({
+    required this.selected,
+    required this.onSelected,
+    required this.hideRead,
+    required this.onHideReadChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: Wrap(
+              spacing: 8,
+              children: [
+                ChoiceChip(
+                  label: const Text('Alles'),
+                  selected: selected == _MediaFilter.all,
+                  onSelected: (_) => onSelected(_MediaFilter.all),
+                ),
+                ChoiceChip(
+                  label: const Text('RSS'),
+                  avatar: const Icon(Icons.rss_feed, size: 16),
+                  selected: selected == _MediaFilter.rss,
+                  onSelected: (_) => onSelected(_MediaFilter.rss),
+                ),
+                ChoiceChip(
+                  label: const Text('Podcasts'),
+                  avatar: const Icon(Icons.podcasts, size: 16),
+                  selected: selected == _MediaFilter.podcasts,
+                  onSelected: (_) => onSelected(_MediaFilter.podcasts),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          const Text('Verberg gelezen'),
+          Switch(value: hideRead, onChanged: onHideReadChanged),
+        ],
+      ),
+    );
+  }
+}
+
+/// Horizontaal scrollende categorie-tabjes met telling-bolletjes.
+class _CategoryTabBar extends StatelessWidget {
+  final List<_Tab> tabs;
+  final String selectedId;
+  final int Function(String tabId) countFor;
+  final ValueChanged<String> onSelected;
+
+  const _CategoryTabBar({
+    required this.tabs,
+    required this.selectedId,
+    required this.countFor,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return SizedBox(
+      height: 48,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: tabs.map((t) {
+            final selected = t.id == selectedId;
+            final count = countFor(t.id);
+            return InkWell(
+              onTap: () => onSelected(t.id),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          t.name,
+                          style: TextStyle(
+                            color: selected
+                                ? theme.colorScheme.primary
+                                : theme.textTheme.bodyMedium?.color,
+                            fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                          ),
+                        ),
+                        if (count > 0) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: selected
+                                  ? theme.colorScheme.primary
+                                  : theme.colorScheme.surfaceContainerHighest,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              '$count',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: selected
+                                    ? theme.colorScheme.onPrimary
+                                    : theme.colorScheme.onSurfaceVariant,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Container(
+                      height: 3,
+                      width: 28,
+                      decoration: BoxDecoration(
+                        color: selected ? theme.colorScheme.primary : Colors.transparent,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+      ),
+    );
   }
 }
 
@@ -164,11 +406,15 @@ class ReaderCard extends StatelessWidget {
         title: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (item.isPodcast)
-              Padding(
-                padding: const EdgeInsets.only(top: 2, right: 6),
-                child: Icon(Icons.podcasts, size: 18, color: theme.colorScheme.primary),
+            // Bron-icoontje: duidelijk of het een podcast of RSS-artikel is.
+            Padding(
+              padding: const EdgeInsets.only(top: 2, right: 6),
+              child: Icon(
+                item.isPodcast ? Icons.podcasts : Icons.rss_feed,
+                size: 18,
+                color: theme.colorScheme.primary,
               ),
+            ),
             Expanded(
               child: Text(
                 item.displayTitle,
@@ -295,7 +541,21 @@ class _DetailScreenState extends State<DetailScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(it.displayTitle, style: Theme.of(context).textTheme.headlineSmall),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(top: 4, right: 8),
+                child: Icon(
+                  it.isPodcast ? Icons.podcasts : Icons.rss_feed,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+              ),
+              Expanded(
+                child: Text(it.displayTitle, style: Theme.of(context).textTheme.headlineSmall),
+              ),
+            ],
+          ),
           if (it.titleNl.isNotEmpty && it.titleNl != it.title) ...[
             const SizedBox(height: 4),
             Text(it.title,

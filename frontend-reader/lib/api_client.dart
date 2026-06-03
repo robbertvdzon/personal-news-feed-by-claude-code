@@ -21,4 +21,17 @@ class ApiClient {
     final data = jsonDecode(resp.body) as List<dynamic>;
     return data.map((e) => FeedItem.fromJson(e as Map<String, dynamic>)).toList();
   }
+
+  /// Categorie-instellingen van de bron-gebruiker, voor de tab-namen.
+  /// Faalt zacht (lege lijst) zodat de feed ook werkt als dit endpoint
+  /// (nog) niet beschikbaar is.
+  Future<List<CategorySettings>> fetchCategories() async {
+    final url = '$baseUrl/api/shared/categories';
+    final resp = await http.get(Uri.parse(url));
+    if (resp.statusCode >= 400) {
+      return const [];
+    }
+    final data = jsonDecode(resp.body) as List<dynamic>;
+    return data.map((e) => CategorySettings.fromJson(e as Map<String, dynamic>)).toList();
+  }
 }

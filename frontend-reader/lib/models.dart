@@ -57,3 +57,20 @@ class FeedItem {
         mediaType: j['mediaType'] ?? 'ARTICLE',
       );
 }
+
+/// Categorie-instelling van de bron-gebruiker, opgehaald via
+/// `GET /api/shared/categories`. Levert de nette display-naam + volgorde
+/// voor de categorie-tabjes (het [id] komt overeen met [FeedItem.category]).
+class CategorySettings {
+  final String id;
+  final String name;
+  final bool enabled;
+
+  CategorySettings({required this.id, required this.name, this.enabled = true});
+
+  factory CategorySettings.fromJson(Map<String, dynamic> j) => CategorySettings(
+        id: j['id'] ?? '',
+        name: j['name'] ?? (j['id'] ?? ''),
+        enabled: j['enabled'] ?? true,
+      );
+}

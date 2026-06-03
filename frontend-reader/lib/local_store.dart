@@ -43,6 +43,19 @@ class ReadStore extends ChangeNotifier {
     }
   }
 
+  /// Markeert een hele set items als gelezen in één keer (mark-all).
+  /// Returnt hoeveel items daadwerkelijk nieuw op gelezen zijn gezet.
+  int markAllRead(Iterable<String> ids) {
+    final before = _read.length;
+    _read.addAll(ids);
+    final added = _read.length - before;
+    if (added > 0) {
+      _prefs?.setStringList(_readKey, _read.toList());
+      notifyListeners();
+    }
+    return added;
+  }
+
   void toggleStar(String id) {
     if (_starred.contains(id)) {
       _starred.remove(id);

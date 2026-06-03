@@ -2,6 +2,8 @@ package com.vdzon.newsfeedbackend.feed.api
 
 import com.vdzon.newsfeedbackend.feed.FeedItem
 import com.vdzon.newsfeedbackend.feed.FeedService
+import com.vdzon.newsfeedbackend.settings.CategorySettings
+import com.vdzon.newsfeedbackend.settings.SettingsService
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.RequestMapping
@@ -21,10 +23,20 @@ import org.springframework.web.bind.annotation.RestController
 @RequestMapping("/api/shared")
 class SharedFeedController(
     private val service: FeedService,
+    private val settingsService: SettingsService,
     @Value("\${app.shared-feed.username:robbert}") private val sharedUsername: String,
 ) {
 
     @GetMapping("/feed")
     fun feed(): List<FeedItem> =
         service.list(sharedUsername).map { it.copy(isRead = false, starred = false, liked = null) }
+
+    /**
+     * Categorie-instellingen van de bron-gebruiker, zodat de reader-app de
+     * categorie-tabjes met nette namen + volgorde kan tonen. Read-only,
+     * geen auth — alleen ingeschakelde categorieën zijn relevant voor de UI.
+     */
+    @GetMapping("/categories")
+    fun categories(): List<CategorySettings> =
+        settingsService.getCategories(sharedUsername).filter { it.enabled }
 }
