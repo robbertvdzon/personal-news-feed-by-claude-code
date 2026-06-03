@@ -11,7 +11,11 @@ COPY . .
 
 # API_BASE_URL leeg: API-calls worden relatief (`/api/...`), nginx
 # proxy't ze door naar de backend-service in-cluster.
-RUN flutter build web --release --dart-define=API_BASE_URL=
+#
+# --pwa-strategy=none: GÉÉN service worker registreren. Deze read-only app
+# moet altijd vers laden; een SW zou oude builds blijven serveren ("gedoe").
+# nginx ruimt bestaande SW's op via een kill-switch (zie nginx.conf).
+RUN flutter build web --release --pwa-strategy=none --dart-define=API_BASE_URL=
 
 # ─── Runtime stage ───────────────────────────────────────────────────
 # nginx-unprivileged draait non-root op poort 8080 — past bij OpenShift's
