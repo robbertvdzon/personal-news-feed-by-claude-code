@@ -181,9 +181,9 @@ class _FeedListScreenState extends State<FeedListScreen> {
           IconButton(
             tooltip: 'Markeer alles als gelezen',
             icon: const Icon(Icons.done_all),
-            // Opvallende kleur zodat de knop duidelijk te onderscheiden is
-            // van het (grijze) herlaad-icoon ernaast.
-            color: Theme.of(context).colorScheme.primary,
+            // Donkere kleur voor sterk contrast op de lichte appbar, zodat
+            // de knop duidelijk te onderscheiden is van het herlaad-icoon.
+            color: const Color(0xFF004D40),
             onPressed: _all.isEmpty ? null : () => _confirmMarkAllRead(_all),
           ),
           IconButton(
