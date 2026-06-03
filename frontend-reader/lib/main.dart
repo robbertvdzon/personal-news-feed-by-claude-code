@@ -54,8 +54,10 @@ class FeedListScreen extends StatefulWidget {
 }
 
 class _FeedListScreenState extends State<FeedListScreen> {
-  late Future<List<FeedItem>> _future;
+  List<FeedItem> _all = const [];
   List<CategorySettings> _cats = const [];
+  bool _loading = true;
+  Object? _error;
   _MediaFilter _mediaFilter = _MediaFilter.all;
   String _selectedTab = _allTabId;
   bool _hideRead = true;
@@ -63,20 +65,35 @@ class _FeedListScreenState extends State<FeedListScreen> {
   @override
   void initState() {
     super.initState();
-    _future = api.fetchFeed();
-    _loadCategories();
+    _load();
   }
 
-  Future<void> _loadCategories() async {
-    final cats = await api.fetchCategories();
-    if (mounted) setState(() => _cats = cats);
-  }
-
-  Future<void> _reload() async {
-    final f = api.fetchFeed();
-    setState(() => _future = f);
-    _loadCategories();
-    await f;
+  /// Laadt feed + categorieën in de state. Categorieën falen zacht (lege
+  /// lijst) zodat de feed ook werkt zonder het categorie-endpoint.
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final feed = await api.fetchFeed();
+      List<CategorySettings> cats = const [];
+      try {
+        cats = await api.fetchCategories();
+      } catch (_) {}
+      if (!mounted) return;
+      setState(() {
+        _all = feed;
+        _cats = cats;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e;
+        _loading = false;
+      });
+    }
   }
 
   bool _matchesTab(FeedItem it, String tabId) {
@@ -161,82 +178,68 @@ class _FeedListScreenState extends State<FeedListScreen> {
       appBar: AppBar(
         title: const Text('Nieuwsfeed'),
         actions: [
-          FutureBuilder<List<FeedItem>>(
-            future: _future,
-            builder: (context, snap) {
-              final all = snap.data ?? const <FeedItem>[];
-              return IconButton(
-                tooltip: 'Markeer alles als gelezen',
-                icon: const Icon(Icons.done_all),
-                onPressed: all.isEmpty ? null : () => _confirmMarkAllRead(all),
-              );
-            },
+          IconButton(
+            tooltip: 'Markeer alles als gelezen',
+            icon: const Icon(Icons.done_all),
+            onPressed: _all.isEmpty ? null : () => _confirmMarkAllRead(_all),
           ),
           IconButton(
             tooltip: 'Herladen',
             icon: const Icon(Icons.refresh),
-            onPressed: _reload,
+            onPressed: _load,
           ),
         ],
       ),
-      body: FutureBuilder<List<FeedItem>>(
-        future: _future,
-        builder: (context, snap) {
-          if (snap.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snap.hasError) {
-            return _ErrorView(onRetry: _reload, error: '${snap.error}');
-          }
-          final all = snap.data ?? const <FeedItem>[];
-          return ListenableBuilder(
-            listenable: readStore,
-            builder: (context, _) {
-              final tabs = _tabs();
-              if (!tabs.any((t) => t.id == _selectedTab)) {
-                _selectedTab = _allTabId;
-              }
-              final items = _visible(all);
-              return Column(
-                children: [
-                  _MediaFilterBar(
-                    selected: _mediaFilter,
-                    onSelected: (f) => setState(() => _mediaFilter = f),
-                    hideRead: _hideRead,
-                    onHideReadChanged: (v) => setState(() => _hideRead = v),
-                  ),
-                  _CategoryTabBar(
-                    tabs: tabs,
-                    selectedId: _selectedTab,
-                    countFor: (id) => _countFor(all, id),
-                    onSelected: (id) => setState(() => _selectedTab = id),
-                  ),
-                  const Divider(height: 1),
-                  Expanded(
-                    child: RefreshIndicator(
-                      onRefresh: _reload,
-                      child: items.isEmpty
-                          ? ListView(
-                              children: const [
-                                SizedBox(height: 120),
-                                Center(child: Text('Geen items')),
-                              ],
-                            )
-                          : ListView.builder(
-                              itemCount: items.length,
-                              itemBuilder: (ctx, i) => ReaderCard(
-                                item: items[i],
-                                onTap: () => _open(items, i),
-                              ),
-                            ),
-                    ),
-                  ),
-                ],
-              );
-            },
-          );
-        },
-      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+              ? _ErrorView(onRetry: _load, error: '$_error')
+              : ListenableBuilder(
+                  listenable: readStore,
+                  builder: (context, _) {
+                    final tabs = _tabs();
+                    if (!tabs.any((t) => t.id == _selectedTab)) {
+                      _selectedTab = _allTabId;
+                    }
+                    final items = _visible(_all);
+                    return Column(
+                      children: [
+                        _ControlBar(
+                          mediaFilter: _mediaFilter,
+                          onMediaChanged: (f) => setState(() => _mediaFilter = f),
+                          hideRead: _hideRead,
+                          onHideReadChanged: (v) => setState(() => _hideRead = v),
+                        ),
+                        _CategoryTabBar(
+                          tabs: tabs,
+                          selectedId: _selectedTab,
+                          countFor: (id) => _countFor(_all, id),
+                          onSelected: (id) => setState(() => _selectedTab = id),
+                        ),
+                        const Divider(height: 1),
+                        Expanded(
+                          child: RefreshIndicator(
+                            onRefresh: _load,
+                            child: items.isEmpty
+                                ? ListView(
+                                    children: const [
+                                      SizedBox(height: 120),
+                                      Center(child: Text('Geen items')),
+                                    ],
+                                  )
+                                : ListView.builder(
+                                    itemCount: items.length,
+                                    itemBuilder: (ctx, i) => ReaderCard(
+                                      item: items[i],
+                                      onTap: () => _open(items, i),
+                                    ),
+                                  ),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
     );
   }
 
@@ -247,55 +250,90 @@ class _FeedListScreenState extends State<FeedListScreen> {
   }
 }
 
-/// Bron-filterbalk (Alles / RSS / Podcasts) + verberg-gelezen-toggle.
-class _MediaFilterBar extends StatelessWidget {
-  final _MediaFilter selected;
-  final ValueChanged<_MediaFilter> onSelected;
+/// Compacte controlebalk: bron-filter als dropdown (past op mobiel) +
+/// verberg-gelezen-toggle.
+class _ControlBar extends StatelessWidget {
+  final _MediaFilter mediaFilter;
+  final ValueChanged<_MediaFilter> onMediaChanged;
   final bool hideRead;
   final ValueChanged<bool> onHideReadChanged;
 
-  const _MediaFilterBar({
-    required this.selected,
-    required this.onSelected,
+  const _ControlBar({
+    required this.mediaFilter,
+    required this.onMediaChanged,
     required this.hideRead,
     required this.onHideReadChanged,
   });
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+      padding: const EdgeInsets.fromLTRB(12, 8, 8, 4),
       child: Row(
         children: [
-          Expanded(
-            child: Wrap(
-              spacing: 8,
-              children: [
-                ChoiceChip(
-                  label: const Text('Alles'),
-                  selected: selected == _MediaFilter.all,
-                  onSelected: (_) => onSelected(_MediaFilter.all),
-                ),
-                ChoiceChip(
-                  label: const Text('RSS'),
-                  avatar: const Icon(Icons.rss_feed, size: 16),
-                  selected: selected == _MediaFilter.rss,
-                  onSelected: (_) => onSelected(_MediaFilter.rss),
-                ),
-                ChoiceChip(
-                  label: const Text('Podcasts'),
-                  avatar: const Icon(Icons.podcasts, size: 16),
-                  selected: selected == _MediaFilter.podcasts,
-                  onSelected: (_) => onSelected(_MediaFilter.podcasts),
-                ),
-              ],
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              border: Border.all(color: theme.colorScheme.outlineVariant),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<_MediaFilter>(
+                value: mediaFilter,
+                isDense: true,
+                borderRadius: BorderRadius.circular(12),
+                onChanged: (v) {
+                  if (v != null) onMediaChanged(v);
+                },
+                items: const [
+                  DropdownMenuItem(
+                    value: _MediaFilter.all,
+                    child: _DropRow(icon: Icons.dynamic_feed, label: 'Alles'),
+                  ),
+                  DropdownMenuItem(
+                    value: _MediaFilter.rss,
+                    child: _DropRow(icon: Icons.rss_feed, label: 'RSS'),
+                  ),
+                  DropdownMenuItem(
+                    value: _MediaFilter.podcasts,
+                    child: _DropRow(icon: Icons.podcasts, label: 'Podcasts'),
+                  ),
+                ],
+              ),
             ),
           ),
-          const SizedBox(width: 8),
-          const Text('Verberg gelezen'),
+          const Spacer(),
+          Flexible(
+            child: Text(
+              'Verberg gelezen',
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.end,
+              style: theme.textTheme.bodyMedium,
+            ),
+          ),
           Switch(value: hideRead, onChanged: onHideReadChanged),
         ],
       ),
+    );
+  }
+}
+
+/// Eén regel in de bron-dropdown: icoon + label.
+class _DropRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  const _DropRow({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 18),
+        const SizedBox(width: 8),
+        Text(label),
+      ],
     );
   }
 }
