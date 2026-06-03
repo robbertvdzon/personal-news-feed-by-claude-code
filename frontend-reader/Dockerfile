@@ -16,23 +16,35 @@ COPY . .
 # moet altijd vers laden; een SW zou oude builds blijven serveren ("gedoe").
 # nginx ruimt bestaande SW's op via een kill-switch (zie nginx.conf).
 # --no-tree-shake-icons: behoud de volledige MaterialIcons-font. Tree-shaking
-# liet sommige glyphs (o.a. done_all) blanco renderen op web; de extra
-# font-grootte cachen we immutable, dus dat is een eenmalige download.
+# liet sommige glyphs (o.a. done_all) blanco renderen op web.
 RUN flutter build web --release --pwa-strategy=none --no-tree-shake-icons --dart-define=API_BASE_URL=
 
-# Content-hash de app-bundle: Flutter geeft 'main.dart.js' een vaste naam,
-# waardoor een CDN (Cloudflare) een oude versie eindeloos kan blijven
-# serveren. Door 'm te hernoemen naar main.<hash>.js krijgt elke build een
-# nieuwe URL → CDN/browser pakken 'm automatisch vers op, zonder purge.
-# De enige verwijzing zit in flutter_bootstrap.js (mainJsPath); die werken
-# we bij. flutter_bootstrap.js + index.html blijven no-cache (zie nginx),
-# dus de nieuwe hash-naam wordt altijd meteen opgepikt.
+# Cache-busting via versie in de URL. Flutter geeft 'main.dart.js' én de
+# fonts een VASTE naam, waardoor CDN/browser een oude versie eindeloos
+# kunnen blijven serveren (immutable). We geven ze een versie:
+#   * main.dart.js  -> main.<hash>.js  (nieuwe bestandsnaam; ref in
+#     flutter_bootstrap.js/flutter.js bijgewerkt)
+#   * fonts         -> ?v=<hash>-query in FontManifest.json (zelfde bestand,
+#     nieuwe URL) zodat een gewijzigde font-glyph altijd vers binnenkomt.
+# index.html + flutter_bootstrap.js blijven no-cache (zie nginx), dus de
+# nieuwe namen/queries worden altijd meteen opgepikt — geen purge nodig.
 RUN cd build/web \
  && HASH=$(sha256sum main.dart.js | cut -c1-12) \
  && mv main.dart.js "main.${HASH}.js" \
  && sed -i "s/main\.dart\.js/main.${HASH}.js/g" flutter_bootstrap.js flutter.js \
  && echo "Hashed bundle -> main.${HASH}.js" \
  && test -z "$(grep -rl 'main\.dart\.js' . || true)" || (echo "ERROR: dangling main.dart.js refs" && exit 1)
+
+# Font-versie: append ?v=<hash> aan de MaterialIcons-font in FontManifest.json
+# (alleen als de font bestaat). Dit dwingt bestaande bezoekers met een oude,
+# immutable-gecachte font om de nieuwe (volledige) font op te halen.
+RUN cd build/web \
+ && f=assets/fonts/MaterialIcons-Regular.otf \
+ && if [ -f "$f" ]; then \
+      MIH=$(sha256sum "$f" | cut -c1-8); \
+      sed -i "s#fonts/MaterialIcons-Regular.otf#fonts/MaterialIcons-Regular.otf?v=${MIH}#g" assets/FontManifest.json; \
+      echo "Versioned font -> ?v=${MIH}"; \
+    fi
 
 # ─── Runtime stage ───────────────────────────────────────────────────
 # nginx-unprivileged draait non-root op poort 8080 — past bij OpenShift's
