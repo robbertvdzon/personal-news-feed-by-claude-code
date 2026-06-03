@@ -17,6 +17,20 @@ COPY . .
 # nginx ruimt bestaande SW's op via een kill-switch (zie nginx.conf).
 RUN flutter build web --release --pwa-strategy=none --dart-define=API_BASE_URL=
 
+# Content-hash de app-bundle: Flutter geeft 'main.dart.js' een vaste naam,
+# waardoor een CDN (Cloudflare) een oude versie eindeloos kan blijven
+# serveren. Door 'm te hernoemen naar main.<hash>.js krijgt elke build een
+# nieuwe URL → CDN/browser pakken 'm automatisch vers op, zonder purge.
+# De enige verwijzing zit in flutter_bootstrap.js (mainJsPath); die werken
+# we bij. flutter_bootstrap.js + index.html blijven no-cache (zie nginx),
+# dus de nieuwe hash-naam wordt altijd meteen opgepikt.
+RUN cd build/web \
+ && HASH=$(sha256sum main.dart.js | cut -c1-12) \
+ && mv main.dart.js "main.${HASH}.js" \
+ && sed -i "s/main\.dart\.js/main.${HASH}.js/g" flutter_bootstrap.js flutter.js \
+ && echo "Hashed bundle -> main.${HASH}.js" \
+ && test -z "$(grep -rl 'main\.dart\.js' . || true)" || (echo "ERROR: dangling main.dart.js refs" && exit 1)
+
 # ─── Runtime stage ───────────────────────────────────────────────────
 # nginx-unprivileged draait non-root op poort 8080 — past bij OpenShift's
 # restricted-v2 SCC (random UID, gid=0).
