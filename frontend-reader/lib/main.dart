@@ -272,8 +272,14 @@ class _ControlBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 8, 4),
-      child: Row(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+      // Wrap zodat de verberg-gelezen-toggle op smalle (mobiele) schermen
+      // volledig zichtbaar naar de volgende regel zakt i.p.v. afgekapt.
+      child: Wrap(
+        spacing: 12,
+        runSpacing: 4,
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -306,16 +312,13 @@ class _ControlBar extends StatelessWidget {
               ),
             ),
           ),
-          const Spacer(),
-          Flexible(
-            child: Text(
-              'Verberg gelezen',
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.end,
-              style: theme.textTheme.bodyMedium,
-            ),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Verberg gelezen', style: theme.textTheme.bodyMedium),
+              Switch(value: hideRead, onChanged: onHideReadChanged),
+            ],
           ),
-          Switch(value: hideRead, onChanged: onHideReadChanged),
         ],
       ),
     );

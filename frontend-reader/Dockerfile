@@ -15,7 +15,10 @@ COPY . .
 # --pwa-strategy=none: GÉÉN service worker registreren. Deze read-only app
 # moet altijd vers laden; een SW zou oude builds blijven serveren ("gedoe").
 # nginx ruimt bestaande SW's op via een kill-switch (zie nginx.conf).
-RUN flutter build web --release --pwa-strategy=none --dart-define=API_BASE_URL=
+# --no-tree-shake-icons: behoud de volledige MaterialIcons-font. Tree-shaking
+# liet sommige glyphs (o.a. done_all) blanco renderen op web; de extra
+# font-grootte cachen we immutable, dus dat is een eenmalige download.
+RUN flutter build web --release --pwa-strategy=none --no-tree-shake-icons --dart-define=API_BASE_URL=
 
 # Content-hash de app-bundle: Flutter geeft 'main.dart.js' een vaste naam,
 # waardoor een CDN (Cloudflare) een oude versie eindeloos kan blijven
