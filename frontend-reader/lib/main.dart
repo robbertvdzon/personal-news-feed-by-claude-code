@@ -179,11 +179,6 @@ class _FeedListScreenState extends State<FeedListScreen> {
         title: const Text('Nieuwsfeed'),
         actions: [
           IconButton(
-            tooltip: 'Markeer alles als gelezen',
-            icon: const Icon(Icons.done_all),
-            onPressed: _all.isEmpty ? null : () => _confirmMarkAllRead(_all),
-          ),
-          IconButton(
             tooltip: 'Herladen',
             icon: const Icon(Icons.refresh),
             onPressed: _load,
@@ -209,6 +204,8 @@ class _FeedListScreenState extends State<FeedListScreen> {
                           onMediaChanged: (f) => setState(() => _mediaFilter = f),
                           hideRead: _hideRead,
                           onHideReadChanged: (v) => setState(() => _hideRead = v),
+                          onMarkAllRead:
+                              _all.isEmpty ? null : () => _confirmMarkAllRead(_all),
                         ),
                         _CategoryTabBar(
                           tabs: tabs,
@@ -250,28 +247,34 @@ class _FeedListScreenState extends State<FeedListScreen> {
   }
 }
 
-/// Compacte controlebalk: bron-filter als dropdown (past op mobiel) +
-/// verberg-gelezen-toggle.
+/// Controlebalk die op mobiel netjes wrapt: bron-filter (dropdown),
+/// een duidelijk gelabelde 'Alles gelezen'-knop en een 'Verberg gelezen'-chip.
 class _ControlBar extends StatelessWidget {
   final _MediaFilter mediaFilter;
   final ValueChanged<_MediaFilter> onMediaChanged;
   final bool hideRead;
   final ValueChanged<bool> onHideReadChanged;
+  final VoidCallback? onMarkAllRead;
 
   const _ControlBar({
     required this.mediaFilter,
     required this.onMediaChanged,
     required this.hideRead,
     required this.onHideReadChanged,
+    required this.onMarkAllRead,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 8, 4),
-      child: Row(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 4,
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
+          // Bron-filter als dropdown.
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12),
             decoration: BoxDecoration(
@@ -303,16 +306,19 @@ class _ControlBar extends StatelessWidget {
               ),
             ),
           ),
-          const Spacer(),
-          Flexible(
-            child: Text(
-              'Verberg gelezen',
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.end,
-              style: theme.textTheme.bodyMedium,
-            ),
+          // Duidelijk gelabelde 'markeer alles als gelezen'-knop.
+          OutlinedButton.icon(
+            onPressed: onMarkAllRead,
+            icon: const Icon(Icons.done_all, size: 18),
+            label: const Text('Alles gelezen'),
           ),
-          Switch(value: hideRead, onChanged: onHideReadChanged),
+          // Verberg-gelezen als filterchip i.p.v. losse switch+tekst.
+          FilterChip(
+            label: const Text('Verberg gelezen'),
+            avatar: Icon(hideRead ? Icons.visibility_off : Icons.visibility, size: 16),
+            selected: hideRead,
+            onSelected: onHideReadChanged,
+          ),
         ],
       ),
     );
