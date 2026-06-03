@@ -273,9 +273,13 @@ class _ControlBar extends StatelessWidget {
     final theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-      // Wrap zodat de verberg-gelezen-toggle op smalle (mobiele) schermen
-      // volledig zichtbaar naar de volgende regel zakt i.p.v. afgekapt.
-      child: Wrap(
+      // SizedBox(full width) zodat de Wrap de volledige breedte vult en
+      // spaceBetween de dropdown links en de verberg-gelezen-toggle rechts
+      // zet. Op smalle (mobiele) schermen zakt de toggle volledig zichtbaar
+      // naar de volgende regel i.p.v. afgekapt te worden.
+      child: SizedBox(
+        width: double.infinity,
+        child: Wrap(
         spacing: 12,
         runSpacing: 4,
         alignment: WrapAlignment.spaceBetween,
@@ -320,6 +324,7 @@ class _ControlBar extends StatelessWidget {
             ],
           ),
         ],
+        ),
       ),
     );
   }
