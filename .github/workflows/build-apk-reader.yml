@@ -18,8 +18,10 @@ permissions:
 env:
   FLUTTER_VERSION: '3.35.0'
   JDK_VERSION: '17'
-  # Backend-hostname die in de APK gebakken wordt (zelfde backend als de hoofd-app).
-  PROD_API: https://news.vdzonsoftware.nl
+  # Backend-hostname die in de APK gebakken wordt. Eigen reader-domein
+  # (komt via Cloudflare → reader-service → dezelfde backend uit), zodat
+  # de Android-app niet afhankelijk is van de hoofd-app-hostname.
+  PROD_API: https://reader.vdzonsoftware.nl
 
 jobs:
   build:
