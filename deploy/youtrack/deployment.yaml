@@ -101,7 +101,19 @@ spec:
               # Idempotent en zonder grep/sed (niet gegarandeerd in
               # ubi9-minimal): bestaande actieve -Xmx-regel vervangen,
               # commentaar-regels (# ...) met rust laten, anders toevoegen.
+              # De launcher heeft een ingebouwde default-heap (-Xmx1024m);
+              # die override je door een ACTIEVE youtrack.jvmoptions aan te
+              # maken. De image levert alleen een volledig uitgecommentarieerde
+              # template (.dist). Op een verse PVC seeden we daaruit (behoudt
+              # alle defaults + commentaar) en patchen daarna de -Xmx-regel.
+              # De launcher merge't onze opties met z'n base-flags, dus we
+              # hoeven alleen -Xmx te zetten.
               JVMOPTS=/vol-conf/youtrack.jvmoptions
+              DIST=/vol-conf/youtrack.jvmoptions.dist
+              if [ ! -f "$JVMOPTS" ] && [ -f "$DIST" ]; then
+                cp "$DIST" "$JVMOPTS"
+                echo "jvmoptions: geseeded vanuit .dist (verse PVC)."
+              fi
               if [ -f "$JVMOPTS" ]; then
                 TMP="$JVMOPTS.tmp"
                 found=0
@@ -119,10 +131,10 @@ spec:
                 chcon -t container_file_t "$JVMOPTS" 2>&1 || true
                 echo "jvmoptions: -Xmx2g gezet."
               else
-                # Verse PVC: bestand bestaat nog niet (YouTrack maakt 'm bij
-                # eerste start met alle defaults). We clobberen die defaults
-                # NIET met een kaal bestand; de volgende pod-start patcht 'm.
-                echo "jvmoptions: nog niet aanwezig — wordt bij volgende start gepatcht."
+                # Geen actieve file én geen .dist — niets te doen (zou alleen
+                # bij een kapotte image-layout kunnen). Launcher valt terug op
+                # z'n eigen default-heap.
+                echo "jvmoptions: geen file én geen .dist — overgeslagen."
               fi
               echo "init-container klaar."
           resources:
