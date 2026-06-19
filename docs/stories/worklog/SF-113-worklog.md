@@ -135,3 +135,30 @@ gebruikt geen Anthropic meer.
 [info] Veel KDoc/comments noemen nog generiek "Claude" terwijl de actie nu op OpenAI
 draait (o.a. `MAX_CLAUDE_INPUT_CHARS`, diverse pipeline-comments). Historisch, geen
 codepad-impact; buiten strikte scope. Eventueel los opruimstoryje.
+
+## Re-review SF-116 (na blocker-fix) — reviewer, 2026-06-19
+
+Blocker uit de vorige ronde (verwijdering `PNF_ANTHROPIC_API_KEY` uit de gedeelde
+`newsfeed-api-keys` sealed secret) is correct verholpen:
+- `deploy/base/sealed-secret-api-keys.yaml` bevat de (ongewijzigde, versleutelde)
+  key weer (grep: 1 hit) — claude-runner blijft werken.
+- App-side verwijdering blijft volledig intact: key weg uit
+  `backend-deployment.yaml` + `app.anthropic.*` uit `application.properties`.
+- `deploy/jira-poller/poller.py:635` comment en `secrets-cluster.env.example`
+  corrigeren de dual-use-redenering (key alleen voor de factory-runner).
+
+Verificatie volledige story-diff (`git diff main...HEAD`):
+- 0 dode referenties naar `AnthropicClient`/`anthropicCost`/`PROVIDER_ANTHROPIC`/
+  `app.anthropic` in `newsfeedbackend/*/src`.
+- Resterende "anthropic"-treffers zijn legitiem: brand-name voorbeeld in
+  `PodcastTranslator`-prompt + één historische comment in `application.properties`.
+- Frontend: geen residuele `anthropic`-referenties; dashboard-kolommen/cellen/
+  filter/initiaal consistent verwijderd (kolommen blijven in balans).
+
+[info] Historische `external_calls` met provider=`anthropic` tellen nog mee in de
+dashboard-kolom "Totaal" maar zijn na deze story niet meer als aparte provider-kolom
+zichtbaar (providerBreakdown lijst zonder anthropic). Voor oude dagen kan Totaal dus
+hoger zijn dan de som van de zichtbare provider-kolommen. Acceptabel binnen de
+"vereenvoudig naar één provider"-scope; geen codepad-bug.
+
+Conclusie: akkoord. SF-116 is volledig en schoon binnen scope; geen blockers/bugs.
