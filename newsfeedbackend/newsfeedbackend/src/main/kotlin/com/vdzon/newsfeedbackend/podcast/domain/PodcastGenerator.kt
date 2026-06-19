@@ -1,6 +1,8 @@
 package com.vdzon.newsfeedbackend.podcast.domain
 
-import com.vdzon.newsfeedbackend.ai.AnthropicClient
+import com.vdzon.newsfeedbackend.ai.AiModelProperties
+import com.vdzon.newsfeedbackend.ai.OpenAiChatClient
+import com.vdzon.newsfeedbackend.external_call.ExternalCall
 import com.vdzon.newsfeedbackend.podcast.Podcast
 import com.vdzon.newsfeedbackend.podcast.PodcastStatus
 import com.vdzon.newsfeedbackend.podcast.TtsProvider
@@ -28,7 +30,8 @@ import java.time.LocalDate
 @Component
 class PodcastGenerator(
     private val repo: PodcastRepository,
-    private val anthropic: AnthropicClient,
+    private val openAi: OpenAiChatClient,
+    private val aiModels: AiModelProperties,
     private val tts: TtsClient,
     private val meters: MeterRegistry
 ) {
@@ -46,9 +49,9 @@ class PodcastGenerator(
             val targetWords = current.durationMinutes * 140
 
             update(username, id) { it.copy(status = PodcastStatus.GENERATING_SCRIPT) }
-            val scriptResp = anthropic.complete(
-                operation = "generatePodcastScript",
-                action = com.vdzon.newsfeedbackend.external_call.ExternalCall.ACTION_PODCAST_SCRIPT,
+            val scriptResp = openAi.complete(
+                model = aiModels.modelFor(ExternalCall.ACTION_PODCAST_SCRIPT) ?: "gpt-5.4-mini",
+                action = ExternalCall.ACTION_PODCAST_SCRIPT,
                 username = username,
                 subject = "Podcast id=$id",
                 system = """Je schrijft een Nederlandstalig interview-podcastscript voor twee sprekers.
@@ -80,9 +83,9 @@ Doellengte: ongeveer $targetWords woorden in totaal.""",
                 "INTERVIEWER: Welkom bij DevTalk!\nGAST: Hallo, leuk om hier te zijn."
             }
 
-            val topicsResp = anthropic.complete(
-                operation = "extractPodcastTopics",
-                action = com.vdzon.newsfeedbackend.external_call.ExternalCall.ACTION_PODCAST_TOPICS,
+            val topicsResp = openAi.complete(
+                model = aiModels.modelFor(ExternalCall.ACTION_PODCAST_TOPICS) ?: "gpt-5.4-mini",
+                action = ExternalCall.ACTION_PODCAST_TOPICS,
                 username = username,
                 subject = "Podcast id=$id",
                 system = "Extraheer 5 tot 10 korte onderwerpen uit het script in het Nederlands. Antwoord met een JSON-array van strings.",

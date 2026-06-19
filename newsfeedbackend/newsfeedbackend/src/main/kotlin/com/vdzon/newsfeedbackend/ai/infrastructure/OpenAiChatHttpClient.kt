@@ -1,11 +1,11 @@
 package com.vdzon.newsfeedbackend.ai.infrastructure
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.vdzon.newsfeedbackend.ai.AiPricingProperties
 import com.vdzon.newsfeedbackend.ai.OpenAiChatClient
 import com.vdzon.newsfeedbackend.ai.OpenAiChatResponse
 import com.vdzon.newsfeedbackend.external_call.ExternalCall
 import com.vdzon.newsfeedbackend.external_call.ExternalCallLogger
-import com.vdzon.newsfeedbackend.external_call.Pricing
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
@@ -18,18 +18,24 @@ import java.time.Instant
 import java.util.UUID
 
 /**
- * KAN-63: thin HTTP-wrapper voor OpenAI's `/v1/chat/completions` endpoint
- * met model `gpt-4o-mini`. Eén-shot call, geen retries — de
- * [com.vdzon.newsfeedbackend.podcast.domain.PodcastTranslator] vangt
- * fouten op en zet de podcast op FAILED met de foutboodschap. Logt elke
- * call via [ExternalCallLogger] zodat ze in het kosten-dashboard
- * verschijnen.
+ * KAN-63: thin HTTP-wrapper voor OpenAI's `/v1/chat/completions`.
+ *
+ * SF-114: uitgebreid van "alleen vertaling, vast model" naar een algemene
+ * client. Alles loopt via [doComplete]; bovenop staan drie overloads:
+ *  - [complete] zonder model → vertaal-flow met het vaste translate-model.
+ *  - [complete] met model → vrije chat-completion met een geconfigureerd model.
+ *  - [completeJson] → idem, maar met OpenAI Structured Outputs (`strict:true`)
+ *    zodat de respons strikt aan een JSON-schema voldoet.
+ *
+ * Eén-shot call, geen retries — de caller vangt fouten op. Elke call wordt
+ * gelogd via [ExternalCallLogger] zodat ze in het kosten-dashboard verschijnen.
  */
 @Component
 class OpenAiChatHttpClient(
     @Value("\${app.openai.api-key:}") private val apiKey: String,
     @Value("\${app.openai.base-url:https://api.openai.com}") private val baseUrl: String,
     @Value("\${app.openai.translate-model:gpt-4o-mini}") private val translateModel: String,
+    private val pricing: AiPricingProperties,
     private val mapper: ObjectMapper,
     private val callLogger: ExternalCallLogger
 ) : OpenAiChatClient {
@@ -48,24 +54,107 @@ class OpenAiChatHttpClient(
         user: String,
         subject: String?,
         maxOutputTokens: Int
+    ): OpenAiChatResponse =
+        doComplete(
+            model = translateModel,
+            action = action,
+            username = username,
+            system = system,
+            user = user,
+            subject = subject,
+            maxOutputTokens = maxOutputTokens,
+            responseFormat = null,
+            costFn = { i, o -> pricing.tokenCost(translateModel, i, o) }
+        )
+
+    override fun complete(
+        model: String,
+        action: String,
+        username: String,
+        system: String,
+        user: String,
+        subject: String?,
+        maxOutputTokens: Int
+    ): OpenAiChatResponse =
+        doComplete(
+            model = model,
+            action = action,
+            username = username,
+            system = system,
+            user = user,
+            subject = subject,
+            maxOutputTokens = maxOutputTokens,
+            responseFormat = null,
+            costFn = { i, o -> pricing.tokenCost(model, i, o) }
+        )
+
+    override fun completeJson(
+        model: String,
+        schemaName: String,
+        schema: String,
+        action: String,
+        username: String,
+        system: String,
+        user: String,
+        subject: String?,
+        maxOutputTokens: Int
+    ): OpenAiChatResponse {
+        // Structured Outputs: response_format = json_schema, strict:true. Het
+        // schema staat — net als de system-prompt — vooraan in de body, wat
+        // OpenAI's prompt-caching ten goede komt (statisch deel eerst).
+        val responseFormat = mapOf(
+            "type" to "json_schema",
+            "json_schema" to mapOf(
+                "name" to schemaName,
+                "strict" to true,
+                "schema" to mapper.readTree(schema)
+            )
+        )
+        return doComplete(
+            model = model,
+            action = action,
+            username = username,
+            system = system,
+            user = user,
+            subject = subject,
+            maxOutputTokens = maxOutputTokens,
+            responseFormat = responseFormat,
+            costFn = { i, o -> pricing.tokenCost(model, i, o) }
+        )
+    }
+
+    private fun doComplete(
+        model: String,
+        action: String,
+        username: String,
+        system: String,
+        user: String,
+        subject: String?,
+        maxOutputTokens: Int,
+        responseFormat: Map<String, Any>?,
+        costFn: (Long, Long) -> Double
     ): OpenAiChatResponse {
         val started = Instant.now()
         if (apiKey.isBlank()) {
             log.warn("[OpenAI-chat] no API key configured — returning empty response for action '{}'", action)
-            logCall(action, username, translateModel, started, 0, 0, 0.0, subject,
+            logCall(action, username, model, started, 0, 0, 0.0, subject,
                 status = "error", errorMessage = "no API key configured")
-            return OpenAiChatResponse("", 0, 0, 0.0, translateModel, "error", "no API key configured")
+            return OpenAiChatResponse("", 0, 0, 0.0, model, "error", "no API key configured")
         }
-        val body = mapper.writeValueAsString(
-            mapOf(
-                "model" to translateModel,
-                "max_tokens" to maxOutputTokens,
-                "messages" to listOf(
-                    mapOf("role" to "system", "content" to system),
-                    mapOf("role" to "user", "content" to user)
-                )
+        val payload = linkedMapOf<String, Any>(
+            "model" to model,
+            // SF-115: gpt-5.x (en andere recente modellen) verwachten
+            // `max_completion_tokens`; het oudere `max_tokens` wordt door die
+            // modellen geweigerd. `max_completion_tokens` werkt ook voor de
+            // legacy gpt-4o-mini-vertaalflow, dus universeel veilig.
+            "max_completion_tokens" to maxOutputTokens,
+            "messages" to listOf(
+                mapOf("role" to "system", "content" to system),
+                mapOf("role" to "user", "content" to user)
             )
         )
+        if (responseFormat != null) payload["response_format"] = responseFormat
+        val body = mapper.writeValueAsString(payload)
         val req = HttpRequest.newBuilder()
             .uri(URI.create("$baseUrl/v1/chat/completions"))
             .header("Authorization", "Bearer $apiKey")
@@ -83,27 +172,27 @@ class OpenAiChatHttpClient(
             if (code >= 400) {
                 val errBody = resp.body().take(400)
                 log.warn("[OpenAI-chat] {} -> {} body={}", action, code, errBody)
-                logCall(action, username, translateModel, started, 0, 0, 0.0, subject,
+                logCall(action, username, model, started, 0, 0, 0.0, subject,
                     status = "error", errorMessage = "http $code: ${errBody.take(120)}")
-                return OpenAiChatResponse("", 0, 0, 0.0, translateModel, "error", "HTTP $code: ${errBody.take(160)}")
+                return OpenAiChatResponse("", 0, 0, 0.0, model, "error", "HTTP $code: ${errBody.take(160)}")
             }
             val tree = mapper.readTree(resp.body())
             val text = tree.path("choices").path(0).path("message").path("content").asText("")
             val usage = tree.path("usage")
             val inputTokens = usage.path("prompt_tokens").asInt(0)
             val outputTokens = usage.path("completion_tokens").asInt(0)
-            val cost = Pricing.openaiGpt4oMiniCost(inputTokens.toLong(), outputTokens.toLong())
-            logCall(action, username, translateModel, started,
+            val cost = costFn(inputTokens.toLong(), outputTokens.toLong())
+            logCall(action, username, model, started,
                 inputTokens.toLong(), outputTokens.toLong(), cost, subject,
                 status = "ok", errorMessage = null)
-            log.info("[OpenAI-chat] {} ok in={} out={} cost=${'$'}{}",
-                action, inputTokens, outputTokens, "%.4f".format(cost))
-            OpenAiChatResponse(text, inputTokens, outputTokens, cost, translateModel, "ok", null)
+            log.info("[OpenAI-chat] {} ok model={} in={} out={} cost=${'$'}{}",
+                action, model, inputTokens, outputTokens, "%.4f".format(cost))
+            OpenAiChatResponse(text, inputTokens, outputTokens, cost, model, "ok", null)
         } catch (e: Exception) {
             log.warn("[OpenAI-chat] {} failed: {}", action, e.message)
-            logCall(action, username, translateModel, started, 0, 0, 0.0, subject,
+            logCall(action, username, model, started, 0, 0, 0.0, subject,
                 status = "error", errorMessage = e.message ?: e.javaClass.simpleName)
-            OpenAiChatResponse("", 0, 0, 0.0, translateModel, "error", e.message ?: e.javaClass.simpleName)
+            OpenAiChatResponse("", 0, 0, 0.0, model, "error", e.message ?: e.javaClass.simpleName)
         }
     }
 

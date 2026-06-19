@@ -1,34 +1,18 @@
 package com.vdzon.newsfeedbackend.external_call
 
 /**
- * Prijzen per externe partij/model in USD. Bewust een dom getal-table:
- * geen runtime-config, gewoon hardcoded en aanpasbaar in deze file.
+ * Prijzen voor externe partijen waarvan de tarieven (nog) niet per model in
+ * config staan. Bewust een dom getal-table: aanpasbaar in deze file.
+ *
+ * SF-117: de OpenAI-tarieven (chat-tokens, transcriptie per minuut, TTS per
+ * character) zijn verhuisd naar config — zie
+ * [com.vdzon.newsfeedbackend.ai.AiPricingProperties] (`app.ai.pricing.*`).
+ * Hier blijven alleen de niet-OpenAI-providers (ElevenLabs, Tavily) staan.
  *
  * Bedragen zijn approximations — gebruik dit voor budget-bewustzijn,
  * niet voor accountancy.
  */
 object Pricing {
-
-    // Anthropic — prijzen per miljoen tokens
-    fun anthropicCost(model: String, inputTokens: Long, outputTokens: Long): Double {
-        val (inPrice, outPrice) = when {
-            model.contains("haiku") -> 1.0 to 5.0
-            model.contains("opus") -> 15.0 to 75.0
-            else -> 3.0 to 15.0   // sonnet / default
-        }
-        return (inputTokens / 1_000_000.0) * inPrice + (outputTokens / 1_000_000.0) * outPrice
-    }
-
-    // OpenAI TTS — prijs per 1M characters voor model "tts-1"
-    fun openaiTtsCost(characters: Long): Double = (characters / 1_000_000.0) * 15.0
-
-    // OpenAI gpt-4o-mini — KAN-63: prijzen uit de story:
-    //   $0.0005 / 1k input tokens, $0.002 / 1k output tokens.
-    // Bewust de story-cijfers (niet de echte $0.15/$0.60 per 1M) zodat
-    // de UI-cost-schatting en de gelogde call-kost overeenkomen met de
-    // PO-keuze in KAN-63.
-    fun openaiGpt4oMiniCost(inputTokens: Long, outputTokens: Long): Double =
-        (inputTokens / 1000.0) * 0.0005 + (outputTokens / 1000.0) * 0.002
 
     // ElevenLabs — prijs per character. Plan-afhankelijk; pak een ruwe gemiddelde.
     fun elevenlabsTtsCost(characters: Long): Double = (characters / 1000.0) * 0.30
@@ -36,11 +20,4 @@ object Pricing {
     // Tavily — flat per call op het pay-as-you-go-tarief
     fun tavilySearchCost(): Double = 0.008      // ~$8 per 1k searches
     fun tavilyExtractCost(): Double = 0.005     // ~$5 per 1k extracts
-
-    // OpenAI Whisper — prijs per minuut audio (afgerond naar boven). Pre-test
-    // (KAN-56): 7 min NL-podcast → ~$0.042.
-    fun openaiWhisperCost(seconds: Long): Double {
-        val minutes = (seconds + 59) / 60.0
-        return minutes * 0.006
-    }
 }

@@ -1,6 +1,8 @@
 package com.vdzon.newsfeedbackend.request.domain
 
-import com.vdzon.newsfeedbackend.ai.AnthropicClient
+import com.vdzon.newsfeedbackend.ai.AiModelProperties
+import com.vdzon.newsfeedbackend.ai.OpenAiChatClient
+import com.vdzon.newsfeedbackend.external_call.ExternalCall
 import com.vdzon.newsfeedbackend.feed.FeedItem
 import com.vdzon.newsfeedbackend.feed.FeedService
 import com.vdzon.newsfeedbackend.request.RequestCreatedEvent
@@ -23,7 +25,8 @@ class AdhocOrchestrator(
     private val service: RequestServiceImpl,
     private val repo: RequestRepository,
     private val tavily: TavilyClient,
-    private val anthropic: AnthropicClient,
+    private val openAi: OpenAiChatClient,
+    private val aiModels: AiModelProperties,
     private val feed: FeedService,
     private val meters: MeterRegistry
 ) {
@@ -61,9 +64,9 @@ class AdhocOrchestrator(
                     return
                 }
                 val text = texts[r.url] ?: r.snippet
-                val ai = anthropic.complete(
-                    operation = "summarizeArticle",
-                    action = com.vdzon.newsfeedbackend.external_call.ExternalCall.ACTION_ADHOC_SUMMARIZE,
+                val ai = openAi.complete(
+                    model = aiModels.modelFor(ExternalCall.ACTION_ADHOC_SUMMARIZE) ?: "gpt-5.4-mini",
+                    action = ExternalCall.ACTION_ADHOC_SUMMARIZE,
                     username = username,
                     subject = "Adhoc: ${current.subject.take(80)} — ${r.title.take(40)}",
                     system = "Je bent een Nederlandstalige journalistieke samenvatter. Schrijf een heldere samenvatting van ~400 woorden in het Nederlands. Gebruik geen markdown headers maar wel paragrafen.",

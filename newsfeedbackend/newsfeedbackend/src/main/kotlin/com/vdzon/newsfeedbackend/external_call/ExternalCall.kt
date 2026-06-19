@@ -19,9 +19,9 @@ data class ExternalCall(
     val startTime: Instant,
     val endTime: Instant,
     val durationMs: Long,
-    /** Voor LLM-providers (anthropic): aantal input-tokens. Anders null. */
+    /** Voor LLM-providers (openai): aantal input-tokens. Anders null. */
     val tokensIn: Long? = null,
-    /** Voor LLM-providers (anthropic): aantal output-tokens. Anders null. */
+    /** Voor LLM-providers (openai): aantal output-tokens. Anders null. */
     val tokensOut: Long? = null,
     /** Catch-all veld: voor TTS = #characters, voor Tavily = 1 (per call). */
     val units: Long? = null,
@@ -37,7 +37,6 @@ data class ExternalCall(
 ) {
     companion object {
         // Provider-constants
-        const val PROVIDER_ANTHROPIC = "anthropic"
         const val PROVIDER_OPENAI = "openai"
         const val PROVIDER_ELEVENLABS = "elevenlabs"
         const val PROVIDER_TAVILY = "tavily"

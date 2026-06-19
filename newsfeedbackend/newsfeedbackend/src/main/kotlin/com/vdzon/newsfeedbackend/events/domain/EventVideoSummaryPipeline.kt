@@ -1,6 +1,7 @@
 package com.vdzon.newsfeedbackend.events.domain
 
-import com.vdzon.newsfeedbackend.ai.AnthropicClient
+import com.vdzon.newsfeedbackend.ai.AiModelProperties
+import com.vdzon.newsfeedbackend.ai.OpenAiChatClient
 import com.vdzon.newsfeedbackend.events.EventVideo
 import com.vdzon.newsfeedbackend.events.infrastructure.EventRepository
 import com.vdzon.newsfeedbackend.events.infrastructure.EventVideoRepository
@@ -50,7 +51,8 @@ class EventVideoSummaryPipeline(
     private val audioDownloader: VideoAudioDownloader,
     private val transcoder: AudioTranscoder,
     private val whisper: WhisperClient,
-    private val anthropic: AnthropicClient,
+    private val openAi: OpenAiChatClient,
+    private val aiModels: AiModelProperties,
     private val meters: MeterRegistry
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
@@ -182,13 +184,12 @@ class EventVideoSummaryPipeline(
             appendLine("Transcript (mogelijk afgekapt; van YouTube of Whisper):")
             append(sample)
         }
-        val ai = anthropic.complete(
-            operation = "summarizeEventVideo",
+        val ai = openAi.complete(
+            model = aiModels.modelFor(ExternalCall.ACTION_EVENT_VIDEO_SUMMARIZE) ?: "gpt-5.4",
             action = ExternalCall.ACTION_EVENT_VIDEO_SUMMARIZE,
             username = username,
             subject = "EventVideo '${video.title.take(80)}'",
-            model = anthropic.mainModel(),
-            maxTokens = 4096,
+            maxOutputTokens = 4096,
             system = """
                 Je vat conferentie-/tech-video's samen in het Nederlands.
                 Doel: een uitgebreide, inhoudelijke samenvatting waarmee de

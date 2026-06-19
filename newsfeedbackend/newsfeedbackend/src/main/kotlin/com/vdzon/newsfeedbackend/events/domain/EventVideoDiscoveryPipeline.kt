@@ -1,7 +1,8 @@
 package com.vdzon.newsfeedbackend.events.domain
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import com.vdzon.newsfeedbackend.ai.AnthropicClient
+import com.vdzon.newsfeedbackend.ai.AiModelProperties
+import com.vdzon.newsfeedbackend.ai.OpenAiChatClient
 import com.vdzon.newsfeedbackend.events.Event
 import com.vdzon.newsfeedbackend.events.EventVideo
 import com.vdzon.newsfeedbackend.events.infrastructure.EventRepository
@@ -39,7 +40,8 @@ class EventVideoDiscoveryPipeline(
     private val events: EventRepository,
     private val videos: EventVideoRepository,
     private val tavily: TavilyClient,
-    private val anthropic: AnthropicClient,
+    private val openAi: OpenAiChatClient,
+    private val aiModels: AiModelProperties,
     private val mapper: ObjectMapper,
     private val meters: MeterRegistry
 ) {
@@ -123,13 +125,12 @@ class EventVideoDiscoveryPipeline(
         val sources = results.joinToString("\n\n") { r ->
             "URL: ${r.url}\nTitel: ${r.title}\nFragment: ${r.snippet.take(500)}"
         }
-        val ai = anthropic.complete(
-            operation = "discoverEventVideos",
+        val ai = openAi.complete(
+            model = aiModels.modelFor(ExternalCall.ACTION_EVENT_VIDEO_DISCOVERY) ?: "gpt-5.4-mini",
             action = ExternalCall.ACTION_EVENT_VIDEO_DISCOVERY,
             username = username,
             subject = "Video's voor event ${ev.name}",
-            model = anthropic.mainModel(),
-            maxTokens = 8000,
+            maxOutputTokens = 8000,
             system = """
                 Je bent een tech-video-analist. Uit zoekresultaten haal je de online
                 video's (keynotes en sessies) van één specifiek tech-event. Het gaat om

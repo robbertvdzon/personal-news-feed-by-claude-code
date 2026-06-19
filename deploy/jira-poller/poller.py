@@ -632,9 +632,10 @@ def spawn_runner_job(
         # het Max-abonnementsquotum i.p.v. per-token API-billing. Belangrijk:
         # ANTHROPIC_API_KEY NIET óók meegeven — die zou de OAuth-route
         # overschrijven en je krijgt stilletjes weer API-billing.
-        # De backend zelf gebruikt nog wél PNF_ANTHROPIC_API_KEY voor de
-        # RSS-samenvattingen; dat is bewust, want backend-traffic zou anders
-        # het 5-uurs-quotum met de runner delen.
+        # De news-feed-backend gebruikt PNF_ANTHROPIC_API_KEY niet meer (alle
+        # AI-tekst draait nu op OpenAI). De key blijft wel in de gedeelde
+        # newsfeed-api-keys secret staan, omdat de claude-runner
+        # (deploy/claude-runner/job-template.yaml) 'm nog hard consumeert.
         {
             "name": "CLAUDE_CODE_OAUTH_TOKEN",
             "valueFrom": {
