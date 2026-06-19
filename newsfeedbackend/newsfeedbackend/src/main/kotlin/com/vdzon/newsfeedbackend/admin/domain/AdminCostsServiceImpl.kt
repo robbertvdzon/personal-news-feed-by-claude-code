@@ -98,7 +98,6 @@ class AdminCostsServiceImpl(
 
     private fun providerBreakdown(calls: List<ExternalCall>): Map<String, Double> {
         val providers = listOf(
-            ExternalCall.PROVIDER_ANTHROPIC,
             ExternalCall.PROVIDER_OPENAI,
             ExternalCall.PROVIDER_ELEVENLABS,
             ExternalCall.PROVIDER_TAVILY

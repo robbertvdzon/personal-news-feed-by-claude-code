@@ -9,16 +9,6 @@ package com.vdzon.newsfeedbackend.external_call
  */
 object Pricing {
 
-    // Anthropic — prijzen per miljoen tokens
-    fun anthropicCost(model: String, inputTokens: Long, outputTokens: Long): Double {
-        val (inPrice, outPrice) = when {
-            model.contains("haiku") -> 1.0 to 5.0
-            model.contains("opus") -> 15.0 to 75.0
-            else -> 3.0 to 15.0   // sonnet / default
-        }
-        return (inputTokens / 1_000_000.0) * inPrice + (outputTokens / 1_000_000.0) * outPrice
-    }
-
     // OpenAI TTS — prijs per 1M characters voor model "tts-1"
     fun openaiTtsCost(characters: Long): Double = (characters / 1_000_000.0) * 15.0
 

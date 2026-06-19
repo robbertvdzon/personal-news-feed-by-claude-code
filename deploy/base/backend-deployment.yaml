@@ -56,11 +56,6 @@ spec:
                 secretKeyRef:
                   name: newsfeed-api-keys
                   key: PNF_DATABASE_URL
-            - name: PNF_ANTHROPIC_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: newsfeed-api-keys
-                  key: PNF_ANTHROPIC_API_KEY
             - name: PNF_OPENAI_API_KEY
               valueFrom:
                 secretKeyRef:

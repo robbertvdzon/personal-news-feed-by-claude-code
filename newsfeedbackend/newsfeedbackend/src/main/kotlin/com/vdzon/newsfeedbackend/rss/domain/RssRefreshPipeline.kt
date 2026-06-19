@@ -202,7 +202,7 @@ class RssRefreshPipeline(
             log.info("[RSS] reselect: {} items naar AI-selectie", all.size)
             val verdicts = selectForFeed(username, all, cats, all)
             if (verdicts.isEmpty()) {
-                log.warn("[RSS] reselect: AI gaf geen verdicts terug — bestaande inFeed/feedReason ongewijzigd. Check PNF_ANTHROPIC_API_KEY of de selectie-prompt.")
+                log.warn("[RSS] reselect: AI gaf geen verdicts terug — bestaande inFeed/feedReason ongewijzigd. Check PNF_OPENAI_API_KEY of de selectie-prompt.")
                 return
             }
             val newlySelectedIds = mutableListOf<String>()
