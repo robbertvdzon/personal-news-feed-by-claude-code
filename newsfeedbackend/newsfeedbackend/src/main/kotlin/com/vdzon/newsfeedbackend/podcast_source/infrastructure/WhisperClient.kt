@@ -2,9 +2,9 @@ package com.vdzon.newsfeedbackend.podcast_source.infrastructure
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.vdzon.newsfeedbackend.ai.AiModelProperties
+import com.vdzon.newsfeedbackend.ai.AiPricingProperties
 import com.vdzon.newsfeedbackend.external_call.ExternalCall
 import com.vdzon.newsfeedbackend.external_call.ExternalCallLogger
-import com.vdzon.newsfeedbackend.external_call.Pricing
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
@@ -39,6 +39,7 @@ class WhisperClient(
     @Value("\${app.openai.base-url:https://api.openai.com}") private val openaiBaseUrl: String,
     @Value("\${app.openai.whisper-model:whisper-1}") private val whisperModelFallback: String,
     private val aiModels: AiModelProperties,
+    private val pricing: AiPricingProperties,
     private val mapper: ObjectMapper,
     private val callLogger: ExternalCallLogger
 ) {
@@ -115,7 +116,7 @@ class WhisperClient(
             }
             val tree = mapper.readTree(resp.body())
             val text = tree.path("text").asText("")
-            val cost = Pricing.openaiWhisperCost(audioDurationSec)
+            val cost = pricing.transcriptionCost(whisperModel, audioDurationSec)
             logCall(username, started, audioDurationSec, cost, "ok", null, subject)
             log.info("[Whisper] transcribed guid={} chars={} durationSec={} cost=${'$'}{}",
                 episodeGuid, text.length, audioDurationSec, "%.4f".format(cost))

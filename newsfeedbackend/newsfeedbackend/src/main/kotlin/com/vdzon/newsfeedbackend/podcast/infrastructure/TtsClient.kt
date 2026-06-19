@@ -1,6 +1,7 @@
 package com.vdzon.newsfeedbackend.podcast.infrastructure
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.vdzon.newsfeedbackend.ai.AiPricingProperties
 import com.vdzon.newsfeedbackend.external_call.ExternalCall
 import com.vdzon.newsfeedbackend.external_call.ExternalCallLogger
 import com.vdzon.newsfeedbackend.external_call.Pricing
@@ -24,6 +25,8 @@ class TtsClient(
     @Value("\${app.elevenlabs.base-url:https://api.elevenlabs.io}") private val elevenBaseUrl: String,
     @Value("\${app.elevenlabs.voice-interviewer:Jn7U4vF8ZkmjZIZRn4Uk}") private val voiceInterviewer: String,
     @Value("\${app.elevenlabs.voice-guest:h6uBOiAjLKklte8hdYio}") private val voiceGuest: String,
+    @Value("\${app.openai.tts-model:tts-1}") private val ttsModel: String,
+    private val pricing: AiPricingProperties,
     private val mapper: ObjectMapper,
     private val callLogger: ExternalCallLogger
 ) {
@@ -108,7 +111,7 @@ class TtsClient(
         }
         val body = mapper.writeValueAsString(
             mapOf(
-                "model" to "tts-1",
+                "model" to ttsModel,
                 "voice" to voice,
                 "input" to text,
                 "speed" to speed
@@ -130,7 +133,7 @@ class TtsClient(
                 null
             } else {
                 logTts(ExternalCall.PROVIDER_OPENAI, action, username, started, chars,
-                    Pricing.openaiTtsCost(chars), "ok", null, subject)
+                    pricing.characterCost(ttsModel, chars), "ok", null, subject)
                 resp.body()
             }
         } catch (e: Exception) {

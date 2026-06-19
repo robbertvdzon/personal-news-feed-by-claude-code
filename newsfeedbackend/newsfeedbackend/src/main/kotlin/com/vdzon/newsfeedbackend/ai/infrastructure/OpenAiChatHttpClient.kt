@@ -1,11 +1,11 @@
 package com.vdzon.newsfeedbackend.ai.infrastructure
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.vdzon.newsfeedbackend.ai.AiPricingProperties
 import com.vdzon.newsfeedbackend.ai.OpenAiChatClient
 import com.vdzon.newsfeedbackend.ai.OpenAiChatResponse
 import com.vdzon.newsfeedbackend.external_call.ExternalCall
 import com.vdzon.newsfeedbackend.external_call.ExternalCallLogger
-import com.vdzon.newsfeedbackend.external_call.Pricing
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
@@ -35,6 +35,7 @@ class OpenAiChatHttpClient(
     @Value("\${app.openai.api-key:}") private val apiKey: String,
     @Value("\${app.openai.base-url:https://api.openai.com}") private val baseUrl: String,
     @Value("\${app.openai.translate-model:gpt-4o-mini}") private val translateModel: String,
+    private val pricing: AiPricingProperties,
     private val mapper: ObjectMapper,
     private val callLogger: ExternalCallLogger
 ) : OpenAiChatClient {
@@ -63,7 +64,7 @@ class OpenAiChatHttpClient(
             subject = subject,
             maxOutputTokens = maxOutputTokens,
             responseFormat = null,
-            costFn = Pricing::openaiGpt4oMiniCost
+            costFn = { i, o -> pricing.tokenCost(translateModel, i, o) }
         )
 
     override fun complete(
@@ -84,7 +85,7 @@ class OpenAiChatHttpClient(
             subject = subject,
             maxOutputTokens = maxOutputTokens,
             responseFormat = null,
-            costFn = { i, o -> Pricing.openaiChatCost(model, i, o) }
+            costFn = { i, o -> pricing.tokenCost(model, i, o) }
         )
 
     override fun completeJson(
@@ -118,7 +119,7 @@ class OpenAiChatHttpClient(
             subject = subject,
             maxOutputTokens = maxOutputTokens,
             responseFormat = responseFormat,
-            costFn = { i, o -> Pricing.openaiChatCost(model, i, o) }
+            costFn = { i, o -> pricing.tokenCost(model, i, o) }
         )
     }
 
