@@ -30,6 +30,19 @@ object Pricing {
     fun openaiGpt4oMiniCost(inputTokens: Long, outputTokens: Long): Double =
         (inputTokens / 1000.0) * 0.0005 + (outputTokens / 1000.0) * 0.002
 
+    // OpenAI chat — SF-114: generieke per-model tabel (per 1M tokens, in/out).
+    // Bron: OpenAI pricing-pagina (GPT-5.4 officieel bevestigd; legacy via
+    // aggregators). Tijdelijk hier; SF-117 verhuist deze tarieven naar config.
+    fun openaiChatCost(model: String, inputTokens: Long, outputTokens: Long): Double {
+        val (inPer1M, outPer1M) = when {
+            model.contains("nano") -> 0.20 to 1.25
+            model.contains("mini") -> 0.75 to 4.50
+            model.startsWith("gpt-5") -> 2.50 to 15.0
+            else -> 0.15 to 0.60   // gpt-4o-mini (echte tarieven)
+        }
+        return (inputTokens / 1_000_000.0) * inPer1M + (outputTokens / 1_000_000.0) * outPer1M
+    }
+
     // ElevenLabs — prijs per character. Plan-afhankelijk; pak een ruwe gemiddelde.
     fun elevenlabsTtsCost(characters: Long): Double = (characters / 1000.0) * 0.30
 
