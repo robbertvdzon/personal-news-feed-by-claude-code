@@ -30,8 +30,16 @@ class AiPricingPropertiesTest {
 
     @Test
     fun `transcription cost rounds seconds up to whole minutes`() {
+        val p = props()
+        // exacte minuten blijven heel (geen opgeblazen fractie door float-deling)
+        assertEquals(0.003, p.transcriptionCost("gpt-4o-mini-transcribe", 60), 1e-9)  // 1 min
+        assertEquals(0.006, p.transcriptionCost("gpt-4o-mini-transcribe", 120), 1e-9) // 2 min
+        // 30s -> ceil naar 1 min
+        assertEquals(0.003, p.transcriptionCost("gpt-4o-mini-transcribe", 30), 1e-9)
         // 61s -> ceil naar 2 min * 0.003 = 0.006
-        assertEquals(0.006, props().transcriptionCost("gpt-4o-mini-transcribe", 61), 1e-9)
+        assertEquals(0.006, p.transcriptionCost("gpt-4o-mini-transcribe", 61), 1e-9)
+        // 600s -> exact 10 min
+        assertEquals(0.030, p.transcriptionCost("gpt-4o-mini-transcribe", 600), 1e-9)
     }
 
     @Test

@@ -19,7 +19,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties
  *
  * Config staat in `application.properties` onder `app.ai.pricing.*`. Model-keys
  * met punten (bv. `gpt-5.4-mini`) gebruiken bracket-notatie:
- * `app.ai.pricing.models[gpt-5.4-mini].input-per1m=0.75`.
+ * `app.ai.pricing.models[gpt-5.4-mini].input-per-million=0.75`.
  *
  * [source] en [updated] documenteren de bron-URL en datum-laatste-update,
  * zodat handmatig bijwerken makkelijk blijft.
@@ -56,7 +56,7 @@ class AiPricingProperties {
     /** Transcriptie-kosten voor [model]: per minuut (naar boven afgerond). */
     fun transcriptionCost(model: String, seconds: Long): Double {
         val p = lookup(model) ?: return 0.0
-        val minutes = (seconds + 59) / 60.0
+        val minutes = (seconds + 59) / 60
         return minutes * p.perMinute
     }
 

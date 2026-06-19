@@ -196,3 +196,18 @@ en de test uitbreiden met 60s en 120s.
 voorbeeld-key, terwijl de werkelijke property `input-per-million` is. Doc bijwerken.
 
 Conclusie: review-rejected wegens transcriptie-kostenbug.
+
+## SF-117 — developer fix na review-rejected (2026-06-19)
+
+Blocker opgelost: `AiPricingProperties.transcriptionCost` gebruikte float-deling
+`(seconds + 59) / 60.0`, waardoor de ceil-truc niet werkte en transcriptie-calls
+te duur werden gelogd. Gewijzigd naar integer-deling `(seconds + 59) / 60` (Long),
+die pas daarna met `perMinute` (Double) wordt vermenigvuldigd → correcte hele
+minuten naar boven afgerond. Geverifieerd: 30s→1, 60s→1, 120s→2, 600s→10 min.
+
+Test `AiPricingPropertiesTest` uitgebreid met 30s/60s/120s/600s zodat de
+afronding niet meer door één toevallige waarde (61s=2.0) gemaskeerd wordt.
+`mvn test -Dtest=AiPricingPropertiesTest` slaagt (4 tests, 0 failures).
+
+Suggestie verwerkt: KDoc-voorbeeld in `AiPricingProperties` van `input-per1m`
+naar de echte key `input-per-million` gecorrigeerd.
