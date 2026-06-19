@@ -211,3 +211,25 @@ afronding niet meer door één toevallige waarde (61s=2.0) gemaskeerd wordt.
 
 Suggestie verwerkt: KDoc-voorbeeld in `AiPricingProperties` van `input-per1m`
 naar de echte key `input-per-million` gecorrigeerd.
+
+## SF-117 review (2026-06-19, reviewer, effort medium)
+
+Volledige story-diff t.o.v. `main` beoordeeld (SF-114 t/m SF-117 samen).
+
+Bevindingen:
+- [info] Tarieven volledig uit `Pricing.kt` naar `app.ai.pricing.*` config
+  (AiPricingProperties), drie afrekeneenheden (tokens/min/chars), source +
+  updated aanwezig. Per-call cost_usd komt uit config en wordt per call in
+  `external_calls` gelogd; gelogd model == gerekend model in alle callers
+  (OpenAiChatHttpClient/WhisperClient/TtsClient).
+- [info] De eerder afgekeurde ceil-minuten-bug is opgelost (integer-deling)
+  en de test dekt nu 30/60/120/600s i.p.v. alleen de maskeerende 61s.
+- [info] `Pricing.kt` opgeschoond (alleen ElevenLabs/Tavily); geen restanten
+  van openaiGpt4oMiniCost/openaiWhisperCost/openaiTtsCost/anthropicCost.
+- [info] Anthropic-verwijdering (SF-116) correct: key uit backend-deployment
+  weg, maar bewust behouden in sealed secret/secrets-env wegens dual-use door
+  claude-runner. Dashboard (frontend + AdminCostsServiceImpl) opgeschoond.
+- [info] `mvn -Dtest=AiPricingPropertiesTest test` => 4/0/0; `mvn test-compile`
+  => BUILD SUCCESS. Geen JSON-artefacten in story-docs.
+
+Geen blockers/bugs. Akkoord.
