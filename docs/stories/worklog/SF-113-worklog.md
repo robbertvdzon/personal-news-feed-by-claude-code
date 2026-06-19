@@ -105,3 +105,33 @@ blijven ongebruikt staan — bewust, conform scope (verwijdering = SF-116). Stor
 bevatten geen JSON-artefacten.
 
 Conclusie: akkoord. Geen blockers of bugs; migratie is volledig en binnen scope.
+
+---
+
+## Review SF-116 (Anthropic verwijderen) — reviewer, 2026-06-19
+
+Backend-verwijdering is volledig en schoon: `AnthropicClient`/`AnthropicHttpClient`
+verwijderd, `Pricing.anthropicCost` weg, `PROVIDER_ANTHROPIC` weg, `app.anthropic.*`
+uit `application.properties`, dashboard-kolommen/filter/initiaal consistent verwijderd.
+Grep op de verwijderde symbolen levert 0 dode referenties in `newsfeedbackend/*/src`.
+
+[blocker] `deploy/base/sealed-secret-api-keys.yaml`: het verwijderen van
+`PNF_ANTHROPIC_API_KEY` uit de gedeelde `newsfeed-api-keys`-secret breekt de Software
+Factory zelf. `deploy/claude-runner/job-template.yaml:53-57` mapt die key hard naar
+`ANTHROPIC_API_KEY` (geen `optional: true`), en `deploy/claude-runner/run-story.sh:9`
+documenteert de dependency. Na ArgoCD-sync verliest de runtime-Secret de key →
+runner-pods uit dat template falen met CreateContainerConfigError. De geautomatiseerde
+poller (`deploy/jira-poller/poller.py`) gebruikt `CLAUDE_CODE_OAUTH_TOKEN` en is
+ongevoelig, maar de manuele `run-story.sh`-flow breekt. Juiste app-scope: key uit
+`backend-deployment.yaml` + properties halen (correct gedaan), maar in de sealed secret
+laten staan zolang `claude-runner` 'm consumeert — of `job-template.yaml`/`run-story.sh`
+omzetten naar `CLAUDE_CODE_OAUTH_TOKEN`. Conform agent-tip 'pnf-anthropic-vs-factory-claude'
+hoort factory-infra te blijven werken.
+
+[suggestie] `deploy/jira-poller/poller.py:635` comment is nu verouderd ("De backend
+zelf gebruikt nog wél PNF_ANTHROPIC_API_KEY voor de RSS-samenvattingen") — backend
+gebruikt geen Anthropic meer.
+
+[info] Veel KDoc/comments noemen nog generiek "Claude" terwijl de actie nu op OpenAI
+draait (o.a. `MAX_CLAUDE_INPUT_CHARS`, diverse pipeline-comments). Historisch, geen
+codepad-impact; buiten strikte scope. Eventueel los opruimstoryje.
