@@ -1,7 +1,8 @@
 package com.vdzon.newsfeedbackend.events.domain
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import com.vdzon.newsfeedbackend.ai.AnthropicClient
+import com.vdzon.newsfeedbackend.ai.AiModelProperties
+import com.vdzon.newsfeedbackend.ai.OpenAiChatClient
 import com.vdzon.newsfeedbackend.events.Event
 import com.vdzon.newsfeedbackend.events.infrastructure.EventRepository
 import com.vdzon.newsfeedbackend.external_call.ExternalCall
@@ -50,7 +51,8 @@ import java.util.concurrent.locks.ReentrantLock
 class EventDiscoveryPipeline(
     private val repo: EventRepository,
     private val tavily: TavilyClient,
-    private val anthropic: AnthropicClient,
+    private val openAi: OpenAiChatClient,
+    private val aiModels: AiModelProperties,
     private val settings: SettingsService,
     private val feed: FeedService,
     private val mapper: ObjectMapper,
@@ -266,13 +268,14 @@ class EventDiscoveryPipeline(
         val sources = results.joinToString("\n\n") { r ->
             "URL: ${r.url}\nTitel: ${r.title}\nFragment: ${r.snippet.take(500)}"
         }
-        val ai = anthropic.complete(
-            operation = "discoverEventDate",
+        // SF-115: de lichte datum-verrijking gebruikt een eigen (goedkoper, nano)
+        // config-key, maar logt nog onder de event_discovery-actie.
+        val ai = openAi.complete(
+            model = aiModels.modelFor("event_discovery_date") ?: "gpt-5.4-nano",
             action = ExternalCall.ACTION_EVENT_DISCOVERY,
             username = username,
             subject = "Datum-lookup voor ${ev.name}",
-            model = anthropic.summaryModel(),
-            maxTokens = 500,
+            maxOutputTokens = 500,
             system = """
                 Je bent een tech-event-analist. Uit zoekresultaten haal je de
                 begin- en einddatum van één specifiek event.
@@ -327,13 +330,12 @@ class EventDiscoveryPipeline(
         val sources = results.joinToString("\n\n") { r ->
             "URL: ${r.url}\nTitel: ${r.title}\nFragment: ${r.snippet.take(500)}"
         }
-        val ai = anthropic.complete(
-            operation = "discoverEventsSeed",
+        val ai = openAi.complete(
+            model = aiModels.modelFor(ExternalCall.ACTION_EVENT_DISCOVERY) ?: "gpt-5.4-mini",
             action = ExternalCall.ACTION_EVENT_DISCOVERY,
             username = username,
             subject = "Seed-event '$seedName'",
-            model = anthropic.mainModel(),
-            maxTokens = 4000,
+            maxOutputTokens = 4000,
             system = """
                 Je bent een tech-event-analist. Uit zoekresultaten haal je de
                 edities van één specifiek event (de "seed") en eventueel
@@ -379,13 +381,12 @@ class EventDiscoveryPipeline(
     private fun discoverSimilar(username: String, preferences: List<String>): List<Event> {
         val today = LocalDate.now()
         val prefList = preferences.joinToString("\n") { "- $it" }
-        val ai = anthropic.complete(
-            operation = "discoverEventsSimilar",
+        val ai = openAi.complete(
+            model = aiModels.modelFor(ExternalCall.ACTION_EVENT_DISCOVERY) ?: "gpt-5.4-mini",
             action = ExternalCall.ACTION_EVENT_DISCOVERY,
             username = username,
             subject = "Vergelijkbare events voor ${preferences.size} voorkeuren",
-            model = anthropic.mainModel(),
-            maxTokens = 4000,
+            maxOutputTokens = 4000,
             system = """
                 Je bent een tech-event-analist. Op basis van een lijst events
                 waar de gebruiker in geïnteresseerd is stel je vergelijkbare
@@ -429,13 +430,12 @@ class EventDiscoveryPipeline(
             "URL: ${r.url}\nTitel: ${r.title}\nFragment: ${r.snippet.take(500)}"
         }
         val instr = if (cat.extraInstructions.isNotBlank()) "\nVoorkeur van de gebruiker: ${cat.extraInstructions}" else ""
-        val ai = anthropic.complete(
-            operation = "discoverEvents",
+        val ai = openAi.complete(
+            model = aiModels.modelFor(ExternalCall.ACTION_EVENT_DISCOVERY) ?: "gpt-5.4-mini",
             action = ExternalCall.ACTION_EVENT_DISCOVERY,
             username = username,
             subject = "Events voor categorie ${cat.name}",
-            model = anthropic.mainModel(),
-            maxTokens = 8000,
+            maxOutputTokens = 8000,
             system = """
                 Je bent een tech-event-analist. Uit zoekresultaten haal je grote, relevante
                 tech-events: conferenties zoals JavaOne, KotlinConf, Spring I/O, Devoxx,

@@ -1,6 +1,7 @@
 package com.vdzon.newsfeedbackend.rss.domain
 
-import com.vdzon.newsfeedbackend.ai.AnthropicClient
+import com.vdzon.newsfeedbackend.ai.AiModelProperties
+import com.vdzon.newsfeedbackend.ai.OpenAiChatClient
 import com.vdzon.newsfeedbackend.auth.AuthService
 import com.vdzon.newsfeedbackend.feed.FeedItem
 import com.vdzon.newsfeedbackend.feed.FeedService
@@ -23,7 +24,8 @@ class RssScheduler(
     private val rss: RssService,
     private val feed: FeedService,
     private val rssRepo: RssItemRepository,
-    private val anthropic: AnthropicClient,
+    private val openAi: OpenAiChatClient,
+    private val aiModels: AiModelProperties,
     private val requests: RequestService
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
@@ -61,9 +63,10 @@ class RssScheduler(
             append("\nRSS-items van afgelopen 7 dagen:\n")
             recentRss.forEach { append("- ${it.title} (${it.category}): ${it.snippet.take(200)}\n") }
         }
-        val ai = anthropic.complete(
-            operation = "generateDailySummaryFromRss",
-            action = com.vdzon.newsfeedbackend.external_call.ExternalCall.ACTION_DAILY_SUMMARY,
+        val action = com.vdzon.newsfeedbackend.external_call.ExternalCall.ACTION_DAILY_SUMMARY
+        val ai = openAi.complete(
+            model = aiModels.modelFor(action) ?: "gpt-5.4",
+            action = action,
             username = username,
             subject = "Daily summary $today",
             system = "Je schrijft een dagelijkse Nederlandstalige nieuwsbriefing in Markdown (600-1000 woorden) met koppen, lijsten en duidingen.",

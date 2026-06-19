@@ -142,7 +142,11 @@ class OpenAiChatHttpClient(
         }
         val payload = linkedMapOf<String, Any>(
             "model" to model,
-            "max_tokens" to maxOutputTokens,
+            // SF-115: gpt-5.x (en andere recente modellen) verwachten
+            // `max_completion_tokens`; het oudere `max_tokens` wordt door die
+            // modellen geweigerd. `max_completion_tokens` werkt ook voor de
+            // legacy gpt-4o-mini-vertaalflow, dus universeel veilig.
+            "max_completion_tokens" to maxOutputTokens,
             "messages" to listOf(
                 mapOf("role" to "system", "content" to system),
                 mapOf("role" to "user", "content" to user)

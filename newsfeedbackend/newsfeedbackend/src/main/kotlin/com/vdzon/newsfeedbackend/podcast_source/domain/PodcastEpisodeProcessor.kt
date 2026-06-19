@@ -1,7 +1,8 @@
 package com.vdzon.newsfeedbackend.podcast_source.domain
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import com.vdzon.newsfeedbackend.ai.AnthropicClient
+import com.vdzon.newsfeedbackend.ai.AiModelProperties
+import com.vdzon.newsfeedbackend.ai.OpenAiChatClient
 import com.vdzon.newsfeedbackend.podcast_source.PodcastEpisode
 import com.vdzon.newsfeedbackend.podcast_source.PodcastEpisodeStatus
 import com.vdzon.newsfeedbackend.podcast_source.infrastructure.AudioTranscoder
@@ -55,7 +56,8 @@ class PodcastEpisodeProcessor(
     private val downloader: PodcastAudioDownloader,
     private val transcoder: AudioTranscoder,
     private val whisper: WhisperClient,
-    private val anthropic: AnthropicClient,
+    private val openAi: OpenAiChatClient,
+    private val aiModels: AiModelProperties,
     private val settings: SettingsService,
     private val mapper: ObjectMapper,
     private val events: ApplicationEventPublisher
@@ -464,16 +466,13 @@ class PodcastEpisodeProcessor(
         } else {
             input
         }
-        val ai = anthropic.complete(
-            operation = "summarizePodcastEpisode",
-            action = com.vdzon.newsfeedbackend.external_call.ExternalCall.ACTION_PODCAST_EPISODE_SUMMARIZE,
+        val episodeAction = com.vdzon.newsfeedbackend.external_call.ExternalCall.ACTION_PODCAST_EPISODE_SUMMARIZE
+        val ai = openAi.complete(
+            model = aiModels.modelFor(episodeAction) ?: "gpt-5.4-mini",
+            action = episodeAction,
             username = username,
             subject = "Podcast '${ep.podcastName.take(40)}' — ${ep.title.take(80)}",
-            model = anthropic.summaryModel(),
-            // Verhoogd van 4096: longSummary (~800 tokens) + takeaways
-            // (~300) + shortSummary/topics/category laten anders nauwelijks
-            // ruimte over en Claude knipt 'm midden in een zin af.
-            maxTokens = 4096,
+            maxOutputTokens = 4096,
             system = """
                 Je vat podcast-afleveringen samen in het Nederlands.
 

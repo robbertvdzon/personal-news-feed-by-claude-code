@@ -1,7 +1,9 @@
 package com.vdzon.newsfeedbackend.rss.domain
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import com.vdzon.newsfeedbackend.ai.AnthropicClient
+import com.vdzon.newsfeedbackend.ai.AiModelProperties
+import com.vdzon.newsfeedbackend.ai.OpenAiChatClient
+import com.vdzon.newsfeedbackend.external_call.ExternalCall
 import com.vdzon.newsfeedbackend.feed.FeedItem
 import com.vdzon.newsfeedbackend.feed.FeedService
 import com.vdzon.newsfeedbackend.podcast_source.PodcastTranscriptLookup
@@ -31,7 +33,8 @@ class RssRefreshPipeline(
     private val rssRepo: RssItemRepository,
     private val fetcher: RssFetcher,
     private val articleFetcher: ArticleFetcher,
-    private val anthropic: AnthropicClient,
+    private val openAi: OpenAiChatClient,
+    private val aiModels: AiModelProperties,
     private val settings: SettingsService,
     private val feed: FeedService,
     private val requests: RequestService,
@@ -242,12 +245,11 @@ class RssRefreshPipeline(
             val instr = if (c.extraInstructions.isNotBlank()) " — ${c.extraInstructions.take(200)}" else ""
             "- ${c.id}: ${c.name}$instr"
         }
-        val ai = anthropic.complete(
-            operation = "summarizeRssItem",
-            action = com.vdzon.newsfeedbackend.external_call.ExternalCall.ACTION_RSS_SUMMARIZE,
+        val ai = openAi.complete(
+            model = aiModels.modelFor(ExternalCall.ACTION_RSS_SUMMARIZE) ?: "gpt-5.4-mini",
+            action = ExternalCall.ACTION_RSS_SUMMARIZE,
             username = username,
             subject = rss.title.take(120),
-            model = anthropic.summaryModel(),
             system = "Je vat artikelen kort samen (150-250 woorden) in het Nederlands. Wijs een categorie-id toe op basis van de gebruikersvoorkeuren en extraheer 2-3 onderwerpen.",
             user = """
                 Beschikbare categorieën (id, naam, gebruikersinstructies):
@@ -304,12 +306,12 @@ class RssRefreshPipeline(
             "${c.id} (${c.name})$instr"
         }
 
-        val ai = anthropic.complete(
-            operation = "selectFeedItems",
-            action = com.vdzon.newsfeedbackend.external_call.ExternalCall.ACTION_FEED_SCORE,
+        val ai = openAi.complete(
+            model = aiModels.modelFor(ExternalCall.ACTION_FEED_SCORE) ?: "gpt-5.4-mini",
+            action = ExternalCall.ACTION_FEED_SCORE,
             username = username,
             subject = "${items.size} kandidaten",
-            maxTokens = 16000,
+            maxOutputTokens = 16000,
             system = """
                 Je bent een nieuwsredacteur die voor een softwareontwikkelaar bepaalt welke artikelen interessant genoeg zijn voor zijn persoonlijke feed.
 
@@ -460,12 +462,12 @@ class RssRefreshPipeline(
             articleFetcher.fetchPlainText(username, rss.url) ?: rss.snippet
         }
         val catInstr = categories.find { it.id == rss.category }?.extraInstructions.orEmpty()
-        val ai = anthropic.complete(
-            operation = "generateFeedItemSummary",
-            action = com.vdzon.newsfeedbackend.external_call.ExternalCall.ACTION_FEED_SUMMARIZE,
+        val ai = openAi.complete(
+            model = aiModels.modelFor(ExternalCall.ACTION_FEED_SUMMARIZE) ?: "gpt-5.4-mini",
+            action = ExternalCall.ACTION_FEED_SUMMARIZE,
             username = username,
             subject = rss.title.take(120),
-            maxTokens = 4000,
+            maxOutputTokens = 4000,
             system = """
                 Je schrijft drie velden voor een persoonlijk nieuwsoverzicht in het Nederlands.
 

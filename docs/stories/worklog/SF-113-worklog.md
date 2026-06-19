@@ -47,3 +47,15 @@ De eerdere blocker is verholpen: de implementatie staat nu gecommit op `ai/SF-11
 [info] Build niet lokaal gedraaid (geen mvn op de factory-runner — bekende beperking); CI valideert. Wijzigingen zijn additief en compileren naar verwachting.
 
 Conclusie: akkoord. Geen blockers of bugs; alleen twee niet-blokkerende aandachtspunten voor de vervolg-subtaken.
+
+---
+
+## SF-115 — developer (migratie acties → OpenAI)
+
+Alle `AnthropicClient`-callers omgezet naar `OpenAiChatClient` + `AiModelProperties`. Migratie-patroon: `openAi.complete(model = aiModels.modelFor(ACTION) ?: <default>, action=…, …, maxOutputTokens=…)`; prompts en JSON-extractie ongewijzigd. Aangepaste files: RssScheduler (daily_summary), RssRefreshPipeline (rss_summarize/feed_score/feed_summarize), EventDiscoveryPipeline (event_discovery + datum-verrijking via nieuwe key `event_discovery_date`→nano), EventVideoDiscoveryPipeline (event_video_discovery), EventVideoSummaryPipeline (event_video_summarize), PodcastEpisodeProcessor (podcast_episode_summarize), PodcastGenerator (podcast_script/podcast_topics — nieuwe keys), AdhocOrchestrator (adhoc_summarize — nieuwe key), WhisperClient (podcast_transcribe → gpt-4o-mini-transcribe via config).
+
+Nieuwe config-keys in `application.properties`: `event_discovery_date`, `podcast_script`, `podcast_topics`, `adhoc_summarize` (defaults mini, datum=nano). Geen enkele AI-tekst/transcriptie-actie draait nog op Anthropic; `AnthropicClient`/`AnthropicHttpClient` + `app.anthropic.*` blijven (ongebruikt) staan voor SF-116.
+
+[fix] Reviewer-aandachtspunt uit SF-114 doorgevoerd: `OpenAiChatHttpClient.doComplete` gebruikt nu `max_completion_tokens` i.p.v. `max_tokens` — gpt-5.x weigert `max_tokens`. Werkt ook voor de legacy gpt-4o-mini-vertaalflow.
+
+[info] Build/tests niet lokaal gedraaid (geen mvn op de factory-runner — bekende beperking `pnf-runner-no-mvn`); CI valideert. Geen test mockt `AnthropicClient` of stubt de Anthropic/OpenAI-endpoints voor deze flows, dus de constructor-wissels breken geen tests.
