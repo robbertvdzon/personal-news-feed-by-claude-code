@@ -162,3 +162,37 @@ hoger zijn dan de som van de zichtbare provider-kolommen. Acceptabel binnen de
 "vereenvoudig naar één provider"-scope; geen codepad-bug.
 
 Conclusie: akkoord. SF-116 is volledig en schoon binnen scope; geen blockers/bugs.
+
+---
+
+## Review SF-117 (reviewer, 2026-06-19)
+
+Beoordeeld: volledige config-migratie van OpenAI-tarieven (`AiPricingProperties`,
+`app.ai.pricing.*`), per-call `cost_usd` in `OpenAiChatHttpClient`/`WhisperClient`/
+`TtsClient`, opschoning `Pricing.kt`, en `AiPricingPropertiesTest`.
+
+Goed:
+- Token- en character-kosten lezen correct uit config; onbekend model → 0.0 + WARN
+  (geen exception). Config-binding klopt (`input-per-million`→`inputPerMillion` etc.).
+- `@ConfigurationPropertiesScan` registreert de properties; dual-use Anthropic-key
+  (SF-116) blijft correct in sealed secret t.b.v. claude-runner.
+
+[blocker][bug] Transcriptie-kostenberekening rondt NIET naar boven af.
+`AiPricingProperties.transcriptionCost`: `val minutes = (seconds + 59) / 60.0`.
+Door de floating-point deler (`60.0`) werkt de `+59` ceil-truc niet — het resultaat
+is een opgeblazen fractie i.p.v. hele minuten. Bewijs:
+  - 30s → 1.483 min (verwacht 1)
+  - 60s → 1.983 min (verwacht 1)
+  - 120s → 2.983 min (verwacht 2)
+  - 600s → 10.983 min (verwacht 10)
+Elke transcriptie-call wordt hierdoor systematisch te duur gelogd — precies het
+kerndoel van SF-117 (accurate per-call `cost_usd`). De unittest
+`transcription cost rounds seconds up to whole minutes` slaagt alleen omdat 61s
+toevallig exact 2.0 oplevert; alle andere waarden falen het beweerde gedrag.
+Fix: integer-deling `((seconds + 59) / 60).toDouble()` of `ceil(seconds / 60.0)`,
+en de test uitbreiden met 60s en 120s.
+
+[suggestie] KDoc in `AiPricingProperties` (regel ~22) noemt `input-per1m=0.75` als
+voorbeeld-key, terwijl de werkelijke property `input-per-million` is. Doc bijwerken.
+
+Conclusie: review-rejected wegens transcriptie-kostenbug.
