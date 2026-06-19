@@ -59,3 +59,49 @@ Nieuwe config-keys in `application.properties`: `event_discovery_date`, `podcast
 [fix] Reviewer-aandachtspunt uit SF-114 doorgevoerd: `OpenAiChatHttpClient.doComplete` gebruikt nu `max_completion_tokens` i.p.v. `max_tokens` — gpt-5.x weigert `max_tokens`. Werkt ook voor de legacy gpt-4o-mini-vertaalflow.
 
 [info] Build/tests niet lokaal gedraaid (geen mvn op de factory-runner — bekende beperking `pnf-runner-no-mvn`); CI valideert. Geen test mockt `AnthropicClient` of stubt de Anthropic/OpenAI-endpoints voor deze flows, dus de constructor-wissels breken geen tests.
+
+## Review (SF-115, reviewer, 2026-06-19) — akkoord
+
+Volledige story-diff (`git diff main...HEAD`) beoordeeld; verifieerde feitelijk dat de
+geclaimde wijzigingen gecommit zijn (geen herhaling van het SF-114-handover-patroon).
+
+[info] Migratie compleet en consistent. Alle 9 domein-callers omgezet van
+`AnthropicClient` naar `OpenAiChatClient` + `AiModelProperties`
+(RssScheduler, RssRefreshPipeline 3×, EventDiscoveryPipeline 4×,
+EventVideoDiscoveryPipeline, EventVideoSummaryPipeline, PodcastEpisodeProcessor,
+PodcastGenerator 2×, AdhocOrchestrator, WhisperClient). `grep AnthropicClient` over
+`events/rss/podcast/podcast_source/request` = 0 hits; resterende refs alleen binnen
+de `ai`-package (de klasse zelf + KDoc-link) — correct, verwijdering is SF-116.
+
+[info] Overload-resolutie correct: elke caller geeft `model = …` mee → resolved
+ondubbelzinnig naar de nieuwe `complete(model, …)`-overload. Config-keys
+(`event_discovery_date`→nano, `podcast_script`/`podcast_topics`/`adhoc_summarize`→mini)
+zijn env-overschrijfbaar en consistent met de actie-constanten.
+
+[fix-geverifieerd] `max_completion_tokens` i.p.v. `max_tokens` doorgevoerd in
+`doComplete` — het SF-114-aandachtspunt is opgelost.
+
+[suggestie] (niet-blokkerend) De JSON-extractiecallers (event/video/rss) gebruiken
+nog `complete()` + de bestaande `extractJson()`-helper i.p.v. de in SF-114 gebouwde
+`completeJson()` met Structured Outputs (`strict:true`). Gedrag blijft gelijk
+(`extractJson` ving al markdown-fences af), dus geen regressie en de AC ("client
+*ondersteunt* Structured Outputs") is gehaald — maar `completeJson` is nu dode code en
+het strict-schema zou de JSON-betrouwbaarheid op gpt-5.x kunnen verhogen. Overweeg
+wiring in een vervolg.
+
+[info] (SF-117-scope) `WhisperClient.transcribe` logt `cost_usd` nog via
+`Pricing.openaiWhisperCost` (whisper-1 per-minuut-tarief) terwijl het model nu
+`gpt-4o-mini-transcribe` is; de class-KDoc (regel 24) noemt ook nog `whisper-1`. De
+transcribe-`cost_usd` is daardoor tot SF-117 (prijzen→config) misattribueerd en de
+"meetbaar lagere cost_usd"-AC geldt voor deze actie pas ná SF-117. Acceptabel binnen
+de subtaak-grens.
+
+[info] (SF-117-scope) `Pricing.openaiChatCost` matcht `model.contains("mini")` vóór de
+gpt-4o-mini-else-tak; een via config gezet `gpt-4o-mini` zou het mini-tarief krijgen.
+Nu zonder effect (alle defaults zijn gpt-5.4-*). Verhuist naar config in SF-117.
+
+[info] Anthropic-beans (`AnthropicClient`/`AnthropicHttpClient` + `app.anthropic.*`)
+blijven ongebruikt staan — bewust, conform scope (verwijdering = SF-116). Story-logs
+bevatten geen JSON-artefacten.
+
+Conclusie: akkoord. Geen blockers of bugs; migratie is volledig en binnen scope.
