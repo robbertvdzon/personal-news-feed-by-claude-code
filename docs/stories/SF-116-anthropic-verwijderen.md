@@ -20,8 +20,11 @@ provider.
 - [x] `RssRefreshPipeline` waarschuwingstekst `PNF_ANTHROPIC_API_KEY` → `PNF_OPENAI_API_KEY`.
 - [x] Dashboard (`frontend/lib/screens/admin_costs_screen.dart`): Anthropic-kolommen,
       filteroptie en provider-initiaal verwijderd.
-- [x] `PNF_ANTHROPIC_API_KEY` uit `deploy/base/backend-deployment.yaml`,
-      `deploy/base/sealed-secret-api-keys.yaml` en `deploy/secrets-cluster.env.example`.
+- [x] `PNF_ANTHROPIC_API_KEY` uit `deploy/base/backend-deployment.yaml` (de app
+      leest 'm niet meer).
+- [x] **Review-fix:** `PNF_ANTHROPIC_API_KEY` teruggezet in
+      `deploy/base/sealed-secret-api-keys.yaml` + `deploy/secrets-cluster.env.example`
+      (dual-use met de Software Factory claude-runner — zie hieronder).
 - [x] `docs/factory/secrets-local.md` bijgewerkt naar één OpenAI-sleutel.
 - [x] Build + bestaande tests (`mvn test`) groen.
 
@@ -39,12 +42,19 @@ Bewust **niet** aangepast (geen Anthropic-provider, maar legitieme merknamen):
   — dit is de **Software Factory** zelf (Claude Code-runner/agents), niet de
   AI-tekstgeneratie van de news-feed-app. Buiten scope van deze story.
 
-### Sealed secret
-`PNF_ANTHROPIC_API_KEY` is uit `sealed-secret-api-keys.yaml` verwijderd. De
-overige versleutelde entries blijven ongewijzigd geldig — een sealed secret hoeft
-niet opnieuw geseald te worden als je alleen een key verwijdert. Opnieuw
-`seal-secrets.sh` draaien is hier dus niet nodig (en kan niet in de runner-omgeving
-zonder de echte plaintext-secrets + kubeseal/cluster-cert).
+### Sealed secret (review-blocker gefixt)
+Een eerdere versie verwijderde `PNF_ANTHROPIC_API_KEY` óók uit de gedeelde
+`newsfeed-api-keys` sealed secret. Dat brak de **Software Factory** zelf: de
+claude-runner (`deploy/claude-runner/job-template.yaml:53-57`) mapt die key hard
+(`secretKeyRef` zonder `optional: true`) naar `ANTHROPIC_API_KEY`. Na ArgoCD-sync
+zou de runtime-`Secret` de key verliezen → runner-pods falen met
+`CreateContainerConfigError`.
+
+Daarom is de key teruggezet in `sealed-secret-api-keys.yaml` en
+`secrets-cluster.env.example` (met comment dat 't om de claude-runner gaat, niet
+de app). De **app-side** verwijdering blijft volledig: backend-deployment.yaml,
+`app.anthropic.*`, `AnthropicHttpClient`, dashboard etc. zijn weg. Geen reseal
+nodig: de key stond al in de sealed secret en is ongewijzigd hersteld.
 
 ### Tests
 `mvn test` is lokaal gedraaid en slaagt (RC=0). Er zijn geen nieuwe unittests
