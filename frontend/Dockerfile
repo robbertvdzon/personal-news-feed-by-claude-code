@@ -20,10 +20,44 @@ ARG BUILD_TIME=unknown
 
 # API_BASE_URL leeg: API-calls worden relatief (`/api/...`), nginx
 # proxy't ze door naar de backend-service in-cluster.
+#
+# --pwa-strategy=none: GÉÉN service worker registreren (net als
+# frontend-reader). Een SW cachet de app-shell en blijft bij terugkerende
+# bezoekers de OUDE build serveren — dan werkt bv. een vers gedeelde
+# deeplink-URL (/feed/<id>, /rss/<id>) niet tot de SW toevallig update.
+# nginx ruimt bestaande SW's op via een kill-switch (zie nginx.conf).
+# --no-tree-shake-icons: behoud de volledige MaterialIcons-font; tree-shaking
+# liet sommige glyphs (o.a. done_all) blanco renderen op web.
 RUN flutter build web --release \
+      --pwa-strategy=none \
+      --no-tree-shake-icons \
       --dart-define=API_BASE_URL= \
       --dart-define=BUILD_SHA=${BUILD_SHA} \
       --dart-define=BUILD_TIME=${BUILD_TIME}
+
+# Cache-busting via versie in de bestandsnaam. Flutter geeft 'main.dart.js'
+# een VASTE naam; samen met immutable-caching zou een browser eindeloos een
+# oude bundle kunnen serveren. We hashen 'm → main.<hash>.js (nieuwe naam per
+# build) en updaten de referenties in flutter_bootstrap.js/flutter.js.
+# index.html + flutter_bootstrap.js blijven no-cache (zie nginx), dus de
+# nieuwe naam wordt altijd meteen opgepikt.
+RUN cd build/web \
+ && HASH=$(sha256sum main.dart.js | cut -c1-12) \
+ && mv main.dart.js "main.${HASH}.js" \
+ && sed -i "s/main\.dart\.js/main.${HASH}.js/g" flutter_bootstrap.js flutter.js \
+ && echo "Hashed bundle -> main.${HASH}.js" \
+ && test -z "$(grep -rl 'main\.dart\.js' . || true)" || (echo "ERROR: dangling main.dart.js refs" && exit 1)
+
+# Font-versie: append ?v=<hash> aan de MaterialIcons-font in FontManifest.json
+# (alleen als de font bestaat) zodat een gewijzigde glyph-set altijd vers
+# binnenkomt bij bestaande bezoekers.
+RUN cd build/web \
+ && f=assets/fonts/MaterialIcons-Regular.otf \
+ && if [ -f "$f" ]; then \
+      MIH=$(sha256sum "$f" | cut -c1-8); \
+      sed -i "s#fonts/MaterialIcons-Regular.otf#fonts/MaterialIcons-Regular.otf?v=${MIH}#g" assets/FontManifest.json; \
+      echo "Versioned font -> ?v=${MIH}"; \
+    fi
 
 # ─── Runtime stage ───────────────────────────────────────────────────
 # nginxinc/nginx-unprivileged is een variant van het officiële nginx-image
