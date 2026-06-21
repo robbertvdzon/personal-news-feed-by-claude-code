@@ -104,6 +104,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
                               starred: it.starred,
                               liked: it.liked,
                               trailing: it.isSummary ? const Chip(label: Text('Samenvatting')) : null,
+                              imageUrl: it.imageUrl,
                               onTap: () => _open(filtered, i),
                               onStar: () => ref.read(feedProvider.notifier).toggleStar(it.id),
                               onFeedback: (v) => ref.read(feedProvider.notifier).setFeedback(it.id, v),

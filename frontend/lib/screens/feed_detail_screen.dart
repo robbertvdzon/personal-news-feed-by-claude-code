@@ -113,6 +113,19 @@ class _FeedItemDetailScreenState extends ConsumerState<FeedItemDetailScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (it.imageUrl?.isNotEmpty == true) ...[
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.network(
+                it.imageUrl!,
+                height: 300,
+                width: double.infinity,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
           // Headline = korte Nederlandse titel (titleNl). Voor legacy items
           // zonder titleNl valt displayTitle terug op het originele Engels.
           Text(it.displayTitle, style: Theme.of(context).textTheme.headlineSmall),

@@ -31,6 +31,7 @@ class ItemCard extends StatelessWidget {
   /// 'voorlopige samenvatting'-badge naast de podcast-chip. Verdwijnt
   /// zodra het transcript verwerkt is (`summarySource='transcript'`).
   final bool showNotesPending;
+  final String? imageUrl;
 
   const ItemCard({
     super.key,
@@ -52,6 +53,7 @@ class ItemCard extends StatelessWidget {
     this.durationSeconds,
     this.onPlayAudio,
     this.showNotesPending = false,
+    this.imageUrl,
   });
 
   @override
@@ -69,6 +71,18 @@ class ItemCard extends StatelessWidget {
       child: Card(
         child: ListTile(
           onTap: onTap,
+          trailing: (imageUrl?.isNotEmpty == true)
+              ? ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: Image.network(
+                    imageUrl!,
+                    width: 80,
+                    height: 80,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                  ),
+                )
+              : null,
           title: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [

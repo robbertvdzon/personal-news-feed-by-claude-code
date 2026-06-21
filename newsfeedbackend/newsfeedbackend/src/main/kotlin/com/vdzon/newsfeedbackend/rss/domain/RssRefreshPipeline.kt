@@ -529,7 +529,8 @@ class RssRefreshPipeline(
             createdAt = Instant.now(),
             // KAN-60: propagate de RSS-discriminator naar het feed_item
             // zodat de Feed-tab filter (AC8) op rij-niveau kan filteren.
-            mediaType = rss.mediaType
+            mediaType = rss.mediaType,
+            imageUrl = rss.imageUrl
         )
     }
 

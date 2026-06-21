@@ -1,5 +1,6 @@
 package com.vdzon.newsfeedbackend.rss.infrastructure
 
+import com.rometools.rome.feed.synd.SyndEntry
 import com.rometools.rome.feed.synd.SyndFeed
 import com.rometools.rome.io.SyndFeedInput
 import com.rometools.rome.io.XmlReader
@@ -70,7 +71,8 @@ class RssFetcher(
                     feedUrl = feedUrl,
                     source = feed.title.orEmpty(),
                     publishedDate = publishedDay,
-                    timestamp = Instant.now()
+                    timestamp = Instant.now(),
+                    imageUrl = extractImageUrl(entry, entry.description?.value.orEmpty())
                 )
             }
             itemCount = items.size
@@ -115,6 +117,28 @@ class RssFetcher(
         } catch (e: Exception) {
             log.warn("[RSS] could not log external_call: {}", e.message)
         }
+    }
+
+    internal fun extractImageUrl(entry: SyndEntry, descriptionHtml: String): String? {
+        // 1. enclosure type=image/*
+        entry.enclosures.firstOrNull { it.type?.startsWith("image/") == true }
+            ?.url?.takeIf { it.isNotBlank() }?.let { return it }
+
+        // 2. media:thumbnail and media:content via foreignMarkup
+        for (fm in entry.foreignMarkup) {
+            val localName = fm.name ?: continue
+            if (localName == "thumbnail" || localName == "content") {
+                val url = fm.getAttributeValue("url")
+                if (!url.isNullOrBlank()) return url
+            }
+        }
+
+        // 3. <img src="..."> in description HTML
+        val imgMatch = Regex("""<img[^>]+src=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+            .find(descriptionHtml)
+        imgMatch?.groupValues?.getOrNull(1)?.takeIf { it.isNotBlank() }?.let { return it }
+
+        return null
     }
 
     private fun stripHtml(s: String): String =
