@@ -1,0 +1,2 @@
+ALTER TABLE rss_items ADD COLUMN IF NOT EXISTS image_url TEXT;
+ALTER TABLE feed_items ADD COLUMN IF NOT EXISTS image_url TEXT;

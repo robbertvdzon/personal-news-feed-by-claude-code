@@ -1617,6 +1617,13 @@ components:
             sub-bullets, geen markdown-headers. Lege lijst voor niet-
             podcast items en cards die nog niet door de uitgebreide
             Claude-prompt heen zijn — detail-scherm verbergt de sectie.
+        imageUrl:
+          type: string
+          nullable: true
+          description: |
+            SF-146: eerste bruikbare afbeelding-URL uit de RSS-entry
+            (enclosure, media:content, media:thumbnail of img-tag in
+            description). Null als er geen afbeelding gevonden is.
 
     # Feed Items
 
@@ -1700,6 +1707,13 @@ components:
             rij-niveau kan filteren tussen artikelen en podcast-
             afleveringen. Legacy feed_items uit pre-KAN-60-tijd vallen
             terug op de default 'ARTICLE'.
+        imageUrl:
+          type: string
+          nullable: true
+          description: |
+            SF-146: afbeelding-URL overgenomen van het bronRssItem. Null
+            als het RSS-item geen afbeelding had. Gebruikt als
+            header-banner op het detail-scherm.
 
     # Requests
 

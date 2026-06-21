@@ -76,5 +76,6 @@ data class RssItem(
      * Eén regel per bullet, geen sub-bullets, geen markdown-headers.
      * Lege lijst = sectie wordt verborgen op het detail-scherm.
      */
-    val keyTakeaways: List<String> = emptyList()
+    val keyTakeaways: List<String> = emptyList(),
+    val imageUrl: String? = null
 )
