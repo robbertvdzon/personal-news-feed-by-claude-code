@@ -123,6 +123,10 @@ App-config staat in `newsfeedbackend/newsfeedbackend/src/main/resources/applicat
 secrets komen als **env-vars** binnen. AI-modellen per actie zijn overschrijfbaar
 via `PNF_AI_MODEL_*` env-vars (defaults in application.properties).
 
+Bestanden staan lokaal (gitignored). Voor de assistent worden ze read-only beschikbaar in, hierin staan alle secrets die nodig zijn
+`/personal-news-feed-by-claude-code/private/`.
+
+
 **Secret-bestanden lokaal:**
 - `deploy/secrets-cluster.env` — alle echte waarden (gitignored)
 - `deploy/secrets-cluster.env.example` — template met alleen de namen
