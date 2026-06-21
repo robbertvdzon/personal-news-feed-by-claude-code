@@ -5,13 +5,15 @@ import 'providers/data_providers.dart';
 import 'providers/version_provider.dart';
 import 'screens/login_screen.dart';
 import 'screens/main_shell.dart';
+import 'screens/feed_detail_screen.dart';
+import 'screens/rss_detail_screen.dart';
 import 'util/deep_link.dart';
 import 'util/hard_reload.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   // Zet de path-URL-strategie aan en lees een eventueel item-pad
-  // (/feed/<id> of /rss/<id>) zodat MainShell het kan openen.
+  // (/feed/<id> of /rss/<id>) in [pendingDeepLink].
   initDeepLinks();
   runApp(const ProviderScope(child: NewsFeedApp()));
 }
@@ -27,6 +29,17 @@ class _NewsFeedAppState extends ConsumerState<NewsFeedApp>
     with WidgetsBindingObserver {
   bool _booted = false;
 
+  // Deeplink-afhandeling zit hier (de stabiele root) i.p.v. in MainShell:
+  // tijdens de boot wordt de spinner→MainShell-transitie (en de URL-reset
+  // van /feed/<id> naar /) door Flutter's interne Router afgehandeld, wat
+  // MainShell kan disposen+remounten — een push vanuit MainShell.initState
+  // gaat dan verloren. Vanaf de root, via een eigen navigatorKey en ná de
+  // boot-settle, overleeft de push.
+  final GlobalKey<NavigatorState> _navKey = GlobalKey<NavigatorState>();
+  final GlobalKey<ScaffoldMessengerState> _msgKey =
+      GlobalKey<ScaffoldMessengerState>();
+  bool _deepLinkHandled = false;
+
   @override
   void initState() {
     super.initState();
@@ -36,7 +49,53 @@ class _NewsFeedAppState extends ConsumerState<NewsFeedApp>
       // Eerste versie-check direct bij app-start.
       await ref.read(versionProvider.notifier).check();
       setState(() => _booted = true);
+      _maybeOpenDeepLink();
     });
+  }
+
+  /// Open een bookmark-URL (`/feed/<id>` of `/rss/<id>`) als los item, één
+  /// keer, zodra de app geboot en ingelogd is.
+  void _maybeOpenDeepLink() {
+    if (_deepLinkHandled || !_booted) return;
+    if (!ref.read(authProvider).isLoggedIn) return; // wacht tot na login
+    final link = pendingDeepLink;
+    _deepLinkHandled = true;
+    pendingDeepLink = null;
+    if (link == null) return;
+    // Via een microtask (niet addPostFrameCallback — die vuurt tijdens de
+    // boot niet betrouwbaar) op de root-navigator, zodat de push de
+    // spinner→MainShell-transitie overleeft.
+    Future(() => _openDeepLink(link));
+  }
+
+  Future<void> _openDeepLink(DeepLink link) async {
+    final nav = _navKey.currentState;
+    if (nav == null) return;
+    try {
+      if (link.type == 'rss') {
+        final items = await ref.read(rssProvider.future);
+        final i = items.indexWhere((e) => e.id == link.id);
+        if (i < 0) return _notAvailable();
+        nav.push(MaterialPageRoute(
+          builder: (_) => RssItemDetailScreen(items: [items[i]], initialIndex: 0),
+        ));
+      } else {
+        final items = await ref.read(feedProvider.future);
+        final i = items.indexWhere((e) => e.id == link.id);
+        if (i < 0) return _notAvailable();
+        nav.push(MaterialPageRoute(
+          builder: (_) => FeedItemDetailScreen(items: [items[i]], initialIndex: 0),
+        ));
+      }
+    } catch (_) {
+      _notAvailable();
+    }
+  }
+
+  void _notAvailable() {
+    _msgKey.currentState?.showSnackBar(
+      const SnackBar(content: Text('Dit item is niet meer beschikbaar.')),
+    );
   }
 
   @override
@@ -59,8 +118,15 @@ class _NewsFeedAppState extends ConsumerState<NewsFeedApp>
   Widget build(BuildContext context) {
     final auth = ref.watch(authProvider);
     final appearance = ref.watch(appearanceProvider);
+    // Geopend via een bookmark terwijl je nog niet ingelogd was? Dan staat
+    // de deeplink klaar; open 'm zodra de login lukt.
+    ref.listen(authProvider, (prev, next) {
+      if (next.isLoggedIn) _maybeOpenDeepLink();
+    });
     return MaterialApp(
       title: 'Personal News Feed',
+      navigatorKey: _navKey,
+      scaffoldMessengerKey: _msgKey,
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.red),

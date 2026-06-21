@@ -1,2 +1,3 @@
-/// Non-web: geen URL-strategie nodig (de native app heeft geen adresbalk).
+/// Non-web: geen URL-strategie of adresbalk (de native app heeft die niet).
 void usePathUrls() {}
+void replaceUrl(String path) {}

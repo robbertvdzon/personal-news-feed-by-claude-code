@@ -1,5 +1,4 @@
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'deep_link_stub.dart' if (dart.library.js_interop) 'deep_link_web.dart' as impl;
 
 /// Een item-deeplink uit de URL, bv. `/feed/<uuid>` of `/rss/<uuid>`.
@@ -33,12 +32,11 @@ void initDeepLinks() {
 /// browser-history schoon (één entry, geen back-knop per item). No-op op mobiel.
 void setItemUrl(String type, String id) {
   if (!kIsWeb) return;
-  SystemNavigator.routeInformationUpdated(
-      uri: Uri(path: '/$type/$id'), replace: true);
+  impl.replaceUrl('/$type/$id');
 }
 
 /// Zet de adresbalk terug naar de root bij het sluiten van het detail-scherm.
 void clearItemUrl() {
   if (!kIsWeb) return;
-  SystemNavigator.routeInformationUpdated(uri: Uri(path: '/'), replace: true);
+  impl.replaceUrl('/');
 }
