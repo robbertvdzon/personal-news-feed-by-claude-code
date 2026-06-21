@@ -26,6 +26,7 @@ class FeedItem {
   /// KAN-60: 'ARTICLE' (default) of 'PODCAST'. Stuurt de Feed-tab filter
   /// (AC8) en evt. een podcasts-icoon op de feed-card.
   final String mediaType;
+  final String? imageUrl;
 
   FeedItem({
     required this.id,
@@ -47,6 +48,7 @@ class FeedItem {
     this.publishedDate,
     this.isSummary = false,
     this.mediaType = 'ARTICLE',
+    this.imageUrl,
   });
 
   bool get isPodcast => mediaType == 'PODCAST';
@@ -79,6 +81,7 @@ class FeedItem {
         publishedDate: j['publishedDate'],
         isSummary: j['isSummary'] ?? false,
         mediaType: j['mediaType'] ?? 'ARTICLE',
+        imageUrl: j['imageUrl'],
       );
 
   FeedItem copyWith({bool? isRead, bool? starred, Object? liked = const _Sentinel()}) => FeedItem(
@@ -101,6 +104,7 @@ class FeedItem {
         publishedDate: publishedDate,
         isSummary: isSummary,
         mediaType: mediaType,
+        imageUrl: imageUrl,
       );
 }
 
@@ -142,6 +146,7 @@ class RssItem {
   /// KAN-62: 5-10 concrete takeaway-bullets uit de aflevering. Lege
   /// lijst = sectie wordt verborgen op het detail-scherm.
   final List<String> keyTakeaways;
+  final String? imageUrl;
 
   RssItem({
     required this.id,
@@ -167,6 +172,7 @@ class RssItem {
     this.summarySource = 'transcript',
     this.longSummary,
     this.keyTakeaways = const [],
+    this.imageUrl,
   });
 
   bool get isPodcast => mediaType == 'PODCAST';
@@ -198,6 +204,7 @@ class RssItem {
         summarySource: j['summarySource'] ?? 'transcript',
         longSummary: j['longSummary'],
         keyTakeaways: List<String>.from(j['keyTakeaways'] ?? const []),
+        imageUrl: j['imageUrl'],
       );
 
   RssItem copyWith({bool? isRead, bool? starred, Object? liked = const _Sentinel()}) => RssItem(
@@ -224,6 +231,7 @@ class RssItem {
         summarySource: summarySource,
         longSummary: longSummary,
         keyTakeaways: keyTakeaways,
+        imageUrl: imageUrl,
       );
 }
 

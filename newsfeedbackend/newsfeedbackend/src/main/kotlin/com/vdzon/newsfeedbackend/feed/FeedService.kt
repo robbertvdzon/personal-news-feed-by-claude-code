@@ -64,5 +64,6 @@ data class FeedItem(
      * met rss_items. Legacy feed_items uit pre-KAN-60-tijd zijn standaard
      * ARTICLE — veilige default conform refiner-aanname.
      */
-    val mediaType: String = "ARTICLE"
+    val mediaType: String = "ARTICLE",
+    val imageUrl: String? = null
 )

@@ -38,7 +38,8 @@ class RssItemRepository(
         durationSeconds = rs.getObject("duration_seconds") as? Int,
         summarySource = rs.getString("summary_source") ?: "transcript",
         longSummary = rs.getString("long_summary"),
-        keyTakeaways = json.readList(rs, "key_takeaways", String::class.java)
+        keyTakeaways = json.readList(rs, "key_takeaways", String::class.java),
+        imageUrl = rs.getString("image_url")
     )
 
     private fun params(username: String, item: RssItem) = MapSqlParameterSource()
@@ -67,6 +68,7 @@ class RssItemRepository(
         .addValue("summary_source", item.summarySource)
         .addValue("long_summary", item.longSummary)
         .addValue("key_takeaways", json.toJsonb(item.keyTakeaways))
+        .addValue("image_url", item.imageUrl)
 
     fun load(username: String): MutableList<RssItem> =
         jdbc.query(
@@ -104,13 +106,13 @@ class RssItemRepository(
                 snippet, published_date, timestamp, processed_at, in_feed,
                 feed_reason, is_read, starred, liked, topics, feed_item_id,
                 media_type, audio_url, duration_seconds, summary_source,
-                long_summary, key_takeaways
+                long_summary, key_takeaways, image_url
             ) VALUES (
                 :username, :id, :title, :summary, :url, :category, :feed_url, :source,
                 :snippet, :published_date, :timestamp, :processed_at, :in_feed,
                 :feed_reason, :is_read, :starred, :liked, :topics, :feed_item_id,
                 :media_type, :audio_url, :duration_seconds, :summary_source,
-                :long_summary, :key_takeaways
+                :long_summary, :key_takeaways, :image_url
             )
             ON CONFLICT (username, id) DO UPDATE SET
                 title          = EXCLUDED.title,
@@ -135,7 +137,8 @@ class RssItemRepository(
                 duration_seconds = EXCLUDED.duration_seconds,
                 summary_source = EXCLUDED.summary_source,
                 long_summary   = EXCLUDED.long_summary,
-                key_takeaways  = EXCLUDED.key_takeaways
+                key_takeaways  = EXCLUDED.key_takeaways,
+                image_url      = EXCLUDED.image_url
         """
     }
 }
