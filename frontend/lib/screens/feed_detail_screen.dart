@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/models.dart';
 import '../providers/data_providers.dart';
+import '../util/deep_link.dart';
 
 class FeedItemDetailScreen extends ConsumerStatefulWidget {
   final List<FeedItem> items;
@@ -24,9 +25,18 @@ class _FeedItemDetailScreenState extends ConsumerState<FeedItemDetailScreen> {
     super.initState();
     _idx = widget.initialIndex;
     _ctrl = PageController(initialPage: widget.initialIndex);
+    // Adresbalk → het geopende item, zodat je kunt bookmarken wat je leest.
+    setItemUrl('feed', widget.items[_idx].id);
     Future.microtask(() {
       ref.read(feedProvider.notifier).setRead(widget.items[_idx].id, true);
     });
+  }
+
+  @override
+  void dispose() {
+    clearItemUrl();
+    _ctrl.dispose();
+    super.dispose();
   }
 
   /// Pakt het meest actuele FeedItem voor het huidige index uit de
@@ -96,6 +106,7 @@ class _FeedItemDetailScreenState extends ConsumerState<FeedItemDetailScreen> {
         itemCount: widget.items.length,
         onPageChanged: (i) {
           setState(() => _idx = i);
+          setItemUrl('feed', widget.items[i].id);
           ref.read(feedProvider.notifier).setRead(widget.items[i].id, true);
         },
         itemBuilder: (ctx, i) => _itemView(_liveItem(i)),

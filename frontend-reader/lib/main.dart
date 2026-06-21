@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'api_client.dart';
+import 'deep_link.dart';
 import 'local_store.dart';
 import 'models.dart';
 import 'time_format.dart';
@@ -12,6 +13,9 @@ final ApiClient api = ApiClient();
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await readStore.load();
+  // Path-URL-strategie aan + een eventueel item-pad (/feed/<id>) inlezen,
+  // zodat FeedListScreen het na het laden direct kan openen.
+  initDeepLinks();
   runApp(const ReaderApp());
 }
 
@@ -61,6 +65,7 @@ class _FeedListScreenState extends State<FeedListScreen> {
   _MediaFilter _mediaFilter = _MediaFilter.all;
   String _selectedTab = _allTabId;
   bool _hideRead = true;
+  bool _deepLinkDone = false;
 
   @override
   void initState() {
@@ -87,6 +92,7 @@ class _FeedListScreenState extends State<FeedListScreen> {
         _cats = cats;
         _loading = false;
       });
+      _maybeOpenDeepLink();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -250,6 +256,32 @@ class _FeedListScreenState extends State<FeedListScreen> {
     Navigator.of(context).push(MaterialPageRoute(
       builder: (_) => DetailScreen(items: items, initialIndex: idx),
     ));
+  }
+
+  /// Geopend via een bookmark-URL (`/feed/<id>`)? Open dat ene item los
+  /// (1/1). Staat het niet (meer) in de feed — of is het een `/rss/`-pad,
+  /// wat de reader niet toont — dan een nette melding. Eénmalig per start.
+  void _maybeOpenDeepLink() {
+    if (_deepLinkDone) return;
+    _deepLinkDone = true;
+    final link = pendingDeepLink;
+    pendingDeepLink = null;
+    if (link == null) return;
+    final idx = link.type == 'feed'
+        ? _all.indexWhere((e) => e.id == link.id)
+        : -1;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (idx < 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Dit item is niet meer beschikbaar.')),
+        );
+        return;
+      }
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => DetailScreen(items: [_all[idx]], initialIndex: 0),
+      ));
+    });
   }
 }
 
@@ -531,11 +563,14 @@ class _DetailScreenState extends State<DetailScreen> {
     super.initState();
     _idx = widget.initialIndex;
     _ctrl = PageController(initialPage: widget.initialIndex);
+    // Adresbalk → het geopende item, zodat je kunt bookmarken wat je leest.
+    setItemUrl('feed', widget.items[_idx].id);
     readStore.markRead(widget.items[_idx].id);
   }
 
   @override
   void dispose() {
+    clearItemUrl();
     _ctrl.dispose();
     super.dispose();
   }
@@ -576,6 +611,7 @@ class _DetailScreenState extends State<DetailScreen> {
         itemCount: widget.items.length,
         onPageChanged: (i) {
           setState(() => _idx = i);
+          setItemUrl('feed', widget.items[i].id);
           readStore.markRead(widget.items[i].id);
         },
         itemBuilder: (ctx, i) => _itemView(widget.items[i]),

@@ -5,9 +5,14 @@ import 'providers/data_providers.dart';
 import 'providers/version_provider.dart';
 import 'screens/login_screen.dart';
 import 'screens/main_shell.dart';
+import 'util/deep_link.dart';
 import 'util/hard_reload.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  // Zet de path-URL-strategie aan en lees een eventueel item-pad
+  // (/feed/<id> of /rss/<id>) zodat MainShell het kan openen.
+  initDeepLinks();
   runApp(const ProviderScope(child: NewsFeedApp()));
 }
 

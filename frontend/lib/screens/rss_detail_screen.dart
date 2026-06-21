@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/models.dart';
 import '../providers/data_providers.dart';
+import '../util/deep_link.dart';
 
 class RssItemDetailScreen extends ConsumerStatefulWidget {
   final List<RssItem> items;
@@ -24,9 +25,18 @@ class _RssItemDetailScreenState extends ConsumerState<RssItemDetailScreen> {
     super.initState();
     _idx = widget.initialIndex;
     _ctrl = PageController(initialPage: _idx);
+    // Adresbalk → het geopende item, zodat je kunt bookmarken wat je leest.
+    setItemUrl('rss', widget.items[_idx].id);
     Future.microtask(() {
       ref.read(rssProvider.notifier).setRead(widget.items[_idx].id, true);
     });
+  }
+
+  @override
+  void dispose() {
+    clearItemUrl();
+    _ctrl.dispose();
+    super.dispose();
   }
 
   Future<void> _moreAbout(RssItem it) async {
@@ -116,6 +126,7 @@ class _RssItemDetailScreenState extends ConsumerState<RssItemDetailScreen> {
         itemCount: widget.items.length,
         onPageChanged: (i) {
           setState(() => _idx = i);
+          setItemUrl('rss', widget.items[i].id);
           ref.read(rssProvider.notifier).setRead(widget.items[i].id, true);
         },
         itemBuilder: (ctx, i) {
