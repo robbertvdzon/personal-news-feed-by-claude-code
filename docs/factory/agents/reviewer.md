@@ -6,4 +6,4 @@
 - Controleer bij Flyway-migraties: nieuwe versie (geen bestaande aanpassen), correct naampatroon `V{n}__beschrijving.sql`.
 - Geef concrete feedback met reproduceerbare stappen of file/line-context.
 - Vraag geen productkeuzes aan de gebruiker; schrijf blokkerende technische problemen in het YouTrack `Error`-veld.
-- Let op: alle previews delen dezelfde PostgreSQL als productie — migraties worden direct toegepast.
+- Let op: sinds SF-229 draait elke preview op een **eigen, per-PR Neon-branch** (`pr-<N>`), afgesplitst van productie — Flyway-migraties in een PR raken de branch, niet prod-data. Zie `deployment.md` (sectie "Preview-DB — eigen per-PR Neon-branch").
