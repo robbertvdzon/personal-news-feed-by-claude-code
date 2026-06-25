@@ -59,6 +59,7 @@ AuthGate
             └── dialog → EditCategoryDialog
             └── dialog → AddCategoryDialog
             └── dialog → CleanupDialog
+            └── navigeer naar → RssFeedsScreen       (via "RSS-feeds"-list-tile; beheert RSS-feeds én podcast-bronnen)
             └── navigeer naar → AdminScreen          (alleen voor admins, via "Beheer gebruikers"-knop)
             └── navigeer naar → AdminCostsScreen     (alleen voor admins, via "Beheer kosten"-knop)
 ```
@@ -307,12 +308,23 @@ Lijst van alle categorieën uit `GET /api/settings`.
 - Naam invoeren
 - Opslaan: PUT `/api/settings` met nieuwe categorie toegevoegd (ID gegenereerd op basis van naam)
 
-### RSS-feeds
-Lijst van geconfigureerde RSS-feed URLs uit `GET /api/rss-feeds`.
+### Feeds → RssFeedsScreen (SF-220)
+Onder de kop **"Feeds"** staat één navigatie-`ListTile` ("RSS-feeds", met `Icons.rss_feed`-leading en chevron-trailing) die via `MaterialPageRoute` naar **RssFeedsScreen** pusht. De feed- en podcast-editors staan dus niet meer inline op de Settings-pagina; ze leven op deze aparte subpagina (met eigen `AppBar`, titel "RSS-feeds"). Gedrag van beide editors is ongewijzigd t.o.v. de oude inline-secties.
+
+**RSS-feeds (op de subpagina)** — lijst van geconfigureerde RSS-feed URLs uit `GET /api/rss-feeds` (`rssFeedsProvider`):
 
 - **Tik op URL:** opent URL in externe browser
 - **Verwijder-icoon (×):** verwijder feed-URL, PUT `/api/rss-feeds`
 - **Invoerveld + toevoegen-knop:** nieuwe URL toevoegen, PUT `/api/rss-feeds`
+
+**Podcast-bronnen (op de subpagina, KAN-56)** — lijst van podcast-RSS-bronnen uit `podcastFeedsProvider`:
+
+- **Tik op URL:** opent URL in externe browser; URL in monospace.
+- **"Transcriberen aan/uit"-toggle (`Switch`):** per bron; staat de toggle uit, dan valt de backend terug op de show-notes als input voor Claude (geen Whisper-kosten).
+- **Verwijder-icoon (×):** verwijder bron.
+- **Invoerveld + toevoegen-knop:** nieuwe podcast-RSS-URL toevoegen. De URL wordt **synchroon op de server gevalideerd**; tijdens de roundtrip is de rij `_busy` (spinner i.p.v. toevoegen-knop, veld disabled). Bij een ongeldige URL (HTTP 400) verschijnt een snackbar met de Nederlandse foutmelding uit de response-body.
+
+Beide editors gebruiken `.when()` voor loading (`CircularProgressIndicator`) en error (`Fout: …`).
 
 ### Achtergrond-taken
 Twee handmatige triggers voor de scheduled jobs (die zelf gewoon doorlopen op hun schedule — hourly RSS-refresh en de daily summary om 06:00):
@@ -399,7 +411,8 @@ De app gebruikt Riverpod. Providers zijn globaal beschikbaar via `ProviderScope`
 | `rssItemsProvider` | RSS-items (`/api/rss`) |
 | `requestProvider` | Verzoeken + WebSocket-updates (gebruikt door Settings → Achtergrond-taken voor knop-state en klaar-toast) |
 | `settingsProvider` | Categorie-instellingen |
-| `rssFeedsProvider` | RSS-feed URLs |
+| `rssFeedsProvider` | RSS-feed URLs (Settings → RssFeedsScreen) |
+| `podcastFeedsProvider` | Podcast-RSS-bronnen + transcribe-toggle, met server-side URL-validatie (Settings → RssFeedsScreen, KAN-56) |
 | `podcastProvider` | Podcasts + polling tijdens generatie |
 | `audioPlayerProvider` | Audiospelerstatus (`just_audio`) |
 | `appearanceProvider` | Lettergrootte-instelling (persistentie) |
