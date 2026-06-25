@@ -483,13 +483,18 @@ Beschikbare info:
   preview-namespace-naam: \`pnf-pr-\${PR_NUMBER}\`.
 - env-var PREVIEW_DB_URL — psql-bruikbare connection-string voor de
   per-PR Neon-preview-branch (libpq, \`postgresql://user:pass@host/db\`).
-  De runner heeft deze RUNTIME uit het secret van de \`pnf-pr-\$PR_NUMBER\`
-  namespace gelezen ÉN met preview-db-guard.py geverifieerd dat 't de
-  pr-<N>-branch is — niet productie. LEEG = guard faalde of branching is
-  niet actief → DAN GEEN enkele DB-mutatie (zie VEILIGHEIDSGUARD).
+  KAN vooraf gezet zijn: draaide deze runner.sh-resolutie, dan heeft de
+  runner 'm RUNTIME uit het secret van de \`pnf-pr-\$PR_NUMBER\` namespace
+  gelezen ÉN met preview-db-guard.py geverifieerd dat 't de pr-<N>-branch
+  is — niet productie. Onder een ANDERE harness (bv. softwarefactory's
+  \`agent:local\`-image, waar runner.sh nooit draait) is 'ie LEEG → dan
+  resolve je 'm ZELF (zie 'PREVIEW-DB ZELF RESOLVEN' in de
+  VEILIGHEIDSGUARD). Lukt dat niet → GEEN enkele DB-mutatie.
 - env-var PREVIEW_DB_GUARD — 'ok' als de guard de preview-branch heeft
-  bevestigd, anders 'fail'. Mutaties zijn ALLEEN toegestaan bij 'ok'.
-- env-var PREVIEW_DB_BRANCH — de bevestigde branch-naam (bv. 'pr-42').
+  bevestigd, anders 'fail' of leeg. Mutaties zijn ALLEEN toegestaan bij
+  'ok'. Is 'ie leeg, dan resolve je preview-DB + guard zelf (zie onder).
+- env-var PREVIEW_DB_BRANCH — de bevestigde branch-naam (bv. 'pr-42'),
+  óf leeg wanneer je zelf moet resolven.
 
 Cluster + DB-tools (KAN-44):
 - \`oc get pods -n pnf-pr-\$PR_NUMBER\` — wie draait er in de preview?
@@ -511,14 +516,41 @@ De preview draait op een EIGEN, per-PR weggooi-Neon-branch (pr-<N>),
 gescheiden van productie. De robbert-reset is daarop veilig; tegen prod
 zou 't catastrofaal zijn. Daarom:
 
+PREVIEW-DB ZELF RESOLVEN (env kan leeg zijn — runner-agnostisch):
+\$PREVIEW_DB_URL/\$PREVIEW_DB_BRANCH/\$PREVIEW_DB_GUARD kunnen vooraf gezet
+zijn (deze runner.sh deed dat dan al en valideerde 't) — hergebruik ze in
+dat geval ONGEWIJZIGD. Zijn ze LEEG (andere harness, runner.sh draaide
+niet), resolve dan ZELF, met exact dezelfde stappen:
+   a. Bepaal namespace + PR robuust: PR = \${SF_PR_NUMBER:-\$PR_NUMBER};
+      namespace = \${SF_PREVIEW_NAMESPACE:-pnf-pr-\$PR_NUMBER}.
+   b. Lees de branch-creds read-only uit het namespace-secret:
+        oc get secret newsfeed-api-keys -n <ns> \\
+          -o jsonpath='{.data.PNF_DATABASE_URL}' | base64 -d
+        oc get secret newsfeed-api-keys -n <ns> \\
+          -o jsonpath='{.data.PREVIEW_DB_BRANCH}' | base64 -d
+      Geen secret leesbaar → guard blijft 'fail' (zie punt 2).
+   c. Draai de ONGEWIJZIGDE guard met --emit-psql-url (pad:
+      /work/repo/deploy/claude-tester/preview-db-guard.py, onder deze
+      runner ook /usr/local/bin/preview-db-guard.py):
+        python3 <guard-pad> --url \"<PNF_DATABASE_URL>\" \\
+          --pr \"\$PR_NUMBER\" --prod-host \"\${PROD_DB_HOST:-}\" \\
+          --branch \"<PREVIEW_DB_BRANCH>\" --emit-psql-url
+      Exit 0 → de guard print de psql-URL: leid daaruit
+      PREVIEW_DB_URL = die URL, PREVIEW_DB_BRANCH = de marker,
+      PREVIEW_DB_GUARD = 'ok'. Niet-0 exit → PREVIEW_DB_GUARD = 'fail',
+      PREVIEW_DB_URL leeg.
+   d. Pas daarna de ONGEWIJZIGDE fail-closed guard (punt 2) toe.
+
 1. Doe NOOIT zelf een psql tegen een DB-URL die je zelf samenstelt of
    ergens vandaan haalt. Gebruik UITSLUITEND \$PREVIEW_DB_URL — die is
-   door de runner al gevalideerd.
+   door de runner óf door jouw zelf-resolve via preview-db-guard.py
+   gevalideerd (nooit een hand-gebouwde of prod-URL).
 2. Vóór ELKE mutatie (de robbert-UPDATE) controleer je expliciet:
      - \$PREVIEW_DB_GUARD == 'ok'  EN
      - \$PREVIEW_DB_URL is niet-leeg EN
      - \$PREVIEW_DB_BRANCH == \"pr-\$PR_NUMBER\".
-   Klopt één hiervan niet → GEEN mutatie, GEEN robbert-login, GEEN
+   Klopt één hiervan niet (ook bij mislukte oc/secret/guard tijdens
+   zelf-resolve) → GEEN mutatie, GEEN robbert-login, GEEN
    screenshots-op-basis-van-robbert. Rapporteer dan tested-fail met
    [blocker] 'preview-branch-DB niet bevestigd — guard faalde
    (PREVIEW_DB_GUARD=...); reset overgeslagen om prod te beschermen' en
