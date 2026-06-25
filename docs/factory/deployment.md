@@ -69,10 +69,17 @@ op alleen namespace-labeling (geen branch, geen marker) en faalt de
 tester-guard fail-closed — er worden dan geen DB-mutaties uitgevoerd.
 
 **Tester-bedrading.** De tester krijgt zowel een bruikbare preview-URL
-(`https://pnf-pr-<N>.vdzonsoftware.nl`) als een preview-branch-DB-connectie:
-`runner.sh` leest de branch-URL runtime uit het `pnf-pr-<N>`-secret, valideert
+(`https://pnf-pr-<N>.vdzonsoftware.nl`) als toegang tot de
+preview-branch-DB-connectie. Draait de tester onder de claude-runner, dan
+leest `runner.sh` de branch-URL runtime uit het `pnf-pr-<N>`-secret, valideert
 ze met `preview-db-guard.py` en exporteert `PREVIEW_DB_URL` /
-`PREVIEW_DB_BRANCH` / `PREVIEW_DB_GUARD`. Zie `docs/factory/agents/tester.md`.
+`PREVIEW_DB_BRANCH` / `PREVIEW_DB_GUARD`. Draait de tester onder een andere
+harness (bv. softwarefactory's `agent:local`-image, waar `runner.sh` nooit
+draait), dan blijven die env-vars leeg en **resolvet de tester de preview-DB
+zélf** met dezelfde stappen (namespace/PR uit `SF_PREVIEW_NAMESPACE` /
+`SF_PR_NUMBER` met fallback op `pnf-pr-<N>`, secret read-only lezen, dezelfde
+`preview-db-guard.py` met `--emit-psql-url`). De fail-closed guard is in beide
+gevallen identiek. Zie `docs/factory/agents/tester.md`.
 
 Optioneel kan op de `jira-poller` de env-var `PROD_DB_HOST` (alléén hostname,
 geen credentials) gezet worden; de guard weigert dan extra een URL die exact
