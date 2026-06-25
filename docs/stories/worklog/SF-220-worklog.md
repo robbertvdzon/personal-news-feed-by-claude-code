@@ -64,3 +64,45 @@ door tests gedekt. Pre-existing gedrag, 1-op-1 verhuisd; niet blokkerend.
 runner, bekend); CI valideert. Imports handmatig nagelopen — geen nieuwe warnings verwacht.
 
 Conclusie: voldoet aan alle acceptatiecriteria. Akkoord.
+
+---
+
+## Test SF-275 (tester, 2026-06-25)
+
+Story-brede test op preview `https://pnf-pr-135.vdzonsoftware.nl`
+(frontend-build SHA `3bacf50` = HEAD van deze branch).
+
+Verificatie-methode: hard-diff van de verhuisde code + live UI-test via
+Playwright op de Flutter-CanvasKit-SPA (coördinaat-flow met wegwerp-account,
+opgeruimd via `DELETE /api/account/me` → HTTP 200).
+
+Resultaten per acceptatiecriterium:
+- AC1 [ok] Settings toont op de oude RSS/podcast-plek één `ListTile`
+  (`Icons.rss_feed` + titel "RSS-feeds" + subtitle "Beheer RSS-feeds en
+  podcast-bronnen" + chevron) die naar de subpagina navigeert; inline-editors
+  staan niet meer op settings. Bewijs: `10-settings-rss-tile.png`.
+- AC2 [ok] Subpagina-sectie "RSS-feeds": feed-URL toevoegen werkt (URL
+  verschijnt in monospace met verwijder-`X`); save via `rssFeedsProvider`
+  bevestigd live. Bewijs: `11-subpage-top.png`, `13-rss-added.png`.
+- AC3 [ok] Subpagina-sectie "Podcast-bronnen" met eigen invoerveld aanwezig.
+  Editor-code byte-identiek aan main (validatie/snackbar/toggle/verwijderen
+  ongewijzigd). Bewijs: `12-subpage-podcast.png`.
+- AC4 [ok] Uitlog-invalidations `rssFeedsProvider`/`podcastFeedsProvider`
+  intact (settings_screen.dart:49-50); providers ongewijzigd.
+- AC5 [ok] Styling consistent: AppBar "RSS-feeds", sectiekoppen titleLarge,
+  dividers, monospace-URL, chevron-tiles — zie screenshots.
+- AC6 [info] `flutter analyze` niet uitvoerbaar (geen dart/flutter-binary op
+  agent:local-runner). Handmatig geverifieerd: alle imports in
+  `settings_screen.dart` en `rss_feeds_screen.dart` zijn in gebruik,
+  `url_launcher` terecht weg uit settings, geen achtergebleven editor-refs
+  (alleen een doc-comment in data_providers.dart). CI valideert analyze.
+- AC7 [ok] Geen backend-/OpenAPI-/providerlogica-wijziging; enige
+  data_providers-wijziging is een doc-comment.
+
+Hard-diff bewijs: `_RssFeedsEditor` en `_PodcastFeedsEditor` zijn byte-identiek
+verhuisd vanuit `main:settings_screen.dart` naar `rss_feeds_screen.dart`
+(`diff` zonder verschillen, op `_VersionBlock`/`_VersionTile` na die terecht in
+settings blijven).
+
+Conclusie: alle acceptatiecriteria voldaan (AC6 alleen via code-inspectie i.p.v.
+`flutter analyze` wegens ontbrekende toolchain). Test geslaagd.
