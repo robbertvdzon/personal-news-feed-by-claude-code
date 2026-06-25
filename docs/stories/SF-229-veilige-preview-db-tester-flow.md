@@ -1,70 +1,35 @@
-# SF-229 — Veilige preview-DB-bedrading + robbert-inlog/screenshot-flow voor tester
+# SF-229 - Eindsamenvatting
 
-Story-log voor de PR (subtaak SF-237, developer).
+## Story
 
-## Doel
+Eindsamenvatting
 
-De tester-agent laten inloggen op de Flutter-web-preview met realistische
-data (robbert/robbert) en screenshots achterlaten — veilig, uitsluitend
-tegen de wegwerp-per-PR Neon-preview-branch, nooit tegen productie.
+## Eindsamenvatting
 
-## Stappenplan
+## Eindsamenvatting — SF-229: Veilige preview-DB-bedrading + robbert-inlog/screenshot-flow voor tester
 
-- [x] Issue + factory-docs lezen (deployment.md, technical-spec, runner.sh, poller.py, labeller.sh, rbac).
-- [x] poller.py: PREVIEW_DB_URL niet meer uit prod-secret; optioneel PROD_DB_HOST doorgeven aan tester-Job (AC4).
-- [x] preview-db-guard.py: fail-closed guard (pr-<N>-marker / prod-host-diff) + jdbc→libpq-conversie (AC2).
-- [x] Unit-tests voor de guard (18 tests, AC2 dry-run-scenario's).
-- [x] labeller.sh: PREVIEW_DB_BRANCH-marker in pnf-pr-<N>-secret + per-ns Role/RoleBinding voor claude-tester-SA (AC4).
-- [x] labeller rbac.yaml: roles/rolebindings-write toevoegen voor de labeller-SA.
-- [x] runner.sh: tester leest branch-DB runtime uit pnf-pr-<N>-secret, draait guard, exporteert PREVIEW_DB_URL/_BRANCH/_GUARD (AC2/AC4).
-- [x] runner.sh tester-prompt: veiligheidsguard + robbert-reset/login-flow + inlog-modi (robbert vs wegwerp) (AC1/AC3).
-- [x] claude-tester Dockerfile: guard-script COPY'en.
-- [x] claude-tester rbac.yaml: TODO → geïmplementeerd-comment.
-- [x] tester.md + deployment.md + preview_db_secret_recipe bijwerken (AC3/AC4).
-- [x] Tests/syntax draaien (guard-unittests OK; bash -n OK; py_compile OK).
+### Wat is gebouwd
+De tester-agent kan nu de Flutter-web-preview écht visueel testen met realistische data, **gegarandeerd alleen tegen de wegwerp-preview-DB en nooit tegen productie**.
 
-## Wat is gedaan en waarom
+- **Prod-DB losgekoppeld (AC4/AC5).** `poller.py` injecteert de prod-DB-URL niet langer als `PREVIEW_DB_URL`. In plaats daarvan leest `runner.sh` de per-PR Neon-branch-credentials runtime uit het `pnf-pr-<N>`-secret. De tester-SA heeft cluster-breed géén leesrecht op het prod-secret → productie is fysiek onbereikbaar.
+- **Fail-closed veiligheidsguard (AC2).** Nieuw script `deploy/claude-tester/preview-db-guard.py` bewijst vóór elke mutatie dat de doel-DB de `pr-<N>`-branch is (marker `PREVIEW_DB_BRANCH`, `pr-<N>` in de URL, of host ≠ prod-host) en breekt af bij gelijkheid aan prod-host / ontbrekende marker / twijfel — geen mutatie, geen screenshots. Inclusief JDBC→libpq-URL-conversie. Gedekt door **18 unit-tests**.
+- **RBAC + marker (AC4).** `labeller.sh` zet de niet-gevoelige marker `PREVIEW_DB_BRANCH=pr-<N>` in het preview-secret en maakt per `pnf-pr-*`-namespace een `claude-tester-secret-read` Role/RoleBinding (alleen secrets get/list). De labeller-ClusterRole kreeg de benodigde roles/rolebindings-write.
+- **Robbert-reset + browser-test (AC1).** De tester-system-prompt beschrijft één gescopete `UPDATE users SET password_hash=… WHERE username='robbert'` (`gen_salt('bf')` → `$2a`-bcrypt, Spring `BCryptPasswordEncoder`-compatibel), UI-login als robbert/robbert via Playwright/Chromium, en screenshots naar `/tmp/screenshots/`. Bestaande upload + screenshot-safety-override blijven intact.
+- **Docs (AC3/AC4).** `tester.md`, `deployment.md` en `preview_db_secret_recipe` beschrijven nu de per-PR Neon-branch (i.p.v. "dezelfde PostgreSQL als productie"), de guard, en wanneer de robbert-flow geldt versus de wegwerp-`tester_<key>`-fallback. `tester.md` verwijst naar `runner.sh` als gezaghebbend.
 
-**Probleem.** De tester kreeg `PREVIEW_DB_URL` uit het prod-secret
-(`newsfeed-api-keys/PNF_DATABASE_URL`); een schrijfactie zou prod raken.
+### Gemaakte keuzes
+- **Bron-verlegging i.p.v. extra guard alleen:** prod-creds zijn niet meer leesbaar voor de tester; de guard is een tweede, fail-closed verdedigingslaag.
+- **Username at-runtime bevestigd:** bij ontbrekende/ambigue `robbert`-user → afbreken, geen gok.
+- **Primair guard-signaal** is de exacte `PREVIEW_DB_BRANCH`-marker uit het secret; host-diff en URL-substring zijn secundaire OR-paden.
 
-**Oplossing (fail-closed).**
+### Getest
+- 18 guard-unit-tests lokaal groen (incl. AC2-dry-run tegen prod-achtige URL → exit 3, geen mutatie); `bash -n` (labeller+runner) en `py_compile` (poller+guard) slagen.
+- Reviewer (medium effort): **akkoord** op de volledige story-diff (12 bestanden, +752/−36); alle AC's afgevinkt; één niet-blokkerende info-opmerking over secundaire guard-paden.
+- Story-brede test (SF-238): **test-approved**.
 
-1. **Bron verlegd.** `poller.py` injecteert de prod-DB-URL niet meer als
-   `PREVIEW_DB_URL`. In plaats daarvan leest `runner.sh` de per-PR
-   Neon-branch-creds runtime uit het `pnf-pr-<N>`-secret (door de labeller
-   gepatcht) en valideert ze. De tester-SA heeft géén leesrecht op het
-   prod-secret → prod is fysiek onbereikbaar.
+### Bewust niet gedaan
+- `poller.py`-unittests niet lokaal gedraaid (geen `pip` voor `requests`/`flask`/`psycopg`) — CI valideert deze; wijziging is geïsoleerde env-bedrading.
+- Geen prod-wijzigingen, geen Telegram-integratie (bestaat niet in de repo), geen functionele app-features — backend (mvn) en Flutter zijn niet geraakt.
 
-2. **Guard.** `deploy/claude-tester/preview-db-guard.py` bewijst fail-closed
-   dat de doel-DB de `pr-<N>`-branch is (marker `PREVIEW_DB_BRANCH`, of
-   `pr-<N>` in de URL, of host ≠ bekende prod-host) en weigert bij gelijkheid
-   aan de prod-host / ontbrekende marker / twijfel. Met `--emit-psql-url`
-   converteert 'ie de JDBC-URL uit het secret naar een psql-bruikbare
-   libpq-URL. Gedekt door 18 unit-tests (incl. de AC2-dry-run tegen een
-   prod-achtige URL → exit 3, geen mutatie).
-
-3. **RBAC + marker.** `labeller.sh` zet nu de niet-gevoelige marker-key
-   `PREVIEW_DB_BRANCH=pr-<N>` in het preview-secret en maakt per `pnf-pr-*`
-   namespace een `claude-tester-secret-read` Role/RoleBinding (alleen
-   secrets get/list). De labeller-ClusterRole kreeg daarvoor
-   roles/rolebindings-write.
-
-4. **Tester-prompt.** De system-prompt in `runner.sh` beschrijft de harde
-   veiligheidsguard, de robbert-wachtwoord-reset (één gescopete
-   `UPDATE ... WHERE username='robbert'` met `gen_salt('bf')` → `$2a`-bcrypt,
-   compatibel met Spring's `BCryptPasswordEncoder`), de UI-login als
-   robbert/robbert, en wanneer de robbert-flow geldt versus de wegwerp-
-   `tester_<key>`-fallback. De bestaande screenshot-upload + safety-override
-   blijven intact.
-
-5. **Docs.** `tester.md`, `deployment.md` en `preview_db_secret_recipe`
-   beschrijven nu per-PR Neon-branch i.p.v. "dezelfde PostgreSQL als
-   productie", incl. hoe de tester aan preview-URL én branch-DB-URL komt.
-
-## Niet lokaal te draaien
-
-- `poller.py`-unittests vereisen `requests`/`flask`/`psycopg`; deze runner
-  heeft geen `pip` om ze te installeren. `python3 -m py_compile` slaagt; CI
-  valideert de tests. De wijziging is geïsoleerd (env-bedrading).
-- Backend (mvn) en Flutter zijn niet geraakt — geen build nodig.
+### Aandachtspunt voor de PO
+Vereiste cluster-credentials: de `preview-ns-labeller` heeft `NEON_API_KEY` + `NEON_PROJECT_ID` nodig voor actieve per-PR branching; controleer dat deze in de cluster aanwezig zijn vóór deploy.
