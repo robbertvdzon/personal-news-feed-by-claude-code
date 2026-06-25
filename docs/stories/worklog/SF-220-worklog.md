@@ -59,3 +59,40 @@ Validatie:
 [info] `flutter analyze`/`flutter test` niet in runner gedraaid (bekende `pnf-runner-no-flutter`-beperking) — CI valideert. Geen blokker.
 
 Conclusie: akkoord.
+
+---
+
+## Test (SF-253, tester)
+
+**Modus:** code-inspectie + harde diff-verificatie. Geen browser/DB-flow:
+- Preview (`pnf-pr-132.vdzonsoftware.nl`) geeft HTTP 200 `text/html` = Flutter
+  canvas/auth-SPA (geen DOM-tekst, WebFetch/curl tonen geen UI); runner heeft
+  geen dart/flutter-binary. `PREVIEW_DB_GUARD` is leeg → geen DB-mutatie /
+  robbert-login (fail-closed). Story is bovendien puur frontend-herstructurering
+  zonder DB-afhankelijkheid, dus robbert-flow niet nodig.
+
+**Resultaat per AC:**
+- AC1 ✓ — settings_screen.dart: één navigatie-`ListTile` 'RSS-feeds' (leading
+  `Icons.rss_feed`, `Icon(Icons.chevron_right)`) die via `MaterialPageRoute` naar
+  `RssFeedsScreen` pusht (regel 95-104). Inline-editors verdwenen uit settings.
+- AC2/AC3/AC5 ✓ — **1-op-1 move hard geverifieerd met diff**:
+  `_RssFeedsEditor`-blok is byte-identiek (`diff` leeg) tussen `main:settings_screen.dart`
+  en nieuw `rss_feeds_screen.dart`; `_PodcastFeedsEditor`-blok identiek op één
+  weggevallen scheidings-witregel na. Gedrag (open→externe browser, verwijderen,
+  synchrone podcast-URL-validatie + snackbar, transcribeer-toggle, save-calls,
+  monospace-URL, loading-spinner, 'Fout: $e') dus ongewijzigd.
+- AC4 ✓ — logout-invalidations `rssFeedsProvider`/`podcastFeedsProvider` staan nog
+  in settings_screen.dart (regel 49-50) en verwijzen naar de juiste providers.
+- AC6 ✓ — `url_launcher`-import opgeruimd uit settings_screen.dart; import van
+  `rss_feeds_screen.dart` toegevoegd. Resterende imports nog in gebruik
+  (`models.dart` via VersionInfo/NewsRequest/CategorySettings; `api_client.dart`
+  via ApiException/apiProvider). Nieuw bestand: alle imports gebruikt
+  (launchUrl, ApiException, PodcastFeed, providers). `flutter analyze` niet
+  draaibaar in runner (geen dart-binary, bekende beperking) → CI valideert;
+  imports handmatig nagelopen, geen ongebruikte symbolen.
+- AC7 ✓ — diff `main...HEAD` raakt alleen frontend + worklog + widgettest; geen
+  backend/OpenAPI/providerlogica gewijzigd.
+- Oude editor-klassen komen nergens anders meer voor (alleen een doc-comment-
+  verwijzing in data_providers.dart).
+
+**Conclusie:** akkoord — story-breed gedrag voldoet aan alle acceptance criteria.
