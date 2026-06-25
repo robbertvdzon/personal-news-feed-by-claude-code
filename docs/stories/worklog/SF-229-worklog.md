@@ -22,3 +22,26 @@ Done / rationale:
   robbert-reset/login en de keuze robbert-flow vs wegwerp-tester_<key>-flow.
 - poller-unittests niet lokaal gedraaid (geen pip voor requests/flask/psycopg);
   py_compile + bash -n + guard-unittests slagen, CI valideert de rest.
+
+Review (reviewer, medium effort) — AKKOORD:
+- Volledige story-diff t.o.v. main beoordeeld (12 bestanden, +729/-36).
+- AC1: robbert-reset (één gescopete UPDATE ... WHERE username='robbert' met
+  gen_salt('bf',10) → $2a-bcrypt, Spring-compatibel) + UI-login + screenshot-
+  dropzone/upload + safety-override intact (runner.sh additief, geen regressie).
+- AC2: preview-db-guard.py is fail-closed; prod-URL aborteert ook ZONDER
+  PROD_DB_HOST (ontbrekende pr-<N>-marker → exit 3, geen mutatie). 18 unit-tests
+  lokaal groen (python3 -m unittest).
+- AC3: tester.md en runner.sh-prompt consistent; tester.md verwijst expliciet
+  naar runner.sh als gezaghebbend.
+- AC4: poller.py haalt prod-secret-bron weg; runner.sh leest branch-creds uit
+  pnf-pr-<N>-secret; labeller zet PREVIEW_DB_BRANCH-marker + per-ns secrets-read
+  RBAC; labeller-ClusterRole kreeg roles/rolebindings-write; TESTER_SA_NS
+  (pnf-software-factory) matcht de SA-namespace in rbac.yaml.
+- AC5: claude-tester-ClusterRole sluit secrets cluster-wide uit → prod-secret
+  fysiek onleesbaar; geen prod-mutaties; Neon-branch wordt bij PR-close opgeruimd.
+- bash -n (labeller+runner) en py_compile (poller+guard) slagen; story-log en
+  worklog vrij van JSON-artefacten; geen duplicate Spring-annotaties.
+- [info] guard accepteert host≠prod-host als positief signaal zónder marker, en
+  url_marker is een substring-match — beide secundaire OR-paden; primair en
+  gezaghebbend is de exacte PREVIEW_DB_BRANCH-marker uit het secret, dus
+  praktisch risico verwaarloosbaar. Geen blocker.
