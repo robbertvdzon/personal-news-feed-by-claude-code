@@ -32,3 +32,18 @@ Tests:
 - [info] Fail-closed guard ongewijzigd/niet verzwakt: `guard==ok` + niet-lege URL + `PREVIEW_DB_BRANCH==pr-<PR>`; mislukte oc/secret/guard → expliciet fail (AC2). Frontend zonder screenshots → `[blocker]`/`tested-fail`, niet stil `tested-ok` (AC3). Dropzone harness-afhankelijk gedocumenteerd.
 - [info] `bash -n runner.sh` slaagt (heredoc/escapes intact); geen JSON-artefacten in story-log/tester.md.
 - Akkoord.
+
+## Test (SF-261, tester)
+Karakter van de wijziging: uitsluitend instructie-/prompt-tekst (`docs/factory/agents/tester.md` + de ingebedde tester-system-prompt in `deploy/claude-runner/runner.sh`). `git diff main...HEAD` raakt alleen die twee bestanden + dit worklog; geen wijziging buiten de `SYSTEM_PROMPT`-string van runner.sh (bash-resolutie ongewijzigd), geen wijziging aan `preview-db-guard.py`, backend of Flutter. Test = code-inspectie + interne consistentie + guard-gedrag (geen frontend-codewijziging om te screenshotten).
+
+Bijzonderheid: deze run draait zélf onder de SF `agent:local`-harness met LEGE `PREVIEW_DB_URL`/`_GUARD`/`_BRANCH` en `SF_PR_NUMBER=133`/`SF_PREVIEW_NAMESPACE=pnf-pr-133` — precies het scenario dat de story moet ondersteunen. De nieuwe zelf-resolve-stappen zijn daarom live nagelopen.
+
+Bevindingen per AC:
+- AC4 (consistentie + geen env-afhankelijkheid): beide bestanden beschrijven dezelfde 4 zelf-resolve-stappen (robuuste namespace/PR via `SF_PREVIEW_NAMESPACE`/`SF_PR_NUMBER` met fallback `pnf-pr-<PR>`; `oc get secret newsfeed-api-keys` read-only; `preview-db-guard.py --emit-psql-url`; daarna de ongewijzigde fail-closed guard). De oude tekst die aannam dat de runner `PREVIEW_DB_*` altijd vooraf zet, is verwijderd; beide behandelen expliciet het leeg-geval. PASS.
+- AC2 (fail-closed): guard-gedrag empirisch geverifieerd — `--prod-host == host` → ABORT (exit 3); marker afwezig + host zonder `pr-<N>` → ABORT (exit 3); geldige `pr-133`-host → OK + libpq-URL. De prompt-laag eist bovendien `PREVIEW_DB_BRANCH == pr-<PR>` bovenop guard.py (gelaagde verdediging). In deze live-namespace ontbreekt de `PREVIEW_DB_BRANCH`-marker en bevat de DB-host geen `pr-133` → zelf-resolve fail-closet correct: geen mutatie, geen robbert-login. PASS.
+- AC1/AC5 (zelf-resolve t/m guard=ok + robbert-login + screenshots): vereist een echte frontend-story met gezonde per-PR Neon-preview. `oc` is aanwezig met leesrecht (`oc auth can-i` → yes) en `preview-db-guard.py` bestaat op het gedocumenteerde pad met werkende `--emit-psql-url`, dus de flow is volgbaar en accuraat; maar `pnf-pr-133` is hier de factory-namespace zonder preview-marker, dus geen gezonde preview om robbert-login op te demonstreren. Conform de story-Aannames worden AC1/AC5 geverifieerd door de SF-tester op een lopende frontend-story, niet in deze docs-PR. Niet-blokkerend voor deze story.
+- AC3 (frontend zonder screenshots → `[blocker]`/`tested-fail`): instructietekst aanwezig in beide bestanden; SF-259 raakt de frontend niet, dus niet van toepassing op deze run.
+
+Aanvullende verificaties (bestaande tooling, niets gewijzigd): `bash -n deploy/claude-runner/runner.sh` → OK (heredoc/escapes intact); `python3 -m unittest test_preview_db_guard` → 18 ok (guard-gedrag ongewijzigd). Guard-CLI in de instructies (`--url/--pr/--prod-host/--branch/--emit-psql-url`) komt exact overeen met de echte argparse-interface.
+
+Conclusie: instructiewijziging is correct, intern consistent en volgbaar; fail-closed guard niet verzwakt; scope gerespecteerd. Geen bugs gevonden. → tested.
