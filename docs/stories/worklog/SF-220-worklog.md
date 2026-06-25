@@ -40,3 +40,20 @@ Niet lokaal gedraaid:
   geen flutter/dart-binary aanwezig (alleen beschikbaar in `.devcontainer`,
   Flutter 3.35). De wijziging is puur een verplaatsing van bestaande,
   werkende code + opgeruimde imports; CI valideert de feitelijke analyze/test.
+
+## Review (SF-221) — reviewer
+
+- [info] Volledige story-diff t.o.v. `main` beoordeeld (4 bestanden: nieuwe
+  `rss_feeds_screen.dart`, ingekorte `settings_screen.dart`, nieuwe test,
+  worklog). Geen backend-, OpenAPI- of providerwijzigingen — scope correct.
+- [info] `_RssFeedsEditor` en `_PodcastFeedsEditor` zijn 1-op-1 verhuisd
+  (gedrag identiek: monospace-URL, openen extern, verwijderen, transcribeer-
+  toggle, synchrone URL-validatie + snackbar, `_busy`-spinner, "Fout: …").
+- [info] Imports kloppen: `url_launcher` weg uit settings (niet meer gebruikt),
+  `api_client`/`models` blijven terecht (ApiException in `_changePassword`,
+  CategorySettings e.d.). Nieuwe screen importeert alles wat het gebruikt.
+- [info] Invalidations bij uitloggen (`rssFeedsProvider`/`podcastFeedsProvider`)
+  intact en correct. Navigatie-tile consistent met API-log/Admin-patroon.
+- [info] `flutter analyze`/`flutter test` niet lokaal draaibaar (geen dart-
+  binary in runner); CI valideert. Aanvaardbaar voor pure verplaatsing.
+- Akkoord.
