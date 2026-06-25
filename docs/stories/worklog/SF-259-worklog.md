@@ -25,3 +25,10 @@ Done / rationale:
 
 Tests:
 - Geen code gewijzigd (enkel instructie-/prompt-tekst); geen nieuwe code om te unit-testen. Geverifieerd: `bash -n deploy/claude-runner/runner.sh` slaagt (heredoc intact) en `python3 -m unittest test_preview_db_guard` → 18 ok (guard-gedrag ongewijzigd). Consistentie-grep bevestigt dat beide bestanden de zelf-resolve-stappen + drie-voorwaarden-guard bevatten (AC4).
+
+## Review (SF-260, reviewer)
+- [info] Diff t.o.v. `main` raakt enkel instructie-/prompt-tekst: `docs/factory/agents/tester.md` + de ingebedde tester-system-prompt in `deploy/claude-runner/runner.sh`. Geen wijziging aan `preview-db-guard.py`, bash-resolutie, backend of Flutter (conform scope).
+- [info] Zelf-resolve-stappen (a-d) in beide bestanden zijn woordelijk consistent (AC4) en spiegelen de bestaande runner-bash (runner.sh:189-226). De guard-CLI in de instructies (`--url/--pr/--prod-host/--branch/--emit-psql-url`) komt exact overeen met de echte argparse-interface van `preview-db-guard.py`.
+- [info] Fail-closed guard ongewijzigd/niet verzwakt: `guard==ok` + niet-lege URL + `PREVIEW_DB_BRANCH==pr-<PR>`; mislukte oc/secret/guard → expliciet fail (AC2). Frontend zonder screenshots → `[blocker]`/`tested-fail`, niet stil `tested-ok` (AC3). Dropzone harness-afhankelijk gedocumenteerd.
+- [info] `bash -n runner.sh` slaagt (heredoc/escapes intact); geen JSON-artefacten in story-log/tester.md.
+- Akkoord.
