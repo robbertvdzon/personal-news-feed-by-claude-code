@@ -46,3 +46,29 @@ Validatie:
 - Tests zinvol (save-aanroepen, toggle, secties). Story-logs vrij van JSON-artefacten.
 - [suggestie, niet-blokkerend] dubbele "RSS-feeds"-tekst (sectiekop == tile-titel) in settings_screen.dart.
 - flutter analyze/test niet lokaal draaibaar (geen dart-binary); CI valideert.
+
+## Test (SF-268, tester)
+Inlog-modus: **wegwerp-flow** (`tester_sf-220` via UI geregistreerd op preview
+pnf-pr-134; account aan het eind verwijderd via `DELETE /api/account/me` → HTTP 200).
+Geen robbert/DB-mutatie nodig: de wijziging is een pure UI-herstructurering die ook
+zonder bestaande data aantoonbaar is.
+
+Verificatie (code + browser, screenshots in /work/screenshots):
+- 1-op-1 move hard geverifieerd met diff: `_RssFeedsEditor` byte-identiek t.o.v.
+  `main`; `_PodcastFeedsEditor` identiek op één triviale trailing-witregel na. Geen
+  resterende referenties naar de editors buiten `rss_feeds_screen.dart`.
+- AC#1 ✓ — settings toont één `ListTile` "RSS-feeds" (rss_feed-icoon, subtitle
+  "Beheer RSS-feeds en podcast-bronnen", chevron); inline-editors weg (06-settings-scrolled.png).
+- AC#2 ✓ — subpagina: RSS-feed toegevoegd, getoond in monospace met verwijder-X
+  (08/10-screenshots); add roept `rssFeedsProvider.save` aan.
+- AC#3 ✓ — subpagina bevat "Podcast-bronnen"-sectie met input + add-knop; toggle/
+  validatie/snackbar-code is 1-op-1 verplaatst (08-rss-subpage.png).
+- AC#4 ✓ — logout-invalidations in settings_screen.dart verwijzen nog naar
+  `rssFeedsProvider`/`podcastFeedsProvider` (regels 49-50).
+- AC#5 ✓ — sectiekoppen, monospace-URL, list-tile-styling consistent (screenshots).
+- AC#6 ✓ — `url_launcher`-import uit settings_screen verwijderd; overige imports nog
+  in gebruik (CategorySettings/NewsRequest/Event/ApiException); geen ongebruikte imports.
+  `flutter analyze` niet lokaal draaibaar (geen dart-binary op runner) → CI valideert.
+- AC#7 ✓ — diff raakt alleen frontend-Dart + docs; geen backend/OpenAPI/providerlogica.
+
+Resultaat: geslaagd.
