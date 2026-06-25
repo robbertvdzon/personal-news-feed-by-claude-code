@@ -1,51 +1,35 @@
-# SF-220 - RSS-feeds en podcast-RSS naar eigen subpagina van Settings
+# SF-220 - Eindsamenvatting
 
-Subtaak: SF-274 (development) — Verplaats RSS- en podcast-editors naar nieuwe
-RssFeedsScreen-subpagina.
+## Story
 
-## Stappenplan
+Eindsamenvatting
 
-- [x] Issue + factory-docs lezen (development.md, technical-spec.md, agent-tips)
-- [x] Nieuwe subpagina `RssFeedsScreen` aanmaken met beide editors
-- [x] Inline-secties op `settings_screen.dart` vervangen door navigatie-tile
-- [x] Ongebruikt geworden imports/watches opruimen, invalidations behouden
-- [x] Stale doc-comment in `data_providers.dart` bijwerken
-- [x] Widgettests schrijven voor de nieuwe subpagina
-- [x] Story-log / worklog bijwerken
+## Eindsamenvatting
 
-## Wat is gedaan en waarom
+## Eindsamenvatting — SF-220: RSS-feeds en podcast-RSS naar eigen subpagina van Settings
 
-Doel: de te lange `settings_screen.dart` ontlasten door het beheer van RSS-feeds
-en podcast-RSS-bronnen naar één aparte subpagina te verplaatsen. Puur
-frontend-herstructurering, geen backend-/API-/providerwijzigingen.
+**Doel**
+De te lange settings-pagina ontlasten door het beheer van RSS-feeds én podcast-RSS-bronnen te verplaatsen naar één aparte subpagina. Puur frontend-herstructurering — geen backend-, API- of providerwijzigingen.
 
-- **Nieuw bestand `frontend/lib/screens/rss_feeds_screen.dart`** met
-  `RssFeedsScreen` (`ConsumerWidget`, eigen `Scaffold` + `AppBar` titel
-  "RSS-feeds"). De secties "RSS-feeds" en "Podcast-bronnen" — inclusief
-  sectiekoppen, `.when()`-loading/error (`Fout: …`) en de editor-klassen
-  `_RssFeedsEditor` (op `rssFeedsProvider`) en `_PodcastFeedsEditor` (KAN-56,
-  op `podcastFeedsProvider`) — zijn 1-op-1 verhuisd. Gedrag, synchrone
-  URL-validatie + snackbar, transcribe-toggle, monospace-URL-weergave en
-  externe-browser-tap zijn ongewijzigd overgenomen.
-- **`settings_screen.dart`**: beide inline-secties vervangen door één
-  navigatie-`ListTile` (Icon `rss_feed` + titel "RSS-feeds" + chevron +
-  `MaterialPageRoute` naar `RssFeedsScreen`), consistent met de bestaande
-  API-log/Beheer-tiles. De nu ongebruikte `ref.watch(rssFeedsProvider)` /
-  `ref.watch(podcastFeedsProvider)` en de `url_launcher`-import (alleen in de
-  editors gebruikt) zijn verwijderd. De logout-`invalidate`-aanroepen voor
-  beide providers blijven intact.
-- **`data_providers.dart`**: stale doc-comment-verwijzing
-  `settings_screen._PodcastFeedsEditor` bijgewerkt naar de nieuwe locatie
-  `rss_feeds_screen._PodcastFeedsEditor`.
-- **Tests** (`frontend/test/rss_feeds_screen_test.dart`): widgettests met fake
-  AsyncNotifiers (override `build()`/`save()`, geen netwerk) die controleren
-  dat AppBar-titel + sectiekoppen + bestaande bronnen renderen, dat een
-  RSS-feed toevoegen/verwijderen `save` aanroept, dat de podcast-toggle de
-  transcribe-flag opslaat en dat een podcast verwijderen de lijst leegt.
+**Wat is gebouwd**
+- **Nieuwe subpagina** `frontend/lib/screens/rss_feeds_screen.dart` (`RssFeedsScreen`, eigen `Scaffold` + `AppBar` "RSS-feeds"). De secties "RSS-feeds" (`_RssFeedsEditor`, op `rssFeedsProvider`) en "Podcast-bronnen" (`_PodcastFeedsEditor`, KAN-56, op `podcastFeedsProvider`) zijn 1-op-1 hierheen verhuisd — inclusief sectiekoppen, `.when()`-loading/error ("Fout: …") en de editor-klassen.
+- **`settings_screen.dart`**: beide inline-editors vervangen door één navigatie-`ListTile` (`Icons.rss_feed`, titel "RSS-feeds", subtitle "Beheer RSS-feeds en podcast-bronnen", chevron + `MaterialPageRoute`), consistent met de bestaande API-log/Beheer-tiles.
+- Opgeruimd: ongebruikt geworden `ref.watch(rssFeedsProvider/podcastFeedsProvider)` en de `url_launcher`-import. De uitlog-`invalidate`-aanroepen voor beide providers blijven intact.
+- Stale doc-comment in `data_providers.dart` bijgewerkt naar de nieuwe editor-locatie.
 
-## Niet lokaal gedraaid
+**Gemaakte keuzes**
+- Beide editors op één gedeelde subpagina (één knop), zoals de description aangaf — niet twee aparte pagina's.
+- Gedrag, styling, synchrone URL-validatie + snackbar, transcribe-toggle en monospace-URL-weergave exact ongewijzigd overgenomen (byte-identieke verhuizing).
+- Geen named routes/deeplinks; bestaand `MaterialPageRoute`-patroon gevolgd.
 
-De factory developer-runner heeft geen `flutter`/`dart`-binary, dus
-`flutter analyze` en `flutter test` zijn niet lokaal uitgevoerd (CI valideert
-deze). Imports zijn handmatig opgeschoond zodat `flutter analyze` geen nieuwe
-waarschuwingen zou moeten geven.
+**Wat is getest**
+- **Widgettests** (`frontend/test/rss_feeds_screen_test.dart`) met fake AsyncNotifiers: rendering van AppBar + sectiekoppen + bestaande bronnen, RSS-feed toevoegen/verwijderen roept `save`, podcast-toggle wijzigt transcribe-flag, podcast verwijderen leegt de lijst.
+- **Reviewer (SF-274)**: akkoord — zuivere 1-op-1 refactor, alle acceptatiecriteria voldaan, invalidations en imports correct.
+- **Tester (SF-275)**: story-brede live UI-test op preview `pnf-pr-135` (Playwright, wegwerp-account opgeruimd). Alle 7 acceptatiecriteria voldaan; hard-diff bevestigt byte-identieke verhuizing van beide editors.
+
+**Bewust/niet gedaan**
+- `flutter analyze` en `flutter test` zijn **niet lokaal** gedraaid: de factory-runner heeft geen flutter/dart-toolchain. Imports zijn handmatig opgeschoond; CI valideert analyze/tests. AC6 is daardoor via code-inspectie geverifieerd i.p.v. een lokale analyze-run.
+- De pre-existing snackbar-/validatiefout-flow en de loading/error-takken van de podcast-editor zijn niet door tests gedekt (ongewijzigd, 1-op-1 verhuisd) — door reviewer als niet-blokkerend gemarkeerd.
+- Geen wijzigingen aan backend, OpenAPI-spec of providerlogica (enige `data_providers.dart`-wijziging is een doc-comment).
+
+**Status**: development → review-approved → test-approved. Klaar voor documentatie (SF-277), handmatige goedkeuring en merge.
