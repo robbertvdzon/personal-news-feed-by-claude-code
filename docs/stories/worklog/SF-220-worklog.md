@@ -57,3 +57,38 @@ Niet lokaal gedraaid:
 - [info] `flutter analyze`/`flutter test` niet lokaal draaibaar (geen dart-
   binary in runner); CI valideert. Aanvaardbaar voor pure verplaatsing.
 - Akkoord.
+
+## Test (SF-222) — tester
+
+Testmethode: code-inspectie (primair voor PNF — preview is een auth-vereisende
+Flutter-canvas-SPA, geen browser-driver/credentials beschikbaar in de runner;
+`flutter analyze`/`flutter test` niet draaibaar zonder dart-binary → CI valideert).
+
+Bevindingen per acceptatiecriterium:
+- [pass] AC1: settings_screen toont op de oude plek één navigatie-`ListTile`
+  ("RSS-feeds", `Icons.rss_feed` + `chevron_right`) die via `MaterialPageRoute`
+  naar `RssFeedsScreen` pusht; de inline-editors staan er niet meer (grep:
+  geen `_RssFeedsEditor`/`_PodcastFeedsEditor`/`url_launcher` meer in settings).
+- [pass] AC2/AC3: beide editor-klassen zijn 1-op-1 verhuisd — `diff` van de
+  oude editor-blokken (main) vs `rss_feeds_screen.dart` is byte-identiek
+  (alleen `_VersionBlock` blijft, terecht, in settings). RSS-editor
+  (toevoegen/openen-extern/verwijderen, monospace-URL) en podcast-editor
+  (synchrone URL-validatie + foutsnackbar, transcribeer-toggle, verwijderen,
+  `_busy`-spinner) ongewijzigd.
+- [pass] AC4: invalidations bij uitloggen (`rssFeedsProvider`/
+  `podcastFeedsProvider`, regels 49-50) intact en verwijzen naar de juiste
+  providers; providerlogica ongewijzigd.
+- [pass] AC5: styling/gedrag identiek (sectiekoppen, monospace-URL, "Fout: …",
+  spinner) — overgenomen blokken zijn identiek.
+- [n.v.t.-lokaal] AC6: `url_launcher`-import opgeruimd uit settings, toegevoegd
+  op nieuwe screen; `api_client`/`models` blijven terecht (ApiException +
+  CategorySettings). `flutter analyze` lokaal niet draaibaar → CI.
+- [pass] AC7: `git diff --name-only main...HEAD` = uitsluitend frontend + docs;
+  geen backend-, OpenAPI- of providerwijzigingen.
+
+Klein, niet-blokkerend (buiten scope, geen defect): `data_providers.dart:207`
+bevat een comment die nog naar `settings_screen._PodcastFeedsEditor` verwijst;
+de editor woont nu in `rss_feeds_screen.dart`. Puur documentatie, geen gedrag;
+AC7 verbiedt providerwijzigingen, dus terecht ongemoeid gelaten.
+
+Conclusie: geslaagd — fase `tested`.
