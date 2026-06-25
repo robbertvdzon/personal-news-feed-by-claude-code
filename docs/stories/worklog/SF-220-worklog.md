@@ -38,3 +38,11 @@ Validatie:
   en analyze worden door CI gevalideerd. Code is handmatig zelf-gereviewd: geen
   resterende verwijzingen naar de verplaatste editors of ongebruikte imports in
   `settings_screen.dart`, gedrag van de editors is 1-op-1 overgenomen.
+
+## Review (SF-267, reviewer)
+- Volledige story-diff `git diff main...HEAD` beoordeeld. Akkoord.
+- Editor-extractie naar `rss_feeds_screen.dart` is 1-op-1 (verwijderde = toegevoegde code); gedrag ongewijzigd.
+- AC #1-7 gedekt: navigatie-ListTile, beide editors + validatie/toggle/snackbar, logout-invalidations behouden, ongebruikte imports opgeruimd, geen backend/provider/OpenAPI-wijzigingen.
+- Tests zinvol (save-aanroepen, toggle, secties). Story-logs vrij van JSON-artefacten.
+- [suggestie, niet-blokkerend] dubbele "RSS-feeds"-tekst (sectiekop == tile-titel) in settings_screen.dart.
+- flutter analyze/test niet lokaal draaibaar (geen dart-binary); CI valideert.
