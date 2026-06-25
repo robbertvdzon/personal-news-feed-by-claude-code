@@ -59,6 +59,7 @@ AuthGate
             └── dialog → EditCategoryDialog
             └── dialog → AddCategoryDialog
             └── dialog → CleanupDialog
+            └── navigeer naar → RssFeedsScreen       (SF-220 — RSS-feeds + podcast-bronnen beheren)
             └── navigeer naar → AdminScreen          (alleen voor admins, via "Beheer gebruikers"-knop)
             └── navigeer naar → AdminCostsScreen     (alleen voor admins, via "Beheer kosten"-knop)
 ```
@@ -307,12 +308,21 @@ Lijst van alle categorieën uit `GET /api/settings`.
 - Naam invoeren
 - Opslaan: PUT `/api/settings` met nieuwe categorie toegevoegd (ID gegenereerd op basis van naam)
 
-### RSS-feeds
-Lijst van geconfigureerde RSS-feed URLs uit `GET /api/rss-feeds`.
+### RSS-feeds (subpagina — RssFeedsScreen)
+Op de plek van de vroegere inline RSS- en podcast-secties staat op de Settings-pagina sinds **SF-220** nog één navigatie-`ListTile` (`Icons.rss_feed`, titel "RSS-feeds", subtitle "Beheer RSS-feeds en podcast-bronnen", chevron) die via `MaterialPageRoute` naar de aparte **RssFeedsScreen** pusht. Die subpagina heeft een eigen `AppBar` ("RSS-feeds") en bevat twee secties; loading toont een spinner, fouten de tekst "Fout: …". Beide editors zijn met SF-220 1-op-1 vanaf de Settings-pagina hierheen verhuisd (zelfde providers, gedrag en styling).
+
+**RSS-feeds** — lijst van geconfigureerde RSS-feed URLs uit `GET /api/rss-feeds` (`rssFeedsProvider`).
 
 - **Tik op URL:** opent URL in externe browser
 - **Verwijder-icoon (×):** verwijder feed-URL, PUT `/api/rss-feeds`
 - **Invoerveld + toevoegen-knop:** nieuwe URL toevoegen, PUT `/api/rss-feeds`
+
+**Podcast-bronnen** (KAN-56) — lijst van podcast-RSS-bronnen uit `podcastFeedsProvider`.
+
+- **Tik op URL:** opent URL in externe browser
+- **Transcriberen aan/uit-toggle:** per bron; staat de toggle uit, dan valt de backend terug op de RSS show-notes als input voor Claude (zonder Whisper-kosten)
+- **Verwijder-icoon (×):** verwijder de bron
+- **Invoerveld + toevoegen-knop:** nieuwe podcast-RSS-URL; de URL wordt synchroon op de server gevalideerd — een ongeldige URL geeft een snackbar (HTTP 400 met Nederlandse foutmelding) en de toevoeg-knop toont tijdens het valideren een kleine spinner.
 
 ### Achtergrond-taken
 Twee handmatige triggers voor de scheduled jobs (die zelf gewoon doorlopen op hun schedule — hourly RSS-refresh en de daily summary om 06:00):
@@ -399,7 +409,8 @@ De app gebruikt Riverpod. Providers zijn globaal beschikbaar via `ProviderScope`
 | `rssItemsProvider` | RSS-items (`/api/rss`) |
 | `requestProvider` | Verzoeken + WebSocket-updates (gebruikt door Settings → Achtergrond-taken voor knop-state en klaar-toast) |
 | `settingsProvider` | Categorie-instellingen |
-| `rssFeedsProvider` | RSS-feed URLs |
+| `rssFeedsProvider` | RSS-feed URLs (beheerd op RssFeedsScreen) |
+| `podcastFeedsProvider` | Podcast-RSS-bronnen + synchrone URL-validatie (KAN-56; beheerd op RssFeedsScreen) |
 | `podcastProvider` | Podcasts + polling tijdens generatie |
 | `audioPlayerProvider` | Audiospelerstatus (`just_audio`) |
 | `appearanceProvider` | Lettergrootte-instelling (persistentie) |
