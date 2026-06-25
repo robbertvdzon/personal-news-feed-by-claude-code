@@ -43,3 +43,19 @@ Validatie:
   `pnf-runner-no-flutter`). CI/devcontainer valideert analyze + tests.
   Brace/paren-balans van de gewijzigde bestanden lokaal gecontroleerd; imports
   handmatig nagelopen op ongebruikte symbolen.
+
+---
+
+## Review (SF-252, reviewer)
+
+[info] Volledige story-diff (`git diff main...HEAD`) beoordeeld: enkel frontend-herstructurering.
+- Editor-klassen `_RssFeedsEditor`/`_PodcastFeedsEditor` ongewijzigd verhuisd naar `rss_feeds_screen.dart`; gedrag identiek (open/verwijderen, synchrone podcast-validatie + snackbar, transcribeer-toggle, save-calls, monospace-URL).
+- AC1: navigatie-`ListTile` 'RSS-feeds' + chevron via `MaterialPageRoute`; inline-editors weg uit settings. ✓
+- AC4: logout-invalidations `rssFeedsProvider`/`podcastFeedsProvider` behouden (settings_screen.dart:49-50). ✓
+- AC6: `url_launcher` opgeruimd; `models.dart`/`api_client.dart` blijven nodig; nieuw bestand zonder ongebruikte imports. ✓
+- AC7: geen backend/OpenAPI/provider-wijzigingen. ✓
+- Widgettests dekken sectiekoppen, weergave, toevoegen/verwijderen en toggle; fake-notifier-override valide.
+
+[info] `flutter analyze`/`flutter test` niet in runner gedraaid (bekende `pnf-runner-no-flutter`-beperking) — CI valideert. Geen blokker.
+
+Conclusie: akkoord.
