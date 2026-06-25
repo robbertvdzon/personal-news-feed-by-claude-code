@@ -37,3 +37,30 @@ Niet lokaal gedraaid:
   pnf-runner-no-flutter), dus `flutter analyze` en `flutter test` zijn niet
   lokaal uitgevoerd; deze worden door CI gevalideerd. Imports zijn handmatig
   opgeschoond zodat analyze geen nieuwe waarschuwingen zou moeten geven.
+
+---
+
+## Review SF-274 (reviewer, 2026-06-25)
+
+[info] Volledige story-diff t.o.v. `main` beoordeeld (6 bestanden, +448/-190).
+- Refactor is een zuivere 1-op-1 verhuizing: `_RssFeedsEditor`/`_PodcastFeedsEditor`
+  en de `.when()`-loading/error-blokken in `rss_feeds_screen.dart` zijn byte-identiek
+  aan de verwijderde code in `settings_screen.dart`. Geen gedragswijziging.
+- Settings-pagina: twee secties vervangen door één navigatie-`ListTile`
+  (`Icons.rss_feed` + chevron + `MaterialPageRoute`), consistent met API-log/Beheer.
+- Uitlog-invalidations voor `rssFeedsProvider`/`podcastFeedsProvider` intact
+  (settings_screen.dart:49-50).
+- Imports opgeruimd: `url_launcher` weg uit settings (terecht, geen `launchUrl` meer);
+  `models.dart` (CategorySettings) en `api_client.dart` (ApiException) nog gebruikt.
+- Doc-comment in `data_providers.dart` correct bijgewerkt naar nieuwe locatie; geen
+  provider-/backend-/OpenAPI-wijzigingen.
+- Widgettests dekken rendering, RSS toevoegen/verwijderen, podcast-toggle en verwijderen.
+- Geen JSON-artefacten in story-log/worklog.
+
+[suggestie] De snackbar-/validatiefout-flow van `_PodcastFeedsEditor` (HTTP 400 →
+`_extractDutchMessage` → snackbar) en de loading/error-`.when()`-takken zijn niet
+door tests gedekt. Pre-existing gedrag, 1-op-1 verhuisd; niet blokkerend.
+[info] `flutter analyze`/`flutter test` niet lokaal gedraaid (geen flutter-binary op
+runner, bekend); CI valideert. Imports handmatig nagelopen — geen nieuwe warnings verwacht.
+
+Conclusie: voldoet aan alle acceptatiecriteria. Akkoord.
