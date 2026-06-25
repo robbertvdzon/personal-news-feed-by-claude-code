@@ -59,6 +59,7 @@ AuthGate
             └── dialog → EditCategoryDialog
             └── dialog → AddCategoryDialog
             └── dialog → CleanupDialog
+            └── navigeer naar → RssFeedsScreen       (via "RSS-feeds"-tile; beheert RSS-feeds én podcast-bronnen)
             └── navigeer naar → AdminScreen          (alleen voor admins, via "Beheer gebruikers"-knop)
             └── navigeer naar → AdminCostsScreen     (alleen voor admins, via "Beheer kosten"-knop)
 ```
@@ -307,12 +308,24 @@ Lijst van alle categorieën uit `GET /api/settings`.
 - Naam invoeren
 - Opslaan: PUT `/api/settings` met nieuwe categorie toegevoegd (ID gegenereerd op basis van naam)
 
-### RSS-feeds
-Lijst van geconfigureerde RSS-feed URLs uit `GET /api/rss-feeds`.
+### RSS-feeds (navigatie naar subpagina)
+Op de Settings-tab staat op deze plek **één navigatie-tile** "RSS-feeds" (subtitel *"RSS-feeds en podcast-bronnen beheren"*, met chevron, consistent met de overige tiles zoals API-log/Beheer). Tikken pusht via `MaterialPageRoute` naar **RssFeedsScreen** (`screens/rss_feeds_screen.dart`, SF-220). De editors staan niet meer inline op de Settings-tab; deze blijft daardoor korter.
 
+#### RssFeedsScreen
+Aparte subpagina met eigen `AppBar` (titel "RSS-feeds") en twee secties onder elkaar:
+
+**Sectie "RSS-feeds"** — lijst van geconfigureerde RSS-feed URLs uit `GET /api/rss-feeds` (`rssFeedsProvider`):
 - **Tik op URL:** opent URL in externe browser
 - **Verwijder-icoon (×):** verwijder feed-URL, PUT `/api/rss-feeds`
 - **Invoerveld + toevoegen-knop:** nieuwe URL toevoegen, PUT `/api/rss-feeds`
+
+**Sectie "Podcast-bronnen"** (KAN-56) — lijst van podcast-RSS-bronnen uit `podcastFeedsProvider`:
+- **Tik op URL:** opent URL in externe browser; URL's in monospace.
+- **"Transcriberen aan/uit"-toggle** per bron: bij *uit* valt de backend terug op de RSS show-notes als input voor de samenvatting (geen Whisper-transcriptiekosten).
+- **Verwijder-icoon (×):** verwijder bron.
+- **Invoerveld + toevoegen-knop:** nieuwe podcast-RSS-URL toevoegen. De URL wordt synchroon op de server gevalideerd; bij een ongeldige/onbereikbare feed verschijnt een snackbar in foutkleur met de Nederlandse backend-foutmelding (HTTP 400). Tijdens het opslaan is het invoerveld disabled en toont een kleine spinner.
+
+Loading toont een spinner, fouten de tekst "Fout: …" — net als bij de overige providers.
 
 ### Achtergrond-taken
 Twee handmatige triggers voor de scheduled jobs (die zelf gewoon doorlopen op hun schedule — hourly RSS-refresh en de daily summary om 06:00):
@@ -399,7 +412,8 @@ De app gebruikt Riverpod. Providers zijn globaal beschikbaar via `ProviderScope`
 | `rssItemsProvider` | RSS-items (`/api/rss`) |
 | `requestProvider` | Verzoeken + WebSocket-updates (gebruikt door Settings → Achtergrond-taken voor knop-state en klaar-toast) |
 | `settingsProvider` | Categorie-instellingen |
-| `rssFeedsProvider` | RSS-feed URLs |
+| `rssFeedsProvider` | RSS-feed URLs (beheerd op RssFeedsScreen) |
+| `podcastFeedsProvider` | Podcast-RSS-bronnen + transcribeer-toggle (KAN-56, beheerd op RssFeedsScreen) |
 | `podcastProvider` | Podcasts + polling tijdens generatie |
 | `audioPlayerProvider` | Audiospelerstatus (`just_audio`) |
 | `appearanceProvider` | Lettergrootte-instelling (persistentie) |
