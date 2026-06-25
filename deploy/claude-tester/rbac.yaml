@@ -10,11 +10,15 @@
 # — onze ArgoCD draait in namespaced mode en mag geen cluster-scoped
 # objecten beheren.
 #
-# TODO (vervolg): per pnf-pr-* namespace een Role met `pods/exec` +
-# `secrets read` zodat de tester binnen preview-namespaces kan ingrijpen
-# / preview-DB-creds kan lezen. Beste plek voor dat is de preview-ns-
-# labeller die de namespace al voorziet van labels — die kan ook een
-# RoleBinding aanmaken. Voor KAN-43 MVP: alleen cluster-wide read.
+# SF-229 (was TODO): per pnf-pr-* namespace krijgt deze SA nu `secrets
+# get/list` zodat 'ie de preview-branch-DB-creds runtime kan lezen. Die
+# Role + RoleBinding (`claude-tester-secret-read`) wordt aangemaakt door
+# de preview-ns-labeller (deploy/preview-ns-labeller/labeller.sh ->
+# ensure_tester_secret_read), die de namespace toch al beheert. Bewust
+# beperkt tot get/list op secrets (geen patch/delete) en ALLEEN in
+# pnf-pr-* — prod (`personal-news-feed`) blijft onleesbaar voor de tester.
+# Cluster-wide blijven secrets uitgesloten (zie ClusterRole hieronder).
+# Nog steeds géén pods/exec — de tester grijpt niet in pods in.
 
 apiVersion: v1
 kind: ServiceAccount

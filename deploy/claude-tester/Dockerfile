@@ -68,6 +68,12 @@ RUN curl -fsSL https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/
 COPY take-screenshot.sh /usr/local/bin/take-screenshot.sh
 RUN chmod +x /usr/local/bin/take-screenshot.sh
 
+# SF-229: preview-DB veiligheidsguard. runner.sh roept 'm aan vóór 'ie
+# PREVIEW_DB_URL exporteert; bewijst fail-closed dat de doel-DB de pr-<N>-
+# branch is (en niet productie). Alleen Python-stdlib — geen pip nodig.
+COPY preview-db-guard.py /usr/local/bin/preview-db-guard.py
+RUN chmod +x /usr/local/bin/preview-db-guard.py
+
 # Terug naar non-root zoals de base-image (random-UID via OpenShift,
 # maar de Dockerfile-declaration moet 1001 zijn om npm-cache etc. weer
 # naar /home/runner te krijgen via base-image's ENV-config).
