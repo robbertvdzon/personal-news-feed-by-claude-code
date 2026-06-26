@@ -98,6 +98,11 @@ DEFAULT_TOKEN_BUDGET = int(os.environ.get("DEFAULT_TOKEN_BUDGET", "40000"))
 PREVIEW_URL_FORMAT = os.environ.get(
     "PREVIEW_URL_FORMAT", "https://pnf-pr-{pr}.vdzonsoftware.nl"
 )
+# SF-229: bekende prod-DB-host (alléén de hostname, GEEN credentials). De
+# tester-guard gebruikt 'm als defense-in-depth: een preview-branch-URL met
+# exact deze host wordt geweigerd. Optioneel — leeg laten kan, dan leunt de
+# guard op de pr-<N>-branch-marker die de labeller in 't preview-secret zet.
+PROD_DB_HOST = os.environ.get("PROD_DB_HOST", "")
 REPO_URL = os.environ.get(
     "REPO_URL",
     "https://github.com/robbertvdzon/personal-news-feed-by-claude-code.git",
@@ -677,27 +682,18 @@ def spawn_runner_job(
             "value": loopback_reason,
         })
 
-    # KAN-44: tester krijgt PREVIEW_DB_URL voor psql-queries. Hetzelfde
-    # secret als de prod-app — preview-namespaces gebruiken dezelfde
-    # Neon-DB met schema-isolation. Andere rollen krijgen 'm niet (zou
-    # de developer verleiden tot DB-mutaties, wat verboden is).
-    if role == "tester":
-        env.append({
-            "name": "PREVIEW_DB_URL",
-            "valueFrom": {
-                "secretKeyRef": {
-                    "name": "newsfeed-api-keys",
-                    "key": "PNF_DATABASE_URL",
-                }
-            },
-        })
-        # PR_NUMBER ook in story-mode (niet alleen comment-mode), zodat
-        # de tester `pnf-pr-$PR_NUMBER` kan construeren voor oc-queries.
-        if not is_comment_mode:
-            # Voor story-mode is er nog geen PR; runner.sh berekent 't
-            # zelf uit branch via github API. Geef alleen door als we
-            # 'm hebben.
-            pass
+    # SF-229: tester krijgt PREVIEW_DB_URL NIET meer uit het prod-secret.
+    # Voorheen injecteerden we hier de prod-PNF_DATABASE_URL — dat is de
+    # bron van prod-schrijfacties die we juist willen voorkomen. In plaats
+    # daarvan leest runner.sh de per-PR Neon-branch-URL runtime uit het
+    # `newsfeed-api-keys`-secret van de `pnf-pr-<N>` namespace (door de
+    # preview-ns-labeller gepatcht naar de branch-URL + PREVIEW_DB_BRANCH-
+    # marker), bewaakt door preview-db-guard.py (fail-closed).
+    #
+    # Wel doorgeven: de bekende prod-host (alléén hostname, geen creds) als
+    # extra guard-signaal. Andere rollen krijgen niets DB-gerelateerds.
+    if role == "tester" and PROD_DB_HOST:
+        env.append({"name": "PROD_DB_HOST", "value": PROD_DB_HOST})
 
     job = {
         "apiVersion": "batch/v1",

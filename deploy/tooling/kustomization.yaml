@@ -56,7 +56,7 @@ images:
   newTag: sha-3f0d811
 - name: ghcr.io/robbertvdzon/jira-poller
   newName: ghcr.io/robbertvdzon/jira-poller
-  newTag: sha-d60135f
+  newTag: sha-762ce48
 - name: ghcr.io/robbertvdzon/status-dashboard
   newName: ghcr.io/robbertvdzon/status-dashboard
   newTag: sha-3f0d811
