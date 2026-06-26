@@ -47,3 +47,18 @@ AC-dekking (in-repo): AC1 ✓, AC2 ✓ (screenshots met test-user-data naar drop
 AC3 ✓ (alleen preview, geen prod-login), AC4 ✓ (wegwerp-fallback met melding),
 AC5 ✓ (consistent + guard/robbert verwijderd). AC6 = runtime/operator-bewijs,
 buiten de in-repo wijziging.
+
+## Review (SF-283, reviewer)
+
+[info] Volledige story-diff `main...HEAD` gereviewd (runner.sh + tester.md + worklog).
+- AC1–AC5 in-repo gedekt; beide gezaghebbende bronnen consistent (default = test-user
+  uit `newsfeed-api-keys`-secret, namespace runner-agnostisch
+  `${SF_PREVIEW_NAMESPACE:-pnf-pr-<PR>}`, wegwerp-flow uitsluitend als fallback met
+  expliciete melding).
+- Robbert-reset, VEILIGHEIDSGUARD en bijbehorende bash-resolutie/`PREVIEW_DB_*`-exports
+  verwijderd; resterende vermeldingen zijn enkel deprecatie-/negatie-tekst (conform scope).
+- `preview-db-guard.py` en de `preview-ns-labeller` ongewijzigd; `PROD_DB_HOST` niet meer
+  gerefereerd. `bash -n runner.sh` → OK. Playwright-script vertakt correct op
+  `usingTestUser` (geen registratie/cleanup voor de permanente test-user; faal-stap bij
+  mislukte test-user-login). Geen JSON-artefacten in het worklog.
+[info] Geen blockers/bugs gevonden — akkoord.
