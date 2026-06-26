@@ -16,8 +16,7 @@
 #   10. Preview-ns-labeller deployen (auto-label van pnf-pr-* namespaces)
 #   11. ArgoCD Application apply'en zodat sync start
 #   12. ApplicationSet apply'en voor automatische preview-deploys per PR
-#   13. YouTrack: namespace + anyuid SCC + Application (de toekomstige
-#       JIRA-vervanger; deployment via ArgoCD)
+#   (YouTrack-deploy is verhuisd naar de software-factory repo)
 #
 # Aannames:
 #   - `oc` is geïnstalleerd en ingelogd op het juiste cluster (`oc whoami`).
@@ -39,7 +38,6 @@ DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$DEPLOY_DIR/.." && pwd)"
 
 NAMESPACE="personal-news-feed"
-YOUTRACK_NS="youtrack"
 ARGOCD_NS="argocd"
 LOCAL_PATH_NS="local-path-storage"
 LOCAL_PATH_SA="local-path-provisioner-service-account"
@@ -210,15 +208,13 @@ echo "[6/13] Reflector ($REFLECTOR_VERSION)"
 oc apply -f "https://github.com/emberstack/kubernetes-reflector/releases/download/${REFLECTOR_VERSION}/reflector.yaml"
 oc rollout status -n kube-system deploy/reflector --timeout=120s
 
-# ─── 7. Namespaces (app + youtrack) met argocd managed-by label ───────
-# personal-news-feed = de applicatie zelf
+# ─── 7. Namespace (app) met argocd managed-by label ───────────────────
+# personal-news-feed = de applicatie zelf (youtrack-namespace hoort nu
+# bij de software-factory repo)
 echo
-echo "[7/13] Namespaces met argocd-label"
-for ns in "$NAMESPACE" "$YOUTRACK_NS"; do
-  echo "       $ns"
-  oc create namespace "$ns" --dry-run=client -o yaml | oc apply -f -
-  oc label namespace "$ns" "argocd.argoproj.io/managed-by=$ARGOCD_NS" --overwrite
-done
+echo "[7/13] Namespace met argocd-label"
+oc create namespace "$NAMESPACE" --dry-run=client -o yaml | oc apply -f -
+oc label namespace "$NAMESPACE" "argocd.argoproj.io/managed-by=$ARGOCD_NS" --overwrite
 
 # ─── 8. ApplicationSet-controller idempotency-check ───────────────────
 # De ArgoCD CR (stap 2) zet `applicationSet: {}` al; deze patch is een
@@ -269,26 +265,10 @@ echo
 echo "[12/13] ApplicationSet voor preview-deploys"
 oc apply -n "$ARGOCD_NS" -f "$DEPLOY_DIR/applicationset.yaml"
 
-# ─── 13. YouTrack (JIRA-vervanger) ───────────────────────────────────
-# YouTrack draait als UID 13001 in z'n container (vaste user in de
-# JetBrains-image). Restricted-v2 SCC overschrijft elke UID naar een
-# random waarde uit de namespace's range, wat YouTrack's bin/-scripts
-# laat falen. Daarom granten we `anyuid` aan de default-SA in `youtrack`.
-#
-# Daarnaast `privileged` voor de init-container die de SELinux-labels
-# van local-path-provisioner PV's relabelt naar container_file_t (zonder
-# die fix krijgt YouTrack permission-denied op /opt/youtrack/logs, zelfs
-# met 0777 perms — SELinux denial). Zelfde patroon als local-path-
-# provisioner's eigen helper-pod (stap 5).
-#
-# Cluster-scoped operaties → niet via ArgoCD, hier in bootstrap.
-echo
-echo "[13/13] YouTrack (anyuid + privileged SCC + Application via ArgoCD)"
-oc adm policy add-scc-to-user anyuid     -z default -n "$YOUTRACK_NS" >/dev/null
-oc adm policy add-scc-to-user privileged -z default -n "$YOUTRACK_NS" >/dev/null
-oc apply -n "$ARGOCD_NS" -f "$DEPLOY_DIR/youtrack-application.yaml"
-oc rollout status -n "$YOUTRACK_NS" deploy/youtrack --timeout=300s 2>/dev/null || \
-  echo "       (warning: youtrack niet ready binnen 5 min — check oc logs -n $YOUTRACK_NS deploy/youtrack)"
+# ─── YouTrack ────────────────────────────────────────────────────────
+# YouTrack's deploy (manifests + ArgoCD Application + de cluster-scoped
+# anyuid/privileged SCC-grants) is verhuisd naar de software-factory repo
+# en wordt van daaruit beheerd. Zie daar deploy/youtrack-application.yaml.
 
 echo
 echo "[bootstrap] klaar."
@@ -298,6 +278,3 @@ echo "  oc get pods -n $NAMESPACE -w"
 echo
 echo "ArgoCD UI: oc get route -n $ARGOCD_NS argocd-server -o jsonpath='{.spec.host}{\"\\n\"}'"
 echo "App UI:    oc get route -n $NAMESPACE frontend -o jsonpath='{.spec.host}{\"\\n\"}'"
-echo "YouTrack:  oc get route -n $YOUTRACK_NS youtrack -o jsonpath='{.spec.host}{\"\\n\"}'"
-echo "           wizard-token (eenmalig, bij eerste start):"
-echo "           oc logs -n $YOUTRACK_NS deploy/youtrack | grep -oE 'wizard_token=[A-Za-z0-9]+'"
