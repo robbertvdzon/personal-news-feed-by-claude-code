@@ -8,9 +8,13 @@ preview_db_secret_recipe: |
   # Het basis-secret wordt via Reflector naar elke pnf-pr-* namespace
   # gespiegeld; de preview-ns-labeller patcht daarin vervolgens
   # PNF_DATABASE_URL naar de branch-specifieke URL en zet de marker-key
-  # PREVIEW_DB_BRANCH=pr-<N>. De tester leest die runtime (de claude-tester-SA
-  # heeft per pnf-pr-* namespace secrets-read) en valideert ze fail-closed
-  # met preview-db-guard.py vóór er ook maar iets gemuteerd wordt.
+  # PREVIEW_DB_BRANCH=pr-<N> (die marker voedt nog steeds de geïsoleerde
+  # per-PR branch-DB, maar wordt sinds SF-282 niet meer door de
+  # tester-login gebruikt). De tester logt in met een vaste test-user uit
+  # hetzelfde secret (TESTER_USERNAME/TESTER_PASSWORD) — read-only, geen
+  # DB-mutatie en geen guard-check meer. De claude-tester-SA heeft per
+  # pnf-pr-* namespace secrets-read.
+  echo "Test-user:            oc get secret newsfeed-api-keys -n pnf-pr-<N> -o jsonpath='{.data.TESTER_USERNAME}' | base64 -d"
   echo "Preview-branch-DB-URL: oc get secret newsfeed-api-keys -n pnf-pr-<N> -o jsonpath='{.data.PNF_DATABASE_URL}' | base64 -d"
   echo "Branch-marker:        oc get secret newsfeed-api-keys -n pnf-pr-<N> -o jsonpath='{.data.PREVIEW_DB_BRANCH}' | base64 -d"
 ---
@@ -51,8 +55,9 @@ Elke preview krijgt een **eigen, wegwerp-Neon-branch** `pr-<N>`, afgesplitst
 van de productie-branch. Dat betekent:
 
 - Flyway-migraties in een PR draaien op de **branch**, niet op prod-data.
-- De tester mag op die branch veilig muteren (bv. een wachtwoord-reset om in
-  te loggen) zonder prod te raken.
+- De branch levert de geïsoleerde testdata waarmee de tester de feature
+  realistisch ziet. De tester muteert die branch niet meer: inloggen gaat
+  via een vaste test-user uit het secret (zie "Tester-login" hieronder).
 - Bij PR-close ruimt de `preview-ns-labeller` de branch (incl. testdata) op.
 
 Wiring (door `deploy/preview-ns-labeller/labeller.sh`):
@@ -65,25 +70,32 @@ Wiring (door `deploy/preview-ns-labeller/labeller.sh`):
 
 Vereist dat de labeller-credentials aanwezig zijn (`NEON_API_KEY` +
 `NEON_PROJECT_ID` in het secret). Ontbreken die, dan valt de labeller terug
-op alleen namespace-labeling (geen branch, geen marker) en faalt de
-tester-guard fail-closed — er worden dan geen DB-mutaties uitgevoerd.
+op alleen namespace-labeling (geen branch, geen marker); de preview deelt dan
+geen geïsoleerde branch-DB. De tester-login zelf raakt de DB niet en blijft
+ongewijzigd werken via de test-user-creds (zie "Tester-login" hieronder).
 
-**Tester-bedrading.** De tester krijgt zowel een bruikbare preview-URL
-(`https://pnf-pr-<N>.vdzonsoftware.nl`) als toegang tot de
-preview-branch-DB-connectie. Draait de tester onder de claude-runner, dan
-leest `runner.sh` de branch-URL runtime uit het `pnf-pr-<N>`-secret, valideert
-ze met `preview-db-guard.py` en exporteert `PREVIEW_DB_URL` /
-`PREVIEW_DB_BRANCH` / `PREVIEW_DB_GUARD`. Draait de tester onder een andere
-harness (bv. softwarefactory's `agent:local`-image, waar `runner.sh` nooit
-draait), dan blijven die env-vars leeg en **resolvet de tester de preview-DB
-zélf** met dezelfde stappen (namespace/PR uit `SF_PREVIEW_NAMESPACE` /
-`SF_PR_NUMBER` met fallback op `pnf-pr-<N>`, secret read-only lezen, dezelfde
-`preview-db-guard.py` met `--emit-psql-url`). De fail-closed guard is in beide
-gevallen identiek. Zie `docs/factory/agents/tester.md`.
+**Tester-login (vaste test-user, sinds SF-282).** De tester krijgt een
+bruikbare preview-URL (`https://pnf-pr-<N>.vdzonsoftware.nl`) en logt daarop
+via de Flutter-UI in met een vaste, dedicated test-user. De creds
+`TESTER_USERNAME` / `TESTER_PASSWORD` staan in het `newsfeed-api-keys`-secret
+(via Reflector in elke `pnf-pr-*`-namespace beschikbaar). Draait de tester
+onder de claude-runner, dan leest `runner.sh` ze runtime read-only uit het
+secret en exporteert `TESTER_USERNAME` / `TESTER_PASSWORD`. Draait de tester
+onder een andere harness (bv. softwarefactory's `agent:local`-image, waar
+`runner.sh` nooit draait), dan blijven die env-vars leeg en **leest de tester
+ze zélf** read-only uit het namespace-secret (namespace/PR uit
+`SF_PREVIEW_NAMESPACE` / `SF_PR_NUMBER` met fallback op `pnf-pr-<N>`). De login
+doet **geen DB-mutatie, geen wachtwoord-reset en geen guard-check**. Ontbreken
+of falen de creds, dan valt de tester terug op de wegwerp-account-flow
+(`tester_<story-id>` registreren via de UI + `DELETE /api/account/me` aan het
+eind). Zie `docs/factory/agents/tester.md`.
 
-Optioneel kan op de `jira-poller` de env-var `PROD_DB_HOST` (alléén hostname,
-geen credentials) gezet worden; de guard weigert dan extra een URL die exact
-op die prod-host wijst (defense-in-depth).
+> De oude SF-229-flow (robbert-wachtwoord-reset + fail-closed
+> `PREVIEW_DB_GUARD`-check) is hiermee vervallen. De per-PR Neon-branch en
+> `preview-db-guard.py` zelf blijven ongewijzigd bestaan (geïsoleerde testdata
+> per PR), maar zijn niet meer onderdeel van de tester-login. De optionele
+> `PROD_DB_HOST`-env-var op de `jira-poller` voedde die guard en is daarmee
+> legacy: ze speelt geen rol meer in de loginflow.
 
 ## Deploy-flow (dagelijks gebruik)
 

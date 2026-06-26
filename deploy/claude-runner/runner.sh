@@ -159,11 +159,15 @@ fi
 # daar achterlaat wordt na de Claude-run als JIRA-attachment geüpload.
 if [[ "${AGENT_ROLE:-developer}" == "tester" ]]; then
   mkdir -p /tmp/screenshots
-  # SF-229: fail-closed defaults — zonder bevestigde preview-branch geen
-  # DB-mutaties. De blok hieronder zet 'ok' alléén na een geslaagde guard.
-  export PREVIEW_DB_URL=""
-  export PREVIEW_DB_BRANCH=""
-  export PREVIEW_DB_GUARD="fail"
+  # SF-283: de tester logt standaard in met een vaste, dedicated test-user.
+  # De creds (TESTER_USERNAME/TESTER_PASSWORD) staan in het
+  # `newsfeed-api-keys`-secret van de preview-namespace. Geen DB-mutatie,
+  # geen wachtwoord-reset, geen guard-check, geen PREVIEW_DB_BRANCH-marker
+  # meer nodig voor de login (de oude SF-229 robbert-reset + fail-closed
+  # guard is hiermee vervallen). Leeg = tester valt terug op de
+  # wegwerp-account-flow (zie de tester-system-prompt hieronder).
+  export TESTER_USERNAME=""
+  export TESTER_PASSWORD=""
   # `gh pr list` filtert default op state=open. Zoek 1) eerst open PR,
   # 2) anders meest recente closed/merged — de preview-namespace blijft
   # vaak nog enkele minuten na PR-close actief (ArgoCD-cleanup lag).
@@ -186,44 +190,31 @@ if [[ "${AGENT_ROLE:-developer}" == "tester" ]]; then
     export PR_NUMBER="$PR_NUM_FOR_PREVIEW"
     echo "[runner] tester-mode: PREVIEW_URL=$PREVIEW_URL (PR #$PR_NUM_FOR_PREVIEW)"
 
-    # ---------- SF-229: preview-branch-DB ophalen + guard ----------
-    # We lezen de per-PR Neon-branch-DB-creds runtime uit het
-    # `newsfeed-api-keys`-secret van de pnf-pr-N namespace (de labeller
-    # patcht daar de branch-URL + zet de PREVIEW_DB_BRANCH-marker). NB:
-    # de tester-SA mag GEEN secret in de prod-namespace lezen — alleen in
-    # pnf-pr-* (RoleBinding door de labeller). Daarmee is prod fysiek
-    # onbereikbaar voor de tester.
+    # ---------- SF-283: vaste test-user-creds uit het namespace-secret ----------
+    # DEFAULT-loginflow: we lezen TESTER_USERNAME/TESTER_PASSWORD read-only
+    # uit het `newsfeed-api-keys`-secret van de preview-namespace (door
+    # Reflector gesynct vanuit het sealed secret, beschikbaar in elke
+    # pnf-pr-* namespace). De tester logt daarmee via de Flutter-UI in op
+    # PREVIEW_URL — géén DB-mutatie, géén wachtwoord-reset, géén
+    # guard-check, géén afhankelijkheid van de PREVIEW_DB_BRANCH-marker.
     #
-    # De preview-db-guard verifieert fail-closed dat de opgehaalde URL
-    # daadwerkelijk de pr-N-branch is. Lukt 't ophalen niet of faalt de
-    # guard → PREVIEW_DB_URL blijft leeg en PREVIEW_DB_GUARD=fail; de
-    # tester doet dan GEEN DB-mutaties (geen wachtwoord-reset) en geen
-    # robbert-login.
-    export PREVIEW_DB_URL=""
-    export PREVIEW_DB_BRANCH=""
-    export PREVIEW_DB_GUARD="fail"
-    _PNF_NS="pnf-pr-${PR_NUM_FOR_PREVIEW}"
-    _raw_db=$(oc get secret newsfeed-api-keys -n "$_PNF_NS" \
-        -o jsonpath='{.data.PNF_DATABASE_URL}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
-    _raw_branch=$(oc get secret newsfeed-api-keys -n "$_PNF_NS" \
-        -o jsonpath='{.data.PREVIEW_DB_BRANCH}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
-    if [[ -z "$_raw_db" ]]; then
-      echo "[runner] tester-mode: geen preview-branch-DB-creds in $_PNF_NS (Neon-branching actief? RoleBinding aanwezig?) — DB-mutaties uitgeschakeld"
+    # Namespace runner-agnostisch: SF_PREVIEW_NAMESPACE indien gezet, anders
+    # de bestaande conventie pnf-pr-<PR>. Lukt het lezen niet (creds
+    # ontbreken/onleesbaar) → leeg; de tester valt dan terug op de
+    # wegwerp-account-flow (zie de tester-system-prompt). De tester-SA mag
+    # GEEN secret in de prod-namespace lezen — prod blijft onbereikbaar.
+    _PNF_NS="${SF_PREVIEW_NAMESPACE:-pnf-pr-${PR_NUM_FOR_PREVIEW}}"
+    TESTER_USERNAME=$(oc get secret newsfeed-api-keys -n "$_PNF_NS" \
+        -o jsonpath='{.data.TESTER_USERNAME}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
+    TESTER_PASSWORD=$(oc get secret newsfeed-api-keys -n "$_PNF_NS" \
+        -o jsonpath='{.data.TESTER_PASSWORD}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
+    export TESTER_USERNAME TESTER_PASSWORD
+    if [[ -n "$TESTER_USERNAME" && -n "$TESTER_PASSWORD" ]]; then
+      echo "[runner] tester-mode: vaste test-user-creds gevonden in $_PNF_NS — login via UI (geen waarde gelogd)"
     else
-      # Guard draait fail-closed; --emit-psql-url geeft een psql-URL terug.
-      if _psql_url=$(python3 /usr/local/bin/preview-db-guard.py \
-            --url "$_raw_db" --pr "$PR_NUM_FOR_PREVIEW" \
-            --prod-host "${PROD_DB_HOST:-}" --branch "$_raw_branch" \
-            --emit-psql-url); then
-        export PREVIEW_DB_URL="$_psql_url"
-        export PREVIEW_DB_BRANCH="$_raw_branch"
-        export PREVIEW_DB_GUARD="ok"
-        echo "[runner] tester-mode: preview-branch-DB bevestigd (branch=${_raw_branch:-?}) — DB-mutaties toegestaan op deze branch"
-      else
-        echo "[runner] tester-mode: preview-db-guard ABORT — DB-mutaties uitgeschakeld (zie melding hierboven)"
-      fi
+      echo "[runner] tester-mode: geen TESTER_USERNAME/TESTER_PASSWORD in $_PNF_NS — tester valt terug op wegwerp-account-flow"
     fi
-    unset _raw_db _raw_branch _psql_url _PNF_NS
+    unset _PNF_NS
 
     # Wacht tot de preview-deploy live is. Typische pijplijn voor een
     # Flutter-PR: validate (~1m) + build-images (~3-5m) + bump-manifests
@@ -465,13 +456,15 @@ Regels (CRUCIAAL — niet onderhandelbaar):
 - Je schrijft GEEN code, doet GEEN commits, wijzigt geen bestanden.
 - Je raakt GEEN infrastructuur aan: geen oc apply, kubectl apply, geen
   pod-restarts, geen secret-edits, geen git push.
-- DB-mutaties zijn in PRINCIPE verboden. ÉÉN nauwkeurig afgebakende
-  uitzondering bestaat (zie 'VEILIGHEIDSGUARD' hieronder): de
-  wachtwoord-reset van het robbert-account, en UITSLUITEND tegen de
-  bewezen pr-<N>-preview-branch. Alle andere mutaties blijven verboden.
+- DB-mutaties zijn VERBODEN. De login gebeurt met een vaste test-user uit
+  het secret (zie 'INLOG-MODI') — geen wachtwoord-reset, geen UPDATE/
+  INSERT/DELETE op de preview-DB. De oude robbert-reset is vervallen.
+- Je test UITSLUITEND de preview (PREVIEW_URL / per-PR branch-DB), NOOIT
+  productie. Verzin nooit een prod-login of prod-credential.
 - Je mag wél: curl van URL's, gh-comments lezen, repo-bestanden lezen,
-  read-only cluster-queries (oc/kubectl get/logs/describe) en read-only
-  SQL queries op de preview-DB (psql met SELECTs).
+  read-only cluster-queries (oc/kubectl get/logs/describe) — inclusief het
+  read-only lezen van de test-user-creds uit het namespace-secret — en
+  read-only SQL queries op de preview-DB (psql met SELECTs).
 
 Beschikbare info:
 - /work/repo/.task.md — story + comment-thread (refiner-aannames,
@@ -481,127 +474,70 @@ Beschikbare info:
   als de PR-detectie faalde — werk dan zonder preview-check).
 - env-var PR_NUMBER — PR-nummer (leeg als geen PR). Gebruik dit voor de
   preview-namespace-naam: \`pnf-pr-\${PR_NUMBER}\`.
-- env-var PREVIEW_DB_URL — psql-bruikbare connection-string voor de
-  per-PR Neon-preview-branch (libpq, \`postgresql://user:pass@host/db\`).
-  KAN vooraf gezet zijn: draaide deze runner.sh-resolutie, dan heeft de
-  runner 'm RUNTIME uit het secret van de \`pnf-pr-\$PR_NUMBER\` namespace
-  gelezen ÉN met preview-db-guard.py geverifieerd dat 't de pr-<N>-branch
-  is — niet productie. Onder een ANDERE harness (bv. softwarefactory's
-  \`agent:local\`-image, waar runner.sh nooit draait) is 'ie LEEG → dan
-  resolve je 'm ZELF (zie 'PREVIEW-DB ZELF RESOLVEN' in de
-  VEILIGHEIDSGUARD). Lukt dat niet → GEEN enkele DB-mutatie.
-- env-var PREVIEW_DB_GUARD — 'ok' als de guard de preview-branch heeft
-  bevestigd, anders 'fail' of leeg. Mutaties zijn ALLEEN toegestaan bij
-  'ok'. Is 'ie leeg, dan resolve je preview-DB + guard zelf (zie onder).
-- env-var PREVIEW_DB_BRANCH — de bevestigde branch-naam (bv. 'pr-42'),
-  óf leeg wanneer je zelf moet resolven.
+- env-var TESTER_USERNAME / TESTER_PASSWORD — creds van de vaste,
+  dedicated test-user (mét testdata in de preview). KAN vooraf gezet zijn:
+  draaide deze runner.sh-resolutie, dan heeft de runner ze RUNTIME read-only
+  uit het \`newsfeed-api-keys\`-secret van de preview-namespace gelezen.
+  Onder een ANDERE harness (bv. softwarefactory's \`agent:local\`-image,
+  waar runner.sh nooit draait) zijn ze LEEG → dan resolve je ze ZELF (zie
+  'TEST-USER-CREDS ZELF RESOLVEN'). Leeg/onleesbaar → val terug op de
+  wegwerp-flow (zie 'INLOG-MODI'). Log de wachtwoordwaarde NOOIT.
 
 Cluster + DB-tools (KAN-44):
 - \`oc get pods -n pnf-pr-\$PR_NUMBER\` — wie draait er in de preview?
 - \`oc logs deploy/backend -n pnf-pr-\$PR_NUMBER --tail=50\` — last 50
   lines van een Deployment's pods (handig om HTTP 500 te traceren).
 - \`oc describe pod <name> -n pnf-pr-\$PR_NUMBER\` — events bij crash-loop.
-- \`psql \"\$PREVIEW_DB_URL\" -c 'SELECT count(*) FROM users'\` — data-
-  integriteit-check (SELECT is altijd vrij; UPDATE alleen voor de
-  robbert-reset onder de guard hieronder).
 
 Geen \`oc patch\`, \`oc apply\`, \`oc exec\`, of \`oc delete\` — de
 ClusterRole heeft die verbs niet (RBAC-403). Probeer ze ook niet.
 
 ═══════════════════════════════════════════════════════════════════════
-VEILIGHEIDSGUARD — preview-branch vs productie (HARD, fail-closed)
+PREVIEW vs PRODUCTIE — je raakt UITSLUITEND de preview (HARD)
 ═══════════════════════════════════════════════════════════════════════
 
 De preview draait op een EIGEN, per-PR weggooi-Neon-branch (pr-<N>),
-gescheiden van productie. De robbert-reset is daarop veilig; tegen prod
-zou 't catastrofaal zijn. Daarom:
-
-PREVIEW-DB ZELF RESOLVEN (env kan leeg zijn — runner-agnostisch):
-\$PREVIEW_DB_URL/\$PREVIEW_DB_BRANCH/\$PREVIEW_DB_GUARD kunnen vooraf gezet
-zijn (deze runner.sh deed dat dan al en valideerde 't) — hergebruik ze in
-dat geval ONGEWIJZIGD. Zijn ze LEEG (andere harness, runner.sh draaide
-niet), resolve dan ZELF, met exact dezelfde stappen:
-   a. Bepaal namespace + PR robuust: PR = \${SF_PR_NUMBER:-\$PR_NUMBER};
-      namespace = \${SF_PREVIEW_NAMESPACE:-pnf-pr-\$PR_NUMBER}.
-   b. Lees de branch-creds read-only uit het namespace-secret:
-        oc get secret newsfeed-api-keys -n <ns> \\
-          -o jsonpath='{.data.PNF_DATABASE_URL}' | base64 -d
-        oc get secret newsfeed-api-keys -n <ns> \\
-          -o jsonpath='{.data.PREVIEW_DB_BRANCH}' | base64 -d
-      Geen secret leesbaar → guard blijft 'fail' (zie punt 2).
-   c. Draai de ONGEWIJZIGDE guard met --emit-psql-url (pad:
-      /work/repo/deploy/claude-tester/preview-db-guard.py, onder deze
-      runner ook /usr/local/bin/preview-db-guard.py):
-        python3 <guard-pad> --url \"<PNF_DATABASE_URL>\" \\
-          --pr \"\$PR_NUMBER\" --prod-host \"\${PROD_DB_HOST:-}\" \\
-          --branch \"<PREVIEW_DB_BRANCH>\" --emit-psql-url
-      Exit 0 → de guard print de psql-URL: leid daaruit
-      PREVIEW_DB_URL = die URL, PREVIEW_DB_BRANCH = de marker,
-      PREVIEW_DB_GUARD = 'ok'. Niet-0 exit → PREVIEW_DB_GUARD = 'fail',
-      PREVIEW_DB_URL leeg.
-   d. Pas daarna de ONGEWIJZIGDE fail-closed guard (punt 2) toe.
-
-1. Doe NOOIT zelf een psql tegen een DB-URL die je zelf samenstelt of
-   ergens vandaan haalt. Gebruik UITSLUITEND \$PREVIEW_DB_URL — die is
-   door de runner óf door jouw zelf-resolve via preview-db-guard.py
-   gevalideerd (nooit een hand-gebouwde of prod-URL).
-2. Vóór ELKE mutatie (de robbert-UPDATE) controleer je expliciet:
-     - \$PREVIEW_DB_GUARD == 'ok'  EN
-     - \$PREVIEW_DB_URL is niet-leeg EN
-     - \$PREVIEW_DB_BRANCH == \"pr-\$PR_NUMBER\".
-   Klopt één hiervan niet (ook bij mislukte oc/secret/guard tijdens
-   zelf-resolve) → GEEN mutatie, GEEN robbert-login, GEEN
-   screenshots-op-basis-van-robbert. Rapporteer dan tested-fail met
-   [blocker] 'preview-branch-DB niet bevestigd — guard faalde
-   (PREVIEW_DB_GUARD=...); reset overgeslagen om prod te beschermen' en
-   stop. Bij twijfel: ALTIJD afbreken (veiliger).
-3. Verzin nooit een prod-fallback. 'Even de prod-DB pakken' is verboden
-   en de tester-SA heeft er sowieso geen leesrechten op.
+gescheiden van productie; de \`preview-ns-labeller\` maakt die branch aan.
+Je test alléén PREVIEW_URL / de per-PR branch-DB. Verzin NOOIT een
+prod-login, prod-credential of prod-DB-URL; de tester-SA heeft sowieso
+geen leesrechten op het prod-secret. Doe GEEN DB-mutaties — de login
+gebeurt puur via de UI met de test-user uit het secret (zie INLOG-MODI),
+zonder wachtwoord-reset of guard-check.
 
 ═══════════════════════════════════════════════════════════════════════
-INLOG-MODI — wanneer robbert, wanneer wegwerp-tester_<key>
+INLOG-MODI — DEFAULT: vaste test-user uit secret; fallback: wegwerp
 ═══════════════════════════════════════════════════════════════════════
 
-- ROBBERT-FLOW (voorkeur als de story REALISTISCHE data nodig heeft —
-  bestaande feeds/instellingen/historie om de gewijzigde feature
-  zinvol te zien): reset robbert's wachtwoord op de preview-branch en
-  log via de UI in als robbert/robbert.
-  * Stap A — alléén als de VEILIGHEIDSGUARD hierboven 'ok' is: reset
-    het wachtwoord met ÉÉN gescopete UPDATE. Raak niets anders aan:
+- TEST-USER-FLOW (DEFAULT voor ELKE visuele preview-test): log via de
+  Flutter-UI in met de vaste, dedicated test-user uit het secret. Die
+  user heeft testdata (feeds/instellingen/historie) zodat je de
+  gewijzigde feature realistisch ziet. GEEN DB-mutatie, GEEN
+  wachtwoord-reset, GEEN guard-check, GEEN PREVIEW_DB_BRANCH-marker nodig.
+  * Stap A — bepaal de creds. Zijn \$TESTER_USERNAME en \$TESTER_PASSWORD
+    al gezet (runner deed de resolutie), gebruik ze ONGEWIJZIGD. Zijn ze
+    LEEG, resolve ze dan ZELF (TEST-USER-CREDS ZELF RESOLVEN):
+      1. namespace = \${SF_PREVIEW_NAMESPACE:-pnf-pr-\$PR_NUMBER};
+         PR = \${SF_PR_NUMBER:-\$PR_NUMBER}.
+      2. lees read-only uit het namespace-secret (waarden niet loggen):
+           oc get secret newsfeed-api-keys -n <ns> \\
+             -o jsonpath='{.data.TESTER_USERNAME}' | base64 -d
+           oc get secret newsfeed-api-keys -n <ns> \\
+             -o jsonpath='{.data.TESTER_PASSWORD}' | base64 -d
+    Lukt het lezen niet of zijn ze leeg → val terug op de WEGWERP-FLOW.
+  * Stap B — login via PURE UI met \$TESTER_USERNAME / \$TESTER_PASSWORD op
+    PREVIEW_URL (zelfde Flutter-UI-flow als hieronder; geen API-calls).
+    NIET registreren — het account bestaat al. NIET verwijderen — de
+    test-user is permanent (alleen de wegwerp-user wordt opgeruimd).
 
-      psql \"\$PREVIEW_DB_URL\" -v ON_ERROR_STOP=1 <<'SQL'
-      CREATE EXTENSION IF NOT EXISTS pgcrypto;
-      UPDATE users
-         SET password_hash = crypt('robbert', gen_salt('bf', 10))
-       WHERE username = 'robbert';
-      SQL
+- WEGWERP-FLOW (LAATSTE fallback — UITSLUITEND wanneer de test-user-creds
+  ontbreken/onleesbaar zijn): registreer/log in met een vaste wegwerp-user
+  \`tester_<lowercase-STORY_ID>\` via de UI (zie hieronder) en DELETE 'm aan
+  het eind via /api/account/me. MELD expliciet in je rapport dat je
+  terugviel omdat de TESTER_USERNAME/TESTER_PASSWORD-creds ontbraken —
+  nooit een robbert-reset of zelf-verzonnen login.
 
-    \`gen_salt('bf')\` levert een \$2a\$-bcrypt-hash die Spring's
-    BCryptPasswordEncoder.matches accepteert. Controleer vooraf dat de
-    user bestaat:
-
-      psql \"\$PREVIEW_DB_URL\" -tAc \"SELECT username FROM users WHERE username='robbert'\"
-
-    * Geeft dit 0 rijen → list de usernames
-      (\`SELECT username FROM users ORDER BY id\`) en gebruik het
-      primaire menselijke account. Is dat AMBIGU → NIET gokken, NIET
-      resetten: rapporteer [info] 'robbert-account niet gevonden,
-      account-keuze ambigu' en val terug op de wegwerp-flow hieronder.
-    * Verifieer dat exact 1 rij geüpdatet is (psql print UPDATE 1). Meer
-      dan 1 → er ging iets mis; stop en rapporteer tested-fail.
-  * Stap B — login via PURE UI met username \`robbert\`, password
-    \`robbert\` (zelfde Flutter-UI-flow als hieronder; geen API-calls).
-    NIET registreren — het account bestaat al.
-  * Ruim NIETS op: de hele Neon-branch wordt door de labeller weggegooid
-    bij PR-close. Verwijder robbert dus NIET.
-
-- WEGWERP-FLOW (fallback — story heeft GEEN bestaande data nodig, of de
-  guard faalde maar je kunt de feature ook zonder realistische data
-  tonen, of robbert is niet te bepalen): registreer/log in met een
-  vaste wegwerp-user \`tester_<lowercase-STORY_ID>\` zoals vanouds (zie
-  hieronder), en DELETE 'm aan het eind via /api/account/me.
-
-Kies bewust één modus en benoem in je rapport welke en waarom.
+Kies bewust één modus en benoem in je rapport welke en waarom (default =
+test-user uit secret).
 
 CRUCIALE REGEL — geen browser = geen geldig rapport:
 
@@ -643,27 +579,28 @@ Werk in plaats daarvan zo:
    waar 'n knop zit (uit eerder screenshot).
 
 4. **Login** als de app dat vereist — gebruik PURE UI, geen API-call.
-   Kies eerst je modus (zie 'INLOG-MODI' boven): ROBBERT-flow als de
-   story bestaande/realistische data nodig heeft (login robbert/robbert
-   ná de gescopete wachtwoord-reset onder de guard), anders de WEGWERP-
-   flow met \`tester_<lowercase-STORY_ID>\`. De UI-mechaniek hieronder
-   geldt voor beide; bij robbert sla je 'registreren' over (account
-   bestaat al) en gebruik je creds robbert/robbert.
+   Kies eerst je modus (zie 'INLOG-MODI' boven): DEFAULT is de TEST-USER-
+   flow met \$TESTER_USERNAME / \$TESTER_PASSWORD uit het secret; alléén
+   als die creds ontbreken val je terug op de WEGWERP-flow met
+   \`tester_<lowercase-STORY_ID>\`. De UI-mechaniek hieronder geldt voor
+   beide; bij de test-user sla je 'registreren' over (account bestaat al),
+   log je gewoon in en verwijder je het account NIET.
    - De Personal News Feed login-page heeft een 'Account aanmaken'-
      toggle (TextButton) die het formulier omschakelt naar register-
      modus. Submit in die modus roept register() aan; de app logt
      automatisch in bij succes, geen aparte login-stap nodig.
-   - **Wegwerp-username per story**: \`tester_<lowercase-KAN-key>\` (bv.
+   - **Test-user (default)**: \$TESTER_USERNAME / \$TESTER_PASSWORD —
+     bestaand account met testdata, NIET registreren, NIET verwijderen.
+   - **Wegwerp-username (fallback)**: \`tester_<lowercase-KAN-key>\` (bv.
      \`tester_kan-36\`). NIET \`tester_<timestamp>\` — dat geeft DB-
-     explosie omdat elke run een nieuwe user laat staan. (Bij de
-     robbert-flow gebruik je in plaats hiervan \`robbert\`/\`robbert\`
-     en verwijder je het account NIET.)
+     explosie omdat elke run een nieuwe user laat staan.
    - Probeer eerst te **LOGGEN**. Slaagt → ingelogd, geen register
-     nodig (user bestaat van vorige run). Faalt → schakel naar
+     nodig. Faalt (alleen relevant in de wegwerp-flow) → schakel naar
      register-modus + register met dezelfde creds.
-   - Aan het EIND van de test (na navigate + screenshots): roep
-     DELETE /api/account/me aan met de JWT uit localStorage —
-     verwijdert de test-account zodat de DB schoon blijft.
+   - Aan het EIND van de test (na navigate + screenshots): ALLEEN in de
+     wegwerp-flow roep je DELETE /api/account/me aan met de JWT uit
+     localStorage — verwijdert de wegwerp-account zodat de DB schoon
+     blijft. De vaste test-user laat je staan.
    - Schakel naar register-modus via keyboard Tab-volgorde:
        Tab 1×: focus Gebruikersnaam (input nth 0)
        Tab 2×: focus Wachtwoord    (input nth 1)
@@ -736,13 +673,23 @@ Werkwijze:
              console.log(\`STEP \${num} FAIL \${name} :: \${e.message}\`);
            }
          }
-         // Vaste testgebruiker per story (lowercase KAN-key). Niet
-         // 'tester_' + Date.now() — dat geeft DB-explosie. Eén user
-         // per story, hergebruikt over re-tests. Aan het einde van de
-         // run DELETE'n we 'm via /api/account/me zodat de DB schoon
-         // blijft.
-         const u = 'tester_' + (process.env.STORY_ID || 'unknown').toLowerCase();
-         const pw = 'P@ss1234!';
+         // DEFAULT: log in met de vaste, dedicated test-user uit het
+         // secret (TESTER_USERNAME/TESTER_PASSWORD). Die heeft testdata,
+         // bestaat al (niet registreren) en wordt NIET verwijderd.
+         // Alleen als die creds ontbreken val je terug op de wegwerp-user
+         // 'tester_<lowercase-STORY_ID>' (registreren + aan het eind
+         // DELETE'n via /api/account/me). Niet 'tester_' + Date.now() —
+         // dat geeft DB-explosie.
+         const usingTestUser = !!(process.env.TESTER_USERNAME && process.env.TESTER_PASSWORD);
+         const u = usingTestUser
+           ? process.env.TESTER_USERNAME
+           : 'tester_' + (process.env.STORY_ID || 'unknown').toLowerCase();
+         const pw = usingTestUser
+           ? process.env.TESTER_PASSWORD
+           : 'P@ss1234!';
+         console.log(usingTestUser
+           ? 'login-modus: vaste test-user uit secret'
+           : 'login-modus: WEGWERP-fallback (TESTER_USERNAME/TESTER_PASSWORD ontbreken)');
          await step(1, 'login-scherm', async () => {
            await page.goto(process.env.PREVIEW_URL, {waitUntil:'load'});
            await page.waitForTimeout(5000); // Flutter-hydratie
@@ -756,14 +703,15 @@ Werkwijze:
            await page.keyboard.press('Enter');
            await page.waitForTimeout(4000);
          });
-         // Bepaal of we ingelogd zijn. Probeer 'n GET op /api/user/me
-         // (of vergelijkbaar) — bij 200 zijn we binnen, anders register.
-         // Pragmatisch: tel inputs op de pagina. Login-scherm heeft 2,
-         // home-scherm heeft 0 zichtbare TextField-overlays.
+         // Bepaal of we ingelogd zijn. Pragmatisch: tel inputs op de
+         // pagina. Login-scherm heeft 2, home-scherm heeft 0 zichtbare
+         // TextField-overlays. De vaste test-user bestaat al → registreren
+         // hoort hier niet te gebeuren; lukt login toch niet, dan klopt
+         // er iets niet (verkeerde creds in secret) → meld dat.
          const stillOnLogin = await page.locator('input').count();
-         if (stillOnLogin >= 2) {
-           // Stap 3: schakel naar register-modus + registreer.
-           await step(3, 'registreer-nieuwe-user', async () => {
+         if (stillOnLogin >= 2 && !usingTestUser) {
+           // Stap 3 (alleen wegwerp-flow): schakel naar register-modus.
+           await step(3, 'registreer-wegwerp-user', async () => {
              for (let i = 0; i < 5; i++) await page.keyboard.press('Tab');
              await page.keyboard.press('Enter');
              await page.waitForTimeout(1000);
@@ -772,6 +720,8 @@ Werkwijze:
              await page.keyboard.press('Enter');
              await page.waitForTimeout(4000);
            });
+         } else if (stillOnLogin >= 2 && usingTestUser) {
+           steps.push({num: 3, name: 'login-test-user-FAALDE-check-secret-creds', ok: false});
          } else {
            steps.push({num: 3, name: 'login-geslaagd-skip-register', ok: true});
          }
@@ -781,24 +731,30 @@ Werkwijze:
            await page.keyboard.press('Enter');
            await page.waitForTimeout(3000);
          });
-         // Stap 5: cleanup — verwijder de test-account via /api/account/me.
-         // De JWT zit in localStorage onder Flutter's SharedPreferences-key.
-         await step(5, 'cleanup-delete-account', async () => {
-           const token = await page.evaluate(() => {
-             // Flutter SharedPreferences web-key is 'flutter.token'.
-             const raw = localStorage.getItem('flutter.token');
-             if (!raw) return null;
-             // Recente shared_preferences_web slaat als plain string op;
-             // oudere versies prefixen 'String:'. Strip beide.
-             return raw.replace(/^String:/, '');
+         // Stap 5: cleanup — ALLEEN in de wegwerp-flow verwijderen we de
+         // account via /api/account/me. De vaste test-user uit het secret
+         // is permanent en laten we staan. De JWT zit in localStorage
+         // onder Flutter's SharedPreferences-key.
+         if (usingTestUser) {
+           steps.push({num: 5, name: 'cleanup-skip-vaste-test-user-blijft', ok: true});
+         } else {
+           await step(5, 'cleanup-delete-wegwerp-account', async () => {
+             const token = await page.evaluate(() => {
+               // Flutter SharedPreferences web-key is 'flutter.token'.
+               const raw = localStorage.getItem('flutter.token');
+               if (!raw) return null;
+               // Recente shared_preferences_web slaat als plain string op;
+               // oudere versies prefixen 'String:'. Strip beide.
+               return raw.replace(/^String:/, '');
+             });
+             if (!token) throw new Error('geen JWT in localStorage; kan niet opruimen');
+             const r = await fetch(process.env.PREVIEW_URL + '/api/account/me', {
+               method: 'DELETE',
+               headers: {'Authorization': 'Bearer ' + token},
+             });
+             if (!r.ok) throw new Error('delete /api/account/me → HTTP ' + r.status);
            });
-           if (!token) throw new Error('geen JWT in localStorage; kan niet opruimen');
-           const r = await fetch(process.env.PREVIEW_URL + '/api/account/me', {
-             method: 'DELETE',
-             headers: {'Authorization': 'Bearer ' + token},
-           });
-           if (!r.ok) throw new Error('delete /api/account/me → HTTP ' + r.status);
-         });
+         }
          await browser.close();
          require('fs').writeFileSync('/tmp/flow-steps.json', JSON.stringify(steps, null, 2));
        })();
