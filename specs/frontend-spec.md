@@ -59,6 +59,7 @@ AuthGate
             └── dialog → EditCategoryDialog
             └── dialog → AddCategoryDialog
             └── dialog → CleanupDialog
+            └── navigeer naar → RssFeedsScreen       (RSS-feed-URLs + podcast-bronnen beheren, via "RSS-feeds"-tile)
             └── navigeer naar → AdminScreen          (alleen voor admins, via "Beheer gebruikers"-knop)
             └── navigeer naar → AdminCostsScreen     (alleen voor admins, via "Beheer kosten"-knop)
 ```
@@ -307,12 +308,13 @@ Lijst van alle categorieën uit `GET /api/settings`.
 - Naam invoeren
 - Opslaan: PUT `/api/settings` met nieuwe categorie toegevoegd (ID gegenereerd op basis van naam)
 
-### RSS-feeds
-Lijst van geconfigureerde RSS-feed URLs uit `GET /api/rss-feeds`.
-
-- **Tik op URL:** opent URL in externe browser
-- **Verwijder-icoon (×):** verwijder feed-URL, PUT `/api/rss-feeds`
-- **Invoerveld + toevoegen-knop:** nieuwe URL toevoegen, PUT `/api/rss-feeds`
+### RSS-feeds (navigatie-tile, SF-220)
+Op de plek van de vroegere inline RSS- en podcast-secties staat sinds SF-220 één
+navigatie-`ListTile` (`Icons.rss_feed`, titel "RSS-feeds", subtitel "RSS-feed-URLs
+en podcast-bronnen beheren", trailing `Icons.chevron_right`), consistent met de
+overige navigatie-tiles in Settings. Tik pusht via `MaterialPageRoute` naar
+`RssFeedsScreen` (zie §9a). De editors staan niet meer rechtstreeks op de
+Settings-pagina.
 
 ### Achtergrond-taken
 Twee handmatige triggers voor de scheduled jobs (die zelf gewoon doorlopen op hun schedule — hourly RSS-refresh en de daily summary om 06:00):
@@ -376,6 +378,38 @@ Onderaan het instellingen-scherm verschijnt een extra sectie **"Beheer"** die al
   - AdminCostsScreen toont kostenoverzichten per dag, per gebruiker en gedetailleerd logboek van externe API-calls.
 
 Er is geen aparte Admin-tab in de bottom navigation bar — alle admin-functionaliteit zit achter de twee Beheer-knoppen in Settings.
+
+---
+
+## 9a. RSS-feeds-subpagina (RssFeedsScreen, SF-220)
+
+Subpagina van Settings (eigen `Scaffold` + `AppBar` met titel "RSS-feeds"),
+bereikbaar via de "RSS-feeds"-tile in §9. Bundelt het beheer van zowel de gewone
+RSS-feed-URLs als de podcast-RSS-bronnen die voorheen inline op de Settings-pagina
+stonden; gedrag, styling en providers (`rssFeedsProvider`, `podcastFeedsProvider`)
+zijn ongewijzigd. De scrollende `ListView` past `MediaQuery.padding.bottom` als extra
+bottom-padding toe (zie §13). Elke sectie heeft een eigen `.when()`-afhandeling met
+loading-spinner en error-tekst "Fout: …".
+
+### RSS-feeds (sectie)
+Lijst van geconfigureerde RSS-feed-URLs uit `GET /api/rss-feeds`, in monospace.
+
+- **Tik op URL:** opent URL in externe browser (`LaunchMode.externalApplication`)
+- **Verwijder-icoon (×):** verwijder feed-URL, `rssFeedsProvider.save` → PUT `/api/rss-feeds`
+- **Invoerveld + toevoegen-knop:** nieuwe URL toevoegen, `rssFeedsProvider.save` → PUT `/api/rss-feeds`
+
+### Podcast-bronnen (sectie, KAN-56)
+Lijst van podcast-RSS-bronnen uit `podcastFeedsProvider`, in monospace, met per bron:
+
+- **Tik op URL:** opent URL in externe browser
+- **"Transcriberen aan/uit"-toggle (`Switch`):** zet `transcribeEnabled` per bron;
+  bij uit valt de backend terug op de RSS-show-notes als input voor Claude (geen
+  Whisper-kosten). Opslaan via `podcastFeedsProvider.save` → PUT `/api/podcast-feeds`.
+- **Verwijder-icoon (×):** verwijder bron via `podcastFeedsProvider.save`.
+- **Invoerveld + toevoegen-knop:** nieuwe podcast-RSS-URL toevoegen. De URL wordt
+  synchroon op de server gevalideerd; bij een ongeldige/onbereikbare feed gooit de
+  API een `ApiException` die als snackbar ("Kon feed niet ophalen") wordt getoond.
+  Tijdens toevoegen is het veld disabled en vervangt een kleine spinner de +-knop.
 
 ---
 
