@@ -204,7 +204,7 @@ class RssFeedsNotifier extends AsyncNotifier<List<String>> {
 
 /// KAN-56: per-user lijst met podcast-bronnen. PUT valideert nieuwe
 /// URLs synchroon; bij een 400 gooit de API een [ApiException] die de
-/// caller (settings_screen._PodcastFeedsEditor) als snackbar toont.
+/// caller (rss_feeds_screen._PodcastFeedsEditor) als snackbar toont.
 final podcastFeedsProvider =
     AsyncNotifierProvider<PodcastFeedsNotifier, List<PodcastFeed>>(PodcastFeedsNotifier.new);
 
