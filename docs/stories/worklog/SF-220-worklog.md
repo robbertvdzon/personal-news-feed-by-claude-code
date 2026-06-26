@@ -20,3 +20,11 @@ Review SF-312 (reviewer, 2026-06-26):
 - [info] Ongebruikte imports opgeruimd (url_launcher verwijderd, models.dart blijft nodig voor VersionInfo). Geen dangling referenties naar de verplaatste editors.
 - [info] flutter analyze/test niet lokaal gedraaid (runner zonder flutter-binary); CI valideert. Story-log schoon (geen JSON-artefacten). 4 widgettests dekken het nieuwe scherm.
 - Resultaat: akkoord.
+
+Test SF-313 (tester, 2026-06-26):
+- [info] Code-inspectie: `_RssFeedsEditor` + `_PodcastFeedsEditor` byte-identiek verplaatst van settings_screen.dart (main) naar rss_feeds_screen.dart (diff: enkel 1 trailing lege regel weg). Gedrag dus ongewijzigd (AC2/AC3/AC5).
+- [info] settings_screen.dart: twee secties vervangen door één navigatie-ListTile (Icons.rss_feed + chevron → MaterialPageRoute naar RssFeedsScreen). Geen dangling refs naar de oude editors; url_launcher-import opgeruimd; overige imports nog in gebruik (VersionInfo uit models.dart). Logout-invalidations (rssFeedsProvider/podcastFeedsProvider) intact op regels 49-50. (AC1/AC4/AC6)
+- [info] data_providers.dart: enkel stale doc-comment bijgewerkt (settings_screen → rss_feeds_screen). Geen backend/OpenAPI/providerlogica-wijziging. (AC7)
+- [info] Preview-test (Playwright, 420x900, login via vaste test-user uit secret newsfeed-api-keys/pnf-pr-139): settings toont de RSS-feeds nav-tile met subtitle "RSS-feeds en podcast-bronnen beheren"; tap → subpagina met AppBar "RSS-feeds", RSS-lijst (monospace + delete + "Nieuwe feed-URL"-invoer) en Podcast-bronnen (transcribeer-toggle + delete + "Nieuwe podcast-RSS-URL"-invoer). Screenshots 01-06 in dropzone.
+- [info] flutter analyze/test niet lokaal gedraaid (geen flutter-binary in runner); CI valideert. Byte-identieke move → geen nieuwe warnings verwacht.
+- Resultaat: alle acceptatiecriteria (AC1-7) voldaan. Akkoord.
