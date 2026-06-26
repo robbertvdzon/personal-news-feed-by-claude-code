@@ -20,3 +20,21 @@ Done / rationale:
   data_providers.dart bijgewerkt. Widgettests toegevoegd (frontend/test/rss_feeds_screen_test.dart).
 - flutter analyze/test niet lokaal gedraaid: geen flutter-binary in de developer-runner; CI valideert.
 - Details: docs/stories/SF-290-rss-feeds-subpagina.md.
+
+Review (SF-290, reviewer):
+- [info] Volledige story-diff t.o.v. main beoordeeld (6 bestanden). Editor-klassen
+  _RssFeedsEditor/_PodcastFeedsEditor zijn 1-op-1 en byte-identiek verplaatst; gedrag
+  (URL-validatie + snackbar, transcribe-toggle, monospace-weergave, tap→externe browser,
+  .when()-loading/error) ongewijzigd.
+- [info] settings_screen.dart: twee inline-secties vervangen door één navigatie-ListTile
+  (Icons.rss_feed + chevron + MaterialPageRoute), consistent met API-log/Admin. Ongebruikte
+  url_launcher-import + feeds/podcastFeeds-ref.watch opgeruimd; alle resterende imports nog in
+  gebruik (models/api_client). Logout-invalidations voor rssFeedsProvider/podcastFeedsProvider
+  behouden (regels 49-50).
+- [info] Nieuwe rss_feeds_screen.dart: alle imports in gebruik; geen backend-/OpenAPI-/
+  providerwijzigingen. Stale doc-comment in data_providers.dart correct bijgewerkt.
+- [info] Widgettests dekken AC 1-5 functioneel af via fake-notifiers (geen netwerk). Geen
+  JSON-artefacten in story-logs. Geen stray refs naar oude editors.
+- [info] flutter analyze/test niet lokaal verifieerbaar (geen flutter-binary); CI valideert AC #6.
+  Code volgt bestaand patroon, geen nieuwe waarschuwingen verwacht.
+- Conclusie: akkoord.
