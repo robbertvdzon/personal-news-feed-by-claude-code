@@ -38,3 +38,40 @@ Review (SF-290, reviewer):
 - [info] flutter analyze/test niet lokaal verifieerbaar (geen flutter-binary); CI valideert AC #6.
   Code volgt bestaand patroon, geen nieuwe waarschuwingen verwacht.
 - Conclusie: akkoord.
+
+## SF-291 — Story-brede test (tester)
+
+Inlog-modus: **default** — vaste test-user uit secret `newsfeed-api-keys`
+(`TESTER_USERNAME`/`TESTER_PASSWORD`), via pure Flutter-UI op de preview
+`https://pnf-pr-137.vdzonsoftware.nl` (per-PR Neon-branch). Geen DB-mutatie,
+geen prod. Browser: Playwright/Chromium 420x900, screenshots in /work/screenshots.
+
+Resultaten per acceptatiecriterium:
+- [pass] AC1: Settings toont op de oude plek één nav-ListTile (rss_feed-icoon,
+  titel "RSS-feeds", subtitle "RSS-feed-URLs en podcast-bronnen beheren", chevron),
+  consistent met API-log/Beheer-tiles; inline-editors weg. (09-bigwheel.png)
+- [pass] AC2: Subpagina met eigen AppBar (← + "RSS-feeds"), RSS-lijst monospace,
+  delete-knoppen (×) en "Nieuwe feed-URL"-veld + add-knop. (10/11)
+- [pass] AC3: Podcast-bronnen met transcribe-toggle, delete en
+  "Nieuwe podcast-RSS-URL"-veld; ongeldige URL ("not-a-valid-url") → rode snackbar
+  "Kon feed niet ophalen: ... (URI with undefined scheme)", URL niet toegevoegd,
+  veld behoudt tekst. Geen data gepersisteerd. (12/13/14)
+- [pass] AC4: Logout-invalidations voor rssFeedsProvider/podcastFeedsProvider
+  behouden (settings_screen.dart:49-50); providerlogica ongewijzigd.
+- [pass] AC5: Styling consistent (monospace-URLs, sectiekoppen, list-tiles,
+  "Fout:"-pattern) — visueel bevestigd.
+- [n.v.t./code] AC6: `flutter analyze` niet lokaal draaibaar (geen flutter-binary).
+  Manueel geverifieerd: url_launcher-import uit settings verwijderd, alle resterende
+  imports nog in gebruik (models/api_client), nieuwe pagina-imports allemaal gebruikt.
+- [pass] AC7: Diff raakt alleen frontend + docs/tests; geen backend/OpenAPI/
+  providerlogica-wijziging (enkel stale doc-comment in data_providers.dart).
+
+Hard bewijs van 1-op-1 move: `_RssFeedsEditor`+`_PodcastFeedsEditor` byte-identiek
+t.o.v. main (diff = 0 m.u.v. 1 trailing blank line); geen stray refs naar oude editors.
+
+Opmerking (geen blocker, geen regressie): de snackbar toont de ruwe JSON-body omdat
+de backend een `error`-veld stuurt terwijl `_extractDutchMessage` op `message` matcht.
+Dit gedrag is identiek aan main (code byte-identiek verplaatst) — buiten scope van deze
+move-story.
+
+Conclusie: alle AC's geslaagd → tested.
