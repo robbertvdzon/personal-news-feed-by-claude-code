@@ -36,13 +36,6 @@ rules:
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "list", "delete"]
-  # SF-229: per preview-namespace een Role + RoleBinding aanmaken zodat de
-  # claude-tester-SA de branch-DB-creds runtime kan lezen. De labeller
-  # beheert de pnf-pr-* namespaces al; 't aanmaken van deze RBAC hoort
-  # daarbij. Bewust beperkt tot roles/rolebindings (geen clusterroles).
-  - apiGroups: ["rbac.authorization.k8s.io"]
-    resources: ["roles", "rolebindings"]
-    verbs: ["get", "list", "create", "update", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

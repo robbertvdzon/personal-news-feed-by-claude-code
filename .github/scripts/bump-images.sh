@@ -5,11 +5,11 @@
 # z'n eigen bump committed.
 #
 # Probleem dat dit oplost: bij een merge die meerdere images triggert
-# (bv. PR raakt zowel deploy/jira-poller/ als deploy/status-dashboard/),
-# starten de bijbehorende workflows parallel. Beide checken main uit,
-# beide muteren deploy/tooling/kustomization.yaml, beide proberen te
-# pushen. De eerste push slaagt; de tweede crasht op een non-fast-
-# forward met "Updates were rejected because the remote contains work".
+# (bv. PR raakt zowel newsfeedbackend/ als frontend/), starten de
+# bijbehorende workflows parallel. Beide checken main uit, beide muteren
+# deploy/base/kustomization.yaml, beide proberen te pushen. De eerste
+# push slaagt; de tweede crasht op een non-fast-forward met
+# "Updates were rejected because the remote contains work".
 #
 # Aanpak: vóór elke push-poging een verse `fetch + reset --hard
 # origin/main` doen, de kustomize-edit opnieuw toepassen (idempotent),
@@ -28,9 +28,9 @@
 #
 # Voorbeeld:
 #   .github/scripts/bump-images.sh \
-#     deploy/tooling \
-#     "ci: bump jira-poller to sha-abc123" \
-#     "ghcr.io/robbertvdzon/jira-poller=ghcr.io/robbertvdzon/jira-poller:sha-abc123"
+#     deploy/base \
+#     "ci: bump backend to sha-abc123" \
+#     "backend=ghcr.io/robbertvdzon/personal-news-feed-backend:sha-abc123"
 
 set -euo pipefail
 

@@ -31,10 +31,6 @@ DB_KEY="${DB_KEY:-PNF_DATABASE_URL}"
 # leest deze om fail-closed te bewijzen dat 'ie tegen de pr-<N>-branch
 # werkt (en niet prod). Waarde = branch-naam, bv. 'pr-42'.
 BRANCH_KEY="${BRANCH_KEY:-PREVIEW_DB_BRANCH}"
-# SF-229: SA waaraan we per preview-namespace secrets-read geven zodat de
-# tester de branch-DB-creds runtime kan lezen (zie deploy/claude-tester/rbac.yaml).
-TESTER_SA="${TESTER_SA:-claude-tester}"
-TESTER_SA_NS="${TESTER_SA_NS:-pnf-software-factory}"
 NEON_API="${NEON_API:-https://console.neon.tech/api/v2}"
 NEON_BRANCH_PREFIX="${NEON_BRANCH_PREFIX:-pr-}"
 NEON_DATABASE="${NEON_DATABASE:-neondb}"
@@ -230,39 +226,6 @@ patch_secret_branch_marker() {
     -p "{\"data\":{\"${BRANCH_KEY}\":\"${encoded}\"}}" >/dev/null
 }
 
-ensure_tester_secret_read() {
-  # SF-229: geef de claude-tester-SA secrets-read (get) in deze preview-
-  # namespace zodat 'ie de branch-DB-creds runtime kan lezen. Idempotent
-  # via `apply`. Bewust ALLEEN get/list op secrets (geen patch/delete) en
-  # ALLEEN in pnf-pr-* namespaces — prod blijft onbereikbaar voor de SA.
-  local ns="$1"
-  kubectl apply -f - >/dev/null 2>&1 <<YAML || log "  $ns: kon tester-secret-read-Role niet toepassen"
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: claude-tester-secret-read
-  namespace: ${ns}
-rules:
-  - apiGroups: [""]
-    resources: ["secrets"]
-    verbs: ["get", "list"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: claude-tester-secret-read
-  namespace: ${ns}
-subjects:
-  - kind: ServiceAccount
-    name: ${TESTER_SA}
-    namespace: ${TESTER_SA_NS}
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: claude-tester-secret-read
-YAML
-}
-
 # ─── main loop ───────────────────────────────────────────────────────────
 
 while true; do
@@ -286,9 +249,6 @@ while true; do
   for ns in "${app_namespaces[@]}"; do
     [[ -z "$ns" ]] && continue
     ensure_ns_with_label "$ns"
-    # SF-229: tester-SA secrets-read in deze preview-namespace (idempotent,
-    # ongeacht Neon-mode — read-recht is op zichzelf onschadelijk).
-    ensure_tester_secret_read "$ns"
 
     # Vanaf hier alleen Neon-werk; bij disabled-mode skippen we.
     if ! (( NEON_ENABLED )); then

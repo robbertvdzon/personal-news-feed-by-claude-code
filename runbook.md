@@ -6,7 +6,7 @@ namen van secrets en waar ze staan. Echte waarden: `deploy/secrets-cluster.env`
 (gitignored, op de laptop).
 
 > Stories voor dit project leven in **YouTrack** met key-prefix `NF-…`
-> (oudere stories: `KAN-…` in Jira, `SF-…` voor de Software Factory zelf).
+> (oudere stories: `KAN-…` in Jira).
 
 ---
 
@@ -21,11 +21,9 @@ events-ontdekking en multi-user support. Spec-first gebouwd met Claude Code
 - **Frontends:** Flutter (Dart, Riverpod) — twee web-apps:
   - `frontend/` → de volledige app (publiek op `news.vdzonsoftware.nl`)
   - `frontend-reader/` → read-only reader-variant
-  - `frontend-dashboard/` → status-dashboard van de Software Factory
 - **DB:** PostgreSQL (Neon, cloud) — Flyway-migraties bij start
-- **AI:** OpenAI (samenvatting/selectie/podcast/events — sinds SF-115/116 draait
-  de app volledig op OpenAI) · Tavily (websearch) · ElevenLabs (podcast-TTS).
-  Anthropic-key blijft alleen voor de Software-Factory runner, niet voor de app.
+- **AI:** OpenAI (samenvatting/selectie/podcast/events — de app draait volledig
+  op OpenAI) · Tavily (websearch) · ElevenLabs (podcast-TTS).
 - **Media:** `ffmpeg` (mp3-compressie) + `yt-dlp` (video-audio fallback) in het backend-image
 
 ---
@@ -50,11 +48,9 @@ Data:  Postgres (Neon, extern) — audio-bytes sinds V5 óók in Postgres.
 
 - **GitOps:** ArgoCD synct elke commit op `main` vanaf `deploy/overlays/openshift`
   (→ `deploy/base`). Geen handmatige deploy-stap.
-- **Software Factory:** een aparte laag (YouTrack-poller + `claude-runner` Jobs)
-  bouwt stories autonoom. Zie `docs/factory/` en `deploy/youtrack/`,
-  `deploy/jira-poller/`, `deploy/claude-runner/`.
 - **PR-previews:** elke `ai/*`-PR krijgt `https://pnf-pr-<N>.vdzonsoftware.nl`
-  via een ArgoCD ApplicationSet (`deploy/applicationset.yaml`).
+  via een ArgoCD ApplicationSet (`deploy/applicationset.yaml`) + de
+  `preview-ns-labeller` (Neon DB-branch per preview).
 
 ---
 
@@ -64,7 +60,7 @@ Data:  Postgres (Neon, extern) — audio-bytes sinds V5 óók in Postgres.
 |----------|------|-----|
 | **Productie** | OpenShift ns **`personal-news-feed`** | https://news.vdzonsoftware.nl (full app) · https://reader.vdzonsoftware.nl (reader) |
 | **PR-preview** | ns `pnf-pr-<N>` (per `ai/*`-PR) | `https://pnf-pr-<N>.vdzonsoftware.nl` |
-| **Software Factory** | ns `pnf-software-factory`, `youtrack` | YouTrack-route in cluster |
+| **YouTrack** | ns `youtrack` | YouTrack-route in cluster (story-tracking) |
 | **Lokaal** | je laptop | backend `:8080`, frontend `:3000`, reader `:3100` |
 
 - **Cluster:** Single-Node OpenShift (SNO) lab, API `https://api.sno.lab.vdzon.com:6443`
@@ -140,16 +136,9 @@ Bestanden staan lokaal (gitignored). Voor de assistent worden ze read-only besch
 - `PNF_OPENAI_API_KEY` — OpenAI (samenvatting/selectie/podcast/events/TTS-transcribe).
 - `PNF_TAVILY_API_KEY` — Tavily websearch (ad-hoc zoeken + events-discovery).
 - `PNF_ELEVENLABS_API_KEY` — ElevenLabs TTS voor podcast-audio.
-- `PNF_ANTHROPIC_API_KEY` — **niet** door de app gebruikt; alleen de Software-Factory runner.
 - `TUNNEL_TOKEN` — Cloudflare-tunnel token (cloudflared-pod → publiceert `*.vdzonsoftware.nl`).
-- `GITHUB_TOKEN` — PAT voor `gh`/`git push` naar deze repo (CI + factory).
-- `ATLASSIAN_API_KEY` — Jira API-key (oudere KAN-stories, jira-poller).
-- `SF_YOUTRACK_BASE_URL` / `SF_YOUTRACK_TOKEN` — YouTrack-API voor de Software Factory.
-- `CLAUDE_CODE_OAUTH_TOKEN` — Claude Code token voor de factory-runner-Jobs (`claude setup-token`).
-- `CLAUDE_AI_OAUTH_CREDENTIALS_JSON` — volledige Claude OAuth-creds voor interactive/remote-control sessies.
-- `FACTORY_DATABASE_URL` — aparte DB voor de factory / poller-state.
-- `DASHBOARD_ADMIN_PASSWORD` — admin-login van het status-dashboard.
-- `NEON_API_KEY` / `NEON_PROJECT_ID` — Neon API (DB-branches/beheer).
+- `GITHUB_TOKEN` — PAT voor `gh`/`git push` naar deze repo (CI + ArgoCD PR-preview-generator).
+- `NEON_API_KEY` / `NEON_PROJECT_ID` — Neon API (DB-branches/beheer, o.a. preview-branches).
 - `OPENSHIFT_API_TOKEN` — `oc login`-token voor het SNO-lab.
 
 ---
@@ -200,8 +189,8 @@ psql "$PSQL_URL" -c "SELECT count(*) FROM events WHERE username='robbert';"
     en pusht naar `ghcr.io/robbertvdzon/personal-news-feed-{backend,frontend,reader}:sha-<short>`
     (+ `:main` op main). Op een push naar `main` committet de job daarna de
     nieuwe SHA in `deploy/base/kustomization.yaml` (`.github/scripts/bump-images.sh`).
-  - Andere workflows: APK-builds, en images voor factory-onderdelen
-    (`runner`, `tester`, `labeller`, `jira-poller`, `status-dashboard`, `cost-monitor`).
+  - Andere workflows: APK-builds (`build-apk`, `build-apk-reader`) en de
+    preview-labeller-image (`labeller-image.yml`).
   - Auth: `GITHUB_TOKEN` uit de secrets-file → `GH_TOKEN="$GITHUB_TOKEN" gh ...`.
 - **OpenShift** — SNO-lab, `oc login` met `OPENSHIFT_API_TOKEN` (zie §8).
 - **ArgoCD** — GitOps; Application `personal-news-feed` (`deploy/argocd-application.yaml`)
@@ -209,7 +198,7 @@ psql "$PSQL_URL" -c "SELECT count(*) FROM events WHERE username='robbert';"
 - **Cloudflare Tunnel** — `cloudflared`-pod in de cluster, token `TUNNEL_TOKEN`.
   Public hostnames in het Cloudflare Zero-Trust dashboard → in-cluster services
   (`news`/`reader`/`pnf-pr-*` → `frontend`/`reader`/`preview-router` op `:8080`).
-- **AI/SaaS:** OpenAI, Tavily, ElevenLabs, Neon, YouTrack/Jira (Atlassian).
+- **AI/SaaS:** OpenAI, Tavily, ElevenLabs, Neon, YouTrack (story-tracking).
 
 ---
 
@@ -268,9 +257,8 @@ opruimen: `oc delete ns pnf-pr-<N>`.
 ## 9. Conventies
 
 - **Branches:** feature-/story-branches `ai/<KEY>` (bv. `ai/NF-123`) → PR → preview
-  → merge naar `main`. Stories in YouTrack (`NF-…`); de poller claimt een story
-  door 'm van `AI Ready` naar `AI IN PROGRESS` te zetten.
-- **Commits:** scope-prefix gebruikelijk (`feat`, `fix`, `ci`, `deploy`, `SF-…`).
+  → merge naar `main`. Stories in YouTrack (`NF-…`).
+- **Commits:** scope-prefix gebruikelijk (`feat`, `fix`, `ci`, `deploy`).
   CI-bumps heten `ci: bump images to sha-…`.
 - **Deploy:** uitsluitend via GitOps — push naar `main`, GitHub Actions bouwt +
   bumpt `kustomization.yaml`, ArgoCD synct. **Nooit handmatig `oc apply`** voor
@@ -280,5 +268,4 @@ opruimen: `oc delete ns pnf-pr-<N>`.
   `newsfeedbackend/newsfeedbackend/docker-compose-monitoring.yml`; backend
   exposeert `/actuator/prometheus`.
 - **Specs/docs:** `specs/` is de source of truth (openapi + functional/technical).
-  Software-Factory-docs in `docs/factory/`; story-worklogs in `docs/stories/`.
 ```

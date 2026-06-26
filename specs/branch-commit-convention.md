@@ -1,13 +1,13 @@
 # Branch- en commit-conventie
 
 Standaardisatie voor branches en commit-messages, zodat de AI-flow
-(claude-runner → JIRA → preview-deploys) eenduidig kan werken.
+(AI-gegenereerde branches → PR → preview-deploys) eenduidig kan werken.
 
 ## Branch-namen
 
 | Prefix | Wanneer | Voorbeeld |
 |---|---|---|
-| `ai/` | Automatisch gegenereerd door de claude-runner | `ai/PNF-42`, `ai/poc-version-endpoint` |
+| `ai/` | Automatisch gegenereerd (AI-flow) | `ai/PNF-42`, `ai/poc-version-endpoint` |
 | `feat/` | Mens-geïnitieerde feature (vrij format) | `feat/add-export-button` |
 | `fix/` | Mens-geïnitieerde bugfix | `fix/login-crash` |
 | `chore/` | Refactor, deploy-config, tooling | `chore/upgrade-spring-4.1` |
@@ -35,8 +35,7 @@ PNF-42: add /api/version endpoint
 poc-001: update OpenAPI spec for version endpoint
 ```
 
-De claude-runner valideert dit lokaal vóór push; de CI valideert het ook
-op pull-requests.
+De CI valideert dit op pull-requests (zie `.github/workflows/validate-pr.yml`).
 
 ### Op andere branches (richtlijn, niet afgedwongen)
 
@@ -62,8 +61,7 @@ Dit format is automatisch en hoeft niet apart afgedwongen te worden.
 ## PR-titels
 
 PR-titel volgt hetzelfde format als de eerste commit-message — dat wordt
-ook de squash-merge-commit. De claude-runner gebruikt automatisch
-`<id>: <eerste regel van task.md>` als titel.
+ook de squash-merge-commit.
 
 ## Waarom deze conventie
 
