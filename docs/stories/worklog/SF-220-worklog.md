@@ -13,3 +13,10 @@ Stappenplan:
 
 Done / rationale:
 - Story-log aangemaakt zodat plan, voortgang en uitvoering onderdeel worden van de PR.
+
+Review SF-312 (reviewer, 2026-06-26):
+- [info] Volledige story-diff (git diff main...HEAD) beoordeeld. Editors 1-op-1 verplaatst naar rss_feeds_screen.dart; gedrag identiek aan origineel.
+- [info] AC1-5 + AC7 voldaan: navigatie-ListTile met chevron, RSS/podcast add/open/delete + validatie-snackbar + transcriptie-toggle, logout-invalidations en providers intact, styling behouden, geen backend/OpenAPI/providerlogica (enkel stale doc-comment gefixt).
+- [info] Ongebruikte imports opgeruimd (url_launcher verwijderd, models.dart blijft nodig voor VersionInfo). Geen dangling referenties naar de verplaatste editors.
+- [info] flutter analyze/test niet lokaal gedraaid (runner zonder flutter-binary); CI valideert. Story-log schoon (geen JSON-artefacten). 4 widgettests dekken het nieuwe scherm.
+- Resultaat: akkoord.
