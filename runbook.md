@@ -60,7 +60,6 @@ Data:  Postgres (Neon, extern) — audio-bytes sinds V5 óók in Postgres.
 |----------|------|-----|
 | **Productie** | OpenShift ns **`personal-news-feed`** | https://news.vdzonsoftware.nl (full app) · https://reader.vdzonsoftware.nl (reader) |
 | **PR-preview** | ns `pnf-pr-<N>` (per `ai/*`-PR) | `https://pnf-pr-<N>.vdzonsoftware.nl` |
-| **YouTrack** | ns `youtrack` | YouTrack-route in cluster (story-tracking) |
 | **Lokaal** | je laptop | backend `:8080`, frontend `:3000`, reader `:3100` |
 
 - **Cluster:** Single-Node OpenShift (SNO) lab, API `https://api.sno.lab.vdzon.com:6443`
