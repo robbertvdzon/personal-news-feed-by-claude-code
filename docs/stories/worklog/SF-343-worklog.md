@@ -46,3 +46,20 @@ Akkoord. Volledige story-diff `main...HEAD` beoordeeld.
 - [info] De twee uitzonderingen (`PodcastAsyncConfig` `@Bean`-methodeparam, `PodcastTranscriptWorker` plain param zonder `val`) staan correct ongewijzigd — `@param:` zou daar een compilefout resp. nieuwe warning geven.
 - [info] Geen wijziging aan API-contract (`specs/openapi.yaml`), controllers, DB-schema, Flyway of Spring Modulith-modulegrenzen. Geen duplicate stereotype-annotaties. Geen rauwe JSON-artefacten in de worklog.
 - [info] Frontend-spoor bewust uitgesteld wegens ontbrekende flutter/Gradle-toolchain; toegestaan onder de pragmatische scope-clausule. Aandachtspunt voor story-afronding: de frontend-warnings uit de story-scope blijven hiermee open.
+
+## Test (SF-345)
+
+Geslaagd — story-brede test van de geleverde `main...HEAD`-diff (backend-only: 21x `@Value` -> `@param:Value` over 8 klassen).
+
+**Build & warnings (kern-acceptatiecriterium).**
+- `mvn -DskipTests clean compile` → BUILD SUCCESS; `0` deprecation-target-waarschuwingen (`"value parameter only"`) en `0` overige Kotlin-`w:`-regels. Baseline 21 → 0, geen nieuwe warnings.
+- `mvn test` → `Tests run: 19, Failures: 0, Errors: 0, Skipped: 0` — BUILD SUCCESS. De 3 unit-tests (RssFetcherImageUrl, AiPricingProperties, PodcastScriptParser) zijn DB-vrij; geen `@SpringBootTest`/Cucumber aanwezig, dus geen prod-DB aangeraakt.
+
+**Gedragsneutraliteit geverifieerd (preview `pnf-pr-143`, default test-user uit secret).**
+- Backend boot bewijst geslaagde injectie van álle `@param:Value`-velden; een gefaalde verplichte injectie (`app.jwt.secret`, zonder default) zou de Spring-context blokkeren. `/api/feed` zonder token → 403 (security-chain met JwtService actief).
+- Auth-flow: login met de vaste test-user → HTTP 200 + geldige 3-segment JWT (tekent met `JwtService` `@param:Value`-secret); dat token op `/api/feed` → 200 (sign+verify round-trip intact); fout wachtwoord → 401 (geen 500). De losse `{}`-login → 500 is pre-existing missing-field-deserialisatie, geen regressie.
+- UI-login via Flutter-canvas (Playwright, test-user) geslaagd; ingelogde Feed toont realistische testdata. Screenshots: `/work/screenshots/01-login.png`, `02-after-login.png`, `03-feed.png`.
+
+**Contract/scope-checks.** Diff raakt uitsluitend `*.kt` + deze worklog; geen `openapi.yaml`, controllers, Flyway/`*.sql` of module-grenzen. De twee gedocumenteerde uitzonderingen (`PodcastAsyncConfig` `@Bean`-methodeparam, `PodcastTranscriptWorker` plain param zonder `val`) staan correct ongewijzigd.
+
+**Open punt (geen blocker).** Frontend-spoor (Dart-analyzer/Android-Gradle-warnings) uit de story-scope is in deze run niet geleverd; toegestaan onder de pragmatische scope-clausule en reeds als aandachtspunt benoemd. Niet testbaar in deze tester-omgeving (geen flutter/Gradle-toolchain) en niet aanwezig in de diff. Alle wél geleverde acceptance criteria zijn groen.
