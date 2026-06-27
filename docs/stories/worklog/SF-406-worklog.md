@@ -102,3 +102,30 @@ app-boot, niet doc-correctheid; code-inspectie is hier de juiste testmethode.
 
 Geen drift gevonden buiten de reeds gecorrigeerde punten. AC1–AC6 voldaan.
 **Test geslaagd.**
+
+## Documentatie (SF-410, documenter)
+
+Onafhankelijke documentatie-verificatieronde over de volledige set
+(`README.md`, `runbook.md`, `specs/*`, `docs/factory/*`). De doorgevoerde
+correcties zijn opnieuw tegen de code (leidende bron) gecontroleerd:
+
+- Jackson: `pom.xml` r.100-105 = `com.fasterxml.jackson.module/datatype`;
+  `grep -rln tools.jackson` over `.kt`/`.xml` → 0 treffers. ✓
+- Geen `ApplicationModules`/`ModuleStructureTest` in de repo. ✓
+- Base-URL: `api_client.dart` (beide frontends) `defaultValue: 'http://localhost:8080'`;
+  `frontend/Makefile` + `frontend-reader/Makefile` `PROD_API ?= https://news.vdzonsoftware.nl`. ✓
+- `settings_screen.dart`: "Over deze app" (r.32, bovenaan) vóór "Debug"/"API-log"
+  (r.117/120, → `ApiLogScreen`); "Wachtwoord wijzigen" → `PUT /api/account/password` (r.317). ✓
+- `rss_detail_screen.dart`: alleen "Open bron"/"Origineel afspelen" + "Meer hierover";
+  geen "Open feed-item"-knop. ✓
+- Pricing: `AiPricingProperties` aanwezig en gebruikt in chat/tts/whisper-clients;
+  `grep openaiGpt4oMiniCost|openaiTtsCost` → 0 treffers. ✓
+- AI-model-defaults in docs komen overeen met `application.properties`
+  (`gpt-5.4-mini`/`gpt-5.4`/`gpt-5.4-nano`/`gpt-4o-mini-transcribe`). ✓
+
+Volledige stale-ref-sweep over `README.md`, `runbook.md`, `specs/`, `docs/factory/`
+(`tools.jackson`, `pnf.vdzon.com`, `topic_history.json`, `rss_items.json`,
+`openaiGpt4oMiniCost`, `openaiTtsCost`, "JSON-bestanden") → **0 resterende treffers**.
+
+Geen verdere documentatie-drift gevonden; alle relevante docs zijn in lijn met de code.
+De documentatie-diff van deze story bevat uitsluitend documentatiebestanden + dit worklog.
