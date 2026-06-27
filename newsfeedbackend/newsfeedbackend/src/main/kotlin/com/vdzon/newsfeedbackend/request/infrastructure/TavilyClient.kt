@@ -19,8 +19,8 @@ data class TavilyResult(val title: String, val url: String, val snippet: String,
 
 @Component
 class TavilyClient(
-    @Value("\${app.tavily.api-key:}") private val apiKey: String,
-    @Value("\${app.tavily.base-url:https://api.tavily.com}") private val baseUrl: String,
+    @param:Value("\${app.tavily.api-key:}") private val apiKey: String,
+    @param:Value("\${app.tavily.base-url:https://api.tavily.com}") private val baseUrl: String,
     private val mapper: ObjectMapper,
     private val callLogger: ExternalCallLogger
 ) {

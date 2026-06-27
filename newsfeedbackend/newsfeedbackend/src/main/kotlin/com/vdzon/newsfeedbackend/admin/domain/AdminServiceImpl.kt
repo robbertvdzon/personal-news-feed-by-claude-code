@@ -17,7 +17,7 @@ import java.util.Comparator
 @Service
 class AdminServiceImpl(
     private val users: UserRepository,
-    @Value("\${app.data-dir:./data}") private val dataDir: String
+    @param:Value("\${app.data-dir:./data}") private val dataDir: String
 ) : AdminService {
 
     private val log = LoggerFactory.getLogger(javaClass)

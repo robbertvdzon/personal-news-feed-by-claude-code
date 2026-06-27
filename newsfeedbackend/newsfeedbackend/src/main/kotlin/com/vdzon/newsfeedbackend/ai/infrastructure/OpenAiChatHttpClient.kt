@@ -32,9 +32,9 @@ import java.util.UUID
  */
 @Component
 class OpenAiChatHttpClient(
-    @Value("\${app.openai.api-key:}") private val apiKey: String,
-    @Value("\${app.openai.base-url:https://api.openai.com}") private val baseUrl: String,
-    @Value("\${app.openai.translate-model:gpt-4o-mini}") private val translateModel: String,
+    @param:Value("\${app.openai.api-key:}") private val apiKey: String,
+    @param:Value("\${app.openai.base-url:https://api.openai.com}") private val baseUrl: String,
+    @param:Value("\${app.openai.translate-model:gpt-4o-mini}") private val translateModel: String,
     private val pricing: AiPricingProperties,
     private val mapper: ObjectMapper,
     private val callLogger: ExternalCallLogger

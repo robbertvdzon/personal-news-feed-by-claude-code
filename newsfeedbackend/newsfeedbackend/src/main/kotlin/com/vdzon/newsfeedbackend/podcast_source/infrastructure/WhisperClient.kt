@@ -35,9 +35,9 @@ import kotlin.concurrent.thread
  */
 @Component
 class WhisperClient(
-    @Value("\${app.openai.api-key:}") private val openaiKey: String,
-    @Value("\${app.openai.base-url:https://api.openai.com}") private val openaiBaseUrl: String,
-    @Value("\${app.openai.whisper-model:whisper-1}") private val whisperModelFallback: String,
+    @param:Value("\${app.openai.api-key:}") private val openaiKey: String,
+    @param:Value("\${app.openai.base-url:https://api.openai.com}") private val openaiBaseUrl: String,
+    @param:Value("\${app.openai.whisper-model:whisper-1}") private val whisperModelFallback: String,
     private val aiModels: AiModelProperties,
     private val pricing: AiPricingProperties,
     private val mapper: ObjectMapper,

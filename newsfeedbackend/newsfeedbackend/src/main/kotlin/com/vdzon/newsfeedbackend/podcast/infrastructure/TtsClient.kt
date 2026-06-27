@@ -19,13 +19,13 @@ import java.util.UUID
 
 @Component
 class TtsClient(
-    @Value("\${app.openai.api-key:}") private val openaiKey: String,
-    @Value("\${app.openai.base-url:https://api.openai.com}") private val openaiBaseUrl: String,
-    @Value("\${app.elevenlabs.api-key:}") private val elevenKey: String,
-    @Value("\${app.elevenlabs.base-url:https://api.elevenlabs.io}") private val elevenBaseUrl: String,
-    @Value("\${app.elevenlabs.voice-interviewer:Jn7U4vF8ZkmjZIZRn4Uk}") private val voiceInterviewer: String,
-    @Value("\${app.elevenlabs.voice-guest:h6uBOiAjLKklte8hdYio}") private val voiceGuest: String,
-    @Value("\${app.openai.tts-model:tts-1}") private val ttsModel: String,
+    @param:Value("\${app.openai.api-key:}") private val openaiKey: String,
+    @param:Value("\${app.openai.base-url:https://api.openai.com}") private val openaiBaseUrl: String,
+    @param:Value("\${app.elevenlabs.api-key:}") private val elevenKey: String,
+    @param:Value("\${app.elevenlabs.base-url:https://api.elevenlabs.io}") private val elevenBaseUrl: String,
+    @param:Value("\${app.elevenlabs.voice-interviewer:Jn7U4vF8ZkmjZIZRn4Uk}") private val voiceInterviewer: String,
+    @param:Value("\${app.elevenlabs.voice-guest:h6uBOiAjLKklte8hdYio}") private val voiceGuest: String,
+    @param:Value("\${app.openai.tts-model:tts-1}") private val ttsModel: String,
     private val pricing: AiPricingProperties,
     private val mapper: ObjectMapper,
     private val callLogger: ExternalCallLogger

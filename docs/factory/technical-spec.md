@@ -73,3 +73,4 @@ module/
 - Logging: SLF4J — INFO voor job-start/einde, DEBUG voor externe API-aanroepen, WARN voor herstelbare fouten, ERROR voor niet-herstelbare fouten.
 - Authenticatie: JWT Bearer (HS256, 30 dagen geldig); alle endpoints beveiligd behalve de publieke: `/api/auth/**`, `/api/version`, `/api/shared/**`, `/ws/**` en `/actuator/**`. Admin-only: `/api/admin/**` (`ROLE_ADMIN`).
 - Jackson 3.x groupId: `tools.jackson` (niet `com.fasterxml.jackson` — Spring Boot 4 verschil).
+- `@Value` op een primary-constructor-*property* (`val`) krijgt een expliciet `@param:`-use-site-target (`@param:Value(...)`); dit voorkomt de Kotlin 2.x-waarschuwing over het toekomstige default-annotation-target en houdt injectie via de constructor-parameter identiek. Uitzonderingen: `@Value` op een `@Bean`-methodeparameter en op een plain constructor-parameter zonder `val`/`var` blijven zonder target (daar is `@param:` ongeldig resp. redundant).

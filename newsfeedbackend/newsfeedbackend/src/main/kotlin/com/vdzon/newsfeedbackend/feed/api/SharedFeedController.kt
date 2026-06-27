@@ -24,7 +24,7 @@ import org.springframework.web.bind.annotation.RestController
 class SharedFeedController(
     private val service: FeedService,
     private val settingsService: SettingsService,
-    @Value("\${app.shared-feed.username:robbert}") private val sharedUsername: String,
+    @param:Value("\${app.shared-feed.username:robbert}") private val sharedUsername: String,
 ) {
 
     @GetMapping("/feed")
