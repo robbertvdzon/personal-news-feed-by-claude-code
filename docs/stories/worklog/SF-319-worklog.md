@@ -42,3 +42,18 @@ preferences-beheer-UI). Code is leidend; alle wijzigingen blijven binnen de
 doc-scope. Geen geautomatiseerde tests van toepassing (alleen documentatie);
 verificatie via grep dat de diff uitsluitend doc-bestanden raakt en
 `docs/stories/**` (op deze worklog na) ongewijzigd is.
+
+## Review (SF-320, reviewer) — akkoord
+
+Volledige story-diff `main...HEAD` beoordeeld. Bevindingen geverifieerd tegen de
+code (waarheidsmaatstaf):
+- Scope: diff raakt alleen documentatie + deze worklog; geen code/config/`docs/stories`. (AC1, AC2)
+- Persistence: `spring.datasource` + Flyway `V1..V15` bevestigd; PostgreSQL/Neon-correctie klopt; spec-bestandsnamen rechtgetrokken. (AC3)
+- AI-provider: `application.properties` bevestigt OpenAI + `PNF_AI_MODEL_*`/`gpt-5.4-*`; "Claude"→"de AI" correct, conferentie/build-tool-namen terecht behouden. (AC6)
+- openapi: toegevoegde endpoints matchen de controllers 1-op-1; `/api/shared/**` publiek (`permitAll`) → `security:[]`, `/api/admin/**` ADMIN; alle controller-padgroepen gedekt; 36 `$ref`s resolven, geen tabs. (AC5)
+- Frontend-claims tegen Flutter-screens: discovery-tiles aanwezig, géén denylist/preferences-UI — correctie klopt. (AC4)
+- Test-suite-claim klopt: 3 unit-tests, geen Cucumber/WireMock/ModuleStructureTest (alleen deps in `pom.xml`).
+- `external_calls` als DB-tabel én `external_calls.jsonl`-logger bestaan beide in code — docs beschrijven beide correct.
+- Geen stray `agent_tips_update`/`phase`-JSON in gecommitte doc-bestanden.
+
+Geen blockers/bugs/suggesties. Akkoord.
