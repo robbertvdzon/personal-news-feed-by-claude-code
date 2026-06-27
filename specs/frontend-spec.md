@@ -57,6 +57,7 @@ AuthGate
     │       └── navigeer naar → EventDetailScreen
     └── Tab 4: SettingsScreen
             └── dialog → EditCategoryDialog
+            └── navigeer naar → RssFeedsScreen          (SF-220)
             └── dialog → AddCategoryDialog
             └── dialog → CleanupDialog
             └── navigeer naar → AdminScreen          (alleen voor admins, via "Beheer gebruikers"-knop)
@@ -307,12 +308,8 @@ Lijst van alle categorieën uit `GET /api/settings`.
 - Naam invoeren
 - Opslaan: PUT `/api/settings` met nieuwe categorie toegevoegd (ID gegenereerd op basis van naam)
 
-### RSS-feeds
-Lijst van geconfigureerde RSS-feed URLs uit `GET /api/rss-feeds`.
-
-- **Tik op URL:** opent URL in externe browser
-- **Verwijder-icoon (×):** verwijder feed-URL, PUT `/api/rss-feeds`
-- **Invoerveld + toevoegen-knop:** nieuwe URL toevoegen, PUT `/api/rss-feeds`
+### RSS-feeds (navigatie-tile, SF-220)
+Eén `ListTile` (`Icons.rss_feed`, titel "RSS-feeds", subtitle "RSS-feeds en podcast-bronnen beheren", `Icons.chevron_right`) die via `MaterialPageRoute` naar de **RSS-feeds-subpagina** (`RssFeedsScreen`, zie §9a) navigeert. De inline-editors voor RSS-feeds en podcast-bronnen stonden vóór SF-220 rechtstreeks op deze pagina; ze zijn nu naar de subpagina verplaatst zodat de Settings-tab korter blijft. Patroon is consistent met de bestaande Beheer-tiles (API-log/Admin).
 
 ### Achtergrond-taken
 Twee handmatige triggers voor de scheduled jobs (die zelf gewoon doorlopen op hun schedule — hourly RSS-refresh en de daily summary om 06:00):
@@ -379,6 +376,27 @@ Er is geen aparte Admin-tab in de bottom navigation bar — alle admin-functiona
 
 ---
 
+## 9a. RSS-feeds-subpagina (RssFeedsScreen, SF-220)
+
+Aparte subpagina (`frontend/lib/screens/rss_feeds_screen.dart`) met een eigen `AppBar` (titel "RSS-feeds"), bereikbaar via de navigatie-tile in de Settings-tab (§9). Bundelt het beheer van gewone RSS-feeds én podcast-RSS-bronnen op één scherm; de editors en hun gedrag zijn ongewijzigd t.o.v. de oude inline-secties op de Settings-tab. Puur frontend-herstructurering — geen backend-, API- of providerwijzigingen.
+
+### RSS-feeds (sectie)
+Lijst van geconfigureerde RSS-feed URLs uit `GET /api/rss-feeds` (`rssFeedsProvider`), met de gebruikelijke loading-spinner en error-tekst "Fout: …".
+
+- **Tik op URL:** opent URL (monospace-weergave) in externe browser
+- **Verwijder-icoon (×):** verwijder feed-URL, PUT `/api/rss-feeds` (`rssFeedsProvider.save`)
+- **Invoerveld + toevoegen-knop:** nieuwe URL toevoegen, PUT `/api/rss-feeds`
+
+### Podcast-bronnen (sectie, KAN-56)
+Lijst van podcast-RSS-bronnen uit `GET /api/podcast-feeds` (`podcastFeedsProvider`), eveneens met loading-spinner en "Fout: …"-afhandeling.
+
+- **Tik op URL:** opent de bron in externe browser
+- **"Transcriberen aan/uit"-toggle:** per bron schakelbaar; staat de toggle uit, dan valt de backend terug op de show-notes als input voor Claude (zonder Whisper-kosten).
+- **Verwijder-icoon:** verwijder bron, PUT `/api/podcast-feeds`
+- **Invoerveld + toevoegen-knop:** nieuwe URL toevoegen met synchrone server-side URL-validatie; een ongeldige URL geeft een snackbar (AC #7). Opslaan via `podcastFeedsProvider.save`.
+
+---
+
 ## 10. State Management Details
 
 De app gebruikt Riverpod. Providers zijn globaal beschikbaar via `ProviderScope` aan de root.
@@ -399,7 +417,8 @@ De app gebruikt Riverpod. Providers zijn globaal beschikbaar via `ProviderScope`
 | `rssItemsProvider` | RSS-items (`/api/rss`) |
 | `requestProvider` | Verzoeken + WebSocket-updates (gebruikt door Settings → Achtergrond-taken voor knop-state en klaar-toast) |
 | `settingsProvider` | Categorie-instellingen |
-| `rssFeedsProvider` | RSS-feed URLs |
+| `rssFeedsProvider` | RSS-feed URLs (gebruikt door RssFeedsScreen, §9a) |
+| `podcastFeedsProvider` | Podcast-RSS-bronnen + transcribe-toggle (KAN-56; gebruikt door RssFeedsScreen, §9a) |
 | `podcastProvider` | Podcasts + polling tijdens generatie |
 | `audioPlayerProvider` | Audiospelerstatus (`just_audio`) |
 | `appearanceProvider` | Lettergrootte-instelling (persistentie) |
