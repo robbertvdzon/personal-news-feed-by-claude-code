@@ -391,7 +391,7 @@ Lijst van geconfigureerde RSS-feed URLs uit `GET /api/rss-feeds` (`rssFeedsProvi
 Lijst van podcast-RSS-bronnen uit `GET /api/podcast-feeds` (`podcastFeedsProvider`), eveneens met loading-spinner en "Fout: …"-afhandeling.
 
 - **Tik op URL:** opent de bron in externe browser
-- **"Transcriberen aan/uit"-toggle:** per bron schakelbaar; staat de toggle uit, dan valt de backend terug op de show-notes als input voor Claude (zonder Whisper-kosten).
+- **"Transcriberen aan/uit"-toggle:** per bron schakelbaar; staat de toggle uit, dan valt de backend terug op de show-notes als input voor de AI-samenvatting (zonder Whisper-kosten).
 - **Verwijder-icoon:** verwijder bron, PUT `/api/podcast-feeds`
 - **Invoerveld + toevoegen-knop:** nieuwe URL toevoegen met synchrone server-side URL-validatie; een ongeldige URL geeft een snackbar (AC #7). Opslaan via `podcastFeedsProvider.save`.
 

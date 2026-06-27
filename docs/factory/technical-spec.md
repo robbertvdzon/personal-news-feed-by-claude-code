@@ -52,7 +52,7 @@ module/
 
 ## API-contract
 
-`specs/openapi.yaml` is de **source of truth**. De OpenAPI Generator Maven Plugin genereert Kotlin-interfaces in `target/generated-sources/openapi/`; controllers implementeren deze interfaces.
+`specs/openapi.yaml` is het handmatig onderhouden contract en de **source of truth** voor de API. Er is geen code-generatiestap: de controllers zijn met de hand geschreven Spring `@RestController`-klassen (`@RequestMapping`/`@GetMapping`/…) die consistent met `openapi.yaml` worden gehouden. `pom.xml` bevat geen OpenAPI Generator-plugin.
 
 ## Database
 
@@ -71,5 +71,5 @@ module/
 
 - Geen comments tenzij de WHY niet-vanzelfsprekend is.
 - Logging: SLF4J — INFO voor job-start/einde, DEBUG voor externe API-aanroepen, WARN voor herstelbare fouten, ERROR voor niet-herstelbare fouten.
-- Authenticatie: JWT Bearer (HS256, 30 dagen geldig); alle endpoints beveiligd behalve `/api/auth/**`, `/api/version`, `/ws/**`.
+- Authenticatie: JWT Bearer (HS256, 30 dagen geldig); alle endpoints beveiligd behalve de publieke: `/api/auth/**`, `/api/version`, `/api/shared/**`, `/ws/**` en `/actuator/**`. Admin-only: `/api/admin/**` (`ROLE_ADMIN`).
 - Jackson 3.x groupId: `tools.jackson` (niet `com.fasterxml.jackson` — Spring Boot 4 verschil).

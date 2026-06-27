@@ -38,8 +38,8 @@ IntelliJ detecteert automatisch het Maven-project via `pom.xml`.
 target/
 ```
 
-### Gegenereerde bronnen
-De OpenAPI Generator Maven Plugin genereert Kotlin-interfaces in `target/generated-sources/openapi/src/main/kotlin/`. IntelliJ markeert deze map automatisch als bronnenmap via de Maven-plugin. De gegenereerde interfaces staan in package `com.vdzon.newsfeedbackend.api`.
+### API-contract zonder code-generatie
+De build kent **geen** code-generatiestap: er staat geen OpenAPI Generator-plugin in `pom.xml` en er is geen `target/generated-sources/openapi/`-map. De controllers zijn met de hand geschreven Spring `@RestController`-klassen die `specs/openapi.yaml` als handmatig onderhouden contract volgen (zie §8).
 
 ---
 
@@ -61,6 +61,11 @@ De backend gebruikt **Spring Modulith** voor het afdwingen van modulegescheiden 
 | `ai` | `com.vdzon.newsfeedbackend.ai` | Gedeelde OpenAI-client + prijsconfiguratie (gebruikt door rss, feed, request, podcast, events) |
 | `storage` | `com.vdzon.newsfeedbackend.storage` | Gedeelde PostgreSQL/JDBC-opslag-utilities |
 | `websocket` | `com.vdzon.newsfeedbackend.websocket` | WebSocket handler voor request-statusupdates |
+| `admin` | `com.vdzon.newsfeedbackend.admin` | Gebruikersbeheer en AI-kostenoverzicht (admin-only endpoints) |
+| `external_call` | `com.vdzon.newsfeedbackend.external_call` | Logging en kostenberekening van externe API-aanroepen (`external_calls`-tabel) |
+| `podcast_source` | `com.vdzon.newsfeedbackend.podcast_source` | Ingest van podcast-RSS-bronnen en episode-verwerking (transcript-lookup) |
+| `version` | `com.vdzon.newsfeedbackend.version` | Build-/versie-info endpoint |
+| `common` | `com.vdzon.newsfeedbackend.common` | Gedeelde helpers (security, exceptions, Jackson-config) |
 
 ### Moduleregels (Spring Modulith)
 - Klassen in subpackages van een module zijn **privé** voor die module; alleen klassen direct in de moduleroot (of expliciet gemarkeerd als `@ApplicationModule(type = OPEN)`) zijn van buiten toegankelijk.
@@ -74,21 +79,17 @@ De backend gebruikt **Spring Modulith** voor het afdwingen van modulegescheiden 
 ```
 com.vdzon.newsfeedbackend.rss/
 ├── RssService.kt               ← publieke interface (zichtbaar voor andere modules)
-├── RssFeedService.kt           ← publieke interface
 ├── api/
-│   ├── RssController.kt        ← @RestController, implementeert gegenereerde RSSItemsApi
-│   ├── RssFeedsController.kt   ← @RestController, implementeert gegenereerde RSSFeedsApi
+│   ├── RssController.kt        ← @RestController (@RequestMapping("/api/rss"))
 │   └── dto/
 │       ├── RssItemResponse.kt  ← response DTO (wat de API teruggeeft)
 │       └── FeedbackRequest.kt  ← request DTO
 ├── domain/
 │   ├── RssServiceImpl.kt       ← implementatie (privé)
-│   ├── RssFeedServiceImpl.kt   ← implementatie (privé)
 │   ├── RssItem.kt              ← domeinmodel (privé)
-│   └── RssFeedPipeline.kt      ← pipeline orchestratie (privé)
+│   └── RssRefreshPipeline.kt   ← pipeline orchestratie (privé)
 └── infrastructure/
     ├── RssItemRepository.kt    ← PostgreSQL-opslag (privé)
-    ├── RssFeedRepository.kt    ← PostgreSQL-opslag (privé)
     └── RssFetcher.kt           ← HTTP RSS-fetch (privé)
 ```
 
@@ -101,12 +102,12 @@ Dezelfde structuur geldt voor alle andere modules.
 Elke module volgt een strikte drielagenstructuur: **API → Domain → Infrastructure**.
 
 ### Laag 1: API (Controller)
-- Implementeert de gegenereerde interface uit `openapi.yaml` (bijv. `RSSItemsApi`)
+- Is een handgeschreven Spring `@RestController` met `@RequestMapping` + `@GetMapping`/`@PostMapping`/…; het pad-/methodecontract volgt `openapi.yaml` (niet gegenereerd)
 - Ontvangt HTTP-requests met **request DTOs**
 - Roept de publieke service-interface aan (nooit rechtstreeks de repository)
 - Mapt domeinmodellen naar **response DTOs** vóór teruggave
 - Bevat **geen** business logic
-- Leest de ingelogde gebruiker via `SecurityContextHolder.getContext().authentication!!.name`
+- Leest de ingelogde gebruiker via `SecurityHelpers.currentUsername()` (wrapt `SecurityContextHolder`)
 
 ### Laag 2: Domain (Service)
 - Implementeert de publieke service-interface
@@ -188,8 +189,9 @@ Stel bij het begin van elke verwerking in:
 Dit zorgt dat alle logregels binnen één verwerking de gebruiker en het verzoek bevatten.
 
 ### Logformaat
-- **Development** (`application-dev.properties`): leesbare tekstopmaak
-- **Productie**: JSON-formaat via `logstash-logback-encoder` (compatibel met Grafana Loki)
+Standaard Spring Boot Logback met leesbare console-tekstopmaak. Er is op dit moment
+geen aparte `application-dev.properties` en geen `logstash-logback-encoder` in de
+build; productie-logs worden in OpenShift via `oc logs` bekeken.
 
 ---
 
@@ -231,18 +233,27 @@ management.prometheus.metrics.export.enabled=true
 
 ### Custom Metrics (Micrometer)
 
+De daadwerkelijk geregistreerde meters (via `MeterRegistry`):
+
 | Metriek | Type | Labels | Beschrijving |
 |---------|------|--------|--------------|
 | `newsfeed.rss.fetch.duration` | Timer | `username` | Duur RSS-verwerkingspipeline |
 | `newsfeed.rss.items.processed` | Counter | `username` | Artikelen verwerkt |
 | `newsfeed.rss.items.in.feed` | Counter | `username` | Artikelen geselecteerd voor feed |
-| `newsfeed.ai.calls.total` | Counter | `operation`, `model` | Totaal OpenAI API-aanroepen |
-| `newsfeed.ai.calls.duration` | Timer | `operation`, `model` | Latency OpenAI API |
-| `newsfeed.ai.cost.usd` | DistributionSummary | `operation` | Geschatte kosten per aanroep |
-| `newsfeed.ai.retries` | Counter | `operation` | Retry-pogingen bij rate limiting |
 | `newsfeed.podcast.generated` | Counter | `ttsProvider`, `status` | Podcasts gegenereerd |
 | `newsfeed.podcast.duration` | Timer | — | Generatieduur podcast |
+| `newsfeed.podcast.translated` | Counter | `status` | Vertaalde RSS-podcasts |
+| `newsfeed.podcast.translate.duration` | Timer | — | Duur podcast-vertaalpipeline |
 | `newsfeed.requests.processed` | Counter | `type`, `status` | Verzoeken afgerond |
+| `newsfeed.events.discovered` | Counter | `username` | Events ontdekt |
+| `newsfeed.events.discovery.duration` | Timer | `username` | Duur event-discovery |
+| `newsfeed.event_videos.discovered` | Counter | `username` | Event-video's ontdekt |
+| `newsfeed.event_videos.discovery.duration` | Timer | `username` | Duur video-discovery |
+| `newsfeed.event_videos.summary.count` | Counter | `result` | Video-samenvattingen |
+| `newsfeed.event_videos.summary.duration` | Timer | `result` | Duur video-samenvatting |
+
+> AI-call-kosten en aantallen worden niet als aparte Micrometer-metric bijgehouden,
+> maar in de tabel `external_calls` (per-call kostenlog), opvraagbaar via de admin-costs-endpoints.
 
 ### Docker Compose voor lokale monitoring
 Lever een `docker-compose-monitoring.yml` mee in de backendmap:
@@ -303,40 +314,10 @@ het Nederlands.
 
 ---
 
-## 8. Spec-first API (OpenAPI Generator)
+## 8. API-contract (`openapi.yaml`)
 
-De REST-interfaces worden gegenereerd uit `specs/openapi.yaml`. Controllers implementeren de gegenereerde interfaces; de generator maakt **geen** modellen aan (de bestaande Kotlin-domeinmodellen worden hergebruikt).
+`specs/openapi.yaml` is het **handmatig onderhouden** contract voor de REST-API en geldt als source of truth voor de interface tussen backend en frontend. Er is **geen** code-generatiestap in de build: `pom.xml` bevat geen `openapi-generator-maven-plugin` en er bestaat geen `target/generated-sources/openapi/`-map.
 
-### Maven plugin configuratie
-```xml
-<plugin>
-    <groupId>org.openapitools</groupId>
-    <artifactId>openapi-generator-maven-plugin</artifactId>
-    <version>7.12.0</version>
-    <executions>
-        <execution>
-            <goals><goal>generate</goal></goals>
-            <configuration>
-                <inputSpec>${project.basedir}/../../specs/openapi.yaml</inputSpec>
-                <generatorName>kotlin-spring</generatorName>
-                <apiPackage>com.vdzon.newsfeedbackend.api</apiPackage>
-                <modelPackage>com.vdzon.newsfeedbackend.model</modelPackage>
-                <generateModels>false</generateModels>
-                <configOptions>
-                    <interfaceOnly>true</interfaceOnly>
-                    <useSpringBoot3>true</useSpringBoot3>
-                    <useTags>true</useTags>
-                    <documentationProvider>none</documentationProvider>
-                    <skipDefaultInterface>true</skipDefaultInterface>
-                    <useBeanValidation>false</useBeanValidation>
-                </configOptions>
-            </configuration>
-        </execution>
-    </executions>
-</plugin>
-```
+De controllers zijn met de hand geschreven Spring `@RestController`-klassen (`@RequestMapping` + `@GetMapping`/`@PostMapping`/…) die direct met de bestaande Kotlin-domein-/DTO-modellen werken.
 
-De `kotlin-maven-plugin` moet de gegenereerde bronnenmap meenemen:
-```xml
-<sourceDir>${project.build.directory}/generated-sources/openapi/src/main/kotlin</sourceDir>
-```
+**Werkwijze bij een API-wijziging:** pas zowel `openapi.yaml` als de betreffende controller aan en houd ze consistent (paden, methoden, request/response-vorm). `openapi.yaml` wordt zo de bron die de implementatie beschrijft, niet genereert.
