@@ -104,3 +104,26 @@ Volledige story-diff t.o.v. `main` beoordeeld (`git diff main...HEAD`): 2 Kotlin
   twijfelgevallen zijn conform AC #6/#7 gedocumenteerd.
 
 Akkoord — kleine, veilige, gedrag-behoudende consistentie-pass conform de story.
+
+## Test (SF-394, tester)
+
+Story-brede verificatie t.o.v. `main` (`git diff main...HEAD`): 2 Kotlin-regels + worklog.
+
+- [pass] **Scope/AC #1,#4,#5:** alleen worklog + 2 log-string-literals gewijzigd; geen
+  wijziging aan openapi, migraties, deploy-config of (integratie)tests. Module-grenzen
+  en publieke zichtbaarheid intact (alleen binnen-module tekstwijziging).
+- [pass] **Gedrag-neutraliteit/AC #1:** enige codewijziging is een WARN-tekst in een
+  `catch`-tak (zelden geraakt fout-pad: alleen als wegschrijven van de external_call-rij
+  faalt). Geen logica-, payload-, contract-, volgorde- of timing-effect; geen log-asserts
+  in de suite.
+- [pass] **Norm/AC #2:** geverifieerd 10× Engelse `could not log external_call` en 0×
+  Nederlandse variant in `src/main/kotlin` — beide outliers correct gelijkgetrokken naar
+  de dominante (8:2) norm.
+- [pass] **Build/AC #3,#5:** `mvn -DskipTests test-compile` (JDK 21) → EXIT 0.
+  `git diff --check` schoon (geen whitespace-issues).
+- [info] **Frontend:** story bevat geen frontend-wijzigingen → geen browser-/preview-test
+  vereist (de WARN-logregel is sowieso niet UI-observeerbaar). Beide Flutter-apps
+  ongewijzigd.
+
+Uitkomst: **tested** — kleine, veilige, gedrag-behoudende consistentie-pass; alle
+acceptatiecriteria voldaan.
