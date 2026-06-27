@@ -136,7 +136,7 @@ class VideoAudioDownloader(
                 )
             )
         } catch (e: Exception) {
-            log.warn("[VideoAudio] kon external_call niet loggen: {}", e.message)
+            log.warn("[VideoAudio] could not log external_call: {}", e.message)
         }
     }
 }
