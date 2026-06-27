@@ -129,3 +129,25 @@ vereisen een dependency-migratie of architecturale refactor met buildrisico c.q.
 mogelijke gedragswijziging en vallen daarmee buiten "veilig herstellen". Conform de
 acceptance criteria is dit een geldige **minimale diff** (alleen dit worklog),
 met de bevindingen vastgelegd als input voor een aparte refactor-story.
+
+## Review (reviewer, SF-373)
+
+[info] Volledige story-diff t.o.v. `main` geverifieerd: alleen dit worklog
+(`git diff main...HEAD --stat` = 1 file, +131). Geen code-/testwijzigingen,
+dus gedrag-neutraal per definitie.
+
+[info] Audit-claims steekproefsgewijs geverifieerd en accuraat:
+- Geen `openapi-generator` in `pom.xml`; geen `Repository`-imports in
+  `*Controller.kt`.
+- De enige twee `@Value` zonder `@param:` zijn exact de gedocumenteerde
+  uitzonderingen (`PodcastAsyncConfig.kt:13` @Bean-param,
+  `PodcastTranscriptWorker.kt:47` plain param).
+- Afwijkingen A/B/C bevestigd aanwezig (Jackson `com.fasterxml`, cross-module
+  import `admin/domain/AdminServiceImpl.kt:5-6` → `auth.*`, `RssItem` met
+  `@JsonProperty` in `rss/RssService.kt`). De rationale "niet veilig-mechanisch
+  herstelbaar" is correct.
+
+[info] Worklog eindigt schoon, geen `agent_tips_update`/`phase`-JSON-artefacten.
+
+Akkoord: minimale diff is een geldige uitkomst conform de AC; niet-erroren is
+correct want geen conventie dwingt een gedragswijziging af.
