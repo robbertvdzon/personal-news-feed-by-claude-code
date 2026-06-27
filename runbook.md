@@ -147,7 +147,7 @@ Bestanden staan lokaal (gitignored). Voor de assistent worden ze read-only besch
 - **Type:** PostgreSQL, gehost bij **Neon** (cloud). Eén gedeelde DB voor prod én
   alle PR-previews (let op bij schema-migraties — die raken prod-data direct).
 - **Migraties:** Flyway, automatisch bij backend-start
-  (`src/main/resources/db/migration/`, t/m `V14`).
+  (`src/main/resources/db/migration/`, t/m `V15`).
 - **Belangrijke tabellen:** `users`, `rss_feeds`, `rss_items`, `feed_items`,
   `news_requests`, `topic_history`, `category_settings`, `external_calls`
   (AI-cost-log), `podcasts`, `podcast_feeds`, `podcast_episodes`,

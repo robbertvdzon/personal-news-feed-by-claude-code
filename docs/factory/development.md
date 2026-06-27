@@ -56,7 +56,7 @@ Of via IntelliJ (open `newsfeedbackend/newsfeedbackend/` als project).
 ## Conventions
 
 - **Maven-root**: open altijd `newsfeedbackend/newsfeedbackend/` als IntelliJ-projectroot.
-- **OpenAPI-first**: wijzig eerst `specs/openapi.yaml`, daarna de Kotlin-implementatie. Gegenereerde interfaces staan in `target/generated-sources/openapi/`.
+- **OpenAPI-first**: wijzig eerst `specs/openapi.yaml`, daarna de met de hand geschreven Kotlin-`@RestController`-implementatie, en houd beide consistent. Er is geen code-generatiestap (geen OpenAPI Generator-plugin in `pom.xml`).
 - **Spring Modulith**: modules communiceren alleen via publieke service-interfaces of Spring Application Events. Voer na module-wijzigingen `ModuleStructureTest` uit.
 - **Flyway**: nieuwe database-wijzigingen toevoegen als `V{n+1}__beschrijving.sql` in `src/main/resources/db/migration/`.
 - **Branches**: prefix `ai/` voor factory-branches (bv. `ai/PNF-2`).
@@ -70,4 +70,6 @@ cd newsfeedbackend/newsfeedbackend
 mvn test
 ```
 
-Cucumber-integratietests (in `src/test/resources/features/`) draaien als Spring Boot-integratietest met WireMock voor externe API-stubs.
+De Cucumber- en WireMock-dependencies staan in `pom.xml`, maar er zijn momenteel
+nog **geen** feature-bestanden, step-definitions of WireMock-stubs in de repo; de
+actuele testsuite bestaat uit enkele unit-tests (zie `specs/backend-technical-spec.md` §7).
