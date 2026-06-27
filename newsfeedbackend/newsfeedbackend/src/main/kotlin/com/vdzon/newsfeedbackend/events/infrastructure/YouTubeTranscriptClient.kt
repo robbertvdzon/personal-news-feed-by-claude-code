@@ -214,7 +214,7 @@ class YouTubeTranscriptClient(
                 )
             )
         } catch (e: Exception) {
-            log.warn("[YT-transcript] kon external_call niet loggen: {}", e.message)
+            log.warn("[YT-transcript] could not log external_call: {}", e.message)
         }
     }
 
