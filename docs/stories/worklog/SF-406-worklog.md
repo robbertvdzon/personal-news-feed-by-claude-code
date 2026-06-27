@@ -56,3 +56,21 @@ broncode toevoegen (incl. testcode) zou de story afkeuren. Er is daarom geen uni
 geschreven of build/test gedraaid — verificatie is gedaan via code-inspectie en grep
 tegen de leidende bron (controllers, `application.properties`, Flyway-migraties, Flutter-screens).
 De diff bevat alleen `specs/*` en `docs/factory/*` (+ deze worklog).
+
+## Review (SF-407, reviewer)
+
+[info] Volledige story-diff t.o.v. `main` beoordeeld. Diff raakt uitsluitend
+`specs/*`, `docs/factory/*` en deze worklog — geen broncode/build/migratie/
+`docs/stories/`-wijzigingen. **AC1 voldaan.**
+
+Alle doorgevoerde correcties tegen de code geverifieerd (code = leidend):
+- Jackson `com.fasterxml.jackson` — bevestigd in `pom.xml` + alle Kotlin-imports; geen `tools.jackson`.
+- Geen `ModuleStructureTest`/`ApplicationModules…verify()` in de repo (alleen 3 unit-tests) — correctie klopt.
+- Frontend: geen "Open feed-item"-knop; "Wachtwoord wijzigen" → `PUT /api/account/password`; Debug/API-log-sectie (`ApiLogScreen`); "Over deze app" bovenaan — alle vier geverifieerd in `settings_screen.dart`/`api_log_screen.dart`.
+- Base-URL default `http://localhost:8080`, prod `https://news.vdzonsoftware.nl` — bevestigd in `api_client.dart` + Makefiles (beide frontends).
+- `AiPricingProperties.tokenCost`/`characterCost` i.p.v. `Pricing.openai*` — bevestigd; podcast-translate/tts gebruiken deze.
+- `topic_history`/`rss_items` als Postgres-tabellen (geen JSON-op-schijf) — bevestigd.
+- Migraties t/m `V15` (V4 ontbreekt, normaal) — klopt met runbook.
+- `openapi.yaml` ongewijzigd en consistent met de controllers — bevestigd.
+
+Geen blockers, bugs of regressies. AC1–AC6 voldaan. **Akkoord.**
