@@ -10,6 +10,10 @@ name: Build container images
 #                              preview-deploy, dus zonder dit zou de
 #                              preview een non-existing image proberen
 #                              te pullen.
+#                              GEEN paths-filter: elke PR moet een image
+#                              met z'n SHA krijgen, anders faalt de preview
+#                              (ImagePullBackOff) op bv. docs-only PR's en
+#                              loopt de tester in een timeout.
 
 on:
   push:
@@ -22,11 +26,6 @@ on:
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
-    paths:
-      - 'newsfeedbackend/**'
-      - 'frontend/**'
-      - 'frontend-reader/**'
-      - '.github/workflows/build-images.yml'
   workflow_dispatch:
 
 permissions:
