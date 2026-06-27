@@ -74,3 +74,31 @@ Alle doorgevoerde correcties tegen de code geverifieerd (code = leidend):
 - `openapi.yaml` ongewijzigd en consistent met de controllers — bevestigd.
 
 Geen blockers, bugs of regressies. AC1–AC6 voldaan. **Akkoord.**
+
+## Test (SF-408, tester)
+
+Verificatie van de volledige story-diff t.o.v. `main` via code-inspectie (docs-only
+story; geen testcode geschreven of build gedraaid — dat zou AC1 schenden).
+
+**AC1 — diff uitsluitend documentatie:** `git diff --name-only main...HEAD` filteren op
+niet-`.md`/niet-worklog levert 0 bestanden → **alleen `.md`-bestanden gewijzigd**
+(`specs/*`, `docs/factory/*` + deze worklog). Geen broncode/build/migratie/
+`docs/stories/`-wijziging. ✓
+
+**Doorgevoerde correcties tegen de code (code = leidend), alle bevestigd:**
+- Jackson: `pom.xml` r.100-105 = `com.fasterxml.jackson.module/datatype`; `grep tools.jackson` → 0 treffers; alle imports `com.fasterxml.jackson`. ✓
+- Geen `ApplicationModules`/`ModuleStructureTest` in de repo (`grep -rln` → leeg). ✓
+- Base-URL: `api_client.dart` (beide frontends) `defaultValue: 'http://localhost:8080'`; prod via `Makefile PROD_API ?= https://news.vdzonsoftware.nl`. ✓
+- Frontend `settings_screen.dart`: "Wachtwoord wijzigen" → `put('/api/account/password', …)` (r.317); "API-log" → `ApiLogScreen` (r.120-124); "Over deze app" (r.32) **boven** "Debug" (r.117). ✓
+- `rss_detail_screen.dart`: alleen "Open bron"/"Origineel afspelen" + "Meer hierover"; **geen** "Open feed-item"-knop. ✓
+- Pricing: `AiPricingProperties.tokenCost/characterCost` in OpenAiChatHttpClient/TtsClient/WhisperClient; `grep openaiGpt4oMiniCost|openaiTtsCost` → 0 treffers. ✓
+- Persistentie: `grep topic_history.json|rss_items.json` → 0; `topic_history`/`rss_items` als tabellen in Flyway-migraties. ✓
+- Migraties V1..V15 (V4 ontbreekt — normaal). ✓
+- `openapi.yaml` ongewijzigd en dekt alle controller-mappings incl. `/api/account/{password,me}`, `/api/shared/{feed,categories}`, `/api/admin/users(+/password,/role,DELETE)`, `/api/admin/costs/{totals,daily,by-user,calls}`, `/api/events/{id}`. ✓
+- `event-preferences`/`event-denylist` niet via frontend-UI (`grep frontend/ frontend-reader/` → 0) — consistent met `functional-spec.md`. ✓
+
+Preview-omgeving (`pnf-pr-146`) levert de Flutter-SPA achter auth en bewijst hooguit
+app-boot, niet doc-correctheid; code-inspectie is hier de juiste testmethode.
+
+Geen drift gevonden buiten de reeds gecorrigeerde punten. AC1–AC6 voldaan.
+**Test geslaagd.**
