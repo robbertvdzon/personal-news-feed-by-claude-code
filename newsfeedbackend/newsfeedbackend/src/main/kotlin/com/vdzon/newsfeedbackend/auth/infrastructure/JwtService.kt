@@ -12,8 +12,8 @@ import javax.crypto.SecretKey
 
 @Component
 class JwtService(
-    @Value("\${app.jwt.secret}") private val secret: String,
-    @Value("\${app.jwt.ttl-days:30}") private val ttlDays: Long
+    @param:Value("\${app.jwt.secret}") private val secret: String,
+    @param:Value("\${app.jwt.ttl-days:30}") private val ttlDays: Long
 ) {
 
     private val key: SecretKey by lazy {

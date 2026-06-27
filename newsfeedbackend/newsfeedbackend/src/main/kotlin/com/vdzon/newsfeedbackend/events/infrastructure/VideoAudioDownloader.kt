@@ -35,8 +35,8 @@ import java.util.concurrent.TimeUnit
 @Component
 class VideoAudioDownloader(
     private val callLogger: ExternalCallLogger,
-    @Value("\${app.events.video.ytdlp-binary:yt-dlp}") private val ytdlpBinary: String,
-    @Value("\${app.events.video.audio-download-timeout-min:10}") private val timeoutMinutes: Long
+    @param:Value("\${app.events.video.ytdlp-binary:yt-dlp}") private val ytdlpBinary: String,
+    @param:Value("\${app.events.video.audio-download-timeout-min:10}") private val timeoutMinutes: Long
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
