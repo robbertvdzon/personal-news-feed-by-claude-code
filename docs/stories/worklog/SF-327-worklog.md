@@ -65,3 +65,17 @@ dus er zijn geen nieuwe (unit)tests nodig of mogelijk; backend-build/CI is niet
 beïnvloed. Verificatie is gedaan via grep/inspectie van de code (pom.xml,
 controllers, application.properties, db/migration, MeterRegistry-aanroepen,
 Flutter-screens).
+
+## Review (SF-328, reviewer)
+
+Volledige story-diff (`main...HEAD`) beoordeeld. Bevindingen geverifieerd tegen de code:
+- [info] Geen code-/configwijzigingen: diff raakt alleen docs + deze worklog (AC1/AC2 ✓).
+- [info] Geen OpenAPI Generator: bevestigd, geen plugin in `pom.xml`, geen `target/generated-sources/openapi/`; controllers zijn handgeschreven `@RestController` met `SecurityHelpers.currentUsername()`.
+- [info] Spring Modulith-moduletabel: `admin`, `external_call`, `podcast_source`, `version`, `common` bestaan als packages — correct aangevuld.
+- [info] Micrometer-metrics-tabel matcht 1-op-1 met de geregistreerde meters (`newsfeed.*`); de verwijderde `newsfeed.ai.*`-metrics bestaan inderdaad niet.
+- [info] Publieke endpoints in technical-spec matchen `SecurityConfig` (`/api/shared/**`, `/actuator/**`, admin-only `/api/admin/**`).
+- [info] Flyway t/m `V15` correct; geen `application-dev.properties` / `logstash-logback-encoder` aanwezig.
+- [info] AI-provider volledig OpenAI (`application.properties`), frontend-spec "Claude → AI-samenvatting" terecht.
+- [info] Geen JSON-procesartefacten in de worklog.
+
+Akkoord.
