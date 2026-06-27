@@ -179,7 +179,7 @@ Wordt elk uur automatisch uitgevoerd voor elke gebruiker. Handmatig te triggeren
 4. Sla alle nieuwe RssItems op (`inFeed: false`).
 5. Vraag de AI in één batch-aanroep om per artikel te bepalen of het in de feed hoort (maximaal ~50 artikelen per aanroep; bij meer artikelen worden ze opgesplitst in batches). Er is geen minimum of maximum percentage — als niets interessant genoeg is selecteert de AI niets, als alles interessant is selecteert de AI alles. `max_tokens` voor deze call is 16000 zodat 50+ verdicts comfortabel passen. **De parser is tolerant**: hij stript ` ```json ... ``` ` markdown-fences, vindt de eerste `[` of `{` (de eerdere van de twee — niet de eerste `{` binnen de array, want dan zou de array-opener worden overgeslagen) en gebruikt brace-/bracket-tracking met respect voor strings en escape-chars om de matchende sluiter te vinden. Zo werkt het ook als de AI prose ervoor zet of het in code-fences wikkelt. Context die meegestuurd wordt:
    - Categorieën + bijbehorende `extraInstructions` (gebruikersvoorkeur per categorie)
-   - Recente onderwerpen uit `topic_history.json` (gerangschikt op gewogen score van likes/sterren/news-count)
+   - Recente onderwerpen uit de `topic_history`-tabel (gerangschikt op gewogen score van likes/sterren/news-count)
    - Titels van eerder gelikete artikelen (max 20)
    - Titels van eerder afgewezen artikelen (max 20)
    - Titels van bewaarde (gesternde) artikelen (max 10)
@@ -317,8 +317,8 @@ Naast de zelf-gegenereerde DevTalk-podcasts kan een gebruiker een Engelse RSS-po
 4. **DONE** / **FAILED** — bij elke fout (translate-call faalt, TTS-chunk faalt, ffmpeg-concat faalt) wordt de podcast op `FAILED` gezet met een korte `error_message` die de UI mag tonen.
 
 **External call-logging:** elke OpenAI-call wordt gelogd via `ExternalCallLogger`:
-- `provider=openai`, `action=podcast_translate`, `unitType=tokens`, kosten op basis van `Pricing.openaiGpt4oMiniCost` ($0.0005 / 1k input, $0.002 / 1k output — story-tarieven).
-- `provider=openai`, `action=podcast_translate_tts`, `unitType=characters`, kosten op basis van `Pricing.openaiTtsCost` ($15 / 1M chars).
+- `provider=openai`, `action=podcast_translate`, `unitType=tokens`, kosten op basis van `AiPricingProperties.tokenCost(translateModel, …)` (per-model tarieven uit `app.ai.pricing`).
+- `provider=openai`, `action=podcast_translate_tts`, `unitType=characters`, kosten op basis van `AiPricingProperties.characterCost(...)` (tts-tarief uit `app.ai.pricing`, ~$15 / 1M chars).
 
 **UI-gedrag:** de "Vertaal & genereer"-knop staat op het RSS-podcast-detail-scherm. Vóór start verschijnt een dialog met de geschatte kosten (vertaling + TTS in $, 2 decimalen) die de Flutter-app client-side berekent uit de transcript-lengte. Zodra een vertaling bestaat (in progress of DONE) verandert de knop in "Bekijk vertaling" die naar het bestaande podcast-detail-scherm navigeert. In de Podcast-tab krijgt iedere vertaal-podcast een chip "Vertaald van \<feed-naam\>" met een tap-actie die teruggaat naar de bron-aflevering.
 
@@ -381,7 +381,7 @@ Per event-video kan de gebruiker een uitgebreide Nederlandse samenvatting laten 
 
 ### 6.7 Onderwerp-geschiedenis
 
-De onderwerp-geschiedenis (`topic_history.json`) wordt bijgehouden per gebruiker en bijgewerkt na:
+De onderwerp-geschiedenis (`topic_history`-tabel) wordt bijgehouden per gebruiker en bijgewerkt na:
 - Elke RSS-verwerking (topics van nieuwe items)
 - Elke podcast-generatie (topics uit script)
 - Like/dislike feedback (verhoogt/verlaagt relevantiescore)
@@ -539,7 +539,7 @@ Alle configuratie via `application.properties` of omgevingsvariabelen.
 
 ## 11. RSS-items opnieuw laten beoordelen
 
-De pipeline behandelt alleen artikelen waarvan de URL nog niet in `rss_items.json` staat. Wil je een batch opnieuw laten beoordelen, dan zijn er twee scenario's:
+De pipeline behandelt alleen artikelen waarvan de URL nog niet in de `rss_items`-tabel staat. Wil je een batch opnieuw laten beoordelen, dan zijn er twee scenario's:
 
 ### A. Alleen de AI-selectie opnieuw (goedkoop, behoudt summaries)
 

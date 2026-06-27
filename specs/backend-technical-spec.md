@@ -14,7 +14,7 @@
 
 | Dependency | Doel |
 |-----------|------|
-| `tools.jackson` (Jackson 3.x) | JSON-serialisatie — let op: **niet** `com.fasterxml.jackson`, Spring Boot 4 gebruikt een andere groupId |
+| `com.fasterxml.jackson.module:jackson-module-kotlin` + `com.fasterxml.jackson.datatype:jackson-datatype-jsr310` | JSON-serialisatie (Kotlin-support + Java-tijd) — `pom.xml` en alle imports gebruiken de `com.fasterxml.jackson`-groupId |
 | `io.jsonwebtoken:jjwt-api` / `jjwt-impl` / `jjwt-jackson` | JWT aanmaken en valideren |
 | `com.rometools:rome` | RSS 2.0 en Atom feeds parsen |
 | `spring-boot-starter-websocket` | WebSocket support — **niet** WebFlux |
@@ -73,7 +73,7 @@ De backend gebruikt **Spring Modulith** voor het afdwingen van modulegescheiden 
 - Communicatie tussen modules verloopt via:
   - Directe aanroep van de **publieke service-interface** van de doelmodule
   - Spring Application Events (`ApplicationEventPublisher`) voor losgekoppelde communicatie
-- Spring Modulith verificatie-test: één test die `ApplicationModules.of(Application::class.java).verify()` aanroept en faalt als moduleregels worden overtreden.
+- Spring Modulith-moduleregels kunnen worden afgedwongen met een test die `ApplicationModules.of(Application::class.java).verify()` aanroept; zo'n verificatie-test is op dit moment **niet** in de repo aanwezig (zie §7).
 
 ### Packagestructuur per module (voorbeeld: `rss`)
 ```

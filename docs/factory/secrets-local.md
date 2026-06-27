@@ -27,6 +27,6 @@ Of gebruik IntelliJ's Run-configuratie → Environment Variables.
 
 | Variabele | Doel |
 |-----------|------|
-| `API_BASE_URL` | Backend base URL (standaard `https://pnf.vdzon.com`) |
+| `API_BASE_URL` | Backend base URL (via `--dart-define`; default in code `http://localhost:8080`, prod-builds zetten `https://news.vdzonsoftware.nl`) |
 
 Bij lokaal testen: `--dart-define=API_BASE_URL=http://host.docker.internal:8080` (vanuit devcontainer) of `http://localhost:8080` (native host).
