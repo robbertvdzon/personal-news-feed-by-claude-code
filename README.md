@@ -9,6 +9,7 @@ Een zelf-gehoste, persoonlijke nieuwslezer met AI-curation, podcastgeneratie en 
 - Verwerkt ad-hoc zoekopdrachten: geef een onderwerp op en de AI zoekt en vat actuele artikelen samen
 - Genereert dagelijks een AI-nieuwsoverzicht
 - Genereert podcasts (script + audio) op basis van recente nieuwsartikelen, in een interview-format met twee stemmen
+- Ontdekt tech-events (Tavily + AI) en laat je events verwijderen (denylist)
 - Ondersteunt meerdere gebruikers, elk met volledig eigen data en instellingen
 
 ## Opbouw
@@ -17,7 +18,8 @@ Een zelf-gehoste, persoonlijke nieuwslezer met AI-curation, podcastgeneratie en 
 |-----|--------|
 | `specs/` | Specificaties (zie hieronder) |
 | `newsfeedbackend/` | Spring Boot backend (Kotlin, Maven) |
-| `frontend/` | Flutter app (iOS, Android, web) |
+| `frontend/` | Flutter app — volledige client (iOS, Android, web) |
+| `frontend-reader/` | Flutter app — read-only reader-variant |
 
 ## Hoe dit gebouwd is
 
@@ -39,9 +41,11 @@ De specificaties in de `specs/` map zijn het vertrekpunt: alle functionaliteit, 
 
 **Backend:** Spring Boot 4.x · Kotlin · Maven · Spring Modulith · Poort 8080
 
+**Database:** PostgreSQL (Neon) · Flyway-migraties
+
 **Frontend:** Flutter · Dart · Riverpod
 
-**AI:** Anthropic Claude (samenvatting, selectie, podcast) · Tavily (websearch) · OpenAI TTS / ElevenLabs (podcast audio)
+**AI:** OpenAI (samenvatting, selectie, podcast, events, transcriptie/TTS) · Tavily (websearch) · ElevenLabs (podcast audio)
 
 ## Ontwikkelen
 

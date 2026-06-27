@@ -11,7 +11,7 @@
 | Database | PostgreSQL (Neon cloud), Flyway-migraties |
 | Frontend | Flutter / Dart ^3.9 — iOS, Android, web |
 | State management | Riverpod 2.x |
-| AI | Anthropic Claude (samenvatting, selectie, discovery) |
+| AI | OpenAI (samenvatting, selectie, discovery, transcriptie/TTS) |
 | Search | Tavily websearch |
 | TTS | OpenAI TTS / ElevenLabs |
 | Deployment | OpenShift + ArgoCD (GitOps) |
@@ -33,7 +33,7 @@ Elke module is een top-level package onder `com.vdzon.newsfeedbackend`. Modules 
 | `podcast` | `…podcast` | Podcastgeneratie (script + audio) |
 | `settings` | `…settings` | Gebruikersinstellingen, denylist, event-voorkeuren |
 | `events` | `…events` | Tech-events ontdekken en beheren |
-| `ai` | `…ai` | Gedeelde Anthropic Claude-client |
+| `ai` | `…ai` | Gedeelde OpenAI-client + prijsconfiguratie |
 
 ## Lagenstructuur per module
 
@@ -63,7 +63,7 @@ module/
 ## Events & denylist (PNF-2)
 
 - `event_denylist`-tabel (V14-migratie): per-user soft-delete van events.
-- `EventDiscoveryPipeline` laadt de denylist bij elke run en slaat events op de denylist over (geen Tavily/Claude-calls).
+- `EventDiscoveryPipeline` laadt de denylist bij elke run en slaat events op de denylist over (geen Tavily/OpenAI-calls).
 - `DELETE /api/events/{id}`: verwijdert het event + bijbehorende FeedItem, voegt event-ID toe aan `event_denylist`.
 - Frontend: prullenbak-icoon in `EventDetailScreen` — na verwijderen navigeert de app terug naar de lijst.
 

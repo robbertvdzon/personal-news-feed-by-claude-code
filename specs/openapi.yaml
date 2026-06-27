@@ -48,6 +48,14 @@ tags:
     description: Wekelijks AI-ontdekte tech-events (KAN-65)
   - name: System
     description: Algemene systeem-informatie (geen authenticatie vereist)
+  - name: Account
+    description: Eigen account beheren (wachtwoord wijzigen, account verwijderen)
+  - name: Shared
+    description: Publiek (read-only) gedeelde feed (geen authenticatie vereist)
+  - name: Admin
+    description: Gebruikersbeheer — vereist ROLE_ADMIN
+  - name: Admin Costs
+    description: AI-/externe-API-kosten rapportage — vereist ROLE_ADMIN
 
 paths:
 
@@ -224,7 +232,7 @@ paths:
       description: |
         Slaat de volledige lijst met podcast-bronnen op (vervangt de oude).
         Per bron is een `transcribeEnabled`-toggle beschikbaar — uit betekent
-        terugvallen op show-notes als input voor de Claude-samenvatting.
+        terugvallen op show-notes als input voor de AI-samenvatting.
 
         Nieuwe URLs (die nog niet in de bestaande lijst staan) worden
         synchroon getoetst door de feed één keer op te halen. Bij een fout
@@ -434,12 +442,12 @@ paths:
       operationId: reselectRss
       summary: Voer alleen de AI-selectie-stap opnieuw uit
       description: |
-        Draait alleen stap 3 van de RSS-pipeline opnieuw: Claude bepaalt op
+        Draait alleen stap 3 van de RSS-pipeline opnieuw: de AI bepaalt op
         basis van de huidige gebruikersvoorkeuren welke al-opgeslagen items
         in de persoonlijke feed thuishoren. Geen nieuwe fetch, geen nieuwe
-        per-artikel-samenvatting — één Claude-call met de hele lijst.
+        per-artikel-samenvatting — één AI-call met de hele lijst.
 
-        Items waarvoor Claude een verdict geeft krijgen een bijgewerkte
+        Items waarvoor de AI een verdict geeft krijgen een bijgewerkte
         `inFeed` + `feedReason`. Items zonder verdict blijven onaangeraakt.
         Voor items die nieuw `inFeed=true` worden wordt een uitgebreide
         FeedItem-samenvatting (stap 4) gegenereerd.
@@ -1145,7 +1153,7 @@ paths:
       description: |
         KAN-67: synchrone on-demand-flow. De backend haalt het transcript
         op (eerst YouTube-ondertiteling — nl/en/asr — anders Whisper na
-        yt-dlp audio-download), stuurt het naar Claude voor een
+        yt-dlp audio-download), stuurt het naar de AI voor een
         uitgebreide Nederlandse samenvatting en slaat die op in
         `event_videos.summary_nl`. Idempotent: een tweede call met een
         al opgeslagen samenvatting komt direct terug zonder AI-calls.
@@ -1215,6 +1223,276 @@ paths:
               schema:
                 $ref: '#/components/schemas/StatusOk'
 
+  # ── Account ────────────────────────────────────────────────────────────────
+
+  /api/account/password:
+    put:
+      tags: [Account]
+      operationId: changePassword
+      summary: Wijzig het eigen wachtwoord
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '200':
+          description: Wachtwoord gewijzigd
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusOk'
+
+  /api/account/me:
+    delete:
+      tags: [Account]
+      operationId: deleteOwnAccount
+      summary: Verwijder het eigen account en alle bijbehorende data
+      responses:
+        '200':
+          description: Account verwijderd
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteAccountResult'
+
+  # ── Shared (publiek, read-only) ─────────────────────────────────────────────
+
+  /api/shared/feed:
+    get:
+      tags: [Shared]
+      operationId: getSharedFeed
+      summary: Publieke, read-only feed van de gedeelde gebruiker
+      description: Geen authenticatie vereist. Items zijn altijd als ongelezen/niet-gesterd gemarkeerd.
+      security: []
+      responses:
+        '200':
+          description: Lijst met feed-items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FeedItem'
+
+  /api/shared/categories:
+    get:
+      tags: [Shared]
+      operationId: getSharedCategories
+      summary: Publieke categorie-instellingen van de gedeelde gebruiker
+      description: Geen authenticatie vereist. Alleen ingeschakelde categorieën worden teruggegeven.
+      security: []
+      responses:
+        '200':
+          description: Lijst met categorieën
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CategorySettings'
+
+  # ── Admin (ROLE_ADMIN) ──────────────────────────────────────────────────────
+
+  /api/admin/users:
+    get:
+      tags: [Admin]
+      operationId: listUsers
+      summary: Lijst alle gebruikers (ROLE_ADMIN)
+      responses:
+        '200':
+          description: Lijst met gebruikers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminUserView'
+        '403':
+          description: Geen ROLE_ADMIN
+
+  /api/admin/users/{username}/password:
+    put:
+      tags: [Admin]
+      operationId: resetUserPassword
+      summary: Reset het wachtwoord van een gebruiker (ROLE_ADMIN)
+      parameters:
+        - $ref: '#/components/parameters/Username'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequest'
+      responses:
+        '200':
+          description: Wachtwoord gereset
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusOk'
+        '403':
+          description: Geen ROLE_ADMIN
+
+  /api/admin/users/{username}/role:
+    put:
+      tags: [Admin]
+      operationId: setUserRole
+      summary: Wijzig de rol van een gebruiker (ROLE_ADMIN)
+      parameters:
+        - $ref: '#/components/parameters/Username'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetRoleRequest'
+      responses:
+        '200':
+          description: Rol gewijzigd
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusOk'
+        '403':
+          description: Geen ROLE_ADMIN
+
+  /api/admin/users/{username}:
+    delete:
+      tags: [Admin]
+      operationId: deleteUser
+      summary: Verwijder een gebruiker (ROLE_ADMIN)
+      parameters:
+        - $ref: '#/components/parameters/Username'
+      responses:
+        '200':
+          description: Gebruiker verwijderd
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusOk'
+        '403':
+          description: Geen ROLE_ADMIN
+
+  # ── Admin Costs (ROLE_ADMIN) ────────────────────────────────────────────────
+
+  /api/admin/costs/totals:
+    get:
+      tags: [Admin Costs]
+      operationId: getCostTotals
+      summary: Totale kosten (vandaag, deze maand, dit jaar, alles) (ROLE_ADMIN)
+      responses:
+        '200':
+          description: Kostentotalen
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CostTotals'
+        '403':
+          description: Geen ROLE_ADMIN
+
+  /api/admin/costs/daily:
+    get:
+      tags: [Admin Costs]
+      operationId: getDailyCosts
+      summary: Kosten per dag (ROLE_ADMIN)
+      parameters:
+        - name: days
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 30
+            minimum: 1
+            maximum: 365
+      responses:
+        '200':
+          description: Dagelijkse kostenuitsplitsing
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DailyCostTotal'
+        '403':
+          description: Geen ROLE_ADMIN
+
+  /api/admin/costs/by-user:
+    get:
+      tags: [Admin Costs]
+      operationId: getCostsByUser
+      summary: Kosten per gebruiker over een periode (ROLE_ADMIN)
+      parameters:
+        - name: period
+          in: query
+          required: false
+          schema:
+            type: string
+            default: this_month
+            enum: [this_month, last_month, this_year, all]
+      responses:
+        '200':
+          description: Kosten per gebruiker
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UserCostTotal'
+        '403':
+          description: Geen ROLE_ADMIN
+
+  /api/admin/costs/calls:
+    get:
+      tags: [Admin Costs]
+      operationId: getExternalCalls
+      summary: Audit-log van externe API-calls, met filters (ROLE_ADMIN)
+      parameters:
+        - name: from
+          in: query
+          required: false
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          required: false
+          schema: { type: string, format: date-time }
+        - name: user
+          in: query
+          required: false
+          schema: { type: string }
+        - name: provider
+          in: query
+          required: false
+          schema: { type: string }
+        - name: action
+          in: query
+          required: false
+          schema: { type: string }
+        - name: status
+          in: query
+          required: false
+          schema: { type: string, enum: [ok, error] }
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 500
+            minimum: 1
+            maximum: 5000
+      responses:
+        '200':
+          description: Lijst met externe calls
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ExternalCall'
+        '403':
+          description: Geen ROLE_ADMIN
+
 # ── Components ─────────────────────────────────────────────────────────────────
 
 components:
@@ -1233,6 +1511,13 @@ components:
       schema:
         type: string
       description: Uniek ID van het item
+    Username:
+      name: username
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Gebruikersnaam van de doel-gebruiker
 
   schemas:
 
@@ -1342,7 +1627,7 @@ components:
           default: true
           description: |
             Wanneer false: pipeline downloadt de MP3 niet en gebruikt
-            de show-notes als input voor Claude. Bespaart Whisper-kosten
+            de show-notes als input voor de AI. Bespaart Whisper-kosten
             ten koste van de samenvattingskwaliteit.
 
     PodcastFeedsSettings:
@@ -1487,7 +1772,7 @@ components:
           nullable: true
           description: |
             KAN-67: uitgebreide Nederlandse samenvatting van de video-
-            inhoud (Claude op basis van YouTube- of Whisper-transcript).
+            inhoud (de AI op basis van YouTube- of Whisper-transcript).
             Null tot de gebruiker op "Maak samenvatting" drukt; daarna
             voor altijd aanwezig (server-side gecachet).
         createdAt:
@@ -1570,7 +1855,7 @@ components:
           description: |
             KAN-56: discriminator voor de RSS-tab. 'ARTICLE' voor klassieke
             RSS-artikelen, 'PODCAST' voor afleveringen ge-ingest via de
-            Whisper+Claude-pipeline.
+            Whisper+AI-pipeline.
         audioUrl:
           type: string
           default: ''
@@ -1590,7 +1875,7 @@ components:
           description: |
             KAN-60: 'show_notes' wanneer de samenvatting nog op de
             RSS-description gebaseerd is (tweefasen-ingest, fase 1);
-            'transcript' zodra Whisper+Claude opnieuw heeft gedraaid
+            'transcript' zodra Whisper+AI opnieuw heeft gedraaid
             (fase 2). De frontend toont een voorlopige-badge zolang
             summarySource='show_notes' is. Voor podcast-feeds met
             transcribeEnabled=false blijft 'show_notes' permanent.
@@ -1602,7 +1887,7 @@ components:
             KAN-62: lange Nederlandse samenvatting (~400-600 woorden, 3-5
             alinea's plain-text prose, geen markdown-headers) voor het
             podcast-detail-scherm. `null` voor (a) niet-podcast items en
-            (b) podcast cards die nog niet door de uitgebreide Claude-
+            (b) podcast cards die nog niet door de uitgebreide de AI-
             prompt heen zijn — de frontend valt in dat geval terug op
             `summary`. Wordt voor bestaande DONE-rijen achteraf gevuld
             door de PodcastBackfillRunner (binnen 20-30 min na deploy).
@@ -1616,7 +1901,7 @@ components:
             aflevering. Eén regel per bullet (max ~20 woorden), geen
             sub-bullets, geen markdown-headers. Lege lijst voor niet-
             podcast items en cards die nog niet door de uitgebreide
-            Claude-prompt heen zijn — detail-scherm verbergt de sectie.
+            AI-prompt heen zijn — detail-scherm verbergt de sectie.
         imageUrl:
           type: string
           nullable: true
@@ -1638,7 +1923,7 @@ components:
         titleNl:
           type: string
           description: |
-            Korte Nederlandse titel (max ~70 tekens), gegenereerd door Claude
+            Korte Nederlandse titel (max ~70 tekens), gegenereerd door de AI
             tegelijk met de samenvatting. Gebruikt op de feed-lijst en als
             headline op het detail-scherm. Leeg voor legacy items van vóór
             deze rewrite — frontend valt dan terug op `title`.
@@ -1653,7 +1938,7 @@ components:
           type: string
           description: |
             2-regel Nederlandse samenvatting (~30-50 woorden, **plain text**
-            — geen markdown), gegenereerd door Claude. Gebruikt als preview
+            — geen markdown), gegenereerd door de AI. Gebruikt als preview
             onder de titel op de feed-lijst. Leeg voor legacy items.
         url:
           type: string
@@ -2028,3 +2313,160 @@ components:
           type: boolean
           nullable: true
           description: "true=leuk, false=niet relevant, null=feedback verwijderen"
+
+    # Account
+
+    ChangePasswordRequest:
+      type: object
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword:
+          type: string
+        newPassword:
+          type: string
+
+    DeleteAccountResult:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ok
+        deleted:
+          type: boolean
+        username:
+          type: string
+
+    # Admin
+
+    AdminUserView:
+      type: object
+      properties:
+        id:
+          type: string
+        username:
+          type: string
+        role:
+          type: string
+          example: ROLE_USER
+
+    ResetPasswordRequest:
+      type: object
+      required: [newPassword]
+      properties:
+        newPassword:
+          type: string
+
+    SetRoleRequest:
+      type: object
+      required: [role]
+      properties:
+        role:
+          type: string
+          example: ROLE_ADMIN
+
+    # Admin Costs
+
+    CostTotals:
+      type: object
+      properties:
+        today:
+          type: number
+          format: double
+        thisMonth:
+          type: number
+          format: double
+        thisYear:
+          type: number
+          format: double
+        all:
+          type: number
+          format: double
+        callCountAll:
+          type: integer
+
+    DailyCostTotal:
+      type: object
+      properties:
+        date:
+          type: string
+          description: ISO-8601 (UTC) datum
+        total:
+          type: number
+          format: double
+        byProvider:
+          type: object
+          additionalProperties:
+            type: number
+            format: double
+          description: Kosten per provider
+        callCount:
+          type: integer
+
+    UserCostTotal:
+      type: object
+      properties:
+        username:
+          type: string
+        total:
+          type: number
+          format: double
+        byProvider:
+          type: object
+          additionalProperties:
+            type: number
+            format: double
+          description: Kosten per provider
+        callCount:
+          type: integer
+
+    ExternalCall:
+      type: object
+      properties:
+        id:
+          type: string
+        provider:
+          type: string
+          description: "bijv. openai, elevenlabs, tavily, rss, web"
+        action:
+          type: string
+          description: "bijv. rss_summarize, podcast_transcribe, event_discovery"
+        username:
+          type: string
+        startTime:
+          type: string
+          format: date-time
+        endTime:
+          type: string
+          format: date-time
+        durationMs:
+          type: integer
+          format: int64
+        tokensIn:
+          type: integer
+          format: int64
+          nullable: true
+        tokensOut:
+          type: integer
+          format: int64
+          nullable: true
+        units:
+          type: integer
+          format: int64
+          nullable: true
+          description: Context-afhankelijk (TTS=#chars, Tavily=1)
+        unitType:
+          type: string
+          enum: [tokens, characters, queries, items, seconds, bytes]
+        costUsd:
+          type: number
+          format: double
+        status:
+          type: string
+          enum: [ok, error]
+        errorMessage:
+          type: string
+          nullable: true
+        subject:
+          type: string
+          nullable: true
+          description: Vrije context (bijv. artikeltitel)

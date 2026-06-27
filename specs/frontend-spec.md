@@ -98,9 +98,9 @@ Toont de gecureerde persoonlijke feed: `GET /api/feed` (gesorteerd op `createdAt
 
 ### FeedItem-kaart (in de lijst)
 Toont per item:
-- **Titel:** de Nederlandse `titleNl` van het item (door Claude tegelijk met de samenvatting gegenereerd, ~70 tekens). Voor legacy items zonder `titleNl` valt de UI terug op het originele `title`-veld.
+- **Titel:** de Nederlandse `titleNl` van het item (door de AI tegelijk met de samenvatting gegenereerd, ~70 tekens). Voor legacy items zonder `titleNl` valt de UI terug op het originele `title`-veld.
 - **Bron, relatieve tijd, categorie, datum** uit de bekende velden. De relatieve tijd toont hoe lang geleden het item bij ons binnenkwam (op basis van `createdAt`): "12 minuten geleden", "3 uur geleden", "2 dagen geleden", of een absolute datum (DD-MM-YYYY) na 3 dagen. Toont niets voor legacy items zonder timestamp. Helper: `lib/util/time_format.dart`.
-- **Preview:** de `shortSummary` (2 regels Nederlandse plain-text, ~30-50 woorden, eveneens door Claude gegenereerd). Voor legacy items zonder `shortSummary` valt de kaart terug op een afgekapte versie van de lange `summary`. De preview wordt **als Markdown** gerenderd via `MarkdownBody`, zodat `**vet**`, `*cursief*` en `` `code` `` netjes worden opgemaakt — vooral relevant voor de fallback uit de lange summary die volop markdown bevat. Lengte wordt begrensd door eerst de eerste paragraaf te pakken en die af te kappen rond 240 tekens (op woordgrens, met `…`); headers/lijst-bullets worden via een aangepaste `MarkdownStyleSheet` als gewone tekst gerenderd om kaart-overflow te voorkomen.
+- **Preview:** de `shortSummary` (2 regels Nederlandse plain-text, ~30-50 woorden, eveneens door de AI gegenereerd). Voor legacy items zonder `shortSummary` valt de kaart terug op een afgekapte versie van de lange `summary`. De preview wordt **als Markdown** gerenderd via `MarkdownBody`, zodat `**vet**`, `*cursief*` en `` `code` `` netjes worden opgemaakt — vooral relevant voor de fallback uit de lange summary die volop markdown bevat. Lengte wordt begrensd door eerst de eerste paragraaf te pakken en die af te kappen rond 240 tekens (op woordgrens, met `…`); headers/lijst-bullets worden via een aangepaste `MarkdownStyleSheet` als gewone tekst gerenderd om kaart-overflow te voorkomen.
 
 **Acties per kaart:**
 - **Tik:** open FeedItemDetailScreen
@@ -153,7 +153,7 @@ Toont: titel, bron, **relatieve tijd** ("12 minuten geleden" / "3 uur geleden" /
 ### RssItemDetailScreen
 Identiek qua PageView-navigatie en AppBar-acties als FeedItemDetailScreen.
 
-**Feed-status banner:** prominent zichtbaar onder de chips, met groene tint + check-icon als `inFeed: true` ("In persoonlijke feed") of oranje tint + info-icon als `inFeed: false` ("Niet in persoonlijke feed"). Onder de kop staat het volledige `feedReason`-veld met de motivatie van Claude. Als `feedReason` leeg is wordt een fallback-tekst getoond ("Geen reden door AI gegeven (mogelijk nog niet beoordeeld of API-key ontbreekt)") zodat de gebruiker altijd ziet of het item is beoordeeld.
+**Feed-status banner:** prominent zichtbaar onder de chips, met groene tint + check-icon als `inFeed: true` ("In persoonlijke feed") of oranje tint + info-icon als `inFeed: false` ("Niet in persoonlijke feed"). Onder de kop staat het volledige `feedReason`-veld met de motivatie van de AI. Als `feedReason` leeg is wordt een fallback-tekst getoond ("Geen reden door AI gegeven (mogelijk nog niet beoordeeld of API-key ontbreekt)") zodat de gebruiker altijd ziet of het item is beoordeeld.
 
 **Topics:** als `topics` niet leeg is worden ze als compacte chips onder de banner getoond.
 
@@ -167,7 +167,7 @@ Voor RssItems met `mediaType: 'PODCAST'` opent **niet** `RssItemDetailScreen` ma
 
 Het scherm gebruikt dezelfde PageView-navigatie en AppBar-acties (👍/👎/⭐/lees), maar de body bevat drie podcast-specifieke secties:
 
-1. **Lange samenvatting** (~400-600 woorden, 3-5 alinea's): gerenderd uit `longSummary`. Bij ontbrekende waarde (nog niet door uitgebreide Claude-prompt of niet-gebackfilled): valt terug op `summary` plus een cursieve hint *"Uitgebreide samenvatting wordt op de achtergrond verwerkt"*.
+1. **Lange samenvatting** (~400-600 woorden, 3-5 alinea's): gerenderd uit `longSummary`. Bij ontbrekende waarde (nog niet door de uitgebreide AI-prompt verwerkt of niet-gebackfilled): valt terug op `summary` plus een cursieve hint *"Uitgebreide samenvatting wordt op de achtergrond verwerkt"*.
 2. **Key takeaways**: bullet-list van `keyTakeaways` (5-10 regels). Sectie wordt verborgen wanneer de lijst leeg is.
 3. **Ruw transcript**: `ExpansionTile`, default ingeklapt. Bij eerste uitklap fetcht het scherm `GET /api/rss/{id}/transcript` (lazy — feed-listing transporteert geen 50-90k chars per podcast). Voor `summarySource='show_notes'`-items toont 'ie geen knop maar een placeholder *"Transcript wordt nog verwerkt"* (AC #5).
 
