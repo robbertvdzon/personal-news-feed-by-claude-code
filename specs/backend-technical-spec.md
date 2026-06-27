@@ -56,9 +56,10 @@ De backend gebruikt **Spring Modulith** voor het afdwingen van modulegescheiden 
 | `feed` | `com.vdzon.newsfeedbackend.feed` | Gecureerde feed-items beheren, feedback, cleanup |
 | `request` | `com.vdzon.newsfeedbackend.request` | Ad-hoc verzoeken en dagelijkse updates verwerken |
 | `podcast` | `com.vdzon.newsfeedbackend.podcast` | Podcast generatie (script + audio) |
-| `settings` | `com.vdzon.newsfeedbackend.settings` | Categorie-instellingen en RSS-feed URLs per gebruiker |
-| `ai` | `com.vdzon.newsfeedbackend.ai` | Gedeelde Anthropic Claude client (gebruikt door rss, feed, request, podcast) |
-| `storage` | `com.vdzon.newsfeedbackend.storage` | Gedeelde JSON-bestandsopslag utilities |
+| `settings` | `com.vdzon.newsfeedbackend.settings` | Categorie-instellingen, RSS-feed URLs, event-voorkeuren en -denylist per gebruiker |
+| `events` | `com.vdzon.newsfeedbackend.events` | Tech-events ontdekken, video's en beheren (incl. verwijderen) |
+| `ai` | `com.vdzon.newsfeedbackend.ai` | Gedeelde OpenAI-client + prijsconfiguratie (gebruikt door rss, feed, request, podcast, events) |
+| `storage` | `com.vdzon.newsfeedbackend.storage` | Gedeelde PostgreSQL/JDBC-opslag-utilities |
 | `websocket` | `com.vdzon.newsfeedbackend.websocket` | WebSocket handler voor request-statusupdates |
 
 ### Moduleregels (Spring Modulith)
@@ -86,8 +87,8 @@ com.vdzon.newsfeedbackend.rss/
 │   ├── RssItem.kt              ← domeinmodel (privé)
 │   └── RssFeedPipeline.kt      ← pipeline orchestratie (privé)
 └── infrastructure/
-    ├── RssItemRepository.kt    ← JSON-opslag (privé)
-    ├── RssFeedRepository.kt    ← JSON-opslag (privé)
+    ├── RssItemRepository.kt    ← PostgreSQL-opslag (privé)
+    ├── RssFeedRepository.kt    ← PostgreSQL-opslag (privé)
     └── RssFetcher.kt           ← HTTP RSS-fetch (privé)
 ```
 
@@ -116,8 +117,8 @@ Elke module volgt een strikte drielagenstructuur: **API → Domain → Infrastru
 - Mag events publiceren via `ApplicationEventPublisher`
 
 ### Laag 3: Infrastructure (Repository / Adapter)
-- **Repository:** leest en schrijft JSON-bestanden; geeft domeinmodellen terug
-- **Externe adapters:** HTTP-clients voor Anthropic, Tavily, TTS-providers; geven domeinmodellen of primitieven terug
+- **Repository:** leest en schrijft naar PostgreSQL (JDBC); geeft domeinmodellen terug
+- **Externe adapters:** HTTP-clients voor OpenAI, Tavily, TTS-providers; geven domeinmodellen of primitieven terug
 - Bevat geen business logic
 - Is volledig privé binnen de module
 
@@ -128,7 +129,7 @@ Elke module volgt een strikte drielagenstructuur: **API → Domain → Infrastru
 | HTTP-request body inkomend | Request DTO (`*Request`, `*Dto`) | `module/api/dto/` |
 | HTTP-response body uitgaand | Response DTO (`*Response`) | `module/api/dto/` |
 | Interne verwerking tussen lagen | Domeinmodel | `module/domain/` |
-| JSON-bestandsopslag | Persistentiemodel (mag gelijk zijn aan domeinmodel) | `module/infrastructure/` |
+| PostgreSQL-opslag | Persistentiemodel (mag gelijk zijn aan domeinmodel) | `module/infrastructure/` |
 
 Domeinmodellen worden **nooit** direct geserialiseerd naar HTTP-responses.
 
@@ -159,7 +160,7 @@ Domeinmodellen worden **nooit** direct geserialiseerd naar HTTP-responses.
 [RSS] stap 3/4: AI-selectie voor de persoonlijke feed ({n} kandidaten)
 [RSS]   selectie: {m} van {n} artikelen geselecteerd
 [RSS] stap 4/4: uitgebreide feed-samenvattingen genereren ({m} stuks)
-[RSS]   feed-item {i}/{m}: {title-truncated-80}    (per item, voor lange Claude-calls)
+[RSS]   feed-item {i}/{m}: {title-truncated-80}    (per item, voor lange AI-calls)
 [RSS] klaar: {n} nieuwe artikelen, {m} in feed, duur {s}s
 [Summary] dagelijkse samenvatting aangemaakt voor '{username}'
 ```
@@ -168,7 +169,7 @@ Deze stap-voor-stap progress-logs zijn essentieel voor de gebruiker tijdens een 
 
 **Externe API-aanroepen (DEBUG):**
 ```
-[Anthropic] Aanroep '{operationNaam}' voor gebruiker '{username}' — {n} tokens
+[OpenAI] Aanroep '{operationNaam}' voor gebruiker '{username}' — {n} tokens
   [Tavily] Zoeken op '{query}' — {n} resultaten
 [TTS] Audio segment gegenereerd: {n} tekens → {m}ms
 ```
@@ -235,8 +236,8 @@ management.prometheus.metrics.export.enabled=true
 | `newsfeed.rss.fetch.duration` | Timer | `username` | Duur RSS-verwerkingspipeline |
 | `newsfeed.rss.items.processed` | Counter | `username` | Artikelen verwerkt |
 | `newsfeed.rss.items.in.feed` | Counter | `username` | Artikelen geselecteerd voor feed |
-| `newsfeed.ai.calls.total` | Counter | `operation`, `model` | Totaal Claude API-aanroepen |
-| `newsfeed.ai.calls.duration` | Timer | `operation`, `model` | Latency Claude API |
+| `newsfeed.ai.calls.total` | Counter | `operation`, `model` | Totaal OpenAI API-aanroepen |
+| `newsfeed.ai.calls.duration` | Timer | `operation`, `model` | Latency OpenAI API |
 | `newsfeed.ai.cost.usd` | DistributionSummary | `operation` | Geschatte kosten per aanroep |
 | `newsfeed.ai.retries` | Counter | `operation` | Retry-pogingen bij rate limiting |
 | `newsfeed.podcast.generated` | Counter | `ttsProvider`, `status` | Podcasts gegenereerd |
@@ -277,97 +278,28 @@ Grafana dashboard (JSON-provisioning) toont minimaal:
 
 ---
 
-## 7. Integratie Tests met Cucumber
+## 7. Tests
 
-### Doel
-Elke feature in de functionele spec wordt gedekt door minimaal één Cucumber-scenario. De tests draaien als Spring Boot integratietest met een echte, maar lege datamap.
+### Huidige testsuite
+De automatische tests draaien met `mvn test` (JUnit 5 / Kotlin). De huidige suite
+in `src/test/kotlin/com/vdzon/newsfeedbackend/` bestaat uit gerichte unit-tests:
 
-### Dependencies
-```xml
-<dependency>
-    <groupId>io.cucumber</groupId>
-    <artifactId>cucumber-spring</artifactId>
-    <scope>test</scope>
-</dependency>
-<dependency>
-    <groupId>io.cucumber</groupId>
-    <artifactId>cucumber-junit-platform-engine</artifactId>
-    <scope>test</scope>
-</dependency>
-<dependency>
-    <groupId>org.wiremock</groupId>
-    <artifactId>wiremock-standalone</artifactId>
-    <scope>test</scope>
-</dependency>
-```
+- `rss/RssFetcherImageUrlTest.kt` — extractie van de afbeeldings-URL uit RSS
+- `ai/AiPricingPropertiesTest.kt` — OpenAI-prijsconfiguratie (`app.ai.pricing`)
+- `podcast/domain/PodcastScriptParserTest.kt` — parser van INTERVIEWER/GAST-scripts
 
-### Structuur
-```
-src/test/
-├── kotlin/com/vdzon/newsfeedbackend/
-│   ├── CucumberTestRunner.kt          ← @Suite, @SelectClasspathResource("features")
-│   ├── CucumberSpringConfig.kt        ← @SpringBootTest, @CucumberContextConfiguration
-│   └── steps/
-│       ├── AuthSteps.kt
-│       ├── RssSteps.kt
-│       ├── FeedSteps.kt
-│       ├── RequestSteps.kt
-│       ├── PodcastSteps.kt
-│       └── SettingsSteps.kt
-└── resources/
-    ├── features/
-    │   ├── auth.feature
-    │   ├── rss.feature
-    │   ├── feed.feature
-    │   ├── requests.feature
-    │   ├── podcast.feature
-    │   ├── settings.feature
-    │   ├── daily_update.feature
-    │   └── daily_summary.feature
-    └── wiremock/
-        ├── anthropic/                 ← stub-responses voor Claude API
-        ├── tavily/                    ← stub-responses voor Tavily
-        └── tts/                       ← stub-responses voor OpenAI/ElevenLabs TTS
-```
+### Beschikbare testtooling
+De `pom.xml` bevat naast JUnit 5 ook test-dependencies voor Cucumber
+(`cucumber-spring`, `cucumber-junit-platform-engine`) en WireMock
+(`wiremock-standalone`). Die zijn bedoeld voor toekomstige Spring Boot
+integratietests met gestubde externe API's (OpenAI, Tavily, TTS); er zijn op dit
+moment **nog geen** feature-bestanden, step-definitions of WireMock-stubs in de
+repo. Nieuwe integratietests volgen bij voorkeur de Given/When/Then-conventie in
+het Nederlands.
 
-### Test setup
-- `@SpringBootTest(webEnvironment = RANDOM_PORT)` — echte HTTP-requests via `TestRestTemplate`
-- WireMock-server start voor alle tests; stubt Anthropic, Tavily en TTS endpoints
-- Tijdelijke datamap per testrun (via `@TempDir` of `app.data-dir` in test-properties)
-- Elke scenario begint met een schone staat (gebruikersdata wordt voor elk scenario opgeruimd)
-
-### Feature-bestand conventies
-Schrijf scenario's in het **Nederlands**, in Given/When/Then-stijl:
-
-```gherkin
-# features/rss.feature
-Functionaliteit: RSS-artikelen verwerken
-
-  Scenario: Nieuwe RSS-artikelen worden opgehaald en samengevat
-    Gegeven een ingelogde gebruiker met RSS-feed "https://example.com/rss"
-    En de feed bevat 3 nieuwe artikelen
-    En de AI-stub geeft geldige samenvattingen terug
-    Als de dagelijkse update wordt getriggerd
-    Dan bevat de RSS-itemlijst 3 nieuwe items
-    En elk item heeft een samenvatting in het Nederlands
-    En elk item heeft een categorie toegewezen
-
-  Scenario: Artikel wordt geselecteerd voor de feed
-    Gegeven een ingelogde gebruiker met 5 verwerkte RSS-artikelen
-    En de AI-stub selecteert artikelen 1 en 3 voor de feed
-    Als de feed-selectie wordt uitgevoerd
-    Dan hebben artikelen 1 en 3 inFeed=true
-    En zijn er 2 FeedItems aangemaakt
-```
-
-### Spring Modulith verificatietest
-```kotlin
-// src/test/kotlin/.../ModuleStructureTest.kt
-@Test
-fun `modulestructuur voldoet aan Modulith regels`() {
-    ApplicationModules.of(Application::class.java).verify()
-}
-```
+> Spring Modulith-moduleregels kunnen geverifieerd worden met een test die
+> `ApplicationModules.of(Application::class.java).verify()` aanroept; voeg zo'n
+> test toe wanneer modulegrenzen geborgd moeten worden.
 
 ---
 

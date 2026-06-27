@@ -23,13 +23,16 @@ Personal News Feed is een zelf-gehoste, persoonlijke nieuwslezer met AI-curation
 personal-news-feed/
 ├── specs/                        ← deze map (specificaties)
 │   ├── README.md                 ← dit bestand
-│   ├── backend-spec.md           ← backend gedrag & architectuur
+│   ├── backend-functional-spec.md ← backend gedrag (black-box)
+│   ├── backend-technical-spec.md  ← backend architectuur & conventies
 │   ├── frontend-spec.md          ← frontend schermen & functionaliteit
 │   └── openapi.yaml              ← volledige REST API definitie (OpenAPI 3.1)
 ├── newsfeedbackend/              ← Spring Boot backend (Kotlin/Maven)
 │   └── newsfeedbackend/
 │       └── src/...
-└── frontend/                     ← Flutter frontend (Dart)
+├── frontend/                     ← Flutter frontend (Dart) — volledige app
+│   └── lib/...
+└── frontend-reader/              ← Flutter read-only reader-variant
     └── lib/...
 ```
 
@@ -56,14 +59,13 @@ Flutter app (frontend/)
       ▼                              ▼
 Spring Boot backend (newsfeedbackend/)
       │
-      ├── Bestandssysteem (JSON + MP3, geen database)
-      ├── Anthropic Claude API  (AI samenvatting, selectie, podcast)
-      ├── Tavily API            (websearch + extractie, alleen ad-hoc)
-      ├── OpenAI TTS API        (podcast audio, optioneel)
+      ├── PostgreSQL (Neon)     (alle data; Flyway-migraties; podcast-audio als BYTEA)
+      ├── OpenAI API            (AI samenvatting, selectie, podcast, events, transcriptie/TTS)
+      ├── Tavily API            (websearch + extractie: ad-hoc + events-discovery)
       └── ElevenLabs TTS API    (podcast audio, optioneel)
 ```
 
-**Backend:** Spring Boot 4.x, Kotlin 2.x, Maven, poort **8080**. Geen database — alle data als JSON-bestanden op schijf.
+**Backend:** Spring Boot 4.x, Kotlin 2.x, Maven, poort **8080**. Persistentie via **PostgreSQL** (Neon, cloud) met **Flyway**-migraties; podcast-audio staat als BYTEA in de database.
 
 **Frontend:** Flutter (Dart SDK ^3.9), Riverpod voor state management, `just_audio` voor podcast-afspelen.
 

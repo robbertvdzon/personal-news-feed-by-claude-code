@@ -14,27 +14,38 @@ De backend is een **persoonlijke nieuwsfeed-service** die:
 - Podcasts genereert (script + audio) op basis van recente nieuwsartikelen
 - Multi-user: elke gebruiker heeft volledig eigen data en instellingen
 
-**Stack:** REST API + WebSocket, JSON opslag op schijf (geen database), JWT authenticatie, asynchrone achtergrondverwerking. Voor de technische invulling hiervan: zie [`backend-technical-spec.md`](./backend-technical-spec.md).
+**Stack:** REST API + WebSocket, PostgreSQL (Neon) met Flyway-migraties, JWT authenticatie, asynchrone achtergrondverwerking. Voor de technische invulling hiervan: zie [`backend-technical-spec.md`](./backend-technical-spec.md).
 
 ---
 
 ## 2. Dataopslag
 
 ### Persistentie
-Alle data wordt opgeslagen als JSON-bestanden op het lokale bestandssysteem. Er is geen externe database. De rootmap is configureerbaar via `app.data-dir` (standaard `./data`).
+Alle data wordt opgeslagen in een **PostgreSQL**-database (gehost bij **Neon**,
+cloud). Het schema wordt bij elke start beheerd via **Flyway**-migraties in
+`src/main/resources/db/migration/` (`V1__init.sql` t/m de hoogste `V{n}`). De
+JDBC-URL komt binnen via `PNF_DATABASE_URL` (intern ook gemapt op
+`SPRING_DATASOURCE_URL`).
 
-Structuur:
+Belangrijkste tabellen:
 ```
-data/
-  users.json                          # alle gebruikersaccounts
-  users/{username}/
-    rss_items.json                    # ruwe RSS-artikelen
-    feed_items.json                   # gecureerde feed-items
-    news_requests.json                # verzoeken (ad-hoc + dagelijkse updates)
-    settings.json                     # categorie-instellingen
-    rss_feeds.json                    # geconfigureerde RSS-feed URLs
-    podcasts.json                     # podcast metadata
-    topic_history.json                # onderwerp-geschiedenis per gebruiker
+users                 # alle gebruikersaccounts (bcrypt)
+rss_feeds             # geconfigureerde RSS-feed URLs per gebruiker
+rss_items             # ruwe + verwerkte RSS-artikelen
+feed_items            # gecureerde feed-items
+news_requests         # verzoeken (ad-hoc + dagelijkse updates)
+category_settings     # categorie-instellingen per gebruiker
+topic_history         # onderwerp-geschiedenis per gebruiker
+podcasts              # podcast-metadata + audio (BYTEA)
+podcast_feeds         # podcast-feed URLs
+podcast_episodes      # podcast-source ingest/transcriptie
+events                # ontdekte tech-events
+event_videos          # video's per event
+event_preferences     # per-user event-zoekvoorkeuren
+event_denylist        # per-user verwijderde events
+external_calls        # audit-/kostenlog van externe API-calls
+shedlock              # scheduler-lock
+flyway_schema_history # Flyway-migratiehistorie
 ```
 
 Podcast-audio (MP3) wordt opgeslagen in de Postgres-tabel `podcasts`
@@ -44,10 +55,14 @@ OpenShift PVC kan de pod-user `/data/users` soms niet aanmaken
 audio-render-stap faalde. Door audio in de DB te zetten verdwijnt die
 dependency en gaat de audio mee in de DB-backup.
 
+Het pad `app.data-dir` (standaard `./data`) wordt alleen nog gebruikt voor het
+JSONL-audit-logbestand van externe calls (`external_calls.jsonl`) en runtime-/
+cleanup-paden — niet als primaire dataopslag.
+
 ### Concurrency
 - Alle achtergrondtaken zijn asynchroon (`@Async`).
 - Per-gebruiker vergrendeling voorkomt dat dezelfde gebruiker meerdere RSS-verwerkingen tegelijk uitvoert.
-- Maximaal 3 gelijktijdige Claude API-aanroepen (semaphore).
+- Maximaal 3 gelijktijdige OpenAI API-aanroepen (semaphore).
 
 ---
 
@@ -85,7 +100,7 @@ Wordt nooit via de API teruggegeven; `passwordHash` blijft altijd server-side.
 ---
 
 ### TopicEntry
-Onderwerp-geschiedenis per gebruiker. Wordt intern bijgehouden en als context meegegeven aan Claude; nooit direct via de API beschikbaar.
+Onderwerp-geschiedenis per gebruiker. Wordt intern bijgehouden en als context meegegeven aan de AI; nooit direct via de API beschikbaar.
 
 | Veld | Type | Beschrijving |
 |---|---|---|
@@ -102,7 +117,7 @@ Onderwerp-geschiedenis per gebruiker. Wordt intern bijgehouden en als context me
 ---
 
 ### Systeemcategorie "overig"
-De categorie `overig` is een speciale vangnetcategorie: als Claude een artikel niet in een van de gebruikerscategorieën kan plaatsen, krijgt het automatisch categorie `overig`. Deze categorie heeft `isSystem: true` en kan niet verwijderd worden.
+De categorie `overig` is een speciale vangnetcategorie: als de AI een artikel niet in een van de gebruikerscategorieën kan plaatsen, krijgt het automatisch categorie `overig`. Deze categorie heeft `isSystem: true` en kan niet verwijderd worden.
 
 ---
 
@@ -160,28 +175,28 @@ Wordt elk uur automatisch uitgevoerd voor elke gebruiker. Handmatig te triggeren
 **Pipeline:**
 1. Haal alle RSS-feeds op die de gebruiker geconfigureerd heeft (parallel, met connect-/read-timeout om hangende feeds niet de hele run te laten blokkeren). Filter artikelen ouder dan 4 dagen.
 2. Filter artikelen waarvan de URL al bekend is in de opgeslagen RssItems.
-3. Voor elk nieuw artikel: vraag Claude om een Nederlandse samenvatting (150-250 woorden), categorie-toewijzing en 2-3 canonieke onderwerpen. De prompt bevat per beschikbare categorie ook de gebruikersinstructies (`extraInstructions`) zodat Claude de meest passende categorie kan kiezen.
+3. Voor elk nieuw artikel: vraag de AI om een Nederlandse samenvatting (150-250 woorden), categorie-toewijzing en 2-3 canonieke onderwerpen. De prompt bevat per beschikbare categorie ook de gebruikersinstructies (`extraInstructions`) zodat de AI de meest passende categorie kan kiezen.
 4. Sla alle nieuwe RssItems op (`inFeed: false`).
-5. Vraag Claude in één batch-aanroep om per artikel te bepalen of het in de feed hoort (maximaal ~50 artikelen per aanroep; bij meer artikelen worden ze opgesplitst in batches). Er is geen minimum of maximum percentage — als niets interessant genoeg is selecteert Claude niets, als alles interessant is selecteert Claude alles. `max_tokens` voor deze call is 16000 zodat 50+ verdicts comfortabel passen. **De parser is tolerant**: hij stript ` ```json ... ``` ` markdown-fences, vindt de eerste `[` of `{` (de eerdere van de twee — niet de eerste `{` binnen de array, want dan zou de array-opener worden overgeslagen) en gebruikt brace-/bracket-tracking met respect voor strings en escape-chars om de matchende sluiter te vinden. Zo werkt het ook als Claude prose ervoor zet of het in code-fences wikkelt. Context die meegestuurd wordt:
+5. Vraag de AI in één batch-aanroep om per artikel te bepalen of het in de feed hoort (maximaal ~50 artikelen per aanroep; bij meer artikelen worden ze opgesplitst in batches). Er is geen minimum of maximum percentage — als niets interessant genoeg is selecteert de AI niets, als alles interessant is selecteert de AI alles. `max_tokens` voor deze call is 16000 zodat 50+ verdicts comfortabel passen. **De parser is tolerant**: hij stript ` ```json ... ``` ` markdown-fences, vindt de eerste `[` of `{` (de eerdere van de twee — niet de eerste `{` binnen de array, want dan zou de array-opener worden overgeslagen) en gebruikt brace-/bracket-tracking met respect voor strings en escape-chars om de matchende sluiter te vinden. Zo werkt het ook als de AI prose ervoor zet of het in code-fences wikkelt. Context die meegestuurd wordt:
    - Categorieën + bijbehorende `extraInstructions` (gebruikersvoorkeur per categorie)
    - Recente onderwerpen uit `topic_history.json` (gerangschikt op gewogen score van likes/sterren/news-count)
    - Titels van eerder gelikete artikelen (max 20)
    - Titels van eerder afgewezen artikelen (max 20)
    - Titels van bewaarde (gesternde) artikelen (max 10)
-6. Update `inFeed` en `feedReason` op alle nieuwe RssItems. **Ook items die níet geselecteerd worden krijgen een `feedReason`** (bv. "Niet geselecteerd voor de persoonlijke feed" of de motivatie van Claude). Zo weet de gebruiker altijd waarom een item wel/niet in de feed staat.
-7. Voor elk geselecteerd item: haal de volledige artikeltekst op via een eenvoudige HTML-fetch (max 8000 tekens, na strip van scripts/styles/nav/header/footer). Vraag Claude vervolgens in **één call** om drie Nederlandstalige velden op basis van die tekst + gebruikersinstructies van de toegewezen categorie:
+6. Update `inFeed` en `feedReason` op alle nieuwe RssItems. **Ook items die níet geselecteerd worden krijgen een `feedReason`** (bv. "Niet geselecteerd voor de persoonlijke feed" of de motivatie van de AI). Zo weet de gebruiker altijd waarom een item wel/niet in de feed staat.
+7. Voor elk geselecteerd item: haal de volledige artikeltekst op via een eenvoudige HTML-fetch (max 8000 tekens, na strip van scripts/styles/nav/header/footer). Vraag de AI vervolgens in **één call** om drie Nederlandstalige velden op basis van die tekst + gebruikersinstructies van de toegewezen categorie:
    - `titleNl`: korte beschrijvende Nederlandse titel (max ~70 tekens) — voor de feed-lijst en als headline op het detail-scherm.
    - `shortSummary`: 2-regel Nederlandse samenvatting (~30-50 woorden, **plain text**) — voor de preview onder de titel op de feed-lijst.
    - `longSummary`: uitgebreide journalistieke Nederlandse samenvatting (400-600 woorden, mag markdown bevatten zoals **vet** en aparte paragrafen, géén headers) — voor het detail-scherm.
 
-   Claude antwoordt met JSON `{"titleNl": "...", "shortSummary": "...", "longSummary": "..."}`. De parser is dezelfde tolerant-extractor als bij `selectFeedItems` (markdown-fence-strip + balanced-bracket extraction). Bij parse-fout valt elk veld terug op respectievelijk de originele RSS-titel, de eerste 200 tekens van de RssItem-samenvatting, en de complete ruwe AI-output — zodat een fout nooit een volledig leeg feed-item oplevert.
+   De AI antwoordt met JSON `{"titleNl": "...", "shortSummary": "...", "longSummary": "..."}`. De parser is dezelfde tolerant-extractor als bij `selectFeedItems` (markdown-fence-strip + balanced-bracket extraction). Bij parse-fout valt elk veld terug op respectievelijk de originele RSS-titel, de eerste 200 tekens van de RssItem-samenvatting, en de complete ruwe AI-output — zodat een fout nooit een volledig leeg feed-item oplevert.
 8. Sla FeedItems op en koppel `feedItemId` terug op de RssItems.
 9. Werk onderwerp-geschiedenis bij op basis van alle nieuwe items met topics.
 10. Stuur WebSocket updates bij elke statuswijziging van het bijbehorende `hourly-update-{username}` record.
 
 **Concurrency:** Per-gebruiker lock voorkomt overlappende runs.
 
-**Geen API-key:** Als `PNF_ANTHROPIC_API_KEY` ontbreekt logt de Claude-client een waarschuwing en retourneert hij een lege respons. De pipeline gaat door — items worden opgeslagen, maar zonder samenvatting/categorie/topics, en niets eindigt in de feed. Zet de env-var en trigger handmatig een refresh om dat goed te maken.
+**Geen API-key:** Als `PNF_OPENAI_API_KEY` ontbreekt logt de AI-client een waarschuwing en retourneert hij een lege respons. De pipeline gaat door — items worden opgeslagen, maar zonder samenvatting/categorie/topics, en niets eindigt in de feed. Zet de env-var en trigger handmatig een refresh om dat goed te maken.
 
 ---
 
@@ -191,7 +206,7 @@ Wordt elke dag om 06:00 automatisch uitgevoerd voor elke gebruiker. **Daarnaast 
 
 **Pipeline:**
 1. Verzamel alle FeedItems van de afgelopen 24 uur + alle RssItems van de afgelopen 7 dagen.
-2. Stuur dit naar Claude voor een uitgebreid Nederlandstalig dagelijks nieuwsoverzicht in Markdown-formaat (600-1000 woorden).
+2. Stuur dit naar de AI voor een uitgebreid Nederlandstalig dagelijks nieuwsoverzicht in Markdown-formaat (600-1000 woorden).
 3. Sla op als FeedItem met `isSummary: true` en ID `daily-summary-feed-{datum}`. Een eventueel bestaand item met hetzelfde ID wordt eerst verwijderd.
 4. Zet het `daily-summary-{username}` request op `DONE` met de geactualiseerde `costUsd` en `newItemCount`.
 
@@ -204,9 +219,9 @@ Wordt asynchroon gestart bij `POST /api/requests`.
 **Pipeline:**
 1. Haal RSS-feeds op die relevant zijn voor het opgegeven onderwerp.
 2. Filter op datum (`maxAgeDays`) en dedupliceer tegen bestaande RssItem URLs.
-3. Vraag Claude welke kandidaat-artikelen het best passen bij het onderwerp.
+3. Vraag de AI welke kandidaat-artikelen het best passen bij het onderwerp.
 4. Haal de volledige tekst op van de geselecteerde artikelen via Tavily `/extract`.
-5. Vraag Claude voor elk artikel een Nederlandse samenvatting te genereren.
+5. Vraag de AI voor elk artikel een Nederlandse samenvatting te genereren.
 6. Sla elk artikel direct op als FeedItem zodra het beschikbaar is (streaming aanpak).
 7. Werk de status bij na elk item; stuur WebSocket updates.
 8. Verzoek ondersteunt annulering: als het verzoek geannuleerd wordt, stopt de verwerking bij het eerstvolgende veilige moment.
@@ -228,12 +243,12 @@ Variaties:
 **Snelle fase (binnen 30s na refresh, AC #1):**
 1. Per `<item>` uit de feed-fetch: top-7-window (zelfde logica als KAN-56 — sorteer op `<pubDate>` DESC, neem 7) en filter op nieuwe GUIDs. Idempotency-cache: `(username, guid)` in `podcast_episodes`.
 2. Voor elke écht nieuwe aflevering: schrijf een `podcast_episodes`-rij (status `PENDING`) en kick een async-task ([PodcastEpisodeProcessor.processShowNotes]) per aflevering.
-3. `SUMMARIZING_FROM_NOTES`: Claude krijgt de `<description>` (show-notes) als input en levert in één call `shortSummary`, `longSummary`, `keyTakeaways`, `topics` en `category` (KAN-62). Geen MP3-download, geen Whisper-call. Resultaat: een `rss_items`-rij met `media_type='PODCAST'`, `summary_source='show_notes'`. De RSS-tab toont de card direct met een `📝 voorlopig`-badge.
+3. `SUMMARIZING_FROM_NOTES`: de AI krijgt de `<description>` (show-notes) als input en levert in één call `shortSummary`, `longSummary`, `keyTakeaways`, `topics` en `category` (KAN-62). Geen MP3-download, geen Whisper-call. Resultaat: een `rss_items`-rij met `media_type='PODCAST'`, `summary_source='show_notes'`. De RSS-tab toont de card direct met een `📝 voorlopig`-badge.
 4. Status naar `NEEDS_TRANSCRIPT` (of `SHOW_NOTES_DONE` bij uitgeschakelde transcriptie).
 
 **Async transcript-fase ([PodcastTranscriptWorker], @Scheduled fixedDelay):**
 - Tickt elke `app.podcast.transcript-worker.interval-ms` (default 2 min). Pakt **maximaal één aflevering per tick** op met `status=NEEDS_TRANSCRIPT` en `next_attempt_at <= now()` (FIFO over alle gebruikers, oudste eerst). AC #3.
-- Doorloopt `DOWNLOADING` → `TRANSCRIBING` → `SUMMARIZING` → `DONE`. Het transcript wordt opgeslagen, Claude genereert een nieuwe samenvatting en overschrijft `rss_items.summary` + `rss_items.long_summary` + `rss_items.key_takeaways` + zet `summary_source='transcript'` (badge verdwijnt — AC #5). KAN-62: Claude krijgt tot 80.000 chars transcript-input zodat de lange samenvatting (3-5 alinea's, ~400-600 woorden) het inhoudelijk verloop van een 60-90-min aflevering reflecteert i.p.v. alleen de opening.
+- Doorloopt `DOWNLOADING` → `TRANSCRIBING` → `SUMMARIZING` → `DONE`. Het transcript wordt opgeslagen, de AI genereert een nieuwe samenvatting en overschrijft `rss_items.summary` + `rss_items.long_summary` + `rss_items.key_takeaways` + zet `summary_source='transcript'` (badge verdwijnt — AC #5). KAN-62: de AI krijgt tot 80.000 chars transcript-input zodat de lange samenvatting (3-5 alinea's, ~400-600 woorden) het inhoudelijk verloop van een 60-90-min aflevering reflecteert i.p.v. alleen de opening.
 - **Rate-limit-retry (AC #4):** bij HTTP 429 of 5xx van Whisper blijft de aflevering op `NEEDS_TRANSCRIPT` met `retry_count++` en `next_attempt_at = now() + backoff`:
   - 1e mislukte poging → wacht 5 min
   - 2e → wacht 15 min
@@ -243,19 +258,19 @@ Variaties:
 - Bij een fatale fout (geen API-key, HTTP 4xx ≠ 429, parse-fout, lege transcript): status naar `SHOW_NOTES_DONE`. De show-notes-card blijft permanent staan; geen retry-storm.
 
 **Feed-promotie (AC #6):**
-- Voor podcasts is promotie naar de Feed-tab **niet automatisch via de hourly RSS-refresh**: de async transcript-worker (of de show-notes-fase bij `transcribeEnabled=false`) publiceert een `PodcastPromotionRequested`-event waarop `RssRefreshPipeline.promoteSingleItem(...)` reageert. Die draait de bestaande Claude-feed-selectie op precies die ene rss-rij en — bij positief verdict — genereert een FeedItem.
+- Voor podcasts is promotie naar de Feed-tab **niet automatisch via de hourly RSS-refresh**: de async transcript-worker (of de show-notes-fase bij `transcribeEnabled=false`) publiceert een `PodcastPromotionRequested`-event waarop `RssRefreshPipeline.promoteSingleItem(...)` reageert. Die draait de bestaande AI-feed-selectie op precies die ene rss-rij en — bij positief verdict — genereert een FeedItem.
 - Promotie gebeurt:
   - **Op het transcript-pad:** zodra `status=DONE` is gezet.
-  - **Op het show-notes-timeout-pad:** als een aflevering langer dan `app.podcast.transcript-worker.promotion-timeout-hours` (default 24h) op `NEEDS_TRANSCRIPT` staat én de show-notes-promotie nog niet eerder is getriggerd (kolom `feed_promotion_attempted_at IS NULL`). De aflevering blijft daarna `NEEDS_TRANSCRIPT` — de transcript-poging gaat door — maar het FeedItem is alvast aangemaakt op basis van de show-notes-samenvatting. De worker zet `feed_promotion_attempted_at = now()` vóór het publishen van het event, zodat een AI-afwijzing (die `rss_items.feed_item_id` op NULL laat) niet leidt tot een loop van Claude-selectie-calls op iedere tick.
+  - **Op het show-notes-timeout-pad:** als een aflevering langer dan `app.podcast.transcript-worker.promotion-timeout-hours` (default 24h) op `NEEDS_TRANSCRIPT` staat én de show-notes-promotie nog niet eerder is getriggerd (kolom `feed_promotion_attempted_at IS NULL`). De aflevering blijft daarna `NEEDS_TRANSCRIPT` — de transcript-poging gaat door — maar het FeedItem is alvast aangemaakt op basis van de show-notes-samenvatting. De worker zet `feed_promotion_attempted_at = now()` vóór het publishen van het event, zodat een AI-afwijzing (die `rss_items.feed_item_id` op NULL laat) niet leidt tot een loop van AI-selectie-calls op iedere tick.
 - De promoter is idempotent: rss-items met een bestaande `feed_item_id` worden overgeslagen.
 - `generateFeedItem(...)` gebruikt het transcript (via `PodcastTranscriptLookup`) i.p.v. de MP3-URL voor de uitgebreide samenvatting; bij show-notes-timeout-promotie valt 'ie terug op `snippet` (show-notes-tekst).
 - `FeedItem.media_type` wordt overgenomen van de bron-rss-rij zodat de Feed-tab filter (AC #8) op rij-niveau kan filteren.
 
 **Validatie bij toevoegen:** `PUT /api/podcast-feeds` toetst nieuwe URLs synchroon door één feed-fetch te doen. Faalt die binnen ~10s → HTTP 400 met Nederlandse foutmelding ("Kon feed niet ophalen: ..."). Bestaande URLs worden niet hertoetst.
 
-**Kosten:** ~$0.05 per aflevering (Whisper $0.006/min × ~7 min + Claude-samenvatting ~$0.011). Gelogd in `external_calls` als `podcast_transcribe`, `podcast_episode_summarize`, `podcast_audio_download`, `podcast_feed_fetch`.
+**Kosten:** ~$0.05 per aflevering (Whisper $0.006/min × ~7 min + AI-samenvatting ~$0.011). Gelogd in `external_calls` als `podcast_transcribe`, `podcast_episode_summarize`, `podcast_audio_download`, `podcast_feed_fetch`.
 
-**KAN-62 retroactieve verrijking ([PodcastBackfillRunner]):** bij elke app-start scant een achtergrond-runner alle `podcast_episodes` met `status=DONE`, `summary_source='transcript'` en `long_summary IS NULL` en draait Claude opnieuw op het al opgeslagen transcript om alsnog `long_summary` + `key_takeaways` te vullen. Geen nieuwe Whisper-call — transcript zit al in DB. Tempo: 5 seconden pauze tussen Claude-calls (single-threaded, daemon-thread) zodat een lopende backfill nieuwe live-podcast-ingest niet blokkeert en de Claude-quota gespaard blijven. Voor 14 bestaande rijen ≈ 8 min totaal. Idempotent — een tweede run vindt geen werk meer.
+**KAN-62 retroactieve verrijking ([PodcastBackfillRunner]):** bij elke app-start scant een achtergrond-runner alle `podcast_episodes` met `status=DONE`, `summary_source='transcript'` en `long_summary IS NULL` en draait de AI opnieuw op het al opgeslagen transcript om alsnog `long_summary` + `key_takeaways` te vullen. Geen nieuwe Whisper-call — transcript zit al in DB. Tempo: 5 seconden pauze tussen AI-calls (single-threaded, daemon-thread) zodat een lopende backfill nieuwe live-podcast-ingest niet blokkeert en de OpenAI-quota gespaard blijven. Voor 14 bestaande rijen ≈ 8 min totaal. Idempotent — een tweede run vindt geen werk meer.
 
 ---
 
@@ -268,9 +283,9 @@ Wordt asynchroon gestart bij `POST /api/podcasts`.
 **Pipeline:**
 1. Haal RSS-feeds op voor de opgegeven periode (`periodDays`).
 2. Laad gebruikersfeedback (gelikete/gedislikete/bewaarde artikeltitels) als context.
-3. Als geen `customTopics` opgegeven: vraag Claude om een redactioneel onderwerpenplan op te stellen op basis van de RSS-artikelen (Nederlands, journalistiek format).
-4. Vraag Claude een Nederlandstalig interviewscript te genereren in INTERVIEWER/GAST-format, afgestemd op de gewenste duur (~140 woorden per minuut). Met of zonder onderwerpenplan, of met `customTopics`.
-5. Vraag Claude om 5-10 onderwerpen te extraheren uit het script.
+3. Als geen `customTopics` opgegeven: vraag de AI om een redactioneel onderwerpenplan op te stellen op basis van de RSS-artikelen (Nederlands, journalistiek format).
+4. Vraag de AI een Nederlandstalig interviewscript te genereren in INTERVIEWER/GAST-format, afgestemd op de gewenste duur (~140 woorden per minuut). Met of zonder onderwerpenplan, of met `customTopics`.
+5. Vraag de AI om 5-10 onderwerpen te extraheren uit het script.
 6. Stel de podcasttitel samen: `"DevTalk {N}, {datum} — {onderwerp1}, {onderwerp2}"`.
 7. Werk onderwerp-geschiedenis bij (eerste helft van onderwerpen telt als diepgaand behandeld).
 8. Genereer audio via de gekozen TTS-provider, regel voor regel:
@@ -322,14 +337,14 @@ Voor elke bestaande gebruiker worden de vaste verzoekrecords `hourly-update-{use
 De events-module ontdekt per gebruiker grote tech-events (conferenties zoals JavaOne, KotlinConf, Spring I/O, Devoxx, KubeCon, Google I/O, OpenAI DevDay).
 
 - **Trigger**: wekelijkse cron `0 0 2 * * SUN` (zondag 02:00), eigen `@SchedulerLock` (`weeklyEventDiscovery`, lockAtMostFor=4h), los van de RssScheduler. Ook handmatig via `POST /api/events/discover` (mirror van de RSS-refresh) — knop in de Events-tab én in Settings. De handmatige trigger respecteert dezelfde voorkeuren-lijst.
-- **Primaire seed (KAN-68)**: een per-user lijst event-voorkeuren in Settings (`/api/settings/event-preferences`). Per naam draait één gerichte Tavily-search (`"<naam> conference <year> <year+1> dates location"`, max-results 10), gevolgd door één Claude-extract die de edities + sterk overlappende zuster-edities uithaalt. Max 20 seed-queries per run om kosten te begrenzen. Sensible defaults bij eerste aanmaak van een user: JavaOne, KotlinConf, Spring I/O, Code with Claude, OpenAI DevDay, Google I/O, Devoxx, KubeCon.
-- **"Similar"-aanvulling (KAN-68)**: na de seed-pass één extra Claude-call (`discoverEventsSimilar`) die op basis van de hele voorkeuren-lijst events binnen dezelfde scene/community/technologie voorstelt. Eén call per run per user — geen Tavily-grounding, valt terug op Claude's eigen kennis.
+- **Primaire seed (KAN-68)**: een per-user lijst event-voorkeuren in Settings (`/api/settings/event-preferences`). Per naam draait één gerichte Tavily-search (`"<naam> conference <year> <year+1> dates location"`, max-results 10), gevolgd door één OpenAI-extract die de edities + sterk overlappende zuster-edities uithaalt. Max 20 seed-queries per run om kosten te begrenzen. Sensible defaults bij eerste aanmaak van een user: JavaOne, KotlinConf, Spring I/O, Code with Claude, OpenAI DevDay, Google I/O, Devoxx, KubeCon.
+- **"Similar"-aanvulling (KAN-68)**: na de seed-pass één extra AI-call (`discoverEventsSimilar`) die op basis van de hele voorkeuren-lijst events binnen dezelfde scene/community/technologie voorstelt. Eén call per run per user — geen Tavily-grounding, valt terug op de eigen kennis van het model.
 - **Secundair: per categorie** (alleen ingeschakelde, niet-systeem categorieën, KAN-65 gedrag) draait nog steeds een Tavily-search met `days=365`. Blijft als aanvulling actief; dedup vangt overlap met de seed-pass op.
-- **Datum-recovery (KAN-68)**: events die uit Claude komen zonder valide `start_date` krijgen één extra gerichte Tavily-lookup (`"<naam> conference dates <year> <year+1>"`) + één kleine Claude-call die alleen de datum extraheert. Lukt dat niet, dan wordt het event verworpen (`rejectedNoDate`-counter in de log).
-- **Denylist (KAN-68)**: bij het verwerken van Claude-output worden events waarvan de genormaliseerde id op de per-user `/api/settings/event-denylist` staat overgeslagen. De denylist wordt door [Event-verwijdering](#evt-delete) gevuld; de gebruiker kan ids er via Settings weer afhalen.
+- **Datum-recovery (KAN-68)**: events die uit de AI komen zonder valide `start_date` krijgen één extra gerichte Tavily-lookup (`"<naam> conference dates <year> <year+1>"`) + één kleine AI-call die alleen de datum extraheert. Lukt dat niet, dan wordt het event verworpen (`rejectedNoDate`-counter in de log).
+- **Denylist (KAN-68)**: bij het verwerken van AI-output worden events waarvan de genormaliseerde id op de per-user `/api/settings/event-denylist` staat overgeslagen. De denylist wordt door [Event-verwijdering](#evt-delete) gevuld; de gebruiker kan ids er via Settings weer afhalen.
 - **Dedup** op de stabiele id per gebruiker: een bestaand event wordt bijgewerkt (feedItemId + createdAt behouden), een nieuw event wordt toegevoegd. Events met een begindatum ouder dan één jaar worden overgeslagen.
 - **Aankondiging**: bij een nieuw event wordt een gewoon Nederlands feed-item aangemaakt (`mediaType=ARTICLE`, categorie van het event) met een verwijzing naar de Events-sectie.
-- **Logging/metrics**: alle Claude-calls (`discoverEventsSeed`, `discoverEventsSimilar`, `discoverEventDate`, `discoverEvents`) worden gelogd als `event_discovery` in `external_calls`; Micrometer telt `newsfeed.events.discovered` en timet `newsfeed.events.discovery.duration`. Tavily logt zoals bestaand.
+- **Logging/metrics**: alle AI-calls (`discoverEventsSeed`, `discoverEventsSimilar`, `discoverEventDate`, `discoverEvents`) worden gelogd als `event_discovery` in `external_calls`; Micrometer telt `newsfeed.events.discovered` en timet `newsfeed.events.discovery.duration`. Tavily logt zoals bestaand.
 
 ### 6.8.1 Event-verwijdering en denylist (KAN-68) <a id="evt-delete"></a>
 
@@ -342,11 +357,11 @@ De events-module ontdekt per gebruiker grote tech-events (conferenties zoals Jav
 Per al ontdekt event (zie 6.8) worden wekelijks de online video's (keynotes/sessies) ontdekt. Aparte job van de event-discovery — er wordt in deze story nog **geen** samenvatting gemaakt, alleen de video plus een eventuele Nederlandse beschrijving opgeslagen.
 
 - **Trigger**: tweede wekelijkse cron `0 0 3 * * SUN` (zondag 03:00, één uur na de event-job), eigen `@SchedulerLock` (`weeklyEventVideoDiscovery`, lockAtMostFor=4h). Ook handmatig via `POST /api/events/videos/discover` — aparte knop in Settings naast de event-discovery-knop.
-- **Per opgeslagen event** (begindatum maximaal één jaar terug) draait een Tavily-search met `days=365` op naam + organisatie van het event. De resultaten gaan naar Claude (`mainModel`), die er de video's uit haalt: titel, video-URL en — indien beschikbaar — een Nederlandse beschrijving.
-- **Dedup** op de canonieke video-URL per (gebruiker, event): een bestaande video wordt bijgewerkt, een nieuwe toegevoegd. Maximaal 10 video's per event per run om de Tavily/Claude-kosten te beperken.
+- **Per opgeslagen event** (begindatum maximaal één jaar terug) draait een Tavily-search met `days=365` op naam + organisatie van het event. De resultaten gaan naar de AI (`mainModel`), die er de video's uit haalt: titel, video-URL en — indien beschikbaar — een Nederlandse beschrijving.
+- **Dedup** op de canonieke video-URL per (gebruiker, event): een bestaande video wordt bijgewerkt, een nieuwe toegevoegd. Maximaal 10 video's per event per run om de Tavily/de AI-kosten te beperken.
 - **Geen aankondiging**: video's genereren geen FeedItem (alleen events doen dat).
 - **Tonen**: in het event-detailscherm verschijnt een lijst klikbare video's; een tik opent de externe URL in de systeembrowser (`GET /api/events/{id}/videos`).
-- **Logging/metrics**: de Claude-call wordt gelogd als `event_video_discovery` in `external_calls`; Micrometer telt `newsfeed.event_videos.discovered` en timet `newsfeed.event_videos.discovery.duration`. Tavily logt zoals bestaand.
+- **Logging/metrics**: de AI-call wordt gelogd als `event_video_discovery` in `external_calls`; Micrometer telt `newsfeed.event_videos.discovered` en timet `newsfeed.event_videos.discovery.duration`. Tavily logt zoals bestaand.
 
 ### 6.10 Event-video-samenvatting on demand (KAN-67)
 
@@ -358,11 +373,11 @@ Per event-video kan de gebruiker een uitgebreide Nederlandse samenvatting laten 
   2. Idem met `lang=en`.
   3. Idem met `lang=en&kind=asr` (auto-gegenereerd).
   4. Whisper-fallback: `yt-dlp` downloadt de audio als MP3 naar een temp-file, [`AudioTranscoder`] zorgt dat 'ie onder de 24 MiB Whisper-limit blijft, [`WhisperClient`] transcribeert (zelfde foutbeleid als de podcast-flow: 429/5xx levert mislukking op, gebruiker mag opnieuw proberen).
-- **Samenvatting**: Claude (`mainModel`) maakt op basis van het transcript een 4-7 alinea NL plain-text samenvatting met focus op tools, sprekers, voorbeelden en concrete inhoud.
+- **Samenvatting**: de AI (`mainModel`) maakt op basis van het transcript een 4-7 alinea NL plain-text samenvatting met focus op tools, sprekers, voorbeelden en concrete inhoud.
 - **Persistentie**: de samenvatting wordt opgeslagen in `event_videos.summary_nl` via een aparte `UPDATE` (de discovery-upsert raakt dit veld bewust niet aan, anders zou een tweede discovery de samenvatting wissen). Het discovery-pad behoudt `summary_nl` bij `ON CONFLICT`.
-- **Idempotentie**: een tweede call met een al opgeslagen samenvatting komt direct terug zonder AI-calls. Een per-(user, event, video) `ReentrantLock` voorkomt dat twee gelijktijdige drukken op de knop twee Whisper-/Claude-calls triggeren.
+- **Idempotentie**: een tweede call met een al opgeslagen samenvatting komt direct terug zonder AI-calls. Een per-(user, event, video) `ReentrantLock` voorkomt dat twee gelijktijdige drukken op de knop twee Whisper-/AI-calls triggeren.
 - **Foutgedrag**: als zowel YouTube-transcript als Whisper niets oplevert, geeft het endpoint `502 Bad Gateway`; de UI toont "Samenvatting kon niet worden gemaakt" en de knop blijft beschikbaar.
-- **Logging/metrics**: Claude wordt gelogd als `event_video_summarize`, yt-dlp als `event_video_audio_download`, YouTube-timedtext als `event_video_transcript_fetch`, Whisper als bestaand `podcast_transcribe`. Micrometer registreert `newsfeed.event_videos.summary.duration` en `newsfeed.event_videos.summary.count` (beide met `result`-tag: `ok`, `cache_hit`, `no_transcript`, `summarize_failed`, `error`, `not_found`).
+- **Logging/metrics**: de AI wordt gelogd als `event_video_summarize`, yt-dlp als `event_video_audio_download`, YouTube-timedtext als `event_video_transcript_fetch`, Whisper als bestaand `podcast_transcribe`. Micrometer registreert `newsfeed.event_videos.summary.duration` en `newsfeed.event_videos.summary.count` (beide met `result`-tag: `ok`, `cache_hit`, `no_transcript`, `summarize_failed`, `error`, `not_found`).
 
 ### 6.7 Onderwerp-geschiedenis
 
@@ -372,7 +387,7 @@ De onderwerp-geschiedenis (`topic_history.json`) wordt bijgehouden per gebruiker
 - Like/dislike feedback (verhoogt/verlaagt relevantiescore)
 - Ster-actie (verhoogt starredCount)
 
-Deze geschiedenis wordt als context meegegeven aan Claude bij:
+Deze geschiedenis wordt als context meegegeven aan de AI bij:
 - Feed-selectie (welke onderwerpen zijn recent genoeg behandeld?)
 - Podcast onderwerpenplanning (welke onderwerpen verdienen meer aandacht?)
 
@@ -380,14 +395,18 @@ Deze geschiedenis wordt als context meegegeven aan Claude bij:
 
 ## 7. Externe Systemen
 
-### 7.1 Anthropic Claude (AI backbone)
+### 7.1 OpenAI (AI backbone)
 
-**API:** `https://api.anthropic.com/v1/messages`
+**API:** `https://api.openai.com/v1/chat/completions` (chat-completions, incl.
+Structured Outputs). Transcriptie via `/v1/audio/transcriptions`.
 
 **Configuratie:**
-- Hoofd-model (podcastscripts, complexe selectie): configureerbaar, bijv. `claude-sonnet-4-5`
-- Samenvattingsmodel (per-artikel summaries): configureerbaar, bijv. `claude-haiku-4-5-20251001`
-- API-sleutel: omgevingsvariabele `PNF_ANTHROPIC_API_KEY`
+- Model per actie is configureerbaar via `PNF_AI_MODEL_*` omgevingsvariabelen
+  (defaults in `application.properties`). Defaults o.a.: `gpt-5.4-mini`
+  (rss/feed-samenvatting, selectie, ad-hoc, events), `gpt-5.4` (dagelijkse
+  samenvatting, event-video-samenvatting), `gpt-5.4-nano` (event-datum), en
+  `gpt-4o-mini-transcribe` voor transcriptie.
+- API-sleutel: omgevingsvariabele `PNF_OPENAI_API_KEY`
 
 **Betrouwbaarheid:**
 - Maximaal 3 gelijktijdige aanroepen
@@ -420,7 +439,7 @@ Deze geschiedenis wordt als context meegegeven aan Claude bij:
 
 | Endpoint | Doel | Input | Output |
 |---|---|---|---|
-| `POST /search` | Zoek artikelen op onderwerp | Zoekopdracht (Engels, 4-8 woorden, afgeleid van het `subject` veld via Claude of directe vertaling), max_results, days, optioneel domeinfilter | Lijst van {title, url, snippet, publishedDate} |
+| `POST /search` | Zoek artikelen op onderwerp | Zoekopdracht (Engels, 4-8 woorden, afgeleid van het `subject` veld via de AI of directe vertaling), max_results, days, optioneel domeinfilter | Lijst van {title, url, snippet, publishedDate} |
 | `POST /extract` | Haal volledige artikeltekst op | Lijst van URLs | Map van {url → volledige tekst, max 8000 tekens} |
 
 Tavily wordt **alleen** gebruikt voor ad-hoc verzoeken (`POST /api/requests`), niet voor de reguliere RSS-pipeline.
@@ -483,15 +502,13 @@ Alle configuratie via `application.properties` of omgevingsvariabelen.
 | Property | Omgevingsvariabele | Standaard | Beschrijving |
 |---|---|---|---|
 | `server.port` | — | `8080` | Serverpoort |
-| `app.data-dir` | — | `./data` | Root voor JSON-opslag en audio |
+| `app.data-dir` | — | `./data` | Root voor het `external_calls.jsonl` audit-log en runtime-paden |
+| `PNF_DATABASE_URL` | `PNF_DATABASE_URL` | — | Verplicht — JDBC-URL naar PostgreSQL (Neon) |
 | `app.jwt.secret` | — | (hardcoded default) | JWT-signeringssleutel (wijzigen in productie!) |
-| `app.anthropic.api-key` | `PNF_ANTHROPIC_API_KEY` | — | Verplicht |
-| `app.anthropic.model` | — | `claude-sonnet-4-5` | Hoofd Claude-model |
-| `app.anthropic.summary-model` | — | `claude-haiku-4-5-20251001` | Model voor samenvattingen |
-| `app.anthropic.base-url` | — | `https://api.anthropic.com` | — |
-| `app.tavily.api-key` | `PNF_TAVILY_API_KEY` | — | Verplicht voor ad-hoc verzoeken |
-| `app.openai.api-key` | `PNF_OPENAI_API_KEY` | — | Verplicht voor OpenAI TTS |
+| `app.openai.api-key` | `PNF_OPENAI_API_KEY` | — | Verplicht (AI-tekst, transcriptie, TTS) |
 | `app.openai.base-url` | — | `https://api.openai.com` | — |
+| `app.ai.models.<actie>` | `PNF_AI_MODEL_*` | per actie (bijv. `gpt-5.4-mini`) | OpenAI-model per AI-actie |
+| `app.tavily.api-key` | `PNF_TAVILY_API_KEY` | — | Verplicht voor ad-hoc verzoeken + events |
 | `app.elevenlabs.api-key` | `PNF_ELEVENLABS_API_KEY` | — | Optioneel (alleen bij ElevenLabs TTS) |
 | `app.elevenlabs.base-url` | — | `https://api.elevenlabs.io` | — |
 | `app.elevenlabs.voice-interviewer` | — | `Jn7U4vF8ZkmjZIZRn4Uk` | ElevenLabs stem voor interviewer |
@@ -511,12 +528,12 @@ Alle configuratie via `application.properties` of omgevingsvariabelen.
 
 ## 10. Foutafhandeling & Grenzen
 
-- **RSS-verwerking:** Als Claude-aanroep mislukt voor één artikel, wordt dat artikel overgeslagen; verwerking gaat door.
+- **RSS-verwerking:** Als de AI-aanroep mislukt voor één artikel, wordt dat artikel overgeslagen; verwerking gaat door.
 - **Podcast:** Bij een fout in een van de stappen wordt de podcast gemarkeerd als `FAILED`. Ook als de TTS-fase geen audio oplevert (alle segmenten faalden of het script bevatte geen INTERVIEWER/GAST-regels) wordt de podcast `FAILED`, niet `DONE`.
 - **Ad-hoc verzoek:** Bij een fatale fout wordt het verzoek gemarkeerd als `FAILED`.
 - **Annulering:** Verzoeken kunnen geannuleerd worden; de verwerking stopt bij het eerstvolgende controlepunt.
 - **Restart-herstel:** Bij serverherstart worden openstaande PENDING/PROCESSING verzoeken gereset naar FAILED.
-- **Claude rate limiting:** Bij HTTP 429 wordt automatisch gewacht en opnieuw geprobeerd (exponentieel backoff, max 4 pogingen).
+- **OpenAI rate limiting:** Bij HTTP 429 wordt automatisch gewacht en opnieuw geprobeerd (exponentieel backoff, max 4 pogingen).
 
 ---
 
@@ -526,22 +543,21 @@ De pipeline behandelt alleen artikelen waarvan de URL nog niet in `rss_items.jso
 
 ### A. Alleen de AI-selectie opnieuw (goedkoop, behoudt summaries)
 
-Wanneer de items al verwerkt zijn (summaries + categorieën aanwezig) maar Claude in een eerdere run niets heeft geselecteerd — bijvoorbeeld door een parse-fout of een te strenge prompt — gebruik dan `POST /api/rss/reselect`. Dit:
+Wanneer de items al verwerkt zijn (summaries + categorieën aanwezig) maar de AI in een eerdere run niets heeft geselecteerd — bijvoorbeeld door een parse-fout of een te strenge prompt — gebruik dan `POST /api/rss/reselect`. Dit:
 
 - **Slaat fetch en samenvatting over** — geen tokens voor stap 1 en 2.
-- Doet één enkele Claude-call met **alle** opgeslagen items + de huidige gebruikersvoorkeuren.
-- Werkt `inFeed` en `feedReason` bij voor items waarvoor Claude een verdict geeft.
+- Doet één enkele AI-call met **alle** opgeslagen items + de huidige gebruikersvoorkeuren.
+- Werkt `inFeed` en `feedReason` bij voor items waarvoor de AI een verdict geeft.
 - Genereert een uitgebreide FeedItem-samenvatting voor items die nieuw `inFeed=true` worden.
-- Items zonder verdict blijven onaangeraakt (zodat een lege Claude-respons je bestaande feed niet leegmaakt).
+- Items zonder verdict blijven onaangeraakt (zodat een lege AI-respons je bestaande feed niet leegmaakt).
 
 In de Flutter-app: knop met sparkle-icoon (`auto_awesome`) bovenin de RSS-tab.
 
 ### B. Volledig opnieuw verwerken (duurder, verse samenvattingen)
 
-Wanneer je items helemaal opnieuw wilt laten samenvatten en categoriseren (bv. omdat het summary-model is verbeterd, of omdat je tijdens de eerste run zonder API-key draaide), moeten de items eerst weg uit `rss_items.json`. Drie manieren:
+Wanneer je items helemaal opnieuw wilt laten samenvatten en categoriseren (bv. omdat het summary-model is verbeterd, of omdat je tijdens de eerste run zonder API-key draaide), moeten de bestaande `rss_items`-rijen van die gebruiker eerst weg. Twee manieren:
 
-1. **Volledig wissen via filesystem** — `rm data/users/{username}/rss_items.json` (eventueel ook `feed_items.json` als je de feed leeg wilt). De repository leest het bestand bij elke call opnieuw, dus de backend hoeft niet herstart te worden.
-2. **Via de API** — `DELETE /api/rss/cleanup?olderThanDays=0&keepStarred=false&keepLiked=false&keepUnread=false` ruimt alles op (combineer met `DELETE /api/feed/cleanup?...`). Dezelfde knop zit in de Flutter-app onder Settings → "Artikelen opruimen" (bij 0 dagen worden ook bewaard/geliket/ongelezen meegenomen).
-3. **JSON handmatig editen** — selectief entries verwijderen met een editor; sla op als geldige JSON. Goed voor het terugbrengen van specifieke artikelen.
+1. **Via de API** — `DELETE /api/rss/cleanup?olderThanDays=0&keepStarred=false&keepLiked=false&keepUnread=false` ruimt alles op (combineer met `DELETE /api/feed/cleanup?...`). Dezelfde knop zit in de Flutter-app onder Settings → "Artikelen opruimen" (bij 0 dagen worden ook bewaard/geliket/ongelezen meegenomen).
+2. **Direct in de database** — selectief `rss_items`-rijen (en eventueel `feed_items`) van de gebruiker verwijderen met een `DELETE`-query. Goed voor het terugbrengen van specifieke artikelen. Let op: dit is de gedeelde prod-DB; wees voorzichtig met handmatige mutaties.
 
 Na een van bovenstaande acties: `POST /api/rss/refresh` of de "RSS-feeds nu vernieuwen"-knop onder *Achtergrond-taken* in de Settings-tab (triggert de rerun van het `hourly-update-{username}` record).

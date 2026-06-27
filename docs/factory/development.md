@@ -18,12 +18,17 @@ devcontainer exec --workspace-folder . zsh
 cd newsfeedbackend/newsfeedbackend
 mvn -DskipTests package
 
-# Unit + integratie-tests
+# Unit-tests (huidige suite: enkele JUnit/Kotlin-tests onder src/test/kotlin)
 mvn test
 
-# Alleen Spring Modulith-verificatietest
-mvn test -Dtest=ModuleStructureTest
+# Eén specifieke test draaien (indien aanwezig), bijv. een Spring Modulith-verificatietest:
+# mvn test -Dtest=ModuleStructureTest
 ```
+
+> Let op: de repo bevat momenteel alleen een beperkt aantal unit-tests; de
+> Cucumber/WireMock-integratietests en een `ModuleStructureTest` zijn nog niet
+> aanwezig (de dependencies staan wel in `pom.xml`). Zie
+> `specs/backend-technical-spec.md` §7.
 
 ### Frontend (Flutter)
 
