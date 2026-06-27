@@ -57,7 +57,7 @@ Of via IntelliJ (open `newsfeedbackend/newsfeedbackend/` als project).
 
 - **Maven-root**: open altijd `newsfeedbackend/newsfeedbackend/` als IntelliJ-projectroot.
 - **OpenAPI-first**: wijzig eerst `specs/openapi.yaml`, daarna de met de hand geschreven Kotlin-`@RestController`-implementatie, en houd beide consistent. Er is geen code-generatiestap (geen OpenAPI Generator-plugin in `pom.xml`).
-- **Spring Modulith**: modules communiceren alleen via publieke service-interfaces of Spring Application Events. Voer na module-wijzigingen `ModuleStructureTest` uit.
+- **Spring Modulith**: modules communiceren alleen via publieke service-interfaces of Spring Application Events. Een `ModuleStructureTest` (`ApplicationModules…verify()`) die dit afdwingt bestaat nog niet in de repo (zie `specs/backend-technical-spec.md` §7); voeg er een toe als modulegrenzen geborgd moeten worden.
 - **Flyway**: nieuwe database-wijzigingen toevoegen als `V{n+1}__beschrijving.sql` in `src/main/resources/db/migration/`.
 - **Branches**: prefix `ai/` voor factory-branches (bv. `ai/PNF-2`).
 - **Commits**: Nederlandstalige of Engelstalige boodschappen; geen force-push naar main.

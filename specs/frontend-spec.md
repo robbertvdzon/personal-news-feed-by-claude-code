@@ -12,7 +12,7 @@ De frontend is een **Flutter-app** (mobile + web) voor het lezen van een persoon
 
 **API-contract:** Alle endpoints, request/response-structuren en datamodellen staan beschreven in **[`openapi.yaml`](./openapi.yaml)** (OpenAPI 3.1). De frontend gebruikt al deze endpoints.
 
-**Base URL:** Standaard `https://pnf.vdzon.com`, configureerbaar via `--dart-define=API_BASE_URL=<url>`.
+**Base URL:** Default in code `http://localhost:8080` (`String.fromEnvironment('API_BASE_URL', defaultValue: 'http://localhost:8080')`), configureerbaar via `--dart-define=API_BASE_URL=<url>`; prod-builds zetten `https://news.vdzonsoftware.nl`.
 
 **Authenticatie:** JWT Bearer token in `Authorization: Bearer <token>` header bij alle requests, behalve login en registratie. Token wordt opgeslagen in `SharedPreferences` en bij herstart automatisch hersteld.
 
@@ -159,7 +159,6 @@ Identiek qua PageView-navigatie en AppBar-acties als FeedItemDetailScreen.
 
 **Extra acties:**
 - **"Meer hierover"-knop:** maakt een nieuw verzoek aan (POST `/api/requests`) met het artikel als bronverwijzing (`sourceItemId`, `sourceItemTitle`). Opent een dialoog om het verzoek te bevestigen.
-- **"Open feed-item"-knop:** alleen zichtbaar als `feedItemId` ingevuld is. Navigeert naar FeedItemDetailScreen voor het gekoppelde feed-item.
 - Tik op bronnaam: opent `feedUrl` of `url` in externe browser.
 
 ### RssPodcastDetailScreen (KAN-62)
@@ -287,6 +286,7 @@ Toont de per-gebruiker AI-ontdekte tech-events uit `eventsProvider` (`GET /api/e
 ### Account
 - Gebruikersnaam weergeven
 - **Uitloggen:** wist token, navigeer naar LoginScreen
+- **Wachtwoord wijzigen:** `ListTile` opent een dialoog met velden voor huidig en nieuw wachtwoord; opslaan stuurt `PUT /api/account/password`
 
 ### Weergave
 - Lettergrootte-instelling: "Normaal" of "Groot"
@@ -325,7 +325,7 @@ Gedrag per rij:
 - De vaste records bestaan altijd zodra `ensureFixedRequests` heeft gedraaid; bij ontbreken (eerste login zonder server-roundtrip) zijn de knoppen disabled.
 
 ### Over deze app
-Onderaan het instellingen-scherm staat een blok **Over deze app** met twee regels:
+Bovenaan het instellingen-scherm staat een blok **Over deze app** met twee regels:
 
 - **Frontend:** `<short-git-sha>` · `<build-timestamp in lokale tijd>` — beide compile-time geïnjecteerd via `--dart-define=BUILD_SHA=...` en `--dart-define=BUILD_TIME=...` en uitgelezen met `String.fromEnvironment`. Altijd beschikbaar uit de bundel zelf.
 - **Backend:** `<short-git-sha>` · `<build-timestamp in lokale tijd>` — komt uit het `versionProvider` (gevuld door `GET /api/version` of het WebSocket `serverVersion`-bericht). Bij een fout (`/api/version` offline of 5xx) toont de regel **`onbekend`** tot de volgende geslaagde check.
@@ -360,6 +360,9 @@ Knop "Artikelen opruimen" opent CleanupDialog:
   - bij bevestigen worden de keep-flags geforceerd op `false` in de query-string, ongeacht eerdere checkbox-stand
 - **Bevestigen:** roept zowel `DELETE /api/rss/cleanup?...` als `DELETE /api/feed/cleanup?...` aan met dezelfde parameters — beide verzamelingen worden altijd opgeruimd, RSS-items en gecureerde feed-items.
 - **Annuleren:** sluit dialog zonder actie
+
+### Debug
+Sectie **"Debug"** met één `ListTile` "API-log" (subtitle "Laatste calls + status (voor debugging)") die via `MaterialPageRoute` naar `ApiLogScreen` navigeert. Dat scherm toont de laatst uitgevoerde API-calls met statuscode en eventuele foutdetails (kopiëren/wissen).
 
 ### Beheer (alleen admins)
 
@@ -448,7 +451,7 @@ Detail-schermen zonder bottom navigation bar (FeedItemDetailScreen, RssItemDetai
 
 | Waarde | Hoe configureren | Standaard |
 |--------|-----------------|-----------|
-| Backend URL | `--dart-define=API_BASE_URL=https://...` bij build/run | `https://pnf.vdzon.com` |
+| Backend URL | `--dart-define=API_BASE_URL=https://...` bij build/run | `http://localhost:8080` (prod-builds: `https://news.vdzonsoftware.nl`) |
 | App-icoon | `flutter_launcher_icons` in `pubspec.yaml` (zie hieronder) | — |
 
 ### App-icoon
