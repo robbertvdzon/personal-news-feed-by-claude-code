@@ -151,3 +151,40 @@ dus gedrag-neutraal per definitie.
 
 Akkoord: minimale diff is een geldige uitkomst conform de AC; niet-erroren is
 correct want geen conventie dwingt een gedragswijziging af.
+
+## Test (tester, SF-374)
+
+[info] Story-diff t.o.v. `main` opnieuw geverifieerd: `git diff main...HEAD
+--name-only` = uitsluitend `docs/stories/worklog/SF-371-worklog.md`. Geen code-,
+test- of infra-wijzigingen → gedrag-neutraal per definitie. Er is daarom geen
+observeerbaar runtime-gedrag dat een browser-/preview-test kan aantonen; testwerk
+bestaat (zoals bij een diff zonder code) uit code-inspectie van de audit-claims +
+het draaien van het bestaande test-vangnet.
+
+[info] Audit-claims uit de developer-/reviewer-secties onafhankelijk
+nageverifieerd tegen de code — allemaal accuraat:
+- `pom.xml`: geen `openapi-generator`-plugin.
+- Geen `import ...Repository` in enige `*Controller.kt`.
+- Exact twee `@Value` zonder `@param:` = de gedocumenteerde uitzonderingen
+  (`PodcastAsyncConfig.kt:13` @Bean-param, `PodcastTranscriptWorker.kt:47` plain
+  constructor-param).
+- Afwijkingen A/B/C feitelijk aanwezig en correct als "niet veilig-mechanisch
+  herstelbaar" geclassificeerd: Jackson `com.fasterxml.jackson` in 15
+  Kotlin-bestanden (0× `tools.jackson`); cross-module import
+  `admin/domain/AdminServiceImpl.kt:5-6` → `auth.domain.User` /
+  `auth.infrastructure.UserRepository`; `data class RssItem` in
+  `rss/RssService.kt` met directe `@JsonProperty`-serialisatie.
+
+[info] Build/test-vangnet gedraaid: `mvn -Dtest=RssFetcherImageUrlTest,
+AiPricingPropertiesTest,PodcastScriptParserTest test` in
+`newsfeedbackend/newsfeedbackend/` → **BUILD SUCCESS**, 19 tests groen
+(6 + 4 + 9), 0 failures/errors/skipped. De volledige Cucumber-suite vereist een
+gedeelde DB en is conform repo-conventie niet gedraaid; de DB-vrije unit-tests
+vormen het relevante vangnet en zijn ongewijzigd. Geen bestaande tests aangepast.
+
+[info] Geen frontend-/backend-codewijziging → conform de tester-instructie geen
+browser-screenshots vereist (geen feature om visueel te bewijzen). Preview
+(`pnf-pr-144`) niet getest: er is niets gewijzigd om te observeren.
+
+Resultaat: **tested** — minimale (worklog-only) diff, alle AC's gehaald,
+audit-claims kloppen, bestaande tests groen, gedrag-neutraal.
