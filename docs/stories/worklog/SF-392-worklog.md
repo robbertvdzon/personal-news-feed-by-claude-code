@@ -88,3 +88,19 @@ Geen nieuwe unit-test toegevoegd: de enige codewijziging is een logtekst in een
 fout-pad. Een test die op exacte logtekst assert zou bros zijn en past niet bij het
 testpatroon van deze repo (de bestaande suite heeft geen log-asserts). Bestaande
 tests dekken de compilatie/regressie van de geraakte klassen af en blijven groen.
+
+## Review (reviewer)
+
+Volledige story-diff t.o.v. `main` beoordeeld (`git diff main...HEAD`): 2 Kotlin-regels
++ worklog. Bevindingen:
+
+- [info] Dominante norm geverifieerd: na de wijziging 10× Engelse `could not log
+  external_call`-WARN en 0× Nederlandse variant — beide outliers correct
+  gelijkgetrokken. Gedrag-neutraal (WARN-tekst in zelden geraakt fout-pad, geen
+  log-asserts in de suite).
+- [info] Scope-grenzen gerespecteerd: geen wijziging aan openapi/migraties/deploy/tests;
+  module-grenzen en publieke zichtbaarheid intact (alleen binnen-module tekstwijziging).
+- [info] Worklog bevat geen JSON-artefacten en eindigt schoon; bewust niet-aangeraakte
+  twijfelgevallen zijn conform AC #6/#7 gedocumenteerd.
+
+Akkoord — kleine, veilige, gedrag-behoudende consistentie-pass conform de story.
