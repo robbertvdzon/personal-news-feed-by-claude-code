@@ -37,3 +37,12 @@ Alle 21 betroffen een `@Value(...)`-annotatie op een primary-constructor *proper
 ### Frontends (frontend/, frontend-reader/) — niet doorgevoerd in deze run
 
 De factory developer-runner bevat geen flutter/dart-binary en geen Android-Gradle-toolchain (Android SDK). Daardoor kan voor de frontends geen warning-baseline worden vastgelegd en kan niet worden aangetoond dat eventuele Dart-analyzer-/Gradle-deprecatie-fixes de warnings daadwerkelijk laten verdwijnen *zonder nieuwe te introduceren* — een harde acceptance-eis. Conform "bij twijfel of een wijziging gedrag/warnings verandert: niet doorvoeren" en de pragmatische scope-clausule ("een coherente, veilige set die binnen een run volledig groen op te leveren is; volledigheid is geen vereiste") is het frontend-spoor bewust buiten deze run gehouden. De opgeleverde backend-set is op zichzelf coherent, gedragsneutraal en volledig groen geverifieerd.
+
+## Review (SF-344)
+
+Akkoord. Volledige story-diff `main...HEAD` beoordeeld.
+
+- [info] 21 gedragsneutrale `@Value` -> `@param:Value` wijzigingen over 8 klassen, exact conform handover. `@param:` injecteert nog steeds via de constructor-parameter; runtime-gedrag identiek.
+- [info] De twee uitzonderingen (`PodcastAsyncConfig` `@Bean`-methodeparam, `PodcastTranscriptWorker` plain param zonder `val`) staan correct ongewijzigd — `@param:` zou daar een compilefout resp. nieuwe warning geven.
+- [info] Geen wijziging aan API-contract (`specs/openapi.yaml`), controllers, DB-schema, Flyway of Spring Modulith-modulegrenzen. Geen duplicate stereotype-annotaties. Geen rauwe JSON-artefacten in de worklog.
+- [info] Frontend-spoor bewust uitgesteld wegens ontbrekende flutter/Gradle-toolchain; toegestaan onder de pragmatische scope-clausule. Aandachtspunt voor story-afronding: de frontend-warnings uit de story-scope blijven hiermee open.
