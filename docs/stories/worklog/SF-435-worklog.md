@@ -80,3 +80,11 @@ Conform de scope-aanname dat bekende, niet-mechanische afwijkingen wél worden g
 
 ### Zelf-review / conclusie
 Eén veilige, gedrag-neutrale afwijking hersteld (#4 DTO-plaatsing). Twee bekende gedrag-/architectuur-rakende afwijkingen (#5, #6) met rationale gedocumenteerd en gedefereerd. Overige conventies conform. Diff is minimaal (4 controllers aangepast, 4 nieuwe dto-bestanden + 1 test) en behoudt gedrag.
+
+### Review (SF-437, reviewer)
+- Volledige story-diff `main...HEAD` beoordeeld: 4 controllers, 4 nieuwe `module/api/dto/`-bestanden, 1 contract-test, worklog.
+- Geverifieerd dat elke verplaatste DTO uitsluitend door de eigen controller wordt gebruikt (grep) → verhuizing is gedrag-neutraal; Jackson `@RequestBody`-deserialisatie gaat op veldnaam, niet package.
+- DTO-plaatsing nu conform `specs/backend-technical-spec.md` §4 (`module/api/dto/`); bestaande `auth/api/dto/` als referentie gevolgd.
+- `mvn test` lokaal herhaald: BUILD SUCCESS, 25/25, 0 failures/errors; bestaande tests ongewijzigd.
+- Geen JSON-artefacten in worklog. Twee architectuur-rakende afwijkingen (#5 cross-module imports, #6 domeinmodellen als response) terecht gedocumenteerd/gedefereerd i.p.v. hersteld.
+- Akkoord: geen blockers/bugs.
