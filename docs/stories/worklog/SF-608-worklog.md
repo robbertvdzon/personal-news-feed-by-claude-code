@@ -88,3 +88,20 @@ Reviewer-verificatie van de handover-claims tegen de repo (alle bevestigd):
 - Vier niet-fixbare afwijkingen correct gemeld i.p.v. gefixt (conform Aannames).
 
 [info] Empty-diff is een geldige uitkomst per AC. Geen blockers/bugs. → akkoord.
+
+## SF-616 (tested) — story-brede test 2026-06-28
+
+Tester-verificatie van de handover (alle claims onafhankelijk gereproduceerd tegen de repo):
+- **Diff-scope**: `git diff main...HEAD` = enkel `docs/stories/SF-608-*.md` + dit worklog.
+  Geen code-, test-, infra- of `e2e/scenarios/`-wijzigingen. Empty code-diff = geldige AC-uitkomst.
+- **`@param:Value`** = 21; kale `@Value` enkel de 2 gedocumenteerde uitzonderingen
+  (`PodcastAsyncConfig` @Bean-param, `PodcastTranscriptWorker` plain constructor-param).
+- **Jackson**: `tools.jackson` = 0, `com.fasterxml.jackson` = 36 (consistent).
+- **Logger** 39/39 `private val log = LoggerFactory.getLogger(javaClass)`; geen afwijking.
+- **external_call-fallback** 10/10 op `log.warn`; geen inline `data class` in `*Controller.kt`;
+  `print(` = 0 in `frontend/lib` én `frontend-reader/lib`.
+- **`mvn test`** in `newsfeedbackend/newsfeedbackend/`: **BUILD SUCCESS — 28 tests, 0 failures,
+  0 errors** (zelf gedraaid op de tester-runner; DB-vrije unit-tests).
+- Vier vooraf erkende niet-fixbare afwijkingen correct gemeld i.p.v. gefixt.
+
+Geen functionele wijziging → geen browser/preview-gedragstest van toepassing. Geen blockers. → tested.
