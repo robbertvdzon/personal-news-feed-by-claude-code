@@ -62,3 +62,23 @@ Flutter-schermen die via de browser-e2e bereikbaar zijn afgedekt.
 - Geen productiecode of bestaande unit-tests gewijzigd, dus `mvn test` (vereist `PNF_DATABASE_URL`)
   is functioneel niet geraakt; de Flutter-runner heeft geen flutter/dart-binary, maar er is ook
   geen Flutter-code gewijzigd. CI valideert build/tests zoals gebruikelijk.
+
+## Review-notities (SF-643, reviewer)
+
+- [info] Volledige story-diff (`git diff main...HEAD`) beoordeeld: uitsluitend `e2e/`-scenario's,
+  `e2e/readme.md`, `specs/e2e.md`, worklog en story-log gewijzigd. Geen productiecode (Kotlin/Flutter)
+  of unit-tests aangeraakt — conform scope. Geen achtergebleven JSON-artefacten in story-/worklog.
+- [info] Alle UI-feiten 1-op-1 geverifieerd tegen de bron: `api_log_screen.dart` (AppBar "API-log",
+  `copy_all`/"Kopieer alles"→snackbar "Gekopieerd", `delete_outline`/"Log wissen", header `API_BASE_URL`,
+  lege-staat-tekst, detaildialoog incl. "Error / body:" alleen bij fout, knoppen "Kopieer"/"Sluiten"),
+  `admin_screen.dart` (AppBar "Admin", acties "Kosten-overzicht"/`payments` + "Lijst herladen"/`refresh`,
+  `/api/admin/users`, popupmenu-opties, "jij"-chip, self-delete-guard), `admin_costs_screen.dart`
+  (AppBar "Kosten", kaarten Vandaag/Deze maand/Dit jaar/Totaal, tabs + endpoints + lege-staten),
+  en de Debug-/Beheer-secties in `settings_screen.dart` (`auth.isAdmin`-gate). Allemaal correct.
+- [info] readme-mappenstructuur en `specs/e2e.md`-tabelrij bevatten nu de volledige set; specs miste
+  voorheen events/podcast/settings — dat is meteen rechtgetrokken.
+- [suggestie] `admin-scenario.md` leeswijzer (regels 43-46) stelt dat "Maak admin" een
+  bevestigingsdialoog toont. In `admin_screen.dart` `_handleAction` past `case 'make_admin'` de rol
+  echter **direct** toe (geen `_confirm`); alleen "Maak gewone user" en "Verwijderen" hebben een
+  bevestiging. De hoofdstap (niet-destructief blijven, menu sluiten zonder te kiezen) is wél correct,
+  dus geen functioneel risico — wel de leeswijzer-zin aanscherpen bij een volgende pass.
