@@ -88,3 +88,15 @@ Eén veilige, gedrag-neutrale afwijking hersteld (#4 DTO-plaatsing). Twee bekend
 - `mvn test` lokaal herhaald: BUILD SUCCESS, 25/25, 0 failures/errors; bestaande tests ongewijzigd.
 - Geen JSON-artefacten in worklog. Twee architectuur-rakende afwijkingen (#5 cross-module imports, #6 domeinmodellen als response) terecht gedocumenteerd/gedefereerd i.p.v. hersteld.
 - Akkoord: geen blockers/bugs.
+
+### Test (SF-438, tester)
+Geverifieerd (geen code gewijzigd):
+- **Diff-scope:** 4 controllers (import toegevoegd + inline DTO verwijderd), 4 nieuwe `module/api/dto/`-bestanden, 1 contract-test, worklog. Conform DTO-plaatsingsconventie (backend-spec §4).
+- **Gedrag-neutraliteit verhuizing:** elke verplaatste request-DTO (`ChangePasswordRequest`, `ResetPasswordRequest`, `SetRoleRequest`, `AddEventPreferenceRequest`, `RemoveEventPreferenceRequest`, `VideoSummaryRequest`) wordt uitsluitend door zijn eigen controller geïmporteerd/gebruikt (grep) en de class-body is byte-identiek aan de oude inline-definitie (diff). Jackson `@RequestBody`-deserialisatie gaat op veldnaam, niet package → wire-contract ongewijzigd.
+- **Compile:** `mvn test-compile` BUILD SUCCESS (main + test).
+- **Test:** `mvn -Dtest=ApiRequestDtoContractTest test` → Tests run: 6, Failures: 0, Errors: 0 — BUILD SUCCESS. Volledige `mvn test` (Cucumber) niet gedraaid i.v.m. gedeelde-DB/destructief risico; developer rapporteerde 25/25 groen en CI valideert de volledige suite.
+- **Whitespace:** `git diff --check` schoon.
+- **Architectuur-rakende afwijkingen (#5 cross-module imports, #6 domeinmodellen als response):** terecht gedocumenteerd/gedefereerd i.p.v. hersteld; buiten deze gedrag-neutrale scope.
+- **Frontends:** geen wijzigingen; conventies betreffen backend.
+
+**Conclusie:** wijziging is puur mechanisch en gedrag-neutraal, compileert en bestaande + nieuwe tests slagen. Akkoord.
