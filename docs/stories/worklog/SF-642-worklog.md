@@ -82,3 +82,41 @@ Flutter-schermen die via de browser-e2e bereikbaar zijn afgedekt.
   echter **direct** toe (geen `_confirm`); alleen "Maak gewone user" en "Verwijderen" hebben een
   bevestiging. De hoofdstap (niet-destructief blijven, menu sluiten zonder te kiezen) is wél correct,
   dus geen functioneel risico — wel de leeswijzer-zin aanscherpen bij een volgende pass.
+
+## Tester-run (SF-644)
+
+- **Modus**: code-inspectie (geen browser-test). Deze story wijzigt **geen** productiecode
+  (`git diff --name-status main...HEAD` = alleen `e2e/`-scenario's, `e2e/readme.md`,
+  `specs/e2e.md`, story-doc + dit worklog). De beschreven Flutter-schermen bestaan ongewijzigd op
+  `main`, dus een preview-screenshot zou identiek aan main zijn; de juiste verificatie is de
+  scenario-tekst 1-op-1 tegen de bron-`.dart` leggen (sterker dan een screenshot voor tekst/icoon-
+  accuratesse). Conform tip `docs-only-pr-test-approach`.
+- **Geverifieerd correct** (1-op-1 tegen de bron):
+  - `api-log-scenario.md` ↔ `api_log_screen.dart` + `settings_screen.dart`: Debug-sectie, tegel
+    "API-log" (`bug_report_outlined`, subtitel "Laatste calls + status (voor debugging)",
+    `chevron_right`), AppBar "API-log", `API_BASE_URL`-header, lijst (status-badge/methode+URL/
+    `uu:mm:ss · …ms`), detaildialoog (titel "<METHODE>  <status/ERR>", URL, ISO-tijd+ms,
+    "Error / body:" alleen bij fout, knoppen "Kopieer"/"Sluiten"), "Kopieer alles"
+    (`copy_all`→snackbar "Gekopieerd"), "Log wissen" (`delete_outline`), placeholder
+    "Nog geen calls gelogd…". Alles correct.
+  - `admin-scenario.md` ↔ `admin_screen.dart` + `admin_costs_screen.dart` + `settings_screen.dart`:
+    `auth.isAdmin`-gate op sectie Beheer, tegels "Beheer gebruikers" (`person_outline`)/"Beheer
+    kosten" (`attach_money`), AppBar "Admin" (acties "Kosten-overzicht"/`payments`,
+    "Lijst herladen"/`refresh`), gebruikerslijst/rol-labels/"jij"-chip/popupmenu, self-delete-guard,
+    AppBar "Kosten" + kaarten Vandaag/Deze maand/Dit jaar/Totaal ("N calls"), tabs Per dag/Per
+    gebruiker/Logboek met kolommen, periode-chips, filter-chips, provider-initialen O/E/T/R/W en
+    lege-staat-teksten. Endpoints `/api/admin/users` en `/api/admin/costs/{totals,daily,by-user,calls}`.
+    Allemaal correct. `⏭ Skipped`-pad (geen ROLE_ADMIN) en `⚠️ Partial`-pad correct beschreven.
+  - `e2e/readme.md` (mappenstructuur + "één of meer scenario's") en `specs/e2e.md` (tabelrij)
+    bevatten nu de volledige, actuele set. Correct.
+  - Geen backend-integratietests toegevoegd; geen productiecode/unit-tests gewijzigd → `mvn test`
+    functioneel niet geraakt (gedrag == main).
+- **Bevinding (blocker, test-rejected)**: `admin-scenario.md` leeswijzer (regels 43-46) stelt nog
+  steeds dat **"Maak admin"** een bevestigingsdialoog ("Bevestig" / "Annuleren"/"Doorgaan") toont.
+  In `admin_screen.dart` `_handleAction` past `case 'make_admin'` (regels 159-162) de rol echter
+  **direct** toe (`notifier.setRole(...)`, géén `_confirm`); alléén `case 'make_user'` en
+  `case 'delete'` tonen `_confirm`. De zin beschrijft dus gedrag dat het scherm niet heeft, wat in
+  strijd is met het acceptatiecriterium "scenario's gebruiken alleen UI-teksten/gedrag dat feitelijk
+  in de schermen voorkomt". Dit is al door de reviewer gesignaleerd (suggestie hierboven) maar niet
+  verwerkt. Fix: in de leeswijzer "Maak admin" uit de bevestigingsdialoog-opsomming halen (alleen
+  "Maak gewone user" en "Verwijderen" vragen bevestiging; "Maak admin" wordt direct toegepast).
