@@ -76,3 +76,15 @@ Done / rationale:
 - Story-log aangemaakt zodat plan, voortgang en uitvoering onderdeel worden van de PR.
 - Consistentie-pass uitgevoerd door verificatie via grep over backend + frontends; geen
   veilige gedrag-neutrale wijziging gevonden → lege code-diff, bevindingen gedocumenteerd.
+
+## SF-615 (reviewed) — review 2026-06-28
+
+Reviewer-verificatie van de handover-claims tegen de repo (alle bevestigd):
+- Diff-scope: enkel story-log + dit worklog; geen code-/test-/e2e-wijzigingen.
+- `@param:Value` = 21; kale `@Value` enkel de 2 gedocumenteerde uitzonderingen.
+- Logger 39/39 conform; `tools.jackson` = 0, `com.fasterxml.jackson` = 36; geen inline
+  `data class` in `*Controller.kt`; `print(` = 0 in beide frontend-`lib/`-dirs.
+- Geen `agent_tips_update`/`phase`-JSON-artefacten in de gecommitte docs.
+- Vier niet-fixbare afwijkingen correct gemeld i.p.v. gefixt (conform Aannames).
+
+[info] Empty-diff is een geldige uitkomst per AC. Geen blockers/bugs. → akkoord.
