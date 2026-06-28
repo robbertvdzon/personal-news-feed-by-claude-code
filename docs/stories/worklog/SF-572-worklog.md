@@ -58,3 +58,30 @@ Geverifieerd i.p.v. aangenomen:
 - [info] Uitgestelde Android-Gradle-deprecatie (`kotlinOptions{}` → `compilerOptions{}`)
   is met reden gemeld conform AC5; geen blocker binnen deze story.
 Geen blockers/bugs gevonden.
+
+## SF-574 (tester) — 2026-06-28
+
+Story-brede test. Gedrag-neutrale code-kwaliteitspass met **bewust lege code-diff**
+(alleen story-log + worklog) — een geldige uitkomst voor deze story. Geen browser-test
+nodig: de diff raakt de frontend niet (geen Dart-/Android-wijziging), dus geen
+verplichte screenshots. Geverifieerd i.p.v. aangenomen:
+
+- **Diff is docs-only:** `git diff --name-only main...HEAD` = alleen
+  `docs/stories/SF-573-...md` + `docs/stories/worklog/SF-572-worklog.md`. Geen
+  `.kt`/Dart/`*.feature`/openapi/Flyway/infra. → AC1 & AC4 (integratie-/e2e-suite ongemoeid).
+- **`@Value` use-site-target:** exact 2 treffers zonder `@param:`, beide de
+  gedocumenteerde uitzonderingen (`PodcastAsyncConfig` @Bean-param,
+  `PodcastTranscriptWorker` plain param). Geen kale `@Value` op val/var.
+- **Logger:** alle ~40 `LoggerFactory.getLogger`-treffers volgen
+  `private val log = LoggerFactory.getLogger(javaClass)`; geen afwijking.
+- **SettingsController:** geen klasse-`@RequestMapping`; bedient 3 prefixes
+  (`/api/settings`, `/api/rss-feeds`, `/api/podcast-feeds` + `/event-*`-subpaden).
+  Base-path zou URLs wijzigen → terecht niet aangeraakt.
+- **Build-output backend:** `mvn clean compile` → BUILD SUCCESS, 0 warnings/deprecations.
+  `mvn test` → Tests run: 25, Failures: 0, Errors: 0, Skipped: 0 — BUILD SUCCESS
+  (4 unit-test-klassen, geen DB nodig). Bevestigt AC3 (backend) en AC4.
+- **Android-spoor:** terecht uitgesteld met reden (geen flutter/gradle-toolchain op
+  runner); deprecatie concreet benoemd conform AC5.
+
+Conclusie: claims kloppen, gedrag aantoonbaar ongewijzigd, build groen en warning-vrij.
+Geen blockers/bugs.
