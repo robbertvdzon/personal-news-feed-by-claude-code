@@ -71,3 +71,27 @@ mag in deze docs-only story niet aangepast worden:
 Geen broncode gewijzigd — uitsluitend Markdown-documentatie. Backend `mvn test` en Flutter
 `analyze`/`test` zijn daarom niet relevant en niet gedraaid; CI valideert overige checks. `git diff`
 raakt alleen `specs/README.md` + `specs/backend-functional-spec.md` (+ dit worklog).
+
+## Test (SF-479) — verificatie tester
+
+Docs-only PR → geen browser/preview-test nodig (conform agent-tip `docs-only-pr-test-approach`).
+Testwerk = (1) diff-scope-check en (2) code-inspectie om de doc-claims te verifiëren.
+
+Geverifieerd:
+- **Diff-scope**: `git diff --name-only main...HEAD` toont uitsluitend `specs/README.md`,
+  `specs/backend-functional-spec.md` en dit worklog — géén `.kt`/Dart/tests/build/deploy/infra.
+  Voldoet aan AC "git diff raakt uitsluitend documentatiebestanden".
+- **Drift 1 (Tavily §7.2)**: Tavily wordt in de code daadwerkelijk gebruikt door
+  `EventDiscoveryPipeline` (§6.8) en `EventVideoDiscoveryPipeline` (§6.9), en niét in de
+  RSS-pipeline (`rss/`-package bevat geen Tavily-referentie). Doc-correctie is correct.
+- **Drift 2 (schedulers §9)**: alle 5 jobs kloppen met `@Scheduled` in de code:
+  RSS `0 0 * * * *`, daily `0 0 6 * * *`, events `0 0 2 * * SUN`,
+  event-video `0 0 3 * * SUN` (`EventVideoScheduler`, KAN-66) en podcast-transcript-worker
+  `fixedDelayString` default `120000` (≈2 min, `PodcastTranscriptWorker`). Nieuw toegevoegde
+  regels matchen 1-op-1.
+- **Drift 3 (specs/README.md)**: `specs/e2e.md` én `specs/branch-commit-convention.md` bestaan
+  daadwerkelijk; toevoeging aan bestandstabel + repostructuur-boom is correct.
+- **Sectieverwijzingen** §6.8/§6.9 bestaan in de spec; KAN-65/KAN-66-labels consistent.
+
+Resultaat: kleine, correcte documentatie-diff — geldige uitkomst. Geen bugs gevonden.
+**Uitkomst: tested.**
