@@ -442,7 +442,7 @@ Structured Outputs). Transcriptie via `/v1/audio/transcriptions`.
 | `POST /search` | Zoek artikelen op onderwerp | Zoekopdracht (Engels, 4-8 woorden, afgeleid van het `subject` veld via de AI of directe vertaling), max_results, days, optioneel domeinfilter | Lijst van {title, url, snippet, publishedDate} |
 | `POST /extract` | Haal volledige artikeltekst op | Lijst van URLs | Map van {url → volledige tekst, max 8000 tekens} |
 
-Tavily wordt **alleen** gebruikt voor ad-hoc verzoeken (`POST /api/requests`), niet voor de reguliere RSS-pipeline.
+Tavily wordt gebruikt voor ad-hoc verzoeken (`POST /api/requests`) **en** voor event-discovery en event-video-discovery (zie 6.8 en 6.9), **niet** voor de reguliere uurlijkse RSS-pipeline.
 
 ---
 
@@ -523,6 +523,8 @@ Alle configuratie via `application.properties` of omgevingsvariabelen.
 | Elk uur (`0 0 * * * *`) | RSS ophalen en verwerken voor alle gebruikers |
 | Dagelijks 06:00 (`0 0 6 * * *`) | Dagelijkse AI-samenvatting genereren voor alle gebruikers |
 | Wekelijks zondag 02:00 (`0 0 2 * * SUN`) | Tech-events ontdekken voor alle gebruikers (KAN-65) |
+| Wekelijks zondag 03:00 (`0 0 3 * * SUN`) | Event-video's ontdekken voor alle gebruikers (KAN-66) |
+| Elke ~2 min (`fixedDelay`, default `app.podcast.transcript-worker.interval-ms`) | Podcast-transcript-worker: max. één `NEEDS_TRANSCRIPT`-aflevering per tick (Whisper + samenvatting) met rate-limit-backoff (zie 6.4) |
 
 ---
 

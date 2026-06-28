@@ -26,7 +26,9 @@ personal-news-feed/
 │   ├── backend-functional-spec.md ← backend gedrag (black-box)
 │   ├── backend-technical-spec.md  ← backend architectuur & conventies
 │   ├── frontend-spec.md          ← frontend schermen & functionaliteit
-│   └── openapi.yaml              ← volledige REST API definitie (OpenAPI 3.1)
+│   ├── openapi.yaml              ← volledige REST API definitie (OpenAPI 3.1)
+│   ├── e2e.md                    ← pointer naar de end-to-end-test scenario's
+│   └── branch-commit-convention.md ← branch- en commit-naamconventies
 ├── newsfeedbackend/              ← Spring Boot backend (Kotlin/Maven)
 │   └── newsfeedbackend/
 │       └── src/...
@@ -47,6 +49,7 @@ personal-news-feed/
 | [`frontend-spec.md`](./frontend-spec.md) | Alle schermen, navigatie, gebruikersacties, state management, WebSocket-integratie, audio-afspelen |
 | [`openapi.yaml`](./openapi.yaml) | Alle REST-endpoints met paden, methoden, parameters, request/response-bodies en dataschema's. Dit is de **source of truth** voor de API-interface tussen backend en frontend. |
 | [`e2e.md`](./e2e.md) | Pointer naar `/e2e/readme.md` met de end-to-end-test scenario's, runner-procedure en testrun-administratie. |
+| [`branch-commit-convention.md`](./branch-commit-convention.md) | Branch-naamconventies (`ai/`, `feat/`, …) en commit-/PR-message-format, inclusief de op `ai/<id>`-branches afgedwongen story-id-prefix. |
 
 ---
 
