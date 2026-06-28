@@ -55,18 +55,8 @@ class VideoAudioDownloader(
         val outputBase = tempPrefix.absolutePath
         val expectedOutput = File("$outputBase.mp3")
         return try {
-            val proc = ProcessBuilder(
-                ytdlpBinary,
-                "--no-warnings",
-                "--no-playlist",
-                "--quiet",
-                "--no-progress",
-                "--extract-audio",
-                "--audio-format", "mp3",
-                "--audio-quality", "5",
-                "-o", "$outputBase.%(ext)s",
-                videoUrl
-            ).redirectErrorStream(true).start()
+            val proc = ProcessBuilder(buildArgs(ytdlpBinary, outputBase, videoUrl))
+                .redirectErrorStream(true).start()
 
             val finished = proc.waitFor(timeoutMinutes, TimeUnit.MINUTES)
             if (!finished) {
@@ -106,6 +96,30 @@ class VideoAudioDownloader(
         } finally {
             logCall(username, videoUrl, started, size, status, errorMessage)
         }
+    }
+
+    companion object {
+        /**
+         * Bouwt de yt-dlp-argumentenlijst. De `--` vóór [videoUrl] sluit
+         * de optie-parsing af, zodat een URL die met `-` begint nooit als
+         * yt-dlp-vlag wordt geïnterpreteerd (argument-injectie-hardening).
+         * Voor geldige http(s)-URL's is het gedrag identiek: yt-dlp
+         * behandelt alles na `--` als positionele argumenten.
+         */
+        fun buildArgs(ytdlpBinary: String, outputBase: String, videoUrl: String): List<String> =
+            listOf(
+                ytdlpBinary,
+                "--no-warnings",
+                "--no-playlist",
+                "--quiet",
+                "--no-progress",
+                "--extract-audio",
+                "--audio-format", "mp3",
+                "--audio-quality", "5",
+                "-o", "$outputBase.%(ext)s",
+                "--",
+                videoUrl
+            )
     }
 
     private fun logCall(
