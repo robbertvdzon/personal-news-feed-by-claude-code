@@ -66,3 +66,28 @@ Done / rationale:
 - Story-log aangemaakt zodat plan, voortgang en uitvoering onderdeel worden van de PR.
 - Brede verificatie uitgevoerd; codebase blijkt al volledig geconsolideerd → bewust lege code-diff.
 - Niet-veilige/architectuurgevoelige afwijkingen hierboven gemeld i.p.v. zelf hersteld.
+
+## Tester-verificatie (SF-525)
+
+Verificatie van de bovenstaande claims via grep/code-inspectie op `main...HEAD`:
+- **Code-diff**: `git diff --name-only main...HEAD` toont uitsluitend dit worklog-bestand;
+  geen `.kt`/Dart/test/infra-wijzigingen → gedrag is per constructie identiek aan `main`.
+  Een lege code-diff is conform de AC een geldige uitkomst voor een consistentie-pass.
+- **@Value**: 2 bare `@Value` = exact de gedocumenteerde uitzonderingen
+  (`PodcastAsyncConfig.kt:13` @Bean-param, `PodcastTranscriptWorker.kt:47` plain param zonder
+  `val`/`var`); 21× `@param:Value` elders; 0 kale `@Value` op constructor-`val`. ✓
+- **Logger**: 39/39 `LoggerFactory.getLogger(javaClass)`, 0 afwijkende varianten. ✓
+- **external_call WARN-fallback**: 10 conform. ✓
+- **Controllers**: 13/13 `@RestController` onder `*/api/`; klasse-`@RequestMapping` op 12/13;
+  enige `NONE` = `SettingsController` (bedient meerdere prefixes `/api/settings`, `/api/rss-feeds`,
+  `/api/podcast-feeds`, `/api/settings/event-*` → base-path toevoegen wijzigt URL's → terecht
+  niet gewijzigd). ✓
+- **Geen inline `data class` in `*Controller.kt`** (0). ✓
+- **Frontends**: 0 `print(`; 1 `debugPrint` in `podcast_detail_screen.dart`. ✓
+- **Browser-/preview-test**: niet uitgevoerd — er zijn geen frontend- of backend-codewijzigingen,
+  dus geen gedrag om visueel te verifiëren.
+- **`mvn test`**: niet opnieuw gedraaid — bij een lege code-diff is het resultaat identiek aan
+  `main`, en de volledige Cucumber-suite vereist de gedeelde prod-DB (destructief risico). De
+  developer rapporteerde BUILD SUCCESS (25 unit-tests groen) zonder testwijzigingen.
+
+Conclusie: alle worklog-claims kloppen; geen afwijkingen gevonden. **tested-ok**.
