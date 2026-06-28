@@ -42,3 +42,19 @@ Done / rationale:
 
 Resultaat: gedrag-neutraal, lege code-diff op story-log/worklog na — geldige uitkomst.
 Detail-log: docs/stories/SF-573-gedrag-neutrale-code-kwaliteit-solid-build-warnings.md
+
+## SF-573 (reviewer) — 2026-06-28
+
+Review akkoord. `git diff main...HEAD` bevat uitsluitend story-log + worklog (geen
+code), wat de story expliciet toestaat ("kleine of lege diff is een geldige uitkomst").
+Geverifieerd i.p.v. aangenomen:
+- [info] Geen kale `@Value` op val/var; de 2 treffers zijn de gedocumenteerde
+  uitzonderingen (`PodcastAsyncConfig` @Bean-param, `PodcastTranscriptWorker` plain param).
+- [info] `SettingsController` bedient inderdaad 3 prefixes (`/api/settings`,
+  `/api/rss-feeds`, `/api/podcast-feeds`); klasse-`@RequestMapping` zou URLs wijzigen —
+  terecht niet aangeraakt.
+- [info] Geen JSON-artefacten in story-log/worklog; bestanden eindigen correct.
+- [info] Geen openapi-/schema-/Flyway-wijziging; integratie- en e2e-tests ongemoeid.
+- [info] Uitgestelde Android-Gradle-deprecatie (`kotlinOptions{}` → `compilerOptions{}`)
+  is met reden gemeld conform AC5; geen blocker binnen deze story.
+Geen blockers/bugs gevonden.
