@@ -79,3 +79,14 @@ Conform bekende, niet-veilig-in-docs-oplosbare afwijkingen (gerapporteerd, niet 
 Kleine, gerichte documentatie-diff (2 bestanden). De in-scope documentatieset is overwegend
 al in lijn met de code dankzij eerdere alignment-passes; alleen twee feitelijke afwijkingen
 zijn rechtgezet. Git-diff bevat uitsluitend documentatiebestanden (plus dit worklog).
+
+## Tester-verificatie (SF-546)
+Docs-only story: geen browser-test nodig (geen frontend-codewijziging). SF_PREVIEW_URL gezet maar niet relevant — diff raakt geen UI-gedrag.
+
+Geverifieerd tegen broncode:
+- Diff is uitsluitend docs + worklog: `docs/factory/agents/developer.md`, `specs/backend-technical-spec.md`, dit worklog. Geen .kt/Dart/tests/infra, geen `docs/stories/`-wijziging buiten worklog. ✓
+- Metric-tags `newsfeed.event_videos.summary.{count,duration}` dragen in code (`EventVideoSummaryPipeline.kt:104-109`) labels `username` + `result` — komt overeen met de gecorrigeerde tabel in `backend-technical-spec.md` §6. ✓
+- `ModuleStructureTest`/`ApplicationModules.verify()` bestaat niet in de repo (grep: 0 treffers) — `developer.md` is nu consistent met `development.md` (§60) en `backend-technical-spec.md` (§7). ✓
+- Steekproef scheduler-crons (RssScheduler `0 0 * * * *` + `0 0 6 * * *`, EventScheduler `0 0 2 * * SUN`, EventVideoScheduler `0 0 3 * * SUN`, PodcastTranscriptWorker fixedDelay ~120000ms) matchen worklog-claims. ✓
+
+Uitkomst: kleine, correcte documentatie-diff; alle acceptatiecriteria gehaald. **tested**.
