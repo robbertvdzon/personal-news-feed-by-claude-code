@@ -137,3 +137,23 @@ Flutter-schermen die via de browser-e2e bereikbaar zijn afgedekt.
   AC "scenario's gebruiken alleen UI-teksten/gedrag dat feitelijk in de schermen voorkomt".
 - Geen verdere wijzigingen: alleen `admin-scenario.md` (+ dit worklog) aangepast; geen productiecode,
   geen unit-tests, geen tabellen (`e2e/readme.md`/`specs/e2e.md` bleven al de volledige set).
+
+## reviewer-pass (na developer-fix)
+- Volledige story-diff `git diff main...HEAD` gereviewd: uitsluitend `e2e/`-scenario's,
+  `e2e/readme.md`, `specs/e2e.md`, story-doc en worklog gewijzigd — geen productiecode of
+  unit-tests. Scope-conform.
+- UI-claims 1-op-1 geverifieerd tegen de bron:
+  - `api-log-scenario.md` ↔ `api_log_screen.dart` (+`settings_screen.dart:117-124`): AppBar
+    "API-log", `copy_all`/"Kopieer alles"→snackbar "Gekopieerd", `delete_outline`/"Log wissen"→
+    placeholder, `API_BASE_URL`-header, detaildialoog (titel, URL, ISO-tijd+ms, "Error / body:"
+    alleen bij fout, "Kopieer"/"Sluiten"), status-badge/ERR — alle correct.
+  - `admin-scenario.md` ↔ `admin_screen.dart` + `admin_costs_screen.dart`
+    (+`settings_screen.dart:127-143`): `auth.isAdmin`-gate, tegels, AppBars "Admin"/"Kosten",
+    popupmenu, "jij"-chip/self-delete-guard, totaal-kaarten, tabs, kolommen, periode-/filter-chips,
+    lege staten, endpoints, ⏭ Skipped/⚠️ Partial — alle correct.
+- [info] Eerdere test-blocker opgelost: leeswijzer (regels 46-47) beschrijft nu correct dat
+  "Maak admin" géén bevestiging kent en de rol direct toepast — conform `_handleAction`
+  `case 'make_admin'` (regels 159-162); alléén `make_user`/`delete` gebruiken `_confirm`.
+- Tabellen in `e2e/readme.md` en `specs/e2e.md` noemen de volledige, actuele scenario-set.
+- Geen JSON-artefacten in story-/scenario-/worklog-bestanden (tails gecontroleerd).
+- Oordeel: **akkoord**.
