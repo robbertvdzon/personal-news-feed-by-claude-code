@@ -55,3 +55,39 @@ geldig als al consistent), AC #1 (geen gedragswijziging) en AC #4 (bij twijfel n
 - Geen compiler-warnings (incl. @Value-targets).
 - Geen integratietests of openapi.yaml aangeraakt. Geen eigen unit-tests nodig (geen codewijziging).
 - Flutter: geen wijziging; lokaal geen flutter-binary, CI valideert — n.v.t.
+
+## SF-458 (tester) — story-brede test
+
+### Verificatie-aanpak
+Dit is een gedrag-neutrale consistentiepass met een **bewust lege code-diff**. De primaire
+verificatie is daarom code-/diff-inspectie: (a) bevestigen dat er werkelijk geen code/tests/infra
+gewijzigd zijn, en (b) de "al-conform"- en "bewust-niet-aangepakt"-claims van de developer
+tegen de feitelijke codebase narekenen.
+
+### Bevindingen
+- **Diff is doc-only.** `git diff --name-only main...HEAD` toont uitsluitend
+  `docs/stories/SF-457-consistentie-uitlijningen.md` en dit worklog. Geen `.kt`, geen Dart,
+  geen tests, geen infra. Conform AC #1 (geen gedragswijziging) en AC #7 (lege diff geldig).
+- **@param:Value** — alle constructor-property `@Value` zijn `@param:Value`; exact de 2
+  gedocumenteerde uitzonderingen resteren zonder target (`PodcastAsyncConfig` `@Bean`-methodeparam,
+  `PodcastTranscriptWorker` plain param zonder val). Geverifieerd via grep. ✔
+- **Logger-declaratie** — 39/39 `private val log = LoggerFactory.getLogger(javaClass)`, 0 afwijkend. ✔
+- **external_call-fallback** — 10/10 clients loggen `could not log external_call`. ✔
+- **Controller-mappingstijl** — alle controllers @Get/@Post/… , geen `@RequestMapping(method=)`. ✔
+- **SettingsController-melding klopt** — heeft `@RestController` zonder klasse-`@RequestMapping`;
+  bedient inderdaad méérdere prefixes (`/api/settings`, `/api/rss-feeds`, `/api/podcast-feeds`,
+  `/api/settings/event-*`). Eén base-path toevoegen zou endpoint-URL's wijzigen → terecht gemeld,
+  niet gefixt (AC #4). ✔
+- **frontend-reader `_Tab`-melding klopt** — `_Tab` in `frontend-reader/lib/main.dart` vs
+  `_FeedTab`/`_RssTab` in `frontend/`; aparte app, terecht niet cross-app hernoemd. ✔
+
+### Tests/build
+- Geen code gewijzigd → gedrag is per definitie ongewijzigd; geen runtime-regressierisico.
+- Volledige `mvn test` (Cucumber) niet opnieuw gedraaid: vereist gedeelde prod-DB (destructief
+  risico) en heeft zonder codewijziging geen toegevoegde waarde. Developer-claim BUILD SUCCESS /
+  25 tests staat genoteerd; CI valideert de build.
+- Preview (pnf-pr-148): geen UI-/gedragstest relevant — er is geen functionele wijziging te tonen.
+
+### Oordeel tester
+Alle controleerbare claims kloppen met de feitelijke codebase. De lege code-diff is een geldige
+en correct onderbouwde uitkomst. **Goedgekeurd.**
