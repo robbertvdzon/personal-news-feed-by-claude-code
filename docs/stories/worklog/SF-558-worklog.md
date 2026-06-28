@@ -72,3 +72,45 @@ Geen achtergebleven JSON-artefacten in story-log/worklog (grep schoon).
 ongemoeid gelaten en gemeld; eventueel als losse story oppakken.
 
 **Oordeel: akkoord.** Geen blockers/bugs; scope en (e2e-)dekking conform AC.
+
+## Test (SF-560, tester)
+
+Verificatiemethode: code-inspectie tegen `frontend/lib/screens/` (de preview pnf-pr-153 is een
+auth-canvas Flutter-SPA zonder DOM-tekst; voor een markdown-scenario-story zonder productiecode-wijziging
+is per-screen broncontrole de juiste en afdoende test — een browser-screenshot zou niets over deze
+story bewijzen). Story-diff opnieuw vastgesteld: alleen `e2e/` + story-log/worklog; **geen** frontend-/
+backend-productiecode of migraties gewijzigd (`git diff main...HEAD --name-only`).
+
+Per scenario, claim-voor-claim geverifieerd (alles aanwezig en exact kloppend):
+- **events-scenario**: `events_screen.dart` titel "Events", knoppen `travel_explore`/`refresh` +
+  tooltips, snackbar "Event-zoekopdracht gestart — check straks de lijst", secties
+  `Aankomend`(upcoming)/`Geweest`(history), sortering oplopend/aflopend (`_byStartAscending`/
+  `_byStartDescending`), lege-staat "Nog geen events ontdekt". `event_detail_screen.dart` titels
+  "Aankomend event"/"Event", `delete_outline`+tooltip "Verwijderen" → delete + `Navigator.pop()`
+  (terug naar lijst), chips place/business, "Onderwerpen", "Video's"+"Maak samenvatting", "Bronnen"(link).
+  Denylist correct als backend-gedrag beschreven, niet als Settings-UI.
+- **podcast-scenario**: `podcast_screen.dart` titel "Podcast", refresh, FAB "Nieuwe podcast"(add),
+  lege-staat "Nog geen podcasts", dialoogvelden + defaults (periode 7 / duur 15), TTS-dropdown
+  OpenAI TTS/ElevenLabs, "Maak"-validatie `days>=1 && duration>=1`, statuslabels
+  (In wachtrij…/Onderwerpen bepalen…/Script schrijven…/Audio genereren…/Klaar/Mislukt).
+  `podcast_detail_screen.dart` status/duur/TTS-chips, slider+positie/duur, play/pause,
+  skip −60/−30/−15/+15/+30/+60, "Draaiboek"(article)/"Download"(download), FAILED-foutblok met errorMessage.
+- **settings-scenario**: `settings_screen.dart` alle secties, systeem-categorie "Overig" subtitel
+  "Systeem" zonder edit-icoon, AI/Startups met `edit`-icoon, "Categorie toevoegen"/"Nieuwe categorie",
+  edit-dialoog "Categorie: <naam>" met Naam/Extra instructies + Verwijderen(rood)/Annuleren/Opslaan.
+  `rss_feeds_screen.dart` blokken RSS-feeds + Podcast-bronnen, "Nieuwe feed-URL"/"Nieuwe podcast-RSS-URL"
+  met +/×, Transcriberen-toggle, serverseitige validatie "Kon feed niet ophalen". Vier
+  Achtergrond-taken-knoppen met juiste snackbars ("…check straks de Events-tab", "…check straks de
+  events", "Klaar — N items verwerkt") en Bezig…/Loopt al…-feedback. Bottom-nav-iconen
+  (Feed/RSS/Podcast/Events/instellingen) kloppen met `main_shell.dart`.
+
+Backend unit-test-suite: geen backend-code gewijzigd → suite is identiek aan `main`. Volledige
+`mvn test` is bewust niet gedraaid (vereist gedeelde prod-DB → destructief risico, en levert geen
+informatie omdat de diff geen `src/` raakt). AC "ongewijzigd groen / geen productiecode gewijzigd"
+geverifieerd via diff.
+
+Structuur-AC: scenario's in NL met Doel/Voorwaarden/Stappen/Verwacht resultaat, ⚠️ Partial
+graceful-degradation + Faal-condities analoog aan feed-scenario; `e2e/readme.md` consistent bijgewerkt
+(volgorde start → … → cleanup). Geen scenario bevriest buggy gedrag.
+
+**Oordeel: geslaagd.** Alle AC's gedekt; geen bugs of inconsistenties tussen scenario's en UI.
