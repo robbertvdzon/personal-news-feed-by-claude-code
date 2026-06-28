@@ -1,6 +1,7 @@
 package com.vdzon.newsfeedbackend.auth.api
 
 import com.vdzon.newsfeedbackend.auth.AuthService
+import com.vdzon.newsfeedbackend.auth.api.dto.ChangePasswordRequest
 import com.vdzon.newsfeedbackend.common.SecurityHelpers
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.PutMapping
@@ -36,8 +37,3 @@ class AccountController(private val auth: AuthService) {
         return mapOf("status" to "ok", "deleted" to deleted, "username" to username)
     }
 }
-
-data class ChangePasswordRequest(
-    val currentPassword: String,
-    val newPassword: String
-)

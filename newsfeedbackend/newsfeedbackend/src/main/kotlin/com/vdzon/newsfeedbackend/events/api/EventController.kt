@@ -4,6 +4,7 @@ import com.vdzon.newsfeedbackend.common.SecurityHelpers
 import com.vdzon.newsfeedbackend.events.Event
 import com.vdzon.newsfeedbackend.events.EventService
 import com.vdzon.newsfeedbackend.events.EventVideo
+import com.vdzon.newsfeedbackend.events.api.dto.VideoSummaryRequest
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.DeleteMapping
@@ -97,6 +98,3 @@ class EventController(
         return mapOf("status" to "ok")
     }
 }
-
-/** KAN-67: body voor POST /api/events/{id}/videos/summarize. */
-data class VideoSummaryRequest(val videoUrl: String)
