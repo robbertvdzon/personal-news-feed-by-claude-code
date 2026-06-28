@@ -100,3 +100,25 @@ geverifieerd, `docs/stories/` ongewijzigd, lege docs-diff is geldige uitkomst.
 HTTP-response, `SettingsController` zonder klasse-`@RequestMapping`) is concreet beschreven
 i.p.v. weggeschreven — conform `.task.md`-aannames.
 Akkoord: worklog-only uitkomst is een geldige docs-alignment-uitkomst.
+
+## Test (tester, SF-630)
+[info] `git diff main...HEAD --name-status` = uitsluitend `docs/stories/worklog/SF-628-worklog.md`
+(A). Geen broncode-wijziging, geen `docs/stories/`-wijziging buiten dit worklog → AC "geen
+broncode-wijzigingen" en "docs/stories ongewijzigd" gehaald.
+[info] Claims onafhankelijk geverifieerd via code-inspectie (geen browser-test nodig: story
+raakt geen frontend, docs-diff is leeg):
+- 13 `@RestController`-klassen; alle paden aanwezig in `specs/openapi.yaml`. Steekproef op de
+  niet-expliciet-opgesomde paden (`/api/rss/reselect` regel 439, `/api/rss/refresh` regel 422,
+  `/star`, `/read`, `/unread`) → allemaal gedocumenteerd. Geen ontbrekende/overtollige paden.
+- Flyway V1..V15 aanwezig, historisch gat op V4 (bestaand, niet nieuw) — conform claim.
+- AI-defaults in `application.properties` = gpt-5.4-mini/gpt-5.4/gpt-5.4-nano/
+  gpt-4o-mini-transcribe (per `PNF_AI_MODEL_*`), pricing via `app.ai.pricing` — conform claim.
+- `event-preferences|denylist` in `frontend/lib` + `frontend-reader/lib` = 0 treffers →
+  backend-only claim klopt.
+- Modulith verify-test afwezig in `src/test` (0 treffers) — docs beschrijven dit correct.
+- Anthropic in backend-src: alleen een comment + een prompt-stringliteral, geen actieve
+  provider — consistent met de docs.
+[info] Gemelde, bewust niet-gewijzigde drift (cross-module imports, domeinmodellen als
+HTTP-response, `SettingsController` zonder klasse-`@RequestMapping`) is concreet beschreven,
+niet weggeschreven — conform `.task.md`.
+Resultaat: tested-ok. Lege docs-diff is een geldige docs-alignment-uitkomst.
