@@ -82,3 +82,21 @@ Werkende diff bevat uitsluitend dit worklog-bestand (`docs/stories/worklog/SF-62
 Geen broncode-wijzigingen, geen wijzigingen in `docs/stories/` buiten dit worklog.
 Acceptance criteria gehaald: docs ↔ code in lijn, openapi consistent, frontend-claims
 geverifieerd, `docs/stories/` ongewijzigd, lege docs-diff is geldige uitkomst.
+
+## Review (reviewer)
+[info] `git diff main...HEAD --stat` bevestigt: enige wijziging is dit worklog-bestand
+(84 regels toegevoegd). Geen broncode-wijziging → AC "geen broncode-wijzigingen" gehaald.
+[info] Steekproef-verificatie van de claims uitgevoerd en akkoord:
+- 13 `@RestController`-klassen aanwezig; geen openapi-drift gevonden in de steekproef.
+- Flyway V1..V15 met historisch gat op V4 (bestaand, niet nieuw) — conform claim.
+- AI-defaults in `application.properties` = gpt-5.4-mini/gpt-5.4/gpt-5.4-nano/
+  gpt-4o-mini-transcribe, pricing via `app.ai.pricing` — conform claim.
+- Modulith verify-test afwezig in `src/test` (0 treffers) — docs beschrijven dit correct.
+- Grep `event-preferences|denylist` in `frontend/lib` + `frontend-reader/lib` = 0 treffers —
+  backend-only claim klopt.
+- Anthropic in backend-src: alleen een comment + een prompt-stringliteral, geen actieve
+  provider — consistent met "geen Anthropic in de app".
+[info] Gemelde, bewust niet-gewijzigde drift (cross-module imports, domeinmodellen als
+HTTP-response, `SettingsController` zonder klasse-`@RequestMapping`) is concreet beschreven
+i.p.v. weggeschreven — conform `.task.md`-aannames.
+Akkoord: worklog-only uitkomst is een geldige docs-alignment-uitkomst.
