@@ -60,3 +60,13 @@ Geen nieuwe, onbekende afwijkingen aangetroffen; daarom geen error-exit nodig.
 ## Done / rationale
 - Volledige ADR-conformiteit-audit uitgevoerd; codebase blijkt al geconvergeerd → gedrag-neutrale diff is uitsluitend dit worklog.
 - Bekende structurele afwijkingen concreet gemeld (welke conventie, wat wijkt af, waarom niet veilig), conform de vooraf erkende Aannames.
+
+## Tester-verificatie (SF-589)
+Audit-claims onafhankelijk geverifieerd via grep over `newsfeedbackend/newsfeedbackend/src/main/kotlin`:
+- `@param:Value`: 21× bevestigd; precies 2 kale `@Value` over, beide de gedocumenteerde uitzonderingen (`PodcastAsyncConfig` = `@Bean`-methodeparameter; `PodcastTranscriptWorker` = plain constructor-parameter zonder `val`/`var`). ✓
+- Logger: 39/39 exact `private val log = LoggerFactory.getLogger(javaClass)`; 0 afwijkingen. ✓
+- external_call-fallback: 10/10 op WARN-niveau. ✓
+- Geen `openapi-generator`-plugin in pom; geen inline `data class` in `*Controller.kt`. ✓
+- Jackson `com.fasterxml.jackson` in pom (conform spec sinds SF-502). ✓
+- Diff is worklog-only; geen productiecode gewijzigd → gedrag identiek aan `main`, niets functioneels te testen op de preview (consistent met het acceptatiecriterium). 
+Conclusie: alle toetsbare audit-claims kloppen; structurele afwijkingen correct gemeld i.p.v. risicovol hersteld. Geslaagd.
