@@ -69,3 +69,20 @@ Waarom niet veilig: er is geen `ApplicationModules.verify()`-test die dit afdwin
 
 ### Zelf-review op gedrag-neutraliteit
 Er zijn **geen** code-, API-, data- of UI-wijzigingen doorgevoerd. De enige diff bestaat uit dit worklog en de story-log. Het functionele gedrag is per definitie ongewijzigd. De code bleek bij controle reeds volledig in lijn met de veilig-herstelbare conventies (resultaat van eerdere passes SF-392/SF-435/SF-437/SF-456); de resterende afwijkingen zijn architecturaal/contract-rakend en zijn bewust gerapporteerd i.p.v. gewijzigd.
+
+---
+
+## SF-505 — Story-brede test (tester)
+
+Docs-only diff (`git diff --name-only main...HEAD` = alleen story-log + dit worklog; geen `.kt`/Dart/test/infra). Gedrag is daarmee per definitie ongewijzigd; geen API/UI-effect, preview pnf-pr-150 ongewijzigd. Geen browser-screenshots nodig (geen frontend-codewijziging). `mvn test` niet opnieuw gedraaid: zonder codewijziging geen meerwaarde en de volledige Cucumber-suite raakt een gedeelde DB.
+
+Worklog-claims geverifieerd via code-inspectie (greps in `newsfeedbackend/newsfeedbackend/src/main`):
+- (1) geen `openapi-generator`-plugin in `pom.xml` — bevestigd.
+- (2) Jackson = `com.fasterxml.jackson` (36 imports), 0× `tools.jackson` — bevestigd.
+- (3) precies 2 kale `@Value`, exact de gedocumenteerde uitzonderingen (`PodcastAsyncConfig` @Bean-param `concurrency: Int`, `PodcastTranscriptWorker` plain-param `promotionTimeoutHours: Long`, beide géén `val`); 21× `@param:Value` — bevestigd.
+- (4) geen inline `data class` in `*Controller.kt`; 5 DTO-bestanden onder `*/api/dto/` — bevestigd.
+- (5) logger-patroon 39/39, geen afwijkende `LoggerFactory.getLogger`-variant — bevestigd.
+- (6) external_call-fallback 10/10 — bevestigd.
+- (11) `SettingsController` bedient 3 prefixes (`/api/settings`, `/api/rss-feeds`, `/api/podcast-feeds`) → class-level `@RequestMapping` zou URL's wijzigen; terecht gedefereerd — bevestigd.
+
+Niet-veilig-herstelbare afwijkingen (9/10/11) zijn correct gerapporteerd i.p.v. gewijzigd. Resultaat: **tested** — alle controleerbare claims kloppen, geen gedragswijziging.
