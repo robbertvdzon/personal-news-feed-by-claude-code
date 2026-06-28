@@ -46,3 +46,29 @@ Done / rationale:
 - Geen scenario toegevoegd dat buggy gedrag zou "bevriezen": de doorlopen flows (event-delete met
   state-rollback, podcast-generatie/afspelen, settings-edits, feed-validatie) gedragen zich correct
   volgens de screens; geen in-error-melding nodig.
+
+## Review (SF-559, reviewer)
+
+Volledige story-diff (`git diff main...HEAD`) beoordeeld: alleen `e2e/` + story-log/worklog gewijzigd,
+geen productiecode/migraties (AC: ✅). UI-claims in alle drie nieuwe scenario's per-screen geverifieerd
+tegen `frontend/lib/screens/`:
+- **events**: AppBar-knoppen `travel_explore`/`refresh` + tooltips, snackbar-tekst, secties
+  `Aankomend`/`Geweest` (icons upcoming/history), lege-staat "Nog geen events ontdekt", detail-titels
+  "Aankomend event"/"Event", `delete_outline` + tooltip "Verwijderen" → `pop()`, secties
+  Onderwerpen/Video's/Bronnen, "Maak samenvatting" — alles aanwezig. Denylist is echte backend-feature
+  (V14 migratie + SettingsService), correct als backend-gedrag beschreven, NIET als Settings-UI (AC: ✅).
+- **podcast**: dialoog-velden + defaults (periode 7 / duur 15), TTS-dropdown OpenAI/ElevenLabs,
+  "Maak" enabled-validatie (`days>=1 && duration>=1`), statuslabels, detail slider/play-pause/
+  skip ±15/30/60/Draaiboek(article)/Download — exact kloppend.
+- **settings**: secties, niet-bewerkbare systeem-categorie "Overig", categorie add/edit/delete,
+  rss_feeds_screen (RSS-feeds + Podcast-bronnen, ×/+ , serverseitige validatie "Kon feed niet ophalen"),
+  vier Achtergrond-taken-knoppen met juiste snackbars/iconen — kloppend.
+
+Scenario's volgen `e2e/readme.md`-structuur (Doel/Voorwaarden/Stappen/Verwacht resultaat), in NL, met
+⚠️ Partial graceful-degradation-secties analoog aan feed-scenario. `e2e/readme.md` consistent bijgewerkt.
+Geen achtergebleven JSON-artefacten in story-log/worklog (grep schoon).
+
+[info] Out-of-scope doc-drift in `cleanup-scenario.md` (JSON-op-schijf vs PostgreSQL) terecht
+ongemoeid gelaten en gemeld; eventueel als losse story oppakken.
+
+**Oordeel: akkoord.** Geen blockers/bugs; scope en (e2e-)dekking conform AC.
