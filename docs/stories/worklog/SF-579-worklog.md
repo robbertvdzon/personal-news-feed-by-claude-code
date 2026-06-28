@@ -103,3 +103,31 @@ invoer → terecht niet aangepast.
 [info] Geaccepteerde/gemelde niet-fixbare items (CORS-wildcard, actuator `show-details`,
 JWT dev-fallback, Android cleartext) zijn correct onderbouwd als gedragsrisico → melden
 i.p.v. doorvoeren, conform AC 1/6. Akkoord.
+
+## Test (SF-581, tester)
+
+Testmodus: code-inspectie + unit-test. Geen frontend-wijziging in de story-diff
+(`git diff --name-only main...HEAD` toont alleen `VideoAudioDownloader.kt`, de nieuwe
+`VideoAudioDownloaderArgsTest.kt` en dit worklog) → geen browser/preview-test of
+screenshots vereist (backend-only security-hardening).
+
+- [ok] Diff-scope: precies 1 gedrag-neutrale fix + 1 testbestand + worklog; geen infra,
+  geen API-spec, geen e2e-suite gewijzigd. Conform AC 2/4/6.
+- [ok] Fix gedrag-neutraal bevestigd: `buildArgs(...)` levert dezelfde yt-dlp-args in
+  dezelfde volgorde als vóór de refactor, met enkel een `--` end-of-options-separator
+  vlak vóór de URL. Voor geldige http(s)-URL's identieke aanroep; een met `-` beginnende
+  (geen geldige) URL belandt achter `--` i.p.v. als vlag → argument-injectie afgedicht.
+- [ok] Unit-tests: `mvn -Dtest=VideoAudioDownloaderArgsTest test` → **3/3 groen**,
+  BUILD SUCCESS, hele backend-module compileert (Kotlin 2.2.21 / JDK 21).
+- [info] Volledige `mvn test` (Cucumber) NIET gedraaid: vereist een gedeelde DB
+  (`PNF_DATABASE_URL`) met destructief risico → conform tester-conventie alleen de
+  DB-vrije nieuwe testklasse geïsoleerd gedraaid. Developer rapporteerde 28/28 groen.
+- [ok] Worklog "geen wijziging nodig"-claims steekproefsgewijs geverifieerd met grep:
+  3 `ProcessBuilder`-usages (overige 2 zonder externe URL-invoer); JWT
+  `require(bytes.size >= 32)` aanwezig; CORS `addAllowedOriginPattern("*")` zónder
+  `allowCredentials`; actuator-exposure `health,prometheus,info` (geen `*`). Alle
+  consistent met de onderbouwing.
+- [ok] AC 5: geen nieuwe secrets in code/diff/output geïntroduceerd.
+
+Conclusie: implementatie correct en gedrag-neutraal; alle aangewezen security-gebieden
+zijn nagelopen en de bevindingen kloppen. Geslaagd.
