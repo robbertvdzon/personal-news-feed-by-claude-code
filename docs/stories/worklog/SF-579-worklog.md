@@ -86,3 +86,20 @@ Voer een gerichte, gedrag-neutrale security-pass uit over de codebase (backend K
   de e2e-suite onder `e2e/scenarios/` zijn niet aangepast.
 - Diff: één gedrag-neutrale hardening + bijbehorende unit-test. `specs/openapi.yaml`
   ongewijzigd en consistent (geen API-contractwijziging).
+
+## Review (SF-580, reviewer)
+
+[info] Volledige story-diff t.o.v. `main` beoordeeld: alleen `VideoAudioDownloader.kt`
+(fix), `VideoAudioDownloaderArgsTest.kt` (3 tests) en dit worklog gewijzigd.
+[info] Fix bevestigd gedrag-neutraal: `--` is de standaard end-of-options-separator;
+voor geldige http(s)-URL's (niet beginnend met `-`) is de yt-dlp-aanroep identiek.
+Geen legitieme flow geblokkeerd — een met `-` beginnende waarde is geen geldige
+video-URL en zou voorheen al als (onbekende) vlag falen.
+[info] Verificatie overige `ProcessBuilder`-calls (`Mp3Concatenator`, `AudioTranscoder`):
+gebruiken uitsluitend intern aangemaakte temp-paden (`*.absolutePath`), geen externe
+invoer → terecht niet aangepast.
+[info] Geen API-/contractwijziging, geen Spring Modulith-moduleovertreding (alles binnen
+`events`-module + companion), geen Flyway-migratie, geen story-log JSON-artefacten.
+[info] Geaccepteerde/gemelde niet-fixbare items (CORS-wildcard, actuator `show-details`,
+JWT dev-fallback, Android cleartext) zijn correct onderbouwd als gedragsrisico → melden
+i.p.v. doorvoeren, conform AC 1/6. Akkoord.
