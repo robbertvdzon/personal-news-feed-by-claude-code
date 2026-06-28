@@ -2,6 +2,8 @@ package com.vdzon.newsfeedbackend.admin.api
 
 import com.vdzon.newsfeedbackend.admin.AdminService
 import com.vdzon.newsfeedbackend.admin.AdminUserView
+import com.vdzon.newsfeedbackend.admin.api.dto.ResetPasswordRequest
+import com.vdzon.newsfeedbackend.admin.api.dto.SetRoleRequest
 import com.vdzon.newsfeedbackend.common.SecurityHelpers
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
@@ -44,6 +46,3 @@ class AdminController(private val service: AdminService) {
         return mapOf("status" to "ok")
     }
 }
-
-data class ResetPasswordRequest(val newPassword: String)
-data class SetRoleRequest(val role: String)

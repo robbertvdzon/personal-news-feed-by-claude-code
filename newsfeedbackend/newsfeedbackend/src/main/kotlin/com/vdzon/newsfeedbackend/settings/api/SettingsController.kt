@@ -8,6 +8,8 @@ import com.vdzon.newsfeedbackend.settings.EventPreferences
 import com.vdzon.newsfeedbackend.settings.PodcastFeedsSettings
 import com.vdzon.newsfeedbackend.settings.RssFeedsSettings
 import com.vdzon.newsfeedbackend.settings.SettingsService
+import com.vdzon.newsfeedbackend.settings.api.dto.AddEventPreferenceRequest
+import com.vdzon.newsfeedbackend.settings.api.dto.RemoveEventPreferenceRequest
 import com.vdzon.newsfeedbackend.common.SecurityHelpers
 import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.DeleteMapping
@@ -129,9 +131,3 @@ class SettingsController(
     fun removeFromEventDenylist(@PathVariable normalizedId: String): EventDenylist =
         service.removeEventFromDenylist(user(), normalizedId)
 }
-
-/** KAN-68: body voor POST /api/settings/event-preferences. */
-data class AddEventPreferenceRequest(val name: String)
-
-/** KAN-68: body voor POST /api/settings/event-preferences/remove. */
-data class RemoveEventPreferenceRequest(val name: String)
