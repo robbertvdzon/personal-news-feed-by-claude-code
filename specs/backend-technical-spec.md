@@ -249,8 +249,8 @@ De daadwerkelijk geregistreerde meters (via `MeterRegistry`):
 | `newsfeed.events.discovery.duration` | Timer | `username` | Duur event-discovery |
 | `newsfeed.event_videos.discovered` | Counter | `username` | Event-video's ontdekt |
 | `newsfeed.event_videos.discovery.duration` | Timer | `username` | Duur video-discovery |
-| `newsfeed.event_videos.summary.count` | Counter | `result` | Video-samenvattingen |
-| `newsfeed.event_videos.summary.duration` | Timer | `result` | Duur video-samenvatting |
+| `newsfeed.event_videos.summary.count` | Counter | `username`, `result` | Video-samenvattingen |
+| `newsfeed.event_videos.summary.duration` | Timer | `username`, `result` | Duur video-samenvatting |
 
 > AI-call-kosten en aantallen worden niet als aparte Micrometer-metric bijgehouden,
 > maar in de tabel `external_calls` (per-call kostenlog), opvraagbaar via de admin-costs-endpoints.
