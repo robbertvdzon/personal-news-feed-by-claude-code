@@ -41,9 +41,10 @@ de sectie **Beheer** is dan simpelweg afwezig in Instellingen.
   menu of kies "Annuleren" in een eventuele dialoog). Voer **geen** rol-wijziging, wachtwoord-reset
   of verwijdering door op echte accounts.
   > Optioneel/leeswijzer: "Wachtwoord resetten" opent een dialoog "Nieuw wachtwoord voor <user>"
-  > (min. 4 tekens, knoppen "Annuleren"/"Resetten"); "Maak admin"/"Maak gewone user" en
-  > "Verwijderen" vragen een bevestigingsdialoog ("Bevestig", knoppen "Annuleren"/"Doorgaan").
-  > Annuleer deze altijd in de e2e-run.
+  > (min. 4 tekens, knoppen "Annuleren"/"Resetten"). Alléén "Maak gewone user" en "Verwijderen"
+  > vragen een bevestigingsdialoog ("Bevestig", knoppen "Annuleren"/"Doorgaan") — annuleer die altijd.
+  > "Maak admin" kent **géén** bevestiging en past de rol **direct** toe (snackbar "<user> is nu
+  > admin"); tik die optie daarom in de e2e-run **niet** aan — sluit het menu i.p.v. te kiezen.
 
 ### 2. Kosten-overzicht (`AdminCostsScreen`)
 - Tik in de AppBar van het Admin-scherm op **"Kosten-overzicht"** (`payments`).

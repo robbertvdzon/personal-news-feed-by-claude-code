@@ -120,3 +120,20 @@ Flutter-schermen die via de browser-e2e bereikbaar zijn afgedekt.
   in de schermen voorkomt". Dit is al door de reviewer gesignaleerd (suggestie hierboven) maar niet
   verwerkt. Fix: in de leeswijzer "Maak admin" uit de bevestigingsdialoog-opsomming halen (alleen
   "Maak gewone user" en "Verwijderen" vragen bevestiging; "Maak admin" wordt direct toegepast).
+
+## SF-643 — developer-fix-pass (na test-rejected)
+
+- **Blocker verwerkt**: de leeswijzer in `admin-scenario.md` (regels 43-46) is aangescherpt zodat
+  hij het feitelijke schermgedrag beschrijft. Geverifieerd tegen `admin_screen.dart` `_handleAction`:
+  - `case 'make_admin'` (regels 159-162): `notifier.setRole(u.username, 'admin')` **direct**, géén
+    `_confirm`; snackbar **"<user> is nu admin"**.
+  - `case 'make_user'` (regels 163-169) en `case 'delete'` (regels 170-176): wél `_confirm` →
+    `AlertDialog` titel **"Bevestig"**, knoppen **"Annuleren"**/**"Doorgaan"** (regels 207-216).
+  - `case 'reset'` (regels 151-158): dialoog **"Nieuw wachtwoord voor <user>"** (min. 4 tekens,
+    knoppen "Annuleren"/"Resetten", regels 185-205).
+  Nieuwe leeswijzer-tekst: alléén "Maak gewone user" en "Verwijderen" tonen de bevestigingsdialoog;
+  "Maak admin" kent géén bevestiging en past de rol direct toe, dus die optie wordt in de e2e-run
+  **niet** aangetikt (menu sluiten i.p.v. kiezen). Daarmee voldoet het scenario weer aan het
+  AC "scenario's gebruiken alleen UI-teksten/gedrag dat feitelijk in de schermen voorkomt".
+- Geen verdere wijzigingen: alleen `admin-scenario.md` (+ dit worklog) aangepast; geen productiecode,
+  geen unit-tests, geen tabellen (`e2e/readme.md`/`specs/e2e.md` bleven al de volledige set).
