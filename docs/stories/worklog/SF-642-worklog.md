@@ -157,3 +157,38 @@ Flutter-schermen die via de browser-e2e bereikbaar zijn afgedekt.
 - Tabellen in `e2e/readme.md` en `specs/e2e.md` noemen de volledige, actuele scenario-set.
 - Geen JSON-artefacten in story-/scenario-/worklog-bestanden (tails gecontroleerd).
 - Oordeel: **akkoord**.
+
+## tester-pass (her-test na developer-fix)
+Modus: code-inspectie (docs-only PR). `git diff --name-status main...HEAD` toont uitsluitend
+`e2e/scenarios/{api-log,admin}-scenario.md`, `e2e/readme.md`, `specs/e2e.md`, story-doc en dit
+worklog — geen productiecode (`.kt`/Dart) of unit-tests. Een preview-screenshot zou identiek aan
+main zijn, dus de juiste verificatie is de scenario-tekst 1-op-1 tegen de bron-`.dart` leggen.
+
+- **Eerdere blocker OPGELOST.** `admin-scenario.md` regels 43-47 stellen nu correct dat alléén
+  "Maak gewone user" en "Verwijderen" een bevestigingsdialoog ("Bevestig", Annuleren/Doorgaan)
+  tonen, en dat "Maak admin" **géén** bevestiging kent en de rol **direct** toepast (snackbar
+  "<user> is nu admin"). Dit komt overeen met `admin_screen.dart` `_handleAction`: `case 'make_admin'`
+  (159-162) roept direct `setRole` zonder `_confirm`; `case 'make_user'` (163-169) en `case 'delete'`
+  (170-176) gebruiken wél `_confirm` (titel "Bevestig", knoppen Annuleren/Doorgaan, 207-219);
+  `case 'reset'` toont "Nieuw wachtwoord voor <user>" (Annuleren/Resetten, 185-205).
+- `api-log-scenario.md` ↔ `api_log_screen.dart` (+ `settings_screen.dart:117-124`): AppBar "API-log",
+  acties `copy_all`/"Kopieer alles"→snackbar "Gekopieerd", `delete_outline`/"Log wissen"→placeholder
+  "Nog geen calls gelogd…", `API_BASE_URL`-header, status-badge/ERR, detaildialoog (titel,
+  selecteerbare URL, ISO-tijd+ms, "Error / body:" alleen bij fout, knoppen "Kopieer"/"Sluiten") —
+  alle correct.
+- `admin-scenario.md` ↔ `admin_costs_screen.dart`: AppBar "Kosten" + actie "Vernieuwen", vier kaarten
+  (Vandaag/Deze maand/Dit jaar/Totaal + "N calls"), tabs Per dag/Per gebruiker/Logboek, kolommen
+  Datum/Gebruiker + Totaal/OpenAI/ElevenLabs/Tavily/Calls, periode-chips (Deze maand/Vorige maand/
+  Dit jaar/Alles), filter-chips, provider-initialen O/E/T/R/W, lege staten ("Nog geen externe calls
+  geregistreerd"/"Geen calls in deze periode"/"Geen calls"), endpoints `/api/admin/costs/...` —
+  alle correct.
+- Instellingen-secties Debug (`bug_report_outlined`, "API-log") en admin-only Beheer
+  (`auth.isAdmin`-gate, `person_outline`/"Beheer gebruikers", `attach_money`/"Beheer kosten")
+  kloppen met `settings_screen.dart`.
+- `e2e/readme.md` (mappenstructuur + "één of meer scenario's"-opsomming) en `specs/e2e.md` (tabelrij)
+  noemen de volledige, actuele set incl. beide nieuwe scenario's.
+- Geen backend-integratietests toegevoegd; geen unit-test-wijziging → gedrag == main, `mvn test`
+  functioneel niet geraakt (niet gedraaid; vereist Postgres die in de factory ontbreekt).
+
+Oordeel: **tested** — alle acceptatiecriteria voldaan, eerdere blocker verholpen. Geen code/tests/
+infra aangeraakt; alleen dit worklog aangepast, niets gecommit.
