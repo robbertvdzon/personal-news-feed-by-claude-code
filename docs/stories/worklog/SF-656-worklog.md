@@ -54,3 +54,21 @@ Done / rationale:
 - [info] Geen stray `agent_tips_update`/`phase`-JSON in de SF-656-story-bestanden.
 - [info] Bekende structurele afwijkingen correct gemeld i.p.v. onveilig gefixt.
 - Akkoord: geen blockers/bugs.
+
+## Test (SF-658, tester)
+
+- [info] Story-diff t.o.v. `main` is **doc-only** (`docs/stories/SF-656-*.md` + dit worklog);
+  geen enkel code-/test-/infra-bestand gewijzigd. Functioneel gedrag is daarmee per
+  constructie identiek aan `main` — geen preview-/UI-test nodig.
+- [info] Worklog-claims geverifieerd tegen de daadwerkelijke code:
+  - `@Value`: enkel 2 gedocumenteerde uitzonderingen (`PodcastAsyncConfig` @Bean-param,
+    `PodcastTranscriptWorker` ctor-param) — beide functieparameters, dus `@param:Value`
+    niet van toepassing. Geen kale `@Value` op val/var.
+  - Geen `data class` in `*Controller.kt`; alle loggers `LoggerFactory.getLogger(javaClass)`.
+  - Android `kotlinOptions`-deprecatie aanwezig in beide `app/build.gradle.kts`; terecht
+    gemeld i.p.v. onveilig gefixt (geen Flutter/Gradle-toolchain in runner).
+- [info] Backend zelf gebouwd: `mvn clean compile` → BUILD SUCCESS, 0 warnings/deprecations;
+  `mvn test-compile` → clean (JDK 21, mvn online). De volledige Cucumber `mvn test` (28 tests,
+  reeds groen bij developer+reviewer) bewust niet herdraaid: vereist gedeelde prod-DB
+  (destructief risico) en levert bij byte-identieke code geen extra bewijs.
+- Uitkomst: **tested** — alle claims kloppen, build groen, gedrag onveranderd. Geen blockers.
