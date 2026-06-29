@@ -81,3 +81,10 @@ Done / rationale:
 - [info] `@Value`-claim geverifieerd: enige twee kale `@Value` zijn de gedocumenteerde uitzonderingen (`PodcastAsyncConfig.kt` @Bean-param, `PodcastTranscriptWorker.kt` plain constructor-param) — correct geen `@param:`.
 - [info] Geen rauwe JSON-artefacten in het worklog; bestand eindigt schoon.
 - Akkoord: scope gerespecteerd (e2e/integratietests onaangeraakt), gedrag-neutraal, vier niet-veilig-herstelbare afwijkingen correct gemeld i.p.v. doorgevoerd.
+
+## Test (SF-673)
+- [info] Story-diff `git diff main...HEAD` bevat uitsluitend dit worklog; `git diff --stat main...HEAD -- newsfeedbackend/ frontend/ frontend-reader/ specs/ e2e/` is leeg → geen src-/spec-/frontend-/e2e-wijziging. Functioneel gedrag dus trivieel ongewijzigd; geen preview-gedrag dat afwijkt van `main`.
+- [info] `@Value`-claim onafhankelijk geverifieerd: exact 2 kale `@Value` in `src/main`, beide de gedocumenteerde uitzonderingen (`PodcastAsyncConfig.kt` @Bean-methodeparam, `PodcastTranscriptWorker.kt` plain constructor-param zonder val/var); 21× `@param:Value` elders — geen kale `@Value` op een primary-constructor property.
+- [info] `mvn test` (newsfeedbackend/newsfeedbackend) opnieuw gedraaid → **BUILD SUCCESS, 28 tests groen** (0 failures, 0 errors): RssFetcherImageUrlTest (6), AiPricingPropertiesTest (4), ApiRequestDtoContractTest (6), PodcastScriptParserTest (9), VideoAudioDownloaderArgsTest (3). Matcht de developer-claim exact.
+- [info] Preview-browsertest overgeslagen: omdat de story worklog-only is (0 code-diff t.o.v. main) is er geen gedragsverschil te observeren in de preview; code-inspectie + testsuite is hier de afdoende verificatiemethode.
+- Akkoord (tester): acceptance criteria gehaald — ADR-vergelijking uitgevoerd en afwijkingen benoemd, geen gedrag-neutrale fix nodig (kleine/worklog-only diff = geldige uitkomst), bestaande tests groen, e2e/integratietests onaangeraakt, niet-veilig-herstelbare afwijkingen gemeld i.p.v. doorgevoerd.
