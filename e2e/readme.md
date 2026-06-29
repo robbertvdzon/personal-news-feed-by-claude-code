@@ -15,6 +15,7 @@ e2e/
 │   ├── samenvatting-scenario.md
 │   ├── events-scenario.md
 │   ├── podcast-scenario.md
+│   ├── rss-podcast-scenario.md     ← RSS podcast-afleveringen (mediaType=PODCAST)
 │   ├── settings-scenario.md
 │   ├── api-log-scenario.md
 │   └── admin-scenario.md         ← admin-only; ⏭ Skipped zonder ROLE_ADMIN
@@ -57,7 +58,7 @@ e2e/
 2. **Start GIF-opname** (in agent-context: `gif_creator action=start_recording`).
 3. Voer de scenario's in deze volgorde uit:
    1. `start-scenario.md`
-   2. één of meer scenario's (`rss-scenario.md`, `feed-scenario.md`, `samenvatting-scenario.md`, `events-scenario.md`, `podcast-scenario.md`, `settings-scenario.md`, `api-log-scenario.md`, `admin-scenario.md`)
+   2. één of meer scenario's (`rss-scenario.md`, `feed-scenario.md`, `samenvatting-scenario.md`, `events-scenario.md`, `podcast-scenario.md`, `rss-podcast-scenario.md`, `settings-scenario.md`, `api-log-scenario.md`, `admin-scenario.md`)
    3. `cleanup-scenario.md`
 4. **Kopieer** elke .md die je gedraaid hebt naar `$RUN/`.
 5. **Stop opname** en exporteer als `$RUN/recording.gif`.

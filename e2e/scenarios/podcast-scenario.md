@@ -3,6 +3,8 @@
 ## Doel
 De Podcast-tab doorlopen: de lijst met (gegenereerde) podcasts bekijken, een nieuwe podcast aanmaken via de "Nieuwe podcast"-knop, de generatie-status volgen, een afgeronde podcast in detail openen (`podcast_detail_screen.dart`) en het afspelen verifiëren (speler, play/pause, skip-knoppen, draaiboek).
 
+> **Afbakening:** dit scenario gaat over de **zelf-gegenereerde AI-podcasts** uit de Podcast-tab (`PodcastDetailScreen`). De **podcast-afleveringen uit een geabonneerde podcast-bron** (RSS, `mediaType = PODCAST`) openen een ánder scherm (`RssPodcastDetailScreen`) en worden gedekt in `rss-podcast-scenario`. Een afgeronde vertaling vanuit dat scherm landt overigens wél op dít `PodcastDetailScreen` (via de chip "Vertaald van …").
+
 ## Voorwaarden
 - `start-scenario` is succesvol gedraaid: ingelogd als `e2e_…`, en de RSS-pipeline heeft items + samenvattingen van de afgelopen dagen gegenereerd (de podcast wordt opgebouwd uit dat nieuws).
 - `PNF_OPENAI_API_KEY` actief — de podcast-generatie (script + TTS) leunt op OpenAI. Zonder key faalt of stagneert de generatie: markeer dan als ⚠️ Partial (zie "Graceful degradation").
