@@ -1,89 +1,63 @@
-# SF-656 / SF-657 — Gedrag-neutrale code-kwaliteit & build-warnings
+# SF-656 - nightly: Code-kwaliteit verbeteren (SOLID, build-output)
 
-Story (parent SF-656, subtaak SF-657): nightly — Code-kwaliteit verbeteren (SOLID, build-output).
-Doel: gedrag-neutraal de codekwaliteit verbeteren (SOLID, naamgeving, dode code,
-duplicatie, functielengte) en build-warnings/deprecations wegwerken over de backend
-(Maven, `newsfeedbackend/newsfeedbackend/`) en de twee Android Gradle-frontends
-(`frontend/android/`, `frontend-reader/android/`). Geen functionele wijziging.
-Een kleine of lege diff is een vooraf benoemde, geldige uitkomst.
+## Story
 
-## Stappenplan
+nightly: Code-kwaliteit verbeteren (SOLID, build-output)
 
-- [x] Issue + factory-docs lezen (`development.md`, `technical-spec.md`, `specs/backend-technical-spec.md`, agent-tips)
-- [x] Backend-conventies verifiëren (`@param:Value`-target, logger, modulith-lagen, DTO-plaatsing)
-- [x] Backend-build op warnings controleren (`mvn clean compile`)
-- [x] Backend-tests draaien (`mvn test`)
-- [x] Backend scannen op veilige SOLID-/dode-code-/duplicatie-refactors
-- [x] Android Gradle-builds beoordelen op haalbaarheid van warning-fixes
-- [x] Story-log + worklog bijwerken met resultaat en concrete meldingen
+<!-- refined-by-factory -->
 
-## Gedaan en waarom
+## Scope
+Gedrag-neutraal kwaliteits-/refactorwerk over de drie buildbare delen van de repo:
 
-### Backend (`newsfeedbackend/newsfeedbackend/`, Kotlin) — geen code-diff nodig
+- **Backend** (Maven): `newsfeedbackend/newsfeedbackend/` — Kotlin/Spring.
+- **Android-frontends** (Gradle): `frontend/android/` en `frontend-reader/android/` (beide `build.gradle.kts`).
 
-De backend is op de veilig-herstelbare conventies volledig conform; er was geen
-gedrag-neutrale verbetering meer aan te brengen. Geverifieerd via grep + build:
+Concrete verbeteringen:
+- Code aanlijnen met SOLID-principes; leesbaarheid en onderhoudbaarheid verhogen (betere naamgeving, verwijderen van dode code, wegwerken van duplicatie, opsplitsen van te lange functies).
+- Warnings en deprecations uit de build-output oplossen: Maven voor de backend, Gradle voor de Android-frontends.
 
-- **`@Value` use-site-target:** geen kale `@Value` op een `val`/`var`-property. De
-  enige twee treffers zijn de bewust níet aan te passen uitzonderingen (`@param:` zou
-  daar een compilefout of nieuwe warning geven): `PodcastAsyncConfig.kt` (`@Value` op
-  een `@Bean`-methodeparameter) en `PodcastTranscriptWorker.kt` (`@Value` op een plain
-  constructor-param zonder `val`).
-- **Logger:** alle treffers van `LoggerFactory.getLogger` volgen exact
-  `private val log = LoggerFactory.getLogger(javaClass)`; geen afwijkingen.
-- **Inline DTO's:** geen `data class` in `*Controller.kt` (request-DTO's staan in
-  `module/api/dto/`, geconvergeerd in SF-437).
-- **Lagen / KDoc-positie:** ongewijzigd conform eerdere convergentie (SF-502/SF-504,
-  SF-586/SF-588).
+Norm voor "kwaliteit" = `docs/factory/technical-spec.md` §Codeconventies + `specs/backend-technical-spec.md` (logging-niveaus, geen-comments-tenzij-WHY, `@param:Value`-target, lagen API→domain→infrastructure, Spring Modulith-modulegrenzen). API-contract: `specs/openapi.yaml`.
 
-Build-output backend:
+Buiten scope:
+- Functionele wijzigingen van welke aard dan ook.
+- Aanpassen van integratietests en de e2e-suite (`e2e/scenarios/`).
+- Documentatie-aanvulling van `docs/factory/` (al compleet sinds SF-220) — geen docs-criterium nodig.
+- Bekende, structurele afwijkingen die niet veilig gedrag-neutraal te herstellen zijn (Jackson `com.fasterxml.jackson` vs spec `tools.jackson`, cross-module domain/infrastructure-imports, domeinmodellen direct als HTTP-response): **melden** in worklog/error, niet zelf herstellen.
 
-- `mvn clean compile` → **BUILD SUCCESS, 0 compiler-warnings, 0 deprecations**.
-- `mvn test` → **Tests run: 28, Failures: 0, Errors: 0, Skipped: 0 — BUILD SUCCESS**
-  (huidige suite: RssFetcherImageUrlTest 6, AiPricingPropertiesTest 4,
-  ApiRequestDtoContractTest 6, PodcastScriptParserTest 9, VideoAudioDownloaderArgsTest 3;
-  geen `PNF_DATABASE_URL` nodig voor deze unit-tests).
+## Acceptance criteria
+- De code is op meerdere concrete plaatsen verbeterd richting SOLID/leesbaarheid (naamgeving, dode code, duplicatie, functielengte), óf er is onderbouwd gemeld dat geen veilige gedrag-neutrale verbetering mogelijk was (kleine/lege diff is een geldige uitkomst).
+- Build-warnings/deprecations in Maven-backend en beide Android Gradle-builds zijn waar veilig mogelijk opgelost; resterende, niet-veilig-oplosbare warnings zijn benoemd.
+- Het **functionele gedrag is exact gelijk** gebleven.
+- Alle bestaande tests slagen: `mvn test` op de backend draait groen (vereist `PNF_DATABASE_URL`).
+- Integratietests en e2e-scenario's zijn **niet** aangepast. Als een refactor alleen groen te krijgen is door een integratietest te wijzigen, wordt de wijziging teruggedraaid en gaat de developer in **error** (gedragswijziging).
+- Bij twijfel of een wijziging gedrag verandert: de wijziging wordt niet doorgevoerd, of de developer gaat in error.
 
-De integratietests en de e2e-suite zijn niet aangeraakt.
+## Aannames
+- "Android-frontends" = uitsluitend de twee Gradle-modules `frontend/android/` en `frontend-reader/android/`; overige Flutter/Dart-code valt onder algemene leesbaarheidsverbeteringen maar staat niet centraal voor de build-output-eis.
+- Een kleine of lege diff is acceptabel als er geen veilige, gedrag-neutrale verbeteringen zijn — dit is een nightly housekeeping-story zonder verplichte minimale wijzigingsomvang.
+- `mvn test` is het primaire vangnet; in de factory-omgeving is `PNF_DATABASE_URL` beschikbaar voor de tests die dat vereisen.
+- Structurele architectuurafwijkingen die de spec schendt maar niet veilig gedrag-neutraal te fixen zijn, worden gerapporteerd in het worklog en niet binnen deze story hersteld.
 
-### Android Gradle-frontends — niet uitgevoerd, met reden (AC: niet-veilig → melden)
+## Eindsamenvatting
 
-De twee Android Gradle-builds (`frontend/android/`, `frontend-reader/android/`) zijn in
-deze run **niet** aangepast, omdat een warning-fix niet aantoonbaar veilig (warning weg,
-géén nieuwe warning, build groen) te maken is in deze runner:
+## Eindsamenvatting — SF-656: Code-kwaliteit verbeteren (SOLID, build-output)
 
-- Geen `flutter`/`dart`-binary, geen `gradle`-binary en geen `gradlew`-wrapper aanwezig.
-- Geen `android/local.properties`; `settings.gradle.kts` doet `require(flutterSdkPath != null)`
-  en breekt de configuratiefase dus meteen af zonder `flutter.sdk`.
-- Geen Android SDK / netwerk-cache → de Gradle-build is niet uitvoerbaar en warning-output
-  niet meetbaar.
+**Type:** nightly housekeeping — gedrag-neutraal kwaliteits-/refactorwerk over backend (Maven/Kotlin) en de twee Android Gradle-frontends.
 
-Concreet geïdentificeerde, maar bewust niet-geforceerde deprecatie (identiek in
-`frontend/android/app/build.gradle.kts` en `frontend-reader/android/app/build.gradle.kts`):
-het `kotlinOptions { jvmTarget = ... }`-blok is met de Kotlin Gradle Plugin 2.x (hier
-`org.jetbrains.kotlin.android` 2.1.0) deprecated ten gunste van de `compilerOptions`-DSL.
-De migratie is mechanisch maar plugin-/AGP-versie-afhankelijk (juiste vorm + `JvmTarget`-import,
-plaatsing van het `kotlin { compilerOptions { } }`-blok), en een onjuiste migratie breekt de
-release-APK-build — niet detecteerbaar zonder draaiende Gradle-build. Conform de acceptance
-criteria ("bij twijfel of niet veilig door te voeren → niet doen, concreet melden") is deze fix
-overgelaten aan een omgeving met een werkende Android-toolchain (CI / devcontainer). Zelfde
-toolchain-beperking en conclusie als de eerdere nightly's SF-343 en SF-572/573.
+### Wat is gebouwd / gewijzigd
+Bewuste **lege code-diff**. De enige bestanden in de story-branch zijn de story-log en het worklog — geen wijziging aan implementatie, API-contract (`specs/openapi.yaml`), Flyway/schema, integratietests of e2e-suite. Een kleine/lege diff was vooraf in de acceptance criteria als geldige uitkomst benoemd.
 
-### Bekende, niet binnen deze story recht te trekken afwijkingen (gemeld, niet geforceerd)
+### Belangrijkste keuzes
+- **Backend (`newsfeedbackend/`)** is op alle veilig-herstelbare conventies al volledig conform (geverifieerd via grep + build): geen kale `@Value` op properties (de 2 treffers zijn gedocumenteerde, niet aan te passen parameter-uitzonderingen — `PodcastAsyncConfig` @Bean-param, `PodcastTranscriptWorker` ctor-param), loggers overal `LoggerFactory.getLogger(javaClass)`, geen inline DTO's in controllers. Geen veilige, gedrag-neutrale verbetering meer mogelijk → geen wijziging.
+- **Android Gradle-frontends** zijn **bewust niet** aangepast: de Gradle/Flutter-toolchain is niet uitvoerbaar in de runner (geen flutter/dart/gradle/gradlew, geen `local.properties`), waardoor een warning-fix niet aantoonbaar veilig te verifiëren is.
+- **Structurele afwijkingen gemeld i.p.v. geforceerd:** cross-module interne imports, domeinmodel-als-HTTP-response, `SettingsController` zonder klasse-`@RequestMapping` (bedient 3 prefixes). Jackson is sinds SF-502 al spec-aligned — geen afwijking meer.
 
-- Jackson gebruikt overal `com.fasterxml.jackson` (pom.xml + imports); de spec is hierop
-  inmiddels uitgelijnd (sinds SF-502) — geen afwijking meer, migreren zou een risicovolle
-  dependency-change zijn.
-- Cross-module imports van interne `domain`/`infrastructure`-klassen en domeinmodellen die
-  direct als HTTP-response worden geserialiseerd zijn architecturale refactors (geen
-  mechanische, gedrag-neutrale fix) en blijven open.
-- `SettingsController.kt` heeft bewust geen klasse-`@RequestMapping` omdat het meerdere
-  prefixes bedient (`/api/settings`, `/api/rss-feeds`, `/api/podcast-feeds`); een base-path
-  toevoegen zou URLs wijzigen.
+### Wat is getest
+- Developer, reviewer én tester draaiden zelfstandig de backend-build: `mvn clean compile` → BUILD SUCCESS, **0 warnings/deprecations**; `mvn test` → **28 tests, 0 failures/errors/skipped**.
+- Reviewer: akkoord, geen blockers. Tester: **tested**, alle worklog-claims kloppen tegen de code; gedrag per constructie identiek aan `main` (doc-only diff), dus geen preview/UI-test nodig.
 
-## Resultaat
+### Bewust niet gedaan
+- Android `kotlinOptions { jvmTarget }` → `compilerOptions`-DSL-migratie (Kotlin 2.1.0, beide `app/build.gradle.kts`): geïdentificeerd maar plugin-/AGP-versie-afhankelijk en niet zonder draaiende Gradle-build veilig te valideren — overgelaten aan CI/devcontainer (zelfde conclusie als SF-343 en SF-572/573).
+- Geen functionele wijzigingen; integratietests en e2e niet aangeraakt.
 
-Gedrag-neutraal; geen API-/contractwijziging (`specs/openapi.yaml` ongemoeid), geen
-Flyway-/schema-wijziging, geen wijziging aan integratie- of e2e-tests. Backend is geverifieerd
-warning-vrij en groen (28 tests). Code-diff is leeg op de story-log/worklog na — een geldige,
-onderbouwd gemelde uitkomst voor deze nightly housekeeping-story.
+**Resultaat:** gedrag onveranderd, backend warning-vrij en groen — een onderbouwde, gemelde no-op voor deze nightly.
