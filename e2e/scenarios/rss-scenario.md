@@ -26,7 +26,11 @@ Het RSS-overzicht doorlopen: lijst zien, items openen, terugnavigeren, tabs (All
 
 ### 4. Item-detail
 - Ga terug naar tab **"Alles"**.
-- Klik op het eerste item.
+- Klik op het eerste **artikel**-item (een gewone RSS-aflevering, geen podcast).
+  > Podcast-afleveringen (`mediaType = PODCAST`, leading `podcasts`-icoon) openen
+  > een **ander** detailscherm (`RssPodcastDetailScreen`) met samenvatting,
+  > key takeaways, transcript en een vertaal-flow — dat wordt apart gedekt in
+  > `rss-podcast-scenario`. Kies hier dus een artikel.
 - Verwacht in detail-scherm:
   - Headline = titel van het artikel (Engels uit RSS).
   - Chips: bron, categorie, datum.

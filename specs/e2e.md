@@ -6,7 +6,7 @@ Korte samenvatting:
 
 | Map | Inhoud | In git? |
 |---|---|---|
-| [`/e2e/scenarios/`](../e2e/scenarios/) | Vrije-tekst markdown-scripts: `start-scenario.md`, `cleanup-scenario.md`, `rss-scenario.md`, `feed-scenario.md`, `samenvatting-scenario.md`, `events-scenario.md`, `podcast-scenario.md`, `settings-scenario.md`, `api-log-scenario.md`, `admin-scenario.md` | ✅ ja |
+| [`/e2e/scenarios/`](../e2e/scenarios/) | Vrije-tekst markdown-scripts: `start-scenario.md`, `cleanup-scenario.md`, `rss-scenario.md`, `feed-scenario.md`, `samenvatting-scenario.md`, `events-scenario.md`, `podcast-scenario.md`, `rss-podcast-scenario.md`, `settings-scenario.md`, `api-log-scenario.md`, `admin-scenario.md` | ✅ ja |
 | `/e2e/testruns/history/<datetime>/` | Per run: kopieën van de gedraaide scripts + `report.md` + `recording.gif` | ❌ gitignored |
 | `/e2e/testruns/latest` | Symlink naar de laatste history-folder | ❌ gitignored |
 
