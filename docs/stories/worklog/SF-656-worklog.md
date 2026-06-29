@@ -36,3 +36,21 @@ Done / rationale:
   afwijking meer.
 - Integratietests en e2e-suite niet aangeraakt; geen API-/Flyway-/schema-wijziging.
   Uitkomst: bewust lege code-diff (alleen story-log + worklog) — geldige, onderbouwde uitkomst.
+
+## Review (SF-657, reviewer)
+
+- [info] Volledige story-diff t.o.v. `main` beoordeeld: alleen story-log + worklog, geen code-diff.
+  Lege code-diff is door de story expliciet als geldige uitkomst benoemd.
+- [info] Developer-claims geverifieerd:
+  - `mvn clean test` zelf gedraaid → BUILD SUCCESS, 28 tests (0 failures/errors/skipped),
+    geen compiler-warnings/deprecations. De `[Pricing]`-WARN-regels zijn verwachte
+    runtime-testlogs, geen build-warnings.
+  - `@Value`: enkel de 2 gedocumenteerde non-property-uitzonderingen (`PodcastAsyncConfig`
+    @Bean-param, `PodcastTranscriptWorker` plain ctor-param) — geen kale `@Value` op val/var.
+  - Logger 100% `private val log = LoggerFactory.getLogger(javaClass)`; geen `data class`
+    in `*Controller.kt`.
+  - Android `kotlinOptions`-deprecatie bevestigd in beide `app/build.gradle.kts`; terecht
+    niet geforceerd (geen verifieerbare Gradle/Flutter-toolchain in deze runner).
+- [info] Geen stray `agent_tips_update`/`phase`-JSON in de SF-656-story-bestanden.
+- [info] Bekende structurele afwijkingen correct gemeld i.p.v. onveilig gefixt.
+- Akkoord: geen blockers/bugs.
