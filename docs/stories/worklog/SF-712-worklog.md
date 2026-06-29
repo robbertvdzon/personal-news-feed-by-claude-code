@@ -90,3 +90,14 @@ codewijziging:
 - Bewuste afwijkingen expliciet als melding vastgelegd i.p.v. ze in code te
   "fixen".
 - Lege documentatie-diff is hiermee een geldige, expliciet vastgelegde uitkomst.
+
+## Testresultaat (SF-714, tester)
+Geverifieerd — geslaagd:
+- `git diff main...HEAD` bevat uitsluitend dit worklog-bestand; geen broncode/tests/infra gewijzigd.
+- Code- én docs-delta sinds SF-698 (23d94fc) zijn beide leeg (worklog-claims gereproduceerd).
+- 13 `@RestController`-klassen bevestigd; openapi-paden voor admin-costs (totals/daily/by-user/calls)
+  en events (incl. /{id}, /discover, /videos/discover, /{id}/videos/summarize) matchen exact de controllers.
+- Schedulers (`0 0 * * * *`, `0 0 6 * * *`, `0 0 2 * * SUN`, `0 0 3 * * SUN`, transcript-worker fixedDelay 120000)
+  overeenkomstig de spec; Jackson = `com.fasterxml.jackson` zonder `tools.jackson`-drift;
+  `SettingsController` zonder class-`@RequestMapping` (bewuste afwijking) bevestigd.
+- Docs-only story → geen code-/gedragswijziging, preview-gedrag == main; geen browser-test vereist.
