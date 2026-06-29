@@ -18,3 +18,11 @@ Done / rationale:
 - Flutter/Dart-src ongewijzigd sinds SF-579; geen veilig-te-verbeteren refactor binnen gedrag-neutrale grenzen. flutter analyze/test door CI.
 - Bekende, vooraf-erkende afwijkingen (Jackson-groupId, cross-module domain/infra-imports, domeinmodel-als-HTTP-response, SettingsController zonder class-@RequestMapping) NIET zelf hersteld -> gemeld, geen error-exit (zijn architecturale/risicovolle wijzigingen).
 - Eigen review op de diff uitgevoerd: 2 bestanden, identieke gedrag-neutrale deprecation-fix; geen API/endpoint/UI-wijziging; e2e/scenarios/ ongewijzigd. Kleine diff = geldige uitkomst (AC6).
+
+Reviewer-notitie (SF-741):
+- [info] Volledige story-diff `main...HEAD` geverifieerd: 4 bestanden (2x story-log/worklog, 2x Android `build.gradle.kts`). Geen onverwachte wijzigingen.
+- [info] Claims gecontroleerd: backend `src`, `frontend/lib` en `frontend-reader/lib` diff t.o.v. SF-579 (de75274) is leeg; `e2e/` ongewijzigd. Bevestigt het gedrag-neutrale, geconvergeerde uitgangspunt.
+- [info] Android-fix is de canonieke KGP 2.1.0-migratie (`kotlinOptions { jvmTarget }` → top-level `kotlin { compilerOptions { jvmTarget = JvmTarget.JVM_11 } }` + import). JVM-target blijft 11; `compileOptions` VERSION_11 ongewijzigd. Plugin `kotlin-android` levert de `kotlin {}`-extensie, dus de DSL is geldig. Gedrag-neutraal. In beide frontends identiek doorgevoerd.
+- [info] Story-logs bevatten geen residuele `agent_tips_update`/`phase`-JSON-artefacten (terugkerend PNF-aandachtspunt) — schoon.
+- [info] AC4 (warning-reductie Android/Flutter) niet lokaal verifieerbaar (runner zonder flutter/gradle/Android-SDK); door CI te valideren. Conform eerdere nightlies en behoudende wijziging acceptabel.
+- Akkoord: gedrag-neutraal, binnen scope, geen blockers/bugs.
