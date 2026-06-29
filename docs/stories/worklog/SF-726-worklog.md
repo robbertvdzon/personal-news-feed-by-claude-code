@@ -82,3 +82,34 @@ en de vertaal-flow ("Vertaal & genereer Nederlandse podcast" / "Bekijk vertaling
 - **start-/cleanup-scenario** verwijzen naar `data/users.json` JSON-op-schijf
   (de repo draait inmiddels PostgreSQL/Neon). Risicovolle, niet-scherm-gerelateerde
   drift; bewust ongemoeid gelaten en hier gemeld.
+
+## Tester-verificatie (SF-728, 2026-06-29)
+
+Aard van de wijziging: uitsluitend e2e-scenario's + doc-lijsten + worklog (geen
+productiecode). Geverifieerd via code-inspectie (Flutter web-preview is een
+auth-canvas-SPA → geen DOM/WebFetch; geen dart-binary op de runner).
+
+Resultaten:
+- **Doc/bestand-consistentie** ✅ — `e2e/scenarios/` bevat 11 bestanden; zowel
+  `e2e/readme.md` (boomstructuur + run-volgorde) als `specs/e2e.md` noemen exact
+  diezelfde 11. Geen stale of ontbrekende namen (script-check).
+- **Scherm-dekking** ✅ — elk functioneel scherm in `frontend/lib/screens/` is
+  gedekt: login/main_shell→start, rss(+detail/feeds)→rss/settings,
+  **rss_podcast_detail_screen→nieuw rss-podcast-scenario**, feed→feed,
+  events→events, podcast→podcast, settings→settings, api_log→api-log,
+  admin(+costs)→admin. De gap (RssPodcastDetailScreen) is nu gedicht.
+- **Scenario klopt met de code (geen bug bevroren)** ✅ — gecontroleerd tegen
+  `rss_podcast_detail_screen.dart`: AppBar-titel `${_idx+1}/${items.length}`
+  ("<n>/<totaal>"), routing via `isPodcast`→`RssPodcastDetailScreen` (rss_screen
+  + feed_screen), secties Samenvatting/Key takeaways/Ruw transcript, transcript
+  via `GET /api/rss/<id>/transcript`, "voorlopig"-chip (hourglass_top),
+  vertaal-knop-staten + bevestigingsdialoog (kosten-blok, Annuleren/Starten),
+  "Origineel afspelen". Alle in het scenario genoemde teksten/iconen bestaan 1-op-1.
+- **Niet-destructief** ✅ — vertaal-actie wordt alleen bekeken/geannuleerd;
+  admin blijft ⏭ Skipped zonder ROLE_ADMIN.
+- **Geen productiecode geraakt** ✅ — diff betreft alleen `e2e/**`, `specs/e2e.md`
+  en worklog; `mvn test` niet relevant geraakt.
+
+Conclusie: voldoet aan alle acceptance criteria → **tested**. De door de developer
+gemelde, bewust-ongemoeide doc-drift (Anthropic→OpenAI, `data/users.json`) valt
+buiten de story-scope en is terecht apart gerapporteerd.
