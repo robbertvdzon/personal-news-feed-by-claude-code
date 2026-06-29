@@ -62,3 +62,22 @@ Done / rationale:
 - Story-log aangemaakt zodat plan, voortgang en uitvoering onderdeel worden van de PR.
 - Verificatie uitgevoerd: codebase is al consistent; geen gedrag-neutrale wijziging open.
 - Resultaat = worklog-only (lege code-diff), conform de geldige-uitkomst-regel in de AC.
+
+## Tester-verificatie (SF-700)
+
+Aanpak: lege code-diff (worklog-only) → gedrag identiek aan `main`, dus geen preview/browser-test
+nodig; verificatie = de worklog-claims hard reproduceren met grep over de codebase.
+
+- `git diff --stat main...HEAD` op `newsfeedbackend/.../src`, `frontend/lib`, `frontend-reader/lib`,
+  `e2e/scenarios`: **leeg** — geen code/test/e2e gewijzigd. Enige wijziging = dit worklog.
+- Logger: 39/39 `private val log = LoggerFactory.getLogger(javaClass)`, 0 afwijkend. ✓
+- `@param:Value`: 21 occurrences; de enige 2 kale `@Value` zijn exact de gedocumenteerde
+  uitzonderingen (PodcastAsyncConfig `@Bean`-param, PodcastTranscriptWorker plain ctor-param). ✓
+- external_call-fallback: 10/10 `log.warn(... could not log external_call ...)`, 0 afwijkend. ✓
+- Geen `data class` in `*Controller.kt`; geen `print(` in beide frontends; geen openapi-generator
+  in pom; Jackson op `com.fasterxml` (geen `tools.jackson`-drift). ✓
+- Niet-veilige melding #4 (SettingsController zonder klasse-`@RequestMapping`) geverifieerd:
+  bedient inderdaad meerdere prefixes (`/api/settings`, `/api/rss-feeds`, `/api/podcast-feeds`,
+  `/api/settings/event-*`) — terecht gemeld i.p.v. gefixt.
+
+Conclusie: alle worklog-claims reproduceerbaar; codebase is al consistent. **tested.**
