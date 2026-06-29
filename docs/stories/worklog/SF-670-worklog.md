@@ -74,3 +74,10 @@ Done / rationale:
   sinds SF-586 → geen gedrag-neutrale fix nodig.
 - Niet-veilig-herstelbare afwijkingen hierboven gemeld i.p.v. doorgevoerd, conform de vooraf-erkende lijst
   in `.task.md`.
+
+## Review (reviewer)
+- [info] Story-diff `git diff main...HEAD` bevat uitsluitend dit worklog (76 regels) — geen src-/spec-/frontend-wijziging. Worklog-only is een geldige uitkomst voor deze nightly ADR-naleving.
+- [info] Geverifieerd: geen code-wijziging in `newsfeedbackend/`, `frontend/`, `frontend-reader/` t.o.v. SF-586 (`git diff --stat c47b5a9 HEAD`).
+- [info] `@Value`-claim geverifieerd: enige twee kale `@Value` zijn de gedocumenteerde uitzonderingen (`PodcastAsyncConfig.kt` @Bean-param, `PodcastTranscriptWorker.kt` plain constructor-param) — correct geen `@param:`.
+- [info] Geen rauwe JSON-artefacten in het worklog; bestand eindigt schoon.
+- Akkoord: scope gerespecteerd (e2e/integratietests onaangeraakt), gedrag-neutraal, vier niet-veilig-herstelbare afwijkingen correct gemeld i.p.v. doorgevoerd.
