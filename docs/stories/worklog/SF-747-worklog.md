@@ -37,3 +37,13 @@ De backend-src én beide frontends (`frontend/lib`, `frontend-reader/lib`) zijn 
 ## Beslissing
 
 Geen code-wijziging doorgevoerd: er zijn geen kwetsbaarheden gevonden die binnen de genoemde categorieën gedrag-neutraal op te lossen zijn. De vier vaste, bewust gekozen patronen (brede CORS-default, CSRF-disabled/STATELESS bij JWT-API, actuator permitAll/show-details, dev-fallback JWT-secret) zijn gemeld/onderbouwd in plaats van gewijzigd, omdat aanpassing functioneel gedrag of integratie zou breken. Geen risicovolle wijziging die overdracht aan een mens vereist.
+
+## Tester-verificatie (SF-749)
+
+Gedrag-neutrale security-pass geverifieerd via code-inspectie + tests (preview vereist auth, empty code-diff → geen zinvolle browser-gedragstest):
+- **Diff-scope:** `git diff main...HEAD --name-only` toont uitsluitend dit worklog-bestand. Code-diff is leeg → geldig eindresultaat conform AC.
+- **Baseline-identiek:** `git diff --stat de75274 HEAD -- newsfeedbackend frontend/lib frontend-reader/lib` is leeg → backend-src + beide frontends byte-identiek aan SF-579-baseline. Bevestigt claim.
+- **SecurityConfig:** routes bevestigd in `auth/infrastructure/SecurityConfig.kt` — permitAll `/api/auth/**`, `/api/version`, `/api/shared/**`, `/ws/**`, `/actuator/**`; `/api/admin/**` → `hasRole("ADMIN")`; `anyRequest().authenticated()`; CSRF disabled; STATELESS; `addAllowedOriginPattern("*")` zonder allowCredentials. Komt overeen met rapportage.
+- **Secrets:** `application.properties` bevat dev-fallback `app.jwt.secret=change-me-...` en env-placeholders (`${PNF_*_API_KEY:}`); geen productie-secrets in code of in deze rapportage.
+- **Tests:** named DB-vrije unit-tests opnieuw gedraaid (`mvn test -Dtest=RssFetcherImageUrlTest,AiPricingPropertiesTest,ApiRequestDtoContractTest,PodcastScriptParserTest,VideoAudioDownloaderArgsTest`) → **28 tests, 0 failures, 0 errors, 0 skipped** (6+4+6+9+3). Komt exact overeen met developer-claim. Destructieve Cucumber/DB-suite niet gedraaid (conform AC: gedeelde DB-risico).
+- **Conclusie:** geen gedragswijziging, alle claims reproduceerbaar, geen secrets gelekt. Akkoord.
