@@ -124,7 +124,7 @@ Dit harnas is gemodelleerd naar de succesvolle opzet in de `softwarefactory`-rep
 - **De rol zit in het JWT.** Na een rolwijziging (admin ↔ user) werkt het oude token gewoon door tot de gebruiker opnieuw inlogt. Admin-tests loggen daarom expliciet opnieuw in.
 - **ShedLock + schedulers.** Cron-jobs (`@Scheduled`) zijn cluster-safe via de `shedlock`-tabel. Een nieuwe scheduled job zonder `@SchedulerLock` draait bij meerdere replica's dubbel.
 - **`gpt-5.4*` modelnamen** in `application.properties` zijn de actuele productie-defaults; wijzig modellen via `PNF_AI_MODEL_*`-env-vars, niet in code.
-- **PR-previews delen de prod-DB.** Lokaal ontwikkelen gaat tegen een eigen Postgres (`docker-compose.dev.yml`, zie runbook §4) — maar de PR-preview-omgevingen op OpenShift praten nog met **dezelfde Neon-DB als prod**. Een migratie in een PR raakt dus prod-data zodra de preview deployt. Geplande verbetering: Neon-branches per preview.
+- **Databases per omgeving.** Lokaal = eigen Postgres (`docker-compose.dev.yml`); PR-previews = eigen **Neon-branch** `pr-<N>` (aangemaakt door de `preview-ns-labeller`); prod = de Neon default-branch. Previews kunnen dus veilig migreren. Twee restrisico's om te kennen: de allereerste boot van een verse preview kan kort (≤30s) de prod-URL zien voordat de labeller het secret patcht, en zonder `NEON_API_KEY` degradeert de labeller stilletjes naar labeling-only (previews draaien dan op prod).
 - **Er pusht een tweede committer.** Een lokale "software factory" van de eigenaar pusht af en toe `SF-…`-commits naar `main`; rebase vóór elke push.
 
 ## 7. Eerste dag — praktisch

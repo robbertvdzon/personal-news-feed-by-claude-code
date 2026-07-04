@@ -173,10 +173,14 @@ PR-nummer is). Bij merge/close wordt de preview opgeruimd.
   trivial commit in `newsfeedbackend/**` of `frontend/**` toevoegen
   om de build te forceren.
 
-- **Gedeelde database.** Alle previews praten met dezelfde Postgres
-  als prod. In de ontwikkelfase OK; voor schema-migraties echter
-  oppassen — een PR die migrations toevoegt past die direct op prod-
-  data toe. Toekomstige verbetering: Neon-branches per preview.
+- **Database per preview.** De `preview-ns-labeller` maakt per
+  preview een Neon-branch `pr-<N>` aan en patcht `PNF_DATABASE_URL`
+  in het namespace-secret (KAN-55/SF-229) — previews migreren/testen
+  dus op een eigen kopie, niet op prod. Restrisico's: (a) de eerste
+  boot van een verse preview kan kort de prod-URL uit het base-secret
+  zien totdat de labeller (30s-poll) gepatcht en de pod herstart
+  heeft; (b) zonder NEON_API_KEY degradeert de labeller naar
+  labeling-only en draaien previews wél op prod.
 
 - **Geen automatic preview cleanup van orphan namespaces.** Bij merge
   ruimt ArgoCD de Application + resources op (`prune: true`), de

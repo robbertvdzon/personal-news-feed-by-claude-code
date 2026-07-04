@@ -168,8 +168,14 @@ Bestanden staan lokaal (gitignored). Voor de assistent worden ze read-only besch
 
 ## 6. Database
 
-- **Type:** PostgreSQL, gehost bij **Neon** (cloud). Eén gedeelde DB voor prod én
-  alle PR-previews (let op bij schema-migraties — die raken prod-data direct).
+- **Type:** PostgreSQL, gehost bij **Neon** (cloud). Prod draait op de
+  default-branch; **elke PR-preview krijgt een eigen Neon-branch** (`pr-<N>`,
+  aangemaakt/opgeruimd door de `preview-ns-labeller`, zie
+  `deploy/preview-ns-labeller/`). Previews kunnen dus vrij migreren/testen
+  zonder prod-data te raken. Kanttekening: de allereerste boot van een verse
+  preview kan (max ~30s, tot de labeller het secret gepatcht heeft) nog de
+  prod-URL uit het base-secret zien; en zonder NEON_API_KEY valt de labeller
+  terug op namespace-labeling-only — dan draaien previews wél op prod.
 - **Migraties:** Flyway, automatisch bij backend-start
   (`src/main/resources/db/migration/`, t/m `V15`).
 - **Belangrijke tabellen:** `users`, `rss_feeds`, `rss_items`, `feed_items`,
