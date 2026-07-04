@@ -1,0 +1,51 @@
+name: Backend tests
+
+# Draait de volledige backend-testsuite: `mvn verify` = unit tests +
+# ModuleStructureTest (Spring Modulith-grenzen) + de e2e-suite die per
+# testklasse de hele app start tegen een Testcontainers-Postgres.
+# Externe diensten (OpenAI/Tavily/ElevenLabs/feeds) zijn in de tests
+# gefaked — er zijn dus geen secrets nodig.
+#
+# Zonder deze workflow gingen commits (ook de SF-commits van de lokale
+# factory) volledig ongetest naar main.
+
+on:
+  pull_request:
+    paths:
+      - "newsfeedbackend/**"
+      - ".github/workflows/backend-tests.yml"
+  push:
+    branches: [main]
+    paths:
+      - "newsfeedbackend/**"
+      - ".github/workflows/backend-tests.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: mvn verify (unit + e2e)
+        working-directory: newsfeedbackend/newsfeedbackend
+        run: mvn -B --no-transfer-progress verify
+
+      - name: Upload testrapporten bij falen
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            newsfeedbackend/newsfeedbackend/target/surefire-reports/
+            newsfeedbackend/newsfeedbackend/target/failsafe-reports/
+          retention-days: 7

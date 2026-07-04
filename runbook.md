@@ -70,16 +70,24 @@ Data:  Postgres (Neon, extern) — audio-bytes sinds V5 óók in Postgres.
 
 ## 4. Lokaal draaien & testen
 
-**Backend** (vanuit `newsfeedbackend/newsfeedbackend`):
+**Backend** (vanuit `newsfeedbackend/newsfeedbackend`) — standaard tegen een
+**lokale database**, zodat je nooit per ongeluk op prod werkt:
 ```bash
+docker compose -f docker-compose.dev.yml up -d      # vanuit de repo-root: lokale Postgres op :5433
+export PNF_DATABASE_URL='jdbc:postgresql://localhost:5433/newsfeed?user=newsfeed&password=newsfeed'
 cd newsfeedbackend/newsfeedbackend
-set -a; source ../../deploy/secrets-cluster.env; set +a   # laadt PNF_* env-vars
 mvn -DskipTests package
-java -jar target/newsfeedbackend-*.jar      # poort 8080, leest ./data
+java -jar target/newsfeedbackend-*.jar      # poort 8080; Flyway migreert automatisch
 # health: curl http://localhost:8080/actuator/health   → "status":"UP"
 ```
-> Zonder `PNF_DATABASE_URL` start hij wel maar zonder DB. Met de prod-`PNF_DATABASE_URL`
-> uit de secrets-file praat je lokaal direct tegen de **prod-Neon-DB** — pas op.
+> AI-features werken lokaal alleen met echte API-keys (`PNF_OPENAI_API_KEY`
+> etc. uit `deploy/secrets-cluster.env`); de rest van de app werkt zonder.
+> Zonder `APP_JWT_SECRET` genereert de backend een ephemeral JWT-secret —
+> prima lokaal, maar iedereen is na een herstart uitgelogd.
+>
+> **Alleen als je bewust tegen prod-data wilt** (voorzichtig!):
+> `set -a; source ../../deploy/secrets-cluster.env; set +a` — dan wijst
+> `PNF_DATABASE_URL` naar de **prod-Neon-DB**.
 
 **Frontend** (volledige app, poort 3000):
 ```bash

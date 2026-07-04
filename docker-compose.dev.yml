@@ -1,0 +1,25 @@
+# Lokale ontwikkel-database, zodat je voor lokaal draaien NIET de
+# prod-Neon-DB uit deploy/secrets-cluster.env nodig hebt.
+#
+#   docker compose -f docker-compose.dev.yml up -d
+#   export PNF_DATABASE_URL='jdbc:postgresql://localhost:5433/newsfeed?user=newsfeed&password=newsfeed'
+#
+# Flyway migreert het schema automatisch bij het starten van de backend.
+# Poort 5433 (niet 5432) om niet te botsen met een eventuele lokale
+# Postgres-installatie. Data blijft bewaard in het named volume;
+# weggooien: docker compose -f docker-compose.dev.yml down -v
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: pnf-dev-db
+    environment:
+      POSTGRES_DB: newsfeed
+      POSTGRES_USER: newsfeed
+      POSTGRES_PASSWORD: newsfeed
+    ports:
+      - "5433:5432"
+    volumes:
+      - pnf-dev-db:/var/lib/postgresql/data
+
+volumes:
+  pnf-dev-db:
