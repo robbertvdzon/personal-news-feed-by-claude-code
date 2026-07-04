@@ -89,15 +89,20 @@ Kleine punten:
 
 Volgorde is bewust: **eerst een vangnet, dan pas verbouwen**. Elke stap laat de build groen en is apart te committen.
 
-### Fase 1 — Vangnet (voorwaarde voor al het andere)
+### Fase 1 — Vangnet: e2e-testharnas naar softwarefactory-model
+
+De teststrategie volgt de opzet die in de `softwarefactory`-repo al bewezen is: **de hele app starten, alleen externe dependencies mocken**. Concreet: `@SpringBootTest(webEnvironment = RANDOM_PORT)` + gedeelde Testcontainers-Postgres, een `E2eTestConfig` (`@TestConfiguration`) die externe services vervangt door deterministische fakes (`@Primary`-beans en waar nodig een embedded HTTP-fake-server), `TestRestTemplate` voor echte HTTP-calls, Awaitility voor async pipelines, en een surefire/failsafe-split zodat `mvn test` snel blijft en `mvn verify` de e2e-suite draait.
+
+Voor deze backend betekent "externe dependencies mocken": fakes voor OpenAI (chat/TTS/Whisper), ElevenLabs, Tavily, en een embedded HTTP-server die RSS-/podcast-feeds en artikel-HTML serveert (feed-URL's zijn user-configuratie, dus tests registreren gewoon een localhost-URL — daar is geen productie-seam voor nodig). Waar base-URL's van AI-clients hardcoded blijken, maken we die configureerbaar — een minimale, veilige productie-wijziging.
 
 | # | Voorstel | Waarom eerst |
 |---|----------|--------------|
 | 1.1 | **`ModuleStructureTest` toevoegen** (Spring Modulith `ApplicationModules.verify()`) | Maakt module-grenzen afdwingbaar; documenteert bestaande schendingen (A1–A3) als expliciete uitzonderingen die we daarna één voor één wegwerken |
-| 1.2 | **JaCoCo + Testcontainers in de pom** | Meetbaar maken; DB-integratietests mogelijk maken |
-| 1.3 | **`Clock` als bean injecteren** i.p.v. `Instant.now()` overal | Kleine mechanische wijziging, ontgrendelt alle tijd-afhankelijke tests |
-| 1.4 | **Unit tests voor de service-laag**: AuthServiceImpl, FeedServiceImpl, RssServiceImpl (cleanup!), RequestServiceImpl | Kern-businesslogica, goedkoop te testen met mocks |
-| 1.5 | **Integratietests voor de twee belangrijkste flows**: RSS-refresh-pipeline (WireMock voor RSS + OpenAI-stub) en podcast-ingestion (idempotentie/dedup) | Dit zijn de flows die bij refactoring (fase 2) kapot kunnen gaan |
+| 1.2 | **E2e-harnas neerzetten**: `E2eTestBase` + `E2eTestConfig` met Testcontainers-Postgres, fakes voor alle externe services, Awaitility, surefire/failsafe-split, JaCoCo | Het fundament waar alle functionele tests op bouwen; kopie van het bewezen softwarefactory-patroon |
+| 1.3 | **`Clock` als bean injecteren** i.p.v. `Instant.now()` overal | Kleine mechanische wijziging, ontgrendelt alle tijd-afhankelijke tests (cleanup, retention) |
+| 1.4 | **E2e-tests voor de kritieke flows**: auth (register/login/JWT), feed (lezen, markAllRead, cleanup), RSS-refresh-pipeline (fake feed → fake AI → feed-items), podcast-ingestion (idempotentie/GUID-dedup) | Dit zijn de flows die bij de refactoring (fase 2) kapot kunnen gaan; met dit vangnet is verbouwen veilig |
+
+Losse unit tests blijven beperkt tot pure logica (parsers, prijsberekening — zoals de drie bestaande testfiles); de meeste functionaliteit wordt via het e2e-harnas getest.
 
 ### Fase 2 — Structuur (met het vangnet uit fase 1)
 
@@ -111,20 +116,24 @@ Volgorde is bewust: **eerst een vangnet, dan pas verbouwen**. Elke stap laat de 
 | 2.6 | **`PodcastEpisodeProcessor` opsplitsen**: show-notes-fase en transcript-fase elk hun eigen class |
 | 2.7 | **`EventDiscoveryPipeline` opsplitsen**: discovery-strategieën (seed/similar/category) uit de orkestrator trekken |
 
-### Fase 3 — Detailkwaliteit
+### Fase 3 — Brede e2e-dekking
+
+Na de opsplitsing in fase 2 wordt de rest van de functionaliteit via het e2e-harnas afgedekt: settings, events (discovery, cascade-delete, denylist), requests (annulering, rerun, statusovergangen), podcastgeneratie en -vertaling, admin en shared-feed. Bewust ná fase 2: dan schrijven we deze tests één keer tegen de nieuwe structuur, in plaats van twee keer. Doelstelling: de meeste functionaliteit gedekt via volledige-app-tests; JaCoCo maakt de dekking zichtbaar.
+
+### Fase 4 — Detailkwaliteit
 
 | # | Voorstel |
 |---|----------|
-| 3.1 | De 3 échte `!!`-risico's vervangen door expliciete afhandeling (`RssRefreshPipeline.kt:160`, `AdhocOrchestrator.kt:91,98`) |
-| 3.2 | Foutafhandeling consistent maken: sealed results of exceptions per laag; stille `emptyList()`-returns en lege catches voorzien van logging; stacktraces in warn/error-logs |
-| 3.3 | Magic values naar `@ConfigurationProperties` (afkap-limieten, voice-ID's) en model-fallback centraal in `AiModels` i.p.v. 14× `?: "gpt-5.4-mini"` |
-| 3.4 | Log-niveaus in loops naar debug; info alleen voor samenvattende regels |
+| 4.1 | De 3 échte `!!`-risico's vervangen door expliciete afhandeling (`RssRefreshPipeline.kt:160`, `AdhocOrchestrator.kt:91,98`) |
+| 4.2 | Foutafhandeling consistent maken: sealed results of exceptions per laag; stille `emptyList()`-returns en lege catches voorzien van logging; stacktraces in warn/error-logs |
+| 4.3 | Magic values naar `@ConfigurationProperties` (afkap-limieten, voice-ID's) en model-fallback centraal in `AiModels` i.p.v. 14× `?: "gpt-5.4-mini"` |
+| 4.4 | Log-niveaus in loops naar debug; info alleen voor samenvattende regels |
 
-### Fase 4 — Documentatie & onboarding
+### Fase 5 — Documentatie & onboarding
 
 | # | Voorstel |
 |---|----------|
-| 4.1 | Runbook aanvullen (tests draaien, e2e-setup); TODO regel 179 oplossen |
-| 4.2 | **Onboarding-document voor nieuwe senior ontwikkelaar** schrijven: architectuur-overzicht, de "waarom" achter keuzes (Modulith, JDBC, events, @Service-in-domain), hoe de pipelines werken, hoe je veilig wijzigt en reviewt |
+| 5.1 | Runbook aanvullen (tests draaien, e2e-setup); TODO regel 179 oplossen |
+| 5.2 | **Onboarding-document voor nieuwe senior ontwikkelaar** schrijven: architectuur-overzicht, de "waarom" achter keuzes (Modulith, JDBC, events, @Service-in-domain), teststrategie (e2e-first), hoe de pipelines werken, hoe je veilig wijzigt en reviewt |
 
 **Bewust NIET voorgesteld**: @Service uit domain-classes halen (churn zonder praktische winst), DTO-laag voor álle endpoints (alleen zinvol als de API extern gedeeld wordt; eventueel later voor feed/rss), repository-interfaces introduceren (JDBC-repos zijn al goed mockbaar).
