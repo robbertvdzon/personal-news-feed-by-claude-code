@@ -394,8 +394,14 @@ class RssRefreshPipeline(
      */
     fun promoteSingleItem(username: String, rssItemId: String) {
         val lock = locks.computeIfAbsent(username) { ReentrantLock() }
-        if (!lock.tryLock()) {
-            log.info("[RSS] podcast-promotie skipped — andere RSS-run actief voor '{}'", username)
+        // Wachten (niet droppen) bij contentie: als twee afleveringen
+        // tegelijk klaar zijn, of er net een refresh draait, zou een
+        // tryLock-skip deze promotie PERMANENT laten vervallen — het
+        // event wordt nooit opnieuw gepubliceerd. Gevonden door
+        // PodcastIngestE2eTest (2 afleveringen → 1 kwam nooit in de feed).
+        if (!lock.tryLock(10, java.util.concurrent.TimeUnit.MINUTES)) {
+            log.warn("[RSS] podcast-promotie voor rssItemId={} opgegeven — lock voor '{}' bleef >10m bezet",
+                rssItemId, username)
             return
         }
         MDC.put("username", username)

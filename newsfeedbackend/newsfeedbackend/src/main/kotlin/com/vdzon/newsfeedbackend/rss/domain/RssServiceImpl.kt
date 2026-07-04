@@ -5,6 +5,7 @@ import com.vdzon.newsfeedbackend.rss.RssService
 import com.vdzon.newsfeedbackend.rss.infrastructure.RssItemRepository
 import org.springframework.context.ApplicationEventPublisher
 import org.springframework.stereotype.Service
+import java.time.Clock
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 
@@ -23,7 +24,8 @@ data class PodcastPromotionRequested(val username: String, val rssItemId: String
 @Service
 class RssServiceImpl(
     private val repo: RssItemRepository,
-    private val events: ApplicationEventPublisher
+    private val events: ApplicationEventPublisher,
+    private val clock: Clock
 ) : RssService {
 
     override fun list(username: String): List<RssItem> =
@@ -66,7 +68,7 @@ class RssServiceImpl(
         keepLiked: Boolean,
         keepUnread: Boolean
     ): Int {
-        val cutoff = Instant.now().minus(olderThanDays.toLong(), ChronoUnit.DAYS)
+        val cutoff = Instant.now(clock).minus(olderThanDays.toLong(), ChronoUnit.DAYS)
         val items = repo.load(username)
         val before = items.size
         items.removeAll { item ->

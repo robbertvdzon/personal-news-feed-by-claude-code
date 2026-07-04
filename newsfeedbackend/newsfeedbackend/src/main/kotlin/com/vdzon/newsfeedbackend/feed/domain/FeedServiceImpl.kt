@@ -4,11 +4,15 @@ import com.vdzon.newsfeedbackend.feed.FeedItem
 import com.vdzon.newsfeedbackend.feed.FeedService
 import com.vdzon.newsfeedbackend.feed.infrastructure.FeedItemRepository
 import org.springframework.stereotype.Service
+import java.time.Clock
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 
 @Service
-class FeedServiceImpl(private val repo: FeedItemRepository) : FeedService {
+class FeedServiceImpl(
+    private val repo: FeedItemRepository,
+    private val clock: Clock
+) : FeedService {
 
     override fun list(username: String): List<FeedItem> =
         repo.load(username).sortedByDescending { it.createdAt }
@@ -67,7 +71,7 @@ class FeedServiceImpl(private val repo: FeedItemRepository) : FeedService {
         keepLiked: Boolean,
         keepUnread: Boolean
     ): Int {
-        val cutoff = Instant.now().minus(olderThanDays.toLong(), ChronoUnit.DAYS)
+        val cutoff = Instant.now(clock).minus(olderThanDays.toLong(), ChronoUnit.DAYS)
         val items = repo.load(username)
         val before = items.size
         items.removeAll { item ->

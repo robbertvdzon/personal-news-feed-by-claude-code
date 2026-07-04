@@ -195,6 +195,27 @@
             <version>3.10.0</version>
             <scope>test</scope>
         </dependency>
+        <!-- E2e-harnas: echte Postgres per test-JVM (zelfde opzet als de
+             softwarefactory-repo: hele app starten, alleen externe
+             dependencies faken). -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>postgresql</artifactId>
+            <version>1.21.3</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>1.21.3</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.awaitility</groupId>
+            <artifactId>awaitility</artifactId>
+            <version>4.3.0</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <dependencyManagement>
@@ -251,6 +272,69 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+
+            <!-- Testsplit (zelfde patroon als de softwarefactory-repo):
+                 `mvn test` (surefire) draait alleen de snelle unit tests;
+                 `mvn verify` (failsafe) draait daarnaast de e2e-suite die
+                 de hele app + Testcontainers-Postgres opstart. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>**/e2e/**</exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <configuration>
+                    <!-- Elke e2e-klasse in een eigen JVM-fork: voorkomt
+                         context/state-accumulatie tussen test-klassen. -->
+                    <reuseForks>false</reuseForks>
+                    <forkCount>1</forkCount>
+                    <includes>
+                        <include>**/e2e/*E2eTest.*</include>
+                    </includes>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Coverage over unit- én e2e-tests; rapport in
+                 target/site/jacoco[-it]/index.html na `mvn verify`. -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.13</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals><goal>prepare-agent</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>prepare-agent-integration</id>
+                        <goals><goal>prepare-agent-integration</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>verify</phase>
+                        <goals><goal>report</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>report-integration</id>
+                        <phase>verify</phase>
+                        <goals><goal>report-integration</goal></goals>
+                    </execution>
+                </executions>
             </plugin>
 
             <!-- `target/` is in de devcontainer een named-volume mount.
