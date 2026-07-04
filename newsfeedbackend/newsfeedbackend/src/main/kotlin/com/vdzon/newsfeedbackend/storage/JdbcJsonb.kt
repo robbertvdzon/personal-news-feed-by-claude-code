@@ -1,6 +1,6 @@
 package com.vdzon.newsfeedbackend.storage
 
-import com.fasterxml.jackson.databind.ObjectMapper
+import tools.jackson.databind.ObjectMapper
 import org.postgresql.util.PGobject
 import org.springframework.stereotype.Component
 import java.sql.ResultSet

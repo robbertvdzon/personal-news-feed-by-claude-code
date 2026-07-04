@@ -195,7 +195,7 @@ class AdminE2eTest : E2eTestBase() {
             401,
             post("/api/auth/login", body = """{"username": "${user.username}", "password": "${user.password}"}""").status
         )
-        val names = getJson("/api/admin/users", admin.token).map { it.path("username").asText() }
+        val names = getJson("/api/admin/users", admin.token).values().map { it.path("username").asText() }
         assertFalse(user.username in names)
 
         // Onbekende user verwijderen geeft 404.

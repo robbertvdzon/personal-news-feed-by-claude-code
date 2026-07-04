@@ -26,7 +26,7 @@ class SettingsE2eTest : E2eTestBase() {
         val user = registerUser("settings")
 
         val categories = getJson("/api/settings", user.token)
-        val ids = categories.map { it.path("id").asText() }
+        val ids = categories.values().map { it.path("id").asText() }
         assertEquals(
             listOf("kotlin", "flutter", "ai", "blockchain", "spring", "web_dev", "overig"),
             ids
@@ -74,7 +74,7 @@ class SettingsE2eTest : E2eTestBase() {
             """[{"id": "kotlin", "name": "Kotlin", "enabled": true, "extraInstructions": "", "isSystem": false}]"""
         )
         assertEquals(200, saved.status)
-        val savedIds = saved.json(mapper).map { it.path("id").asText() }
+        val savedIds = saved.json(mapper).values().map { it.path("id").asText() }
         assertEquals(listOf("kotlin", "overig"), savedIds)
 
         val overig = getJson("/api/settings", user.token).first { it.path("id").asText() == "overig" }
@@ -96,7 +96,7 @@ class SettingsE2eTest : E2eTestBase() {
         )
         assertEquals(200, saved.status)
 
-        val feeds = getJson("/api/rss-feeds", user.token).path("feeds").map { it.asText() }
+        val feeds = getJson("/api/rss-feeds", user.token).path("feeds").values().map { it.asText() }
         assertEquals(listOf("https://voorbeeld.nl/feed.xml", "https://ander.nl/rss"), feeds)
     }
 
@@ -106,7 +106,7 @@ class SettingsE2eTest : E2eTestBase() {
     fun `eerste GET event-preferences initialiseert de default-lijst`() {
         val user = registerUser("settings")
 
-        val names = getJson("/api/settings/event-preferences", user.token).path("names").map { it.asText() }
+        val names = getJson("/api/settings/event-preferences", user.token).path("names").values().map { it.asText() }
         assertEquals(
             listOf(
                 "JavaOne", "KotlinConf", "Spring I/O", "Code with Claude",
@@ -125,10 +125,10 @@ class SettingsE2eTest : E2eTestBase() {
             """{"names": ["  MijnConf  ", "", "AndereConf", "MijnConf"]}"""
         )
         assertEquals(200, saved.status)
-        assertEquals(listOf("MijnConf", "AndereConf"), saved.json(mapper).path("names").map { it.asText() })
+        assertEquals(listOf("MijnConf", "AndereConf"), saved.json(mapper).path("names").values().map { it.asText() })
 
         // Teruglezen geeft dezelfde (vervangen) lijst — geen defaults meer.
-        val names = getJson("/api/settings/event-preferences", user.token).path("names").map { it.asText() }
+        val names = getJson("/api/settings/event-preferences", user.token).path("names").values().map { it.asText() }
         assertEquals(listOf("MijnConf", "AndereConf"), names)
     }
 
@@ -136,14 +136,14 @@ class SettingsE2eTest : E2eTestBase() {
     fun `POST event-preference voegt idempotent toe`() {
         val user = registerUser("settings")
         // Eerst GET zodat de default-lijst geinitialiseerd is.
-        val defaults = getJson("/api/settings/event-preferences", user.token).path("names").map { it.asText() }
+        val defaults = getJson("/api/settings/event-preferences", user.token).path("names").values().map { it.asText() }
 
         val added = post(
             "/api/settings/event-preferences", user.token,
             """{"name": "MijnConf"}"""
         )
         assertEquals(200, added.status)
-        assertEquals(defaults + "MijnConf", added.json(mapper).path("names").map { it.asText() })
+        assertEquals(defaults + "MijnConf", added.json(mapper).path("names").values().map { it.asText() })
 
         // Nogmaals dezelfde naam: lijst blijft onveranderd.
         val again = post(
@@ -151,7 +151,7 @@ class SettingsE2eTest : E2eTestBase() {
             """{"name": "MijnConf"}"""
         )
         assertEquals(200, again.status)
-        assertEquals(defaults + "MijnConf", again.json(mapper).path("names").map { it.asText() })
+        assertEquals(defaults + "MijnConf", again.json(mapper).path("names").values().map { it.asText() })
     }
 
     @Test
@@ -177,7 +177,7 @@ class SettingsE2eTest : E2eTestBase() {
             """{"name": "Spring I/O"}"""
         )
         assertEquals(200, resp.status)
-        val names = resp.json(mapper).path("names").map { it.asText() }
+        val names = resp.json(mapper).path("names").values().map { it.asText() }
         assertFalse("Spring I/O" in names)
         assertTrue("KotlinConf" in names)
 

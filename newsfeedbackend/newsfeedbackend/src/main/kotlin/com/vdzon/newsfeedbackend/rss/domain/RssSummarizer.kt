@@ -1,6 +1,6 @@
 package com.vdzon.newsfeedbackend.rss.domain
 
-import com.fasterxml.jackson.databind.ObjectMapper
+import tools.jackson.databind.ObjectMapper
 import com.vdzon.newsfeedbackend.ai.AiJson
 import com.vdzon.newsfeedbackend.ai.AiModelProperties
 import com.vdzon.newsfeedbackend.ai.OpenAiChatClient
@@ -53,7 +53,7 @@ class RssSummarizer(
             rss.copy(
                 summary = tree.path("summary").asText(""),
                 category = tree.path("category").asText("overig").ifBlank { "overig" },
-                topics = tree.path("topics").map { it.asText() },
+                topics = tree.path("topics").values().map { it.asText() },
                 processedAt = Instant.now()
             )
         } catch (e: Exception) {

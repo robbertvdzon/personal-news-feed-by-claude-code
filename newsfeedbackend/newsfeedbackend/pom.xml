@@ -95,22 +95,19 @@
             <artifactId>kotlin-stdlib</artifactId>
         </dependency>
 
-        <!-- Jackson Kotlin module (Jackson 2, voor de eigen ObjectMapper-bean) -->
-        <dependency>
-            <groupId>com.fasterxml.jackson.module</groupId>
-            <artifactId>jackson-module-kotlin</artifactId>
-        </dependency>
-        <!-- Jackson 3 Kotlin-module: Spring Boot 4 deserialiseert request-
-             bodies via Jackson 3 (tools.jackson); zonder deze module gelden
-             Kotlin default-waardes daar niet en gaf een weggelaten optioneel
-             veld een 500 (gevonden door SettingsE2eTest). -->
+        <!-- Jackson 3 Kotlin-module: alle app-code en de HTTP-laag draaien
+             op Jackson 3 (tools.jackson). Boot registreert deze module
+             automatisch op de auto-geconfigureerde JsonMapper
+             (find-and-add-modules); zonder deze module gelden Kotlin
+             default-waardes niet en gaf een weggelaten optioneel veld een
+             500 (gevonden door SettingsE2eTest). Java-time-support (het
+             oude jackson-datatype-jsr310) zit in Jackson 3 ingebouwd.
+             NB: er staat nog wel Jackson 2 (com.fasterxml) op het
+             runtime-classpath — jjwt-jackson gebruikt intern Jackson 2
+             voor JWT-payloads; dat staat volledig los van onze mapper. -->
         <dependency>
             <groupId>tools.jackson.module</groupId>
             <artifactId>jackson-module-kotlin</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.fasterxml.jackson.datatype</groupId>
-            <artifactId>jackson-datatype-jsr310</artifactId>
         </dependency>
 
         <!-- Coroutines -->

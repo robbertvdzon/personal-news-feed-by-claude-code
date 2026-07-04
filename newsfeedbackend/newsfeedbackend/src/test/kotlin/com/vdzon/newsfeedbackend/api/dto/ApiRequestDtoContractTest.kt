@@ -1,7 +1,7 @@
 package com.vdzon.newsfeedbackend.api.dto
 
-import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.module.kotlin.registerKotlinModule
+import tools.jackson.databind.ObjectMapper
+import tools.jackson.module.kotlin.jacksonObjectMapper
 import com.vdzon.newsfeedbackend.admin.api.dto.ResetPasswordRequest
 import com.vdzon.newsfeedbackend.admin.api.dto.SetRoleRequest
 import com.vdzon.newsfeedbackend.auth.api.dto.ChangePasswordRequest
@@ -18,7 +18,7 @@ import org.junit.jupiter.api.Test
  */
 class ApiRequestDtoContractTest {
 
-    private val mapper: ObjectMapper = ObjectMapper().registerKotlinModule()
+    private val mapper: ObjectMapper = jacksonObjectMapper()
 
     @Test
     fun `ChangePasswordRequest deserialiseert currentPassword en newPassword`() {

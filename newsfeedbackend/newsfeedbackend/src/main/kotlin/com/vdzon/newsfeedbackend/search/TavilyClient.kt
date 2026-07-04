@@ -1,6 +1,6 @@
 package com.vdzon.newsfeedbackend.search
 
-import com.fasterxml.jackson.databind.ObjectMapper
+import tools.jackson.databind.ObjectMapper
 import com.vdzon.newsfeedbackend.external_call.ExternalCall
 import com.vdzon.newsfeedbackend.external_call.ExternalCallLogger
 import com.vdzon.newsfeedbackend.external_call.Pricing

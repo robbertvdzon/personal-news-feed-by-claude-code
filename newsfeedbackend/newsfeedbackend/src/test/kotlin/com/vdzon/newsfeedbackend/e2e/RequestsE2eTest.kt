@@ -100,7 +100,7 @@ class RequestsE2eTest : E2eTestBase() {
         assertTrue(feed.all { it.path("summary").asText() == "Fake adhoc samenvatting voor de e2e-test." })
         assertTrue(feed.all { it.path("feedReason").asText() == "Geselecteerd voor verzoek 'Kotlin nieuws'" })
         assertTrue(feed.all { it.path("source").asText() == "nieuws.example" })
-        val titels = feed.map { it.path("title").asText() }.toSet()
+        val titels = feed.values().map { it.path("title").asText() }.toSet()
         assertEquals(setOf("Artikel 1", "Artikel 2"), titels)
         // published_date uit Tavily wordt afgekapt tot YYYY-MM-DD.
         assertTrue(feed.any { it.path("publishedDate").asText() == "2026-07-01" })

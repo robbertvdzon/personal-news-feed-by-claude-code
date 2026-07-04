@@ -1,6 +1,6 @@
 package com.vdzon.newsfeedbackend.ai.infrastructure
 
-import com.fasterxml.jackson.databind.ObjectMapper
+import tools.jackson.databind.ObjectMapper
 import com.vdzon.newsfeedbackend.ai.AiPricingProperties
 import com.vdzon.newsfeedbackend.ai.OpenAiChatClient
 import com.vdzon.newsfeedbackend.ai.OpenAiChatResponse

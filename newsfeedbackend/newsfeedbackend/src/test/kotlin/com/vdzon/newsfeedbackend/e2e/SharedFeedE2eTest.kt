@@ -74,7 +74,7 @@ class SharedFeedE2eTest : E2eTestBase() {
         seed(sharedUsername, newItem(eigenTitel))
         seed(ander.username, newItem(andermansTitel))
 
-        val titels = getJson("/api/shared/feed").map { it.path("title").asText() }
+        val titels = getJson("/api/shared/feed").values().map { it.path("title").asText() }
         assertTrue(eigenTitel in titels)
         assertFalse(andermansTitel in titels)
     }
@@ -107,7 +107,7 @@ class SharedFeedE2eTest : E2eTestBase() {
             )
         )
 
-        val ids = getJson("/api/shared/categories").map { it.path("id").asText() }
+        val ids = getJson("/api/shared/categories").values().map { it.path("id").asText() }
         assertTrue("kotlin" in ids)
         assertTrue("overig" in ids)
         assertFalse("flutter" in ids)

@@ -108,7 +108,7 @@ class FeedE2eTest : E2eTestBase() {
         assertEquals(200, resp.status)
         assertEquals(1, resp.json(mapper).path("removed").asInt())
 
-        val titels = getJson("/api/feed", user.token).map { it.path("title").asText() }.toSet()
+        val titels = getJson("/api/feed", user.token).values().map { it.path("title").asText() }.toSet()
         assertEquals(setOf("oud-met-ster", "oud-ongelezen", "vers"), titels)
     }
 

@@ -90,7 +90,7 @@ class PodcastGenerationE2eTest : E2eTestBase() {
         val detail = getJson("/api/podcasts/$id", user.token)
         assertTrue(detail.path("title").asText().startsWith("DevTalk 1, "))
         assertTrue(detail.path("title").asText().endsWith("— Kotlin 2.3, Spring Boot 4"))
-        assertEquals(listOf("Kotlin 2.3", "Spring Boot 4"), detail.path("topics").map { it.asText() })
+        assertEquals(listOf("Kotlin 2.3", "Spring Boot 4"), detail.path("topics").values().map { it.asText() })
         assertEquals(script, detail.path("scriptText").asText())
         assertEquals(60, detail.path("durationSeconds").asInt())
         // De lijst-view stript het (potentieel lange) script bewust.
