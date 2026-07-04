@@ -1,6 +1,7 @@
 package com.vdzon.newsfeedbackend.podcast_source.infrastructure
 
 import com.vdzon.newsfeedbackend.podcast_source.PodcastEpisode
+import com.vdzon.newsfeedbackend.podcast_source.PodcastEpisodeLookup
 import com.vdzon.newsfeedbackend.podcast_source.PodcastEpisodeStatus
 import com.vdzon.newsfeedbackend.storage.JdbcJsonb
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource
@@ -14,7 +15,7 @@ import java.time.Instant
 class PodcastEpisodeRepository(
     private val jdbc: NamedParameterJdbcTemplate,
     private val json: JdbcJsonb
-) {
+) : PodcastEpisodeLookup {
 
     private fun map(rs: ResultSet, @Suppress("UNUSED_PARAMETER") n: Int): PodcastEpisode = PodcastEpisode(
         username = rs.getString("username"),
@@ -50,7 +51,7 @@ class PodcastEpisodeRepository(
             ::map
         )
 
-    fun get(username: String, guid: String): PodcastEpisode? =
+    override fun get(username: String, guid: String): PodcastEpisode? =
         jdbc.query(
             "SELECT * FROM podcast_episodes WHERE username = :u AND guid = :g",
             MapSqlParameterSource().addValue("u", username).addValue("g", guid),
@@ -233,4 +234,7 @@ class PodcastEpisodeRepository(
                 updated_at                  = EXCLUDED.updated_at
         """
     }
+    override fun findByRssItemId(username: String, rssItemId: String): PodcastEpisode? =
+        load(username).firstOrNull { it.rssItemId == rssItemId }
+
 }

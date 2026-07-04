@@ -1,4 +1,4 @@
-package com.vdzon.newsfeedbackend.podcast_source.infrastructure
+package com.vdzon.newsfeedbackend.ai
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.vdzon.newsfeedbackend.ai.AiModelProperties

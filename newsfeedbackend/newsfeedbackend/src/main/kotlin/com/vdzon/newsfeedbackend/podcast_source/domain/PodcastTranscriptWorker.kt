@@ -3,7 +3,7 @@ package com.vdzon.newsfeedbackend.podcast_source.domain
 import com.vdzon.newsfeedbackend.podcast_source.PodcastEpisode
 import com.vdzon.newsfeedbackend.podcast_source.PodcastEpisodeStatus
 import com.vdzon.newsfeedbackend.podcast_source.infrastructure.PodcastEpisodeRepository
-import com.vdzon.newsfeedbackend.rss.domain.PodcastPromotionRequested
+import com.vdzon.newsfeedbackend.rss.PodcastPromotionRequested
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value

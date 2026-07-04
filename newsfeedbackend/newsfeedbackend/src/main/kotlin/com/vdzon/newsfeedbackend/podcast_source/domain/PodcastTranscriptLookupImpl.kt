@@ -1,6 +1,6 @@
 package com.vdzon.newsfeedbackend.podcast_source.domain
 
-import com.vdzon.newsfeedbackend.podcast_source.PodcastTranscriptLookup
+import com.vdzon.newsfeedbackend.rss.PodcastTranscriptLookup
 import com.vdzon.newsfeedbackend.podcast_source.infrastructure.PodcastEpisodeRepository
 import org.springframework.stereotype.Component
 

@@ -6,7 +6,7 @@ import com.vdzon.newsfeedbackend.admin.DailyTotal
 import com.vdzon.newsfeedbackend.admin.Totals
 import com.vdzon.newsfeedbackend.admin.UserTotal
 import com.vdzon.newsfeedbackend.external_call.ExternalCall
-import com.vdzon.newsfeedbackend.external_call.infrastructure.ExternalCallRepository
+import com.vdzon.newsfeedbackend.external_call.ExternalCallQuery
 import org.springframework.stereotype.Service
 import java.time.Instant
 import java.time.LocalDate
@@ -15,7 +15,7 @@ import java.time.ZoneOffset
 
 @Service
 class AdminCostsServiceImpl(
-    private val repo: ExternalCallRepository
+    private val repo: ExternalCallQuery
 ) : AdminCostsService {
 
     override fun grandTotals(): Totals {

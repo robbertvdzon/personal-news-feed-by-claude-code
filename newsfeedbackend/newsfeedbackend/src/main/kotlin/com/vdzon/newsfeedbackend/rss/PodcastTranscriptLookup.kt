@@ -1,4 +1,4 @@
-package com.vdzon.newsfeedbackend.podcast_source
+package com.vdzon.newsfeedbackend.rss
 
 /**
  * Cross-module hook: laat de RSS-refresh-pipeline (die niets weet van

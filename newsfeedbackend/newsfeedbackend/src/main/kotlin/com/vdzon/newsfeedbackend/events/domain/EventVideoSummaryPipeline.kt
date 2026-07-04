@@ -8,8 +8,8 @@ import com.vdzon.newsfeedbackend.events.infrastructure.EventVideoRepository
 import com.vdzon.newsfeedbackend.events.infrastructure.VideoAudioDownloader
 import com.vdzon.newsfeedbackend.events.infrastructure.YouTubeTranscriptClient
 import com.vdzon.newsfeedbackend.external_call.ExternalCall
-import com.vdzon.newsfeedbackend.podcast_source.infrastructure.AudioTranscoder
-import com.vdzon.newsfeedbackend.podcast_source.infrastructure.WhisperClient
+import com.vdzon.newsfeedbackend.media.AudioTranscoder
+import com.vdzon.newsfeedbackend.ai.WhisperClient
 import io.micrometer.core.instrument.MeterRegistry
 import org.slf4j.LoggerFactory
 import org.slf4j.MDC

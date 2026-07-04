@@ -1,4 +1,4 @@
-package com.vdzon.newsfeedbackend.feed.api
+package com.vdzon.newsfeedbackend.shared.api
 
 import com.vdzon.newsfeedbackend.feed.FeedItem
 import com.vdzon.newsfeedbackend.feed.FeedService

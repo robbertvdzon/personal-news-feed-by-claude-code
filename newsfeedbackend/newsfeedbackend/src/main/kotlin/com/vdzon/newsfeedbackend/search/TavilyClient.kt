@@ -1,4 +1,4 @@
-package com.vdzon.newsfeedbackend.request.infrastructure
+package com.vdzon.newsfeedbackend.search
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.vdzon.newsfeedbackend.external_call.ExternalCall

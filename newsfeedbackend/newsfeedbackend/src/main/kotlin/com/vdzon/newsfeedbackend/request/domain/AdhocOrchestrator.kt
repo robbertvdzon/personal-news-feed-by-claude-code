@@ -9,7 +9,7 @@ import com.vdzon.newsfeedbackend.request.RequestCreatedEvent
 import com.vdzon.newsfeedbackend.request.RequestRerunEvent
 import com.vdzon.newsfeedbackend.request.RequestStatus
 import com.vdzon.newsfeedbackend.request.infrastructure.RequestRepository
-import com.vdzon.newsfeedbackend.request.infrastructure.TavilyClient
+import com.vdzon.newsfeedbackend.search.TavilyClient
 import io.micrometer.core.instrument.MeterRegistry
 import org.slf4j.LoggerFactory
 import org.slf4j.MDC

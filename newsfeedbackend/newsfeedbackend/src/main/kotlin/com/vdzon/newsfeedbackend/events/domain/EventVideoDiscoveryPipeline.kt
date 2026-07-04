@@ -1,5 +1,6 @@
 package com.vdzon.newsfeedbackend.events.domain
 
+import com.vdzon.newsfeedbackend.ai.AiJson
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.vdzon.newsfeedbackend.ai.AiModelProperties
 import com.vdzon.newsfeedbackend.ai.OpenAiChatClient
@@ -8,7 +9,7 @@ import com.vdzon.newsfeedbackend.events.EventVideo
 import com.vdzon.newsfeedbackend.events.infrastructure.EventRepository
 import com.vdzon.newsfeedbackend.events.infrastructure.EventVideoRepository
 import com.vdzon.newsfeedbackend.external_call.ExternalCall
-import com.vdzon.newsfeedbackend.request.infrastructure.TavilyClient
+import com.vdzon.newsfeedbackend.search.TavilyClient
 import io.micrometer.core.instrument.MeterRegistry
 import org.slf4j.LoggerFactory
 import org.slf4j.MDC
@@ -120,7 +121,7 @@ class EventVideoDiscoveryPipeline(
     private fun extractVideos(
         username: String,
         ev: Event,
-        results: List<com.vdzon.newsfeedbackend.request.infrastructure.TavilyResult>
+        results: List<com.vdzon.newsfeedbackend.search.TavilyResult>
     ): List<EventVideo> {
         val sources = results.joinToString("\n\n") { r ->
             "URL: ${r.url}\nTitel: ${r.title}\nFragment: ${r.snippet.take(500)}"
@@ -160,7 +161,7 @@ class EventVideoDiscoveryPipeline(
             """.trimIndent()
         )
         return try {
-            val tree = mapper.readTree(extractJson(ai.text))
+            val tree = mapper.readTree(AiJson.extract(ai.text))
             if (!tree.isArray) {
                 log.warn("[EventVideos] AI gaf geen JSON-array voor '{}' — eerste 300 chars: {}",
                     ev.id, ai.text.take(300))
@@ -211,48 +212,6 @@ class EventVideoDiscoveryPipeline(
         }
     }
 
-    /**
-     * Pulls the JSON payload out of a Claude response — strips markdown
-     * fences en zoekt het eerste gebalanceerde array/object. Kopie van de
-     * helper in EventDiscoveryPipeline; bewust niet uitgefactored om de
-     * pipelines ontkoppeld te houden.
-     */
-    private fun extractJson(text: String): String {
-        var s = text.trim()
-        s = s.removePrefix("```json").removePrefix("```JSON").removePrefix("```").trim()
-        if (s.endsWith("```")) s = s.dropLast(3).trim()
-        val curly = s.indexOf('{')
-        val bracket = s.indexOf('[')
-        val start = when {
-            curly < 0 && bracket < 0 -> return s
-            curly < 0 -> bracket
-            bracket < 0 -> curly
-            else -> minOf(curly, bracket)
-        }
-        val openChar = s[start]
-        val closeChar = if (openChar == '{') '}' else ']'
-        var depth = 0
-        var inString = false
-        var escape = false
-        for (i in start until s.length) {
-            val c = s[i]
-            if (escape) { escape = false; continue }
-            if (inString) {
-                if (c == '\\') escape = true
-                else if (c == '"') inString = false
-                continue
-            }
-            when (c) {
-                '"' -> inString = true
-                openChar -> depth++
-                closeChar -> {
-                    depth--
-                    if (depth == 0) return s.substring(start, i + 1)
-                }
-            }
-        }
-        return s.substring(start)
-    }
 
     companion object {
         /** Plafond op video's per event per run — beperkt Tavily/Claude-kosten. */

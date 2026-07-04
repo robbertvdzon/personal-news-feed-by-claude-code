@@ -22,6 +22,13 @@ interface RssService {
      * inFeed=true entries keep theirs even if Claude flips them.
      */
     fun triggerReselect(username: String)
+
+    /**
+     * Voeg een rss-item toe of werk het bij. Publieke API zodat andere
+     * modules (podcast_source schrijft podcast-cards) niet aan de
+     * repository hoeven.
+     */
+    fun upsert(username: String, item: RssItem): RssItem
 }
 
 data class RssItem(

@@ -2,11 +2,13 @@ package com.vdzon.newsfeedbackend.auth.domain
 
 import com.vdzon.newsfeedbackend.auth.AuthService
 import com.vdzon.newsfeedbackend.auth.AuthToken
+import com.vdzon.newsfeedbackend.auth.UserAccount
 import com.vdzon.newsfeedbackend.auth.UserRegisteredEvent
 import com.vdzon.newsfeedbackend.auth.infrastructure.JwtService
 import com.vdzon.newsfeedbackend.auth.infrastructure.UserRepository
 import com.vdzon.newsfeedbackend.common.BadRequestException
 import com.vdzon.newsfeedbackend.common.ConflictException
+import com.vdzon.newsfeedbackend.common.NotFoundException
 import com.vdzon.newsfeedbackend.common.UnauthorizedException
 import org.slf4j.LoggerFactory
 import org.springframework.context.ApplicationEventPublisher
@@ -65,4 +67,26 @@ class AuthServiceImpl(
         }
         return deleted
     }
+
+    override fun listAccounts(): List<UserAccount> =
+        users.all().map { UserAccount(it.id, it.username, it.role) }
+
+    override fun findAccount(username: String): UserAccount? =
+        users.findByUsername(username)?.let { UserAccount(it.id, it.username, it.role) }
+
+    override fun resetPassword(username: String, newPassword: String) {
+        if (newPassword.length < 4) throw BadRequestException("Password must be at least 4 characters")
+        val user = users.findByUsername(username) ?: throw NotFoundException("User not found: $username")
+        users.update(user.copy(passwordHash = encoder.encode(newPassword)!!))
+    }
+
+    override fun setRole(username: String, role: String) {
+        if (role != User.ROLE_USER && role != User.ROLE_ADMIN) {
+            throw BadRequestException("Invalid role: $role (allowed: ${User.ROLE_USER}, ${User.ROLE_ADMIN})")
+        }
+        val user = users.findByUsername(username) ?: throw NotFoundException("User not found: $username")
+        users.update(user.copy(role = role))
+    }
+
+    override fun deleteUser(username: String): Boolean = users.deleteByUsername(username)
 }

@@ -22,6 +22,25 @@ interface AuthService {
      * fout, returnt of er iets is verwijderd.
      */
     fun deleteOwnAccount(username: String): Boolean
+
+    // ── Beheer-operaties (gebruikt door de admin-module) ─────────────
+    // Autorisatie en guardrails (mag deze actor dit?) horen bij de
+    // caller; deze methodes voeren alleen de mutatie uit.
+
+    fun listAccounts(): List<UserAccount>
+    fun findAccount(username: String): UserAccount?
+    /** Zet een nieuw wachtwoord zonder het oude te verifiëren (admin-reset). */
+    fun resetPassword(username: String, newPassword: String)
+    fun setRole(username: String, role: String)
+    fun deleteUser(username: String): Boolean
+
+    companion object {
+        const val ROLE_USER = "user"
+        const val ROLE_ADMIN = "admin"
+    }
 }
 
 data class AuthToken(val token: String, val username: String, val role: String)
+
+/** Publieke, wachtwoord-loze weergave van een account (voor beheer-schermen). */
+data class UserAccount(val id: String, val username: String, val role: String)

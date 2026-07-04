@@ -2,62 +2,57 @@ package com.vdzon.newsfeedbackend.admin.domain
 
 import com.vdzon.newsfeedbackend.admin.AdminService
 import com.vdzon.newsfeedbackend.admin.AdminUserView
-import com.vdzon.newsfeedbackend.auth.domain.User
-import com.vdzon.newsfeedbackend.auth.infrastructure.UserRepository
+import com.vdzon.newsfeedbackend.auth.AuthService
 import com.vdzon.newsfeedbackend.common.BadRequestException
 import com.vdzon.newsfeedbackend.common.NotFoundException
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder
 import org.springframework.stereotype.Service
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.Comparator
 
+/**
+ * Admin-guardrails (mag deze actor dit?) leven hier; de eigenlijke
+ * account-mutaties lopen via de publieke [AuthService]-API zodat admin
+ * niet in de internals van de auth-module hoeft te grijpen.
+ */
 @Service
 class AdminServiceImpl(
-    private val users: UserRepository,
+    private val auth: AuthService,
     @param:Value("\${app.data-dir:./data}") private val dataDir: String
 ) : AdminService {
 
     private val log = LoggerFactory.getLogger(javaClass)
-    private val encoder = BCryptPasswordEncoder()
 
-    override fun listUsers(): List<AdminUserView> = users.all().map {
+    override fun listUsers(): List<AdminUserView> = auth.listAccounts().map {
         AdminUserView(it.id, it.username, it.role)
     }
 
     override fun resetPassword(targetUsername: String, newPassword: String, actor: String) {
-        if (newPassword.length < 4) throw BadRequestException("Password must be at least 4 characters")
-        val target = users.findByUsername(targetUsername) ?: throw NotFoundException("User not found: $targetUsername")
-        val updated = target.copy(passwordHash = encoder.encode(newPassword)!!)
-        users.update(updated)
+        auth.resetPassword(targetUsername, newPassword)
         log.info("[Admin] '{}' reset password for '{}'", actor, targetUsername)
     }
 
     override fun setRole(targetUsername: String, newRole: String, actor: String) {
-        if (newRole != User.ROLE_USER && newRole != User.ROLE_ADMIN) {
-            throw BadRequestException("Invalid role: $newRole (allowed: ${User.ROLE_USER}, ${User.ROLE_ADMIN})")
-        }
-        val target = users.findByUsername(targetUsername) ?: throw NotFoundException("User not found: $targetUsername")
-        if (target.username == actor && target.role == User.ROLE_ADMIN && newRole != User.ROLE_ADMIN) {
+        val target = auth.findAccount(targetUsername) ?: throw NotFoundException("User not found: $targetUsername")
+        if (target.username == actor && target.role == AuthService.ROLE_ADMIN && newRole != AuthService.ROLE_ADMIN) {
             // Voorkom dat een admin per ongeluk zichzelf demote en de laatste
             // admin-toegang kwijtraakt.
             throw BadRequestException("Je kunt je eigen admin-rol niet verwijderen")
         }
-        users.update(target.copy(role = newRole))
+        auth.setRole(targetUsername, newRole)
         log.info("[Admin] '{}' changed role of '{}' to '{}'", actor, targetUsername, newRole)
     }
 
     override fun deleteUser(targetUsername: String, actor: String) {
         if (targetUsername == actor) throw BadRequestException("Je kunt jezelf niet verwijderen")
-        val target = users.findByUsername(targetUsername) ?: throw NotFoundException("User not found: $targetUsername")
         // Postgres FK ON DELETE CASCADE ruimt alle per-user tabellen op.
-        if (!users.deleteByUsername(targetUsername)) {
+        if (!auth.deleteUser(targetUsername)) {
             throw NotFoundException("User not found: $targetUsername")
         }
         // Audio-files staan nog op disk; opruimen.
-        deleteAudioDir(target.username)
+        deleteAudioDir(targetUsername)
         log.info("[Admin] '{}' deleted user '{}'", actor, targetUsername)
     }
 

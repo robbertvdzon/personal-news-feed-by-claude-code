@@ -13,7 +13,7 @@ import java.util.concurrent.TimeUnit
 /**
  * KAN-67: download de audio-track van een video-URL (YouTube, Vimeo of
  * conferentieportal) naar een tijdelijke MP3, zodat de bestaande
- * [com.vdzon.newsfeedbackend.podcast_source.infrastructure.WhisperClient]
+ * [com.vdzon.newsfeedbackend.ai.WhisperClient]
  * 'm naar Whisper kan sturen voor transcriptie.
  *
  * Onder de motorkap gebruikt deze downloader het `yt-dlp`-binary

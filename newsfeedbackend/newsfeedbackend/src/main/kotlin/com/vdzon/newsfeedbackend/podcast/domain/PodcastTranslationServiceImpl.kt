@@ -8,7 +8,7 @@ import com.vdzon.newsfeedbackend.podcast.TranslationStart
 import com.vdzon.newsfeedbackend.podcast.TtsProvider
 import com.vdzon.newsfeedbackend.podcast.infrastructure.PodcastRepository
 import com.vdzon.newsfeedbackend.podcast_source.PodcastEpisodeStatus
-import com.vdzon.newsfeedbackend.podcast_source.infrastructure.PodcastEpisodeRepository
+import com.vdzon.newsfeedbackend.podcast_source.PodcastEpisodeLookup
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import java.util.UUID
@@ -28,14 +28,14 @@ import java.util.UUID
 @Service
 class PodcastTranslationServiceImpl(
     private val podcastRepo: PodcastRepository,
-    private val episodeRepo: PodcastEpisodeRepository,
+    private val episodeRepo: PodcastEpisodeLookup,
     private val translator: PodcastTranslator
 ) : PodcastTranslationService {
 
     private val log = LoggerFactory.getLogger(javaClass)
 
     override fun lookup(username: String, rssItemId: String): EpisodeLookup? {
-        val episode = episodeRepo.load(username).firstOrNull { it.rssItemId == rssItemId } ?: return null
+        val episode = episodeRepo.findByRssItemId(username, rssItemId) ?: return null
         val existing = podcastRepo.findByTranslatedFromEpisodeGuid(username, episode.guid)
         return EpisodeLookup(
             episodeGuid = episode.guid,

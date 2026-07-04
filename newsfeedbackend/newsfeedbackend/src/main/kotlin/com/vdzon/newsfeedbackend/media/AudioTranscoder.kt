@@ -1,4 +1,4 @@
-package com.vdzon.newsfeedbackend.podcast_source.infrastructure
+package com.vdzon.newsfeedbackend.media
 
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component

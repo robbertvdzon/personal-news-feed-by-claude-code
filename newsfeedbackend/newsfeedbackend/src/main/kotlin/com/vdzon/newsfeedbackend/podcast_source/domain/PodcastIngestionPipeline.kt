@@ -5,7 +5,7 @@ import com.vdzon.newsfeedbackend.podcast_source.PodcastEpisodeStatus
 import com.vdzon.newsfeedbackend.podcast_source.PodcastIngestionTrigger
 import com.vdzon.newsfeedbackend.podcast_source.infrastructure.PodcastEpisodeRepository
 import com.vdzon.newsfeedbackend.podcast_source.infrastructure.PodcastFeedFetcher
-import com.vdzon.newsfeedbackend.rss.domain.RssRefreshRequested
+import com.vdzon.newsfeedbackend.rss.RssRefreshRequested
 import com.vdzon.newsfeedbackend.settings.SettingsService
 import org.slf4j.LoggerFactory
 import org.slf4j.MDC

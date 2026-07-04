@@ -1,6 +1,7 @@
 package com.vdzon.newsfeedbackend.external_call.infrastructure
 
 import com.vdzon.newsfeedbackend.external_call.ExternalCall
+import com.vdzon.newsfeedbackend.external_call.ExternalCallQuery
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate
 import org.springframework.stereotype.Component
@@ -16,7 +17,7 @@ import java.time.Instant
 @Component
 class ExternalCallRepository(
     private val jdbc: NamedParameterJdbcTemplate
-) {
+) : ExternalCallQuery {
 
     private fun map(rs: ResultSet, @Suppress("UNUSED_PARAMETER") n: Int): ExternalCall = ExternalCall(
         id = rs.getString("id"),
@@ -69,13 +70,13 @@ class ExternalCallRepository(
         )
     }
 
-    fun query(
-        from: Instant? = null,
-        to: Instant? = null,
-        username: String? = null,
-        provider: String? = null,
-        action: String? = null,
-        status: String? = null
+    override fun query(
+        from: Instant?,
+        to: Instant?,
+        username: String?,
+        provider: String?,
+        action: String?,
+        status: String?
     ): List<ExternalCall> {
         val sql = StringBuilder("SELECT * FROM external_calls WHERE 1=1")
         val params = MapSqlParameterSource()
@@ -89,5 +90,5 @@ class ExternalCallRepository(
         return jdbc.query(sql.toString(), params, ::map)
     }
 
-    fun all(): List<ExternalCall> = query()
+    override fun all(): List<ExternalCall> = query()
 }

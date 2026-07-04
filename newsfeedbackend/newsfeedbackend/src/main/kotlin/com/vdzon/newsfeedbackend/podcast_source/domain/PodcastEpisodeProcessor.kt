@@ -1,17 +1,18 @@
 package com.vdzon.newsfeedbackend.podcast_source.domain
 
+import com.vdzon.newsfeedbackend.ai.AiJson
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.vdzon.newsfeedbackend.ai.AiModelProperties
 import com.vdzon.newsfeedbackend.ai.OpenAiChatClient
 import com.vdzon.newsfeedbackend.podcast_source.PodcastEpisode
 import com.vdzon.newsfeedbackend.podcast_source.PodcastEpisodeStatus
-import com.vdzon.newsfeedbackend.podcast_source.infrastructure.AudioTranscoder
+import com.vdzon.newsfeedbackend.media.AudioTranscoder
 import com.vdzon.newsfeedbackend.podcast_source.infrastructure.PodcastAudioDownloader
 import com.vdzon.newsfeedbackend.podcast_source.infrastructure.PodcastEpisodeRepository
-import com.vdzon.newsfeedbackend.podcast_source.infrastructure.WhisperClient
+import com.vdzon.newsfeedbackend.ai.WhisperClient
 import com.vdzon.newsfeedbackend.rss.RssItem
-import com.vdzon.newsfeedbackend.rss.domain.PodcastPromotionRequested
-import com.vdzon.newsfeedbackend.rss.infrastructure.RssItemRepository
+import com.vdzon.newsfeedbackend.rss.PodcastPromotionRequested
+import com.vdzon.newsfeedbackend.rss.RssService
 import com.vdzon.newsfeedbackend.settings.SettingsService
 import org.slf4j.LoggerFactory
 import org.slf4j.MDC
@@ -52,7 +53,7 @@ import java.util.UUID
 @Component
 class PodcastEpisodeProcessor(
     private val episodeRepo: PodcastEpisodeRepository,
-    private val rssRepo: RssItemRepository,
+    private val rssItems: RssService,
     private val downloader: PodcastAudioDownloader,
     private val transcoder: AudioTranscoder,
     private val whisper: WhisperClient,
@@ -130,7 +131,7 @@ class PodcastEpisodeProcessor(
 
             val rssItemId = ep.rssItemId ?: UUID.randomUUID().toString()
             val rss = buildRssItem(ep, summarized, rssItemId, summarySource = "show_notes")
-            rssRepo.upsert(username, rss)
+            rssItems.upsert(username, rss)
 
             // Bij transcribeEnabled=false: dit is meteen de eindstaat. Card
             // krijgt permanent een show-notes-badge (refiner-aanname), en
@@ -285,7 +286,7 @@ class PodcastEpisodeProcessor(
 
                     val rssItemId = ep.rssItemId ?: UUID.randomUUID().toString()
                     val rss = buildRssItem(ep, summarized, rssItemId, summarySource = "transcript")
-                    rssRepo.upsert(username, rss)
+                    rssItems.upsert(username, rss)
 
                     save(ep.copy(
                         status = PodcastEpisodeStatus.DONE,
@@ -367,9 +368,9 @@ class PodcastEpisodeProcessor(
 
             val rssItemId = ep.rssItemId
             if (rssItemId != null) {
-                val existing = rssRepo.load(ep.username).find { it.id == rssItemId }
+                val existing = rssItems.get(ep.username, rssItemId)
                 if (existing != null) {
-                    rssRepo.upsert(ep.username, existing.copy(
+                    rssItems.upsert(ep.username, existing.copy(
                         // shortSummary blijft staan om scroll-flicker te
                         // voorkomen (de oude is meestal vergelijkbaar). De
                         // toegevoegde long-velden zijn waar de story om
@@ -510,7 +511,7 @@ class PodcastEpisodeProcessor(
             return null
         }
         return try {
-            val tree = mapper.readTree(extractJson(raw))
+            val tree = mapper.readTree(AiJson.extract(raw))
             val shortSum = tree.path("shortSummary").asText("").trim()
             val cat = tree.path("category").asText("overig").ifBlank { "overig" }
             val topics = tree.path("topics").mapNotNull { it.asText().takeUnless { t -> t.isBlank() } }
@@ -545,7 +546,7 @@ class PodcastEpisodeProcessor(
         // Bij re-runs hergebruiken we het oude rss_items.id zodat
         // gebruikersinteractie (sterren, isRead) bewaard blijft.
         val existing = ep.rssItemId?.let { rid ->
-            rssRepo.load(ep.username).find { it.id == rid }
+            rssItems.get(ep.username, rid)
         }
         return (existing ?: RssItem(
             id = rssItemId,
@@ -587,47 +588,6 @@ class PodcastEpisodeProcessor(
         return if (path.isBlank() || !path.contains('.')) "audio.mp3" else path
     }
 
-    /**
-     * Pakt het eerste balanced JSON-object uit een tekst. Claude wikkelt
-     * regelmatig JSON in ```json ... ``` of zet er prose voor. We
-     * doen hier exact dezelfde truc als in [com.vdzon.newsfeedbackend.rss.domain.RssRefreshPipeline].
-     */
-    private fun extractJson(text: String): String {
-        var s = text.trim()
-        s = s.removePrefix("```json").removePrefix("```JSON").removePrefix("```").trim()
-        if (s.endsWith("```")) s = s.dropLast(3).trim()
-        val curly = s.indexOf('{')
-        val bracket = s.indexOf('[')
-        val start = when {
-            curly < 0 && bracket < 0 -> return s
-            curly < 0 -> bracket
-            bracket < 0 -> curly
-            else -> minOf(curly, bracket)
-        }
-        val openChar = s[start]
-        val closeChar = if (openChar == '{') '}' else ']'
-        var depth = 0
-        var inString = false
-        var escape = false
-        for (i in start until s.length) {
-            val c = s[i]
-            if (escape) { escape = false; continue }
-            if (inString) {
-                if (c == '\\') escape = true
-                else if (c == '"') inString = false
-                continue
-            }
-            when (c) {
-                '"' -> inString = true
-                openChar -> depth++
-                closeChar -> {
-                    depth--
-                    if (depth == 0) return s.substring(start, i + 1)
-                }
-            }
-        }
-        return s.substring(start)
-    }
 
     sealed class TranscriptResult {
         object Success : TranscriptResult()

@@ -7,7 +7,7 @@ import com.vdzon.newsfeedbackend.podcast.PodcastStatus
 import com.vdzon.newsfeedbackend.podcast.infrastructure.Mp3Concatenator
 import com.vdzon.newsfeedbackend.podcast.infrastructure.PodcastRepository
 import com.vdzon.newsfeedbackend.podcast.infrastructure.TtsClient
-import com.vdzon.newsfeedbackend.podcast_source.infrastructure.PodcastEpisodeRepository
+import com.vdzon.newsfeedbackend.podcast_source.PodcastEpisodeLookup
 import io.micrometer.core.instrument.MeterRegistry
 import org.slf4j.LoggerFactory
 import org.slf4j.MDC
@@ -33,7 +33,7 @@ import java.time.Instant
 @Component
 class PodcastTranslator(
     private val repo: PodcastRepository,
-    private val episodeRepo: PodcastEpisodeRepository,
+    private val episodeRepo: PodcastEpisodeLookup,
     private val openai: OpenAiChatClient,
     private val tts: TtsClient,
     private val concatenator: Mp3Concatenator,

@@ -1,7 +1,7 @@
 package com.vdzon.newsfeedbackend.rss.api
 
 import com.vdzon.newsfeedbackend.common.FeedbackBody
-import com.vdzon.newsfeedbackend.podcast_source.PodcastTranscriptLookup
+import com.vdzon.newsfeedbackend.rss.PodcastTranscriptLookup
 import com.vdzon.newsfeedbackend.rss.RssItem
 import com.vdzon.newsfeedbackend.rss.RssService
 import com.vdzon.newsfeedbackend.common.SecurityHelpers

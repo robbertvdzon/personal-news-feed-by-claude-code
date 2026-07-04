@@ -1,11 +1,8 @@
 package com.vdzon.newsfeedbackend.settings.api
 
-import com.vdzon.newsfeedbackend.podcast_source.PodcastIngestionTrigger
-import com.vdzon.newsfeedbackend.podcast_source.infrastructure.PodcastFeedFetcher
 import com.vdzon.newsfeedbackend.settings.CategorySettings
 import com.vdzon.newsfeedbackend.settings.EventDenylist
 import com.vdzon.newsfeedbackend.settings.EventPreferences
-import com.vdzon.newsfeedbackend.settings.PodcastFeedsSettings
 import com.vdzon.newsfeedbackend.settings.RssFeedsSettings
 import com.vdzon.newsfeedbackend.settings.SettingsService
 import com.vdzon.newsfeedbackend.settings.api.dto.AddEventPreferenceRequest
@@ -23,9 +20,7 @@ import org.springframework.web.server.ResponseStatusException
 
 @RestController
 class SettingsController(
-    private val service: SettingsService,
-    private val podcastTrigger: PodcastIngestionTrigger,
-    private val podcastFetcher: PodcastFeedFetcher
+    private val service: SettingsService
 ) {
 
     private fun user(): String = SecurityHelpers.currentUsername()
@@ -43,38 +38,6 @@ class SettingsController(
     @PutMapping("/api/rss-feeds")
     fun saveRssFeeds(@RequestBody body: RssFeedsSettings): RssFeedsSettings =
         service.saveRssFeeds(user(), body)
-
-    @GetMapping("/api/podcast-feeds")
-    fun getPodcastFeeds(): PodcastFeedsSettings = service.getPodcastFeeds(user())
-
-    /**
-     * Sla de podcast-feed-lijst op en trigger meteen een ingestion-run.
-     *
-     * Validatie: alleen NIEUWE URLs (die nog niet in de bestaande lijst
-     * staan) worden synchroon getoetst door de feed één keer op te halen.
-     * Bij een fout krijgt de frontend HTTP 400 met een Nederlandse
-     * foutmelding zodat de gebruiker binnen ~10s ziet dat de URL niet
-     * werkt (AC #7). Bestaande URLs worden niet herzogen — die heeft
-     * de gebruiker eerder al gevalideerd door 'm toe te voegen.
-     */
-    @PutMapping("/api/podcast-feeds")
-    fun savePodcastFeeds(@RequestBody body: PodcastFeedsSettings): PodcastFeedsSettings {
-        val u = user()
-        val existing = service.getPodcastFeeds(u).feeds.map { it.url }.toSet()
-        val newUrls = body.feeds.map { it.url }.filter { it.isNotBlank() && it !in existing }
-        for (url in newUrls) {
-            val fetch = podcastFetcher.fetch(url, u)
-            if (!fetch.ok) {
-                throw ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "Kon feed niet ophalen: $url (${fetch.errorMessage ?: "onbekende fout"})"
-                )
-            }
-        }
-        val saved = service.savePodcastFeeds(u, body)
-        podcastTrigger.trigger(u)
-        return saved
-    }
 
     // ── KAN-68: event-voorkeuren ────────────────────────────────────
 

@@ -11,7 +11,7 @@ import org.slf4j.LoggerFactory
 import org.springframework.context.ApplicationEventPublisher
 import org.springframework.stereotype.Service
 
-/** Async-trigger voor de events-discovery. Mirror van [com.vdzon.newsfeedbackend.rss.domain.RssRefreshRequested]. */
+/** Async-trigger voor de events-discovery. Mirror van [com.vdzon.newsfeedbackend.rss.RssRefreshRequested]. */
 data class EventDiscoveryRequested(val username: String)
 
 /** KAN-66: async-trigger voor de per-event video-discovery. */

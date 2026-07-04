@@ -1,6 +1,8 @@
 package com.vdzon.newsfeedbackend.rss.domain
 
 import com.vdzon.newsfeedbackend.rss.RssItem
+import com.vdzon.newsfeedbackend.rss.RssRefreshRequested
+import com.vdzon.newsfeedbackend.rss.RssReselectRequested
 import com.vdzon.newsfeedbackend.rss.RssService
 import com.vdzon.newsfeedbackend.rss.infrastructure.RssItemRepository
 import org.springframework.context.ApplicationEventPublisher
@@ -8,18 +10,6 @@ import org.springframework.stereotype.Service
 import java.time.Clock
 import java.time.Instant
 import java.time.temporal.ChronoUnit
-
-data class RssRefreshRequested(val username: String)
-data class RssReselectRequested(val username: String)
-
-/**
- * KAN-60: door de [com.vdzon.newsfeedbackend.podcast_source.domain.PodcastTranscriptWorker]
- * gepubliceerd zodra een podcast-aflevering klaar is voor feed-promotie
- * (transcript verwerkt óf 24h-timeout verstreken). De
- * [RssRefreshPipeline] luistert hierop en draait de bestaande
- * AI-selectie+FeedItem-generatie voor één rss_items-rij.
- */
-data class PodcastPromotionRequested(val username: String, val rssItemId: String)
 
 @Service
 class RssServiceImpl(
@@ -35,6 +25,8 @@ class RssServiceImpl(
         repo.load(username).find { it.id == id }
 
     override fun delete(username: String, id: String): Boolean = repo.delete(username, id)
+
+    override fun upsert(username: String, item: RssItem): RssItem = repo.upsert(username, item)
 
     override fun setRead(username: String, id: String, read: Boolean): Boolean = mutate(username, id) {
         it.copy(isRead = read)

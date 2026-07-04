@@ -1,5 +1,6 @@
 package com.vdzon.newsfeedbackend.events.domain
 
+import com.vdzon.newsfeedbackend.ai.AiJson
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.vdzon.newsfeedbackend.ai.AiModelProperties
 import com.vdzon.newsfeedbackend.ai.OpenAiChatClient
@@ -8,8 +9,8 @@ import com.vdzon.newsfeedbackend.events.infrastructure.EventRepository
 import com.vdzon.newsfeedbackend.external_call.ExternalCall
 import com.vdzon.newsfeedbackend.feed.FeedItem
 import com.vdzon.newsfeedbackend.feed.FeedService
-import com.vdzon.newsfeedbackend.request.infrastructure.TavilyClient
-import com.vdzon.newsfeedbackend.request.infrastructure.TavilyResult
+import com.vdzon.newsfeedbackend.search.TavilyClient
+import com.vdzon.newsfeedbackend.search.TavilyResult
 import com.vdzon.newsfeedbackend.settings.CategorySettings
 import com.vdzon.newsfeedbackend.settings.SettingsService
 import io.micrometer.core.instrument.MeterRegistry
@@ -297,7 +298,7 @@ class EventDiscoveryPipeline(
             """.trimIndent()
         )
         return try {
-            val tree = mapper.readTree(extractJson(ai.text))
+            val tree = mapper.readTree(AiJson.extract(ai.text))
             val start = tree.path("startDate").asText(null)?.takeIf { it.isNotBlank() }
             val end = tree.path("endDate").asText(null)?.takeIf { it.isNotBlank() }
             if (start == null || runCatching { LocalDate.parse(start) }.isFailure) {
@@ -477,7 +478,7 @@ class EventDiscoveryPipeline(
      */
     private fun parseEvents(text: String, tag: String, defaultCategory: String): List<Event> {
         return try {
-            val tree = mapper.readTree(extractJson(text))
+            val tree = mapper.readTree(AiJson.extract(text))
             if (!tree.isArray) {
                 log.warn("[Events] AI gaf geen JSON-array voor '{}' — eerste 300 chars: {}", tag, text.take(300))
                 return emptyList()
@@ -555,46 +556,4 @@ class EventDiscoveryPipeline(
         return "${d.dayOfMonth} $month ${d.year}"
     }
 
-    /**
-     * Pulls the JSON payload out of a Claude response — strips markdown
-     * fences en zoekt het eerste gebalanceerde array/object. Kopie van de
-     * helper in RssRefreshPipeline; bewust niet uitgefactored om de
-     * modules ontkoppeld te houden.
-     */
-    private fun extractJson(text: String): String {
-        var s = text.trim()
-        s = s.removePrefix("```json").removePrefix("```JSON").removePrefix("```").trim()
-        if (s.endsWith("```")) s = s.dropLast(3).trim()
-        val curly = s.indexOf('{')
-        val bracket = s.indexOf('[')
-        val start = when {
-            curly < 0 && bracket < 0 -> return s
-            curly < 0 -> bracket
-            bracket < 0 -> curly
-            else -> minOf(curly, bracket)
-        }
-        val openChar = s[start]
-        val closeChar = if (openChar == '{') '}' else ']'
-        var depth = 0
-        var inString = false
-        var escape = false
-        for (i in start until s.length) {
-            val c = s[i]
-            if (escape) { escape = false; continue }
-            if (inString) {
-                if (c == '\\') escape = true
-                else if (c == '"') inString = false
-                continue
-            }
-            when (c) {
-                '"' -> inString = true
-                openChar -> depth++
-                closeChar -> {
-                    depth--
-                    if (depth == 0) return s.substring(start, i + 1)
-                }
-            }
-        }
-        return s.substring(start)
-    }
 }
