@@ -1,8 +1,9 @@
 package com.vdzon.newsfeedbackend.shared.api
 
-import com.vdzon.newsfeedbackend.feed.FeedItem
 import com.vdzon.newsfeedbackend.feed.FeedService
 import com.vdzon.newsfeedbackend.settings.CategorySettings
+import com.vdzon.newsfeedbackend.shared.api.dto.SharedFeedItemDto
+import com.vdzon.newsfeedbackend.shared.api.dto.toSharedDto
 import com.vdzon.newsfeedbackend.settings.SettingsService
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.web.bind.annotation.GetMapping
@@ -16,8 +17,8 @@ import org.springframework.web.bind.annotation.RestController
  *
  * Bewust géén schrijf-endpoints: gelezen/sterretje houdt de reader-app
  * lokaal op het toestel bij. De persoonlijke read/star/liked-vlaggen van
- * de bron-gebruiker strippen we hier, zodat we z'n leesgedrag niet lekken
- * en de reader met een schone lei begint.
+ * de bron-gebruiker zitten helemaal niet in [SharedFeedItemDto], zodat we
+ * z'n leesgedrag niet lekken en de reader met een schone lei begint.
  */
 @RestController
 @RequestMapping("/api/shared")
@@ -28,8 +29,8 @@ class SharedFeedController(
 ) {
 
     @GetMapping("/feed")
-    fun feed(): List<FeedItem> =
-        service.list(sharedUsername).map { it.copy(isRead = false, starred = false, liked = null) }
+    fun feed(): List<SharedFeedItemDto> =
+        service.list(sharedUsername).map { it.toSharedDto() }
 
     /**
      * Categorie-instellingen van de bron-gebruiker, zodat de reader-app de

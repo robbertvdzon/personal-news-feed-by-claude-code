@@ -1,7 +1,8 @@
 package com.vdzon.newsfeedbackend.feed.api
 
-import com.vdzon.newsfeedbackend.feed.FeedItem
 import com.vdzon.newsfeedbackend.feed.FeedService
+import com.vdzon.newsfeedbackend.feed.api.dto.FeedItemDto
+import com.vdzon.newsfeedbackend.feed.api.dto.toDto
 import com.vdzon.newsfeedbackend.common.FeedbackBody
 import com.vdzon.newsfeedbackend.common.SecurityHelpers
 import org.slf4j.LoggerFactory
@@ -23,7 +24,7 @@ class FeedController(private val service: FeedService) {
     private fun user(): String = SecurityHelpers.currentUsername()
 
     @GetMapping
-    fun list(): List<FeedItem> = service.list(user())
+    fun list(): List<FeedItemDto> = service.list(user()).map { it.toDto() }
 
     @DeleteMapping("/cleanup")
     fun cleanup(

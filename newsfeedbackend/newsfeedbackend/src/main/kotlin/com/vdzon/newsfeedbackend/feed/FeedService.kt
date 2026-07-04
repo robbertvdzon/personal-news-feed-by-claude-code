@@ -15,6 +15,15 @@ interface FeedService {
     fun cleanup(username: String, olderThanDays: Int, keepStarred: Boolean, keepLiked: Boolean, keepUnread: Boolean): Int
 }
 
+/**
+ * Domeinmodel — gaat sinds de DTO-laag NIET meer als JSON over de lijn:
+ * de HTTP-responses lopen via [com.vdzon.newsfeedbackend.feed.api.dto.FeedItemDto]
+ * en shared/api/dto/SharedFeedItemDto. De vroegere @JsonProperty-workarounds
+ * voor `summary`/`isRead`/`isSummary` zijn daarheen verhuisd: dit model
+ * wordt nergens meer integraal door Jackson geserialiseerd
+ * (FeedItemRepository slaat kolom-per-kolom op; alleen de String-lijsten
+ * gaan als jsonb — de kolomdata is dus ongewijzigd van vorm).
+ */
 data class FeedItem(
     val id: String,
     /** Originele titel uit de RSS-feed (vaak Engels). */
@@ -25,12 +34,6 @@ data class FeedItem(
      * vóór deze rewrite; frontend moet dan terugvallen op `title`.
      */
     val titleNl: String = "",
-    // Explicit @JsonProperty om collision met de Kotlin-getter `isSummary()`
-    // van de Boolean `isSummary` (default Jackson-naam ook "summary") te
-    // voorkomen — anders dropt Jackson dit veld in de serialisatie.
-    @get:com.fasterxml.jackson.annotation.JsonProperty("summary")
-    @field:com.fasterxml.jackson.annotation.JsonProperty("summary")
-    @param:com.fasterxml.jackson.annotation.JsonProperty("summary")
     /** Uitgebreide Nederlandse samenvatting (400-600 woorden, mag markdown bevatten) — detail-scherm. */
     val summary: String,
     /**
@@ -46,17 +49,11 @@ data class FeedItem(
     val sourceUrls: List<String> = emptyList(),
     val topics: List<String> = emptyList(),
     val feedReason: String = "",
-    @get:com.fasterxml.jackson.annotation.JsonProperty("isRead")
-    @field:com.fasterxml.jackson.annotation.JsonProperty("isRead")
-    @param:com.fasterxml.jackson.annotation.JsonProperty("isRead")
     val isRead: Boolean = false,
     val starred: Boolean = false,
     val liked: Boolean? = null,
     val createdAt: Instant = Instant.now(),
     val publishedDate: String? = null,
-    @get:com.fasterxml.jackson.annotation.JsonProperty("isSummary")
-    @field:com.fasterxml.jackson.annotation.JsonProperty("isSummary")
-    @param:com.fasterxml.jackson.annotation.JsonProperty("isSummary")
     val isSummary: Boolean = false,
     /**
      * KAN-60: 'ARTICLE' (default) of 'PODCAST'. Discriminator zodat de

@@ -2,8 +2,10 @@ package com.vdzon.newsfeedbackend.rss.api
 
 import com.vdzon.newsfeedbackend.common.FeedbackBody
 import com.vdzon.newsfeedbackend.rss.PodcastTranscriptLookup
-import com.vdzon.newsfeedbackend.rss.RssItem
 import com.vdzon.newsfeedbackend.rss.RssService
+import com.vdzon.newsfeedbackend.rss.api.dto.RssItemDto
+import com.vdzon.newsfeedbackend.rss.api.dto.RssTranscriptDto
+import com.vdzon.newsfeedbackend.rss.api.dto.toDto
 import com.vdzon.newsfeedbackend.common.SecurityHelpers
 import org.slf4j.LoggerFactory
 import org.springframework.http.ResponseEntity
@@ -28,7 +30,7 @@ class RssController(
     private fun user(): String = SecurityHelpers.currentUsername()
 
     @GetMapping
-    fun list(): List<RssItem> = service.list(user())
+    fun list(): List<RssItemDto> = service.list(user()).map { it.toDto() }
 
     @PostMapping("/refresh")
     fun refresh(): Map<String, String> {
@@ -84,9 +86,9 @@ class RssController(
      * is (b.v. niet-podcast-item of `summary_source='show_notes'`).
      */
     @GetMapping("/{id}/transcript")
-    fun transcript(@PathVariable id: String): ResponseEntity<Map<String, String>> {
+    fun transcript(@PathVariable id: String): ResponseEntity<RssTranscriptDto> {
         val transcript = transcriptLookup.findTranscriptForRssItem(user(), id)
             ?: return ResponseEntity.notFound().build()
-        return ResponseEntity.ok(mapOf("transcript" to transcript))
+        return ResponseEntity.ok(RssTranscriptDto(transcript))
     }
 }

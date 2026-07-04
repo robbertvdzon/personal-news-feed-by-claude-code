@@ -31,6 +31,14 @@ interface RssService {
     fun upsert(username: String, item: RssItem): RssItem
 }
 
+/**
+ * Domeinmodel — gaat sinds de DTO-laag NIET meer als JSON over de lijn:
+ * de HTTP-responses lopen via [com.vdzon.newsfeedbackend.rss.api.dto.RssItemDto].
+ * De vroegere @JsonProperty-workaround voor `isRead` is daarheen verhuisd:
+ * dit model wordt nergens meer integraal door Jackson geserialiseerd
+ * (RssItemRepository slaat kolom-per-kolom op; alleen de String-lijsten
+ * gaan als jsonb — de kolomdata is dus ongewijzigd van vorm).
+ */
 data class RssItem(
     val id: String,
     val title: String,
@@ -45,9 +53,6 @@ data class RssItem(
     val processedAt: Instant? = null,
     val inFeed: Boolean = false,
     val feedReason: String = "",
-    @get:com.fasterxml.jackson.annotation.JsonProperty("isRead")
-    @field:com.fasterxml.jackson.annotation.JsonProperty("isRead")
-    @param:com.fasterxml.jackson.annotation.JsonProperty("isRead")
     val isRead: Boolean = false,
     val starred: Boolean = false,
     val liked: Boolean? = null,
