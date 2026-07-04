@@ -78,7 +78,7 @@ class RssFetcher(
             itemCount = items.size
             return items
         } catch (e: Exception) {
-            log.warn("[RSS] failed to fetch {}: {}", feedUrl, e.message)
+            log.warn("[RSS] failed to fetch {}: {}", feedUrl, e.message, e)
             status = "error"
             errorMessage = e.message ?: e.javaClass.simpleName
             return emptyList()

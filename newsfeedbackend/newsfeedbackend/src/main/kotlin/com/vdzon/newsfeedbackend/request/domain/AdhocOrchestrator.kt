@@ -65,7 +65,7 @@ class AdhocOrchestrator(
                 }
                 val text = texts[r.url] ?: r.snippet
                 val ai = openAi.complete(
-                    model = aiModels.modelFor(ExternalCall.ACTION_ADHOC_SUMMARIZE) ?: "gpt-5.4-mini",
+                    model = aiModels.modelOrDefault(ExternalCall.ACTION_ADHOC_SUMMARIZE),
                     action = ExternalCall.ACTION_ADHOC_SUMMARIZE,
                     username = username,
                     subject = "Adhoc: ${current.subject.take(80)} — ${r.title.take(40)}",
@@ -86,20 +86,28 @@ class AdhocOrchestrator(
                 )
                 feed.save(username, feedItem)
                 newItems++
-                service.upsert(
-                    username,
-                    repo.load(username).find { it.id == requestId }!!.copy(
-                        newItemCount = newItems,
-                        durationSeconds = ChronoUnit.SECONDS.between(started, Instant.now()).toInt()
+                // Null-safe: de request kan tussentijds geannuleerd/verwijderd
+                // zijn — voortgang bijwerken is dan niet meer nodig.
+                repo.load(username).find { it.id == requestId }?.let { req ->
+                    service.upsert(
+                        username,
+                        req.copy(
+                            newItemCount = newItems,
+                            durationSeconds = ChronoUnit.SECONDS.between(started, Instant.now()).toInt()
+                        )
                     )
-                )
+                }
             }
 
-            val finalReq = repo.load(username).find { it.id == requestId }!!.copy(
+            val finalReq = repo.load(username).find { it.id == requestId }?.copy(
                 status = RequestStatus.DONE,
                 completedAt = Instant.now(),
                 durationSeconds = ChronoUnit.SECONDS.between(started, Instant.now()).toInt()
             )
+            if (finalReq == null) {
+                log.info("[Request] id={} verdween tijdens verwerking (geannuleerd/verwijderd) — geen eindstatus gezet", requestId)
+                return
+            }
             service.upsert(username, finalReq)
             meters.counter("newsfeed.requests.processed", "type", "adhoc", "status", "DONE").increment()
             log.info("[Request] done id={} items={}", requestId, newItems)

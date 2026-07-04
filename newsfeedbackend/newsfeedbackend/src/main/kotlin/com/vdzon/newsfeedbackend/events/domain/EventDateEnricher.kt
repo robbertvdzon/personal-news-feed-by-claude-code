@@ -57,7 +57,7 @@ class EventDateEnricher(
         // SF-115: de lichte datum-verrijking gebruikt een eigen (goedkoper, nano)
         // config-key, maar logt nog onder de event_discovery-actie.
         val ai = openAi.complete(
-            model = aiModels.modelFor("event_discovery_date") ?: "gpt-5.4-nano",
+            model = aiModels.modelOrDefault("event_discovery_date"),
             action = ExternalCall.ACTION_EVENT_DISCOVERY,
             username = username,
             subject = "Datum-lookup voor ${ev.name}",

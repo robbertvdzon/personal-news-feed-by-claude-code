@@ -45,7 +45,7 @@ class FeedItemGenerator(
         }
         val catInstr = categories.find { it.id == rss.category }?.extraInstructions.orEmpty()
         val ai = openAi.complete(
-            model = aiModels.modelFor(ExternalCall.ACTION_FEED_SUMMARIZE) ?: "gpt-5.4-mini",
+            model = aiModels.modelOrDefault(ExternalCall.ACTION_FEED_SUMMARIZE),
             action = ExternalCall.ACTION_FEED_SUMMARIZE,
             username = username,
             subject = rss.title.take(120),

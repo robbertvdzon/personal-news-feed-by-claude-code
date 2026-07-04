@@ -88,7 +88,7 @@ class AudioTranscoder {
             TranscodeResult(output, isTemporary = true)
         } catch (e: Exception) {
             log.warn("[Transcode] failed: {} — fallback naar origineel", e.message)
-            try { output.delete() } catch (_: Exception) {}
+            try { output.delete() } catch (e: Exception) { log.debug("Output-file niet opgeruimd: {}", e.message) }
             TranscodeResult(input, isTemporary = false)
         }
     }

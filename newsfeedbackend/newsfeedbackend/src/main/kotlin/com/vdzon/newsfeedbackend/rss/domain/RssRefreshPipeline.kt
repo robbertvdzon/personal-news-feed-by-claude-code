@@ -153,15 +153,20 @@ class RssRefreshPipeline(
                 .record(Duration.between(started, Instant.now()))
 
             val took = Duration.between(started, Instant.now()).seconds.toInt()
-            requests.upsert(
-                username,
-                requests.get(username, requestId)!!.copy(
-                    status = RequestStatus.DONE,
-                    completedAt = Instant.now(),
-                    durationSeconds = took,
-                    newItemCount = processed.size
-                )
+            // Null-safe: de request-rij kan tijdens de run verwijderd zijn
+            // (user-delete of account-cleanup) — dat mag de afronding van
+            // een verder geslaagde run niet laten crashen.
+            val doneRequest = requests.get(username, requestId)?.copy(
+                status = RequestStatus.DONE,
+                completedAt = Instant.now(),
+                durationSeconds = took,
+                newItemCount = processed.size
             )
+            if (doneRequest != null) {
+                requests.upsert(username, doneRequest)
+            } else {
+                log.warn("[RSS] request '{}' verdween tijdens de run — status niet bijgewerkt", requestId)
+            }
             log.info("[RSS] klaar: {} nieuwe artikelen, {} in feed, duur {}s", processed.size, feedCount, took)
         } catch (e: Exception) {
             log.error("[RSS] verwerking mislukt voor gebruiker '{}': {}", username, e.message, e)

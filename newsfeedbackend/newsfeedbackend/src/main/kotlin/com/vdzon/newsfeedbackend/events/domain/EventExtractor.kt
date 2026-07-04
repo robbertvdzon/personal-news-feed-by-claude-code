@@ -89,7 +89,7 @@ class EventExtractor(
             "URL: ${r.url}\nTitel: ${r.title}\nFragment: ${r.snippet.take(500)}"
         }
         val ai = openAi.complete(
-            model = aiModels.modelFor(ExternalCall.ACTION_EVENT_DISCOVERY) ?: "gpt-5.4-mini",
+            model = aiModels.modelOrDefault(ExternalCall.ACTION_EVENT_DISCOVERY),
             action = ExternalCall.ACTION_EVENT_DISCOVERY,
             username = username,
             subject = "Seed-event '$seedName'",
@@ -140,7 +140,7 @@ class EventExtractor(
         val today = LocalDate.now()
         val prefList = preferences.joinToString("\n") { "- $it" }
         val ai = openAi.complete(
-            model = aiModels.modelFor(ExternalCall.ACTION_EVENT_DISCOVERY) ?: "gpt-5.4-mini",
+            model = aiModels.modelOrDefault(ExternalCall.ACTION_EVENT_DISCOVERY),
             action = ExternalCall.ACTION_EVENT_DISCOVERY,
             username = username,
             subject = "Vergelijkbare events voor ${preferences.size} voorkeuren",
@@ -189,7 +189,7 @@ class EventExtractor(
         }
         val instr = if (cat.extraInstructions.isNotBlank()) "\nVoorkeur van de gebruiker: ${cat.extraInstructions}" else ""
         val ai = openAi.complete(
-            model = aiModels.modelFor(ExternalCall.ACTION_EVENT_DISCOVERY) ?: "gpt-5.4-mini",
+            model = aiModels.modelOrDefault(ExternalCall.ACTION_EVENT_DISCOVERY),
             action = ExternalCall.ACTION_EVENT_DISCOVERY,
             username = username,
             subject = "Events voor categorie ${cat.name}",

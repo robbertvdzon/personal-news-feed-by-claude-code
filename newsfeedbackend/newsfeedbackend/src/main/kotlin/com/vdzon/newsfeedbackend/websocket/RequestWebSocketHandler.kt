@@ -15,6 +15,8 @@ import java.util.concurrent.CopyOnWriteArrayList
 @Component
 class RequestWebSocketHandler(private val mapper: ObjectMapper) : TextWebSocketHandler() {
 
+    private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
+
     private val sessions = CopyOnWriteArrayList<WebSocketSession>()
 
     override fun afterConnectionEstablished(session: WebSocketSession) {
@@ -30,8 +32,9 @@ class RequestWebSocketHandler(private val mapper: ObjectMapper) : TextWebSocketH
                 "buildTime" to buildTime
             )
             session.sendMessage(TextMessage(mapper.writeValueAsString(payload)))
-        } catch (_: Exception) {
+        } catch (e: Exception) {
             // best-effort; nooit de connect laten falen op het versiebericht.
+            log.debug("Kon serverVersion-bericht niet sturen: {}", e.message)
         }
     }
 

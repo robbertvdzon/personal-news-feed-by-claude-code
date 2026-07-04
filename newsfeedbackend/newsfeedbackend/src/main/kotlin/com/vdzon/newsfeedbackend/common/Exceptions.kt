@@ -71,6 +71,16 @@ class GlobalExceptionHandler {
         return ResponseEntity.status(status).body(mapOf("error" to reason))
     }
 
+    // Kapotte/onvolledige request-body is een client-fout: 400, geen 500.
+    // Zonder deze handler viel HttpMessageNotReadableException in
+    // handleGeneric en kreeg de frontend een misleidende 500.
+    @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException::class)
+    fun handleUnreadableBody(ex: org.springframework.http.converter.HttpMessageNotReadableException): ResponseEntity<Map<String, Any?>> {
+        log.warn("400 Bad Request (onleesbare body): {}", ex.message)
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+            .body(mapOf("error" to "Ongeldige request-body"))
+    }
+
     @ExceptionHandler(Exception::class)
     fun handleGeneric(ex: Exception): ResponseEntity<Map<String, Any?>> {
         log.error("Unhandled exception", ex)

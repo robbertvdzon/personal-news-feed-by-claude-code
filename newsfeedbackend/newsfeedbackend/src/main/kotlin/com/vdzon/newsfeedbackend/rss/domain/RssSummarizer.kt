@@ -30,7 +30,7 @@ class RssSummarizer(
             "- ${c.id}: ${c.name}$instr"
         }
         val ai = openAi.complete(
-            model = aiModels.modelFor(ExternalCall.ACTION_RSS_SUMMARIZE) ?: "gpt-5.4-mini",
+            model = aiModels.modelOrDefault(ExternalCall.ACTION_RSS_SUMMARIZE),
             action = ExternalCall.ACTION_RSS_SUMMARIZE,
             username = username,
             subject = rss.title.take(120),

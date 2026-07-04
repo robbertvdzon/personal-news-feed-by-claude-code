@@ -54,7 +54,7 @@ class FeedSelector(
         }
 
         val ai = openAi.complete(
-            model = aiModels.modelFor(ExternalCall.ACTION_FEED_SCORE) ?: "gpt-5.4-mini",
+            model = aiModels.modelOrDefault(ExternalCall.ACTION_FEED_SCORE),
             action = ExternalCall.ACTION_FEED_SCORE,
             username = username,
             subject = "${items.size} kandidaten",

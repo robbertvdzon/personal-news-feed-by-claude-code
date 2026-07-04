@@ -127,7 +127,7 @@ class EventVideoDiscoveryPipeline(
             "URL: ${r.url}\nTitel: ${r.title}\nFragment: ${r.snippet.take(500)}"
         }
         val ai = openAi.complete(
-            model = aiModels.modelFor(ExternalCall.ACTION_EVENT_VIDEO_DISCOVERY) ?: "gpt-5.4-mini",
+            model = aiModels.modelOrDefault(ExternalCall.ACTION_EVENT_VIDEO_DISCOVERY),
             action = ExternalCall.ACTION_EVENT_VIDEO_DISCOVERY,
             username = username,
             subject = "Video's voor event ${ev.name}",

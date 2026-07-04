@@ -65,7 +65,7 @@ class RssScheduler(
         }
         val action = com.vdzon.newsfeedbackend.external_call.ExternalCall.ACTION_DAILY_SUMMARY
         val ai = openAi.complete(
-            model = aiModels.modelFor(action) ?: "gpt-5.4",
+            model = aiModels.modelOrDefault(action),
             action = action,
             username = username,
             subject = "Daily summary $today",

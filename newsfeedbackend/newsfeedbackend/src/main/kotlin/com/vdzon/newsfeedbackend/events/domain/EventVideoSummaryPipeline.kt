@@ -107,7 +107,7 @@ class EventVideoSummaryPipeline(
                 meters.counter("newsfeed.event_videos.summary.count",
                     "username", username, "result", resultTag
                 ).increment()
-            } catch (_: Exception) { /* metrics nooit fataal */ }
+            } catch (e: Exception) { log.debug("Metrics-update mislukt (nooit fataal): {}", e.message) }
             MDC.clear()
             lock.unlock()
         }
@@ -158,8 +158,8 @@ class EventVideoSummaryPipeline(
                 }
             }
         } finally {
-            try { transcoded?.takeIf { it.isTemporary }?.file?.delete() } catch (_: Exception) {}
-            try { audio.delete() } catch (_: Exception) {}
+            try { transcoded?.takeIf { it.isTemporary }?.file?.delete() } catch (e: Exception) { log.debug("Temp-transcode-file niet opgeruimd: {}", e.message) }
+            try { audio.delete() } catch (e: Exception) { log.debug("Audio-file niet opgeruimd: {}", e.message) }
         }
     }
 
@@ -185,7 +185,7 @@ class EventVideoSummaryPipeline(
             append(sample)
         }
         val ai = openAi.complete(
-            model = aiModels.modelFor(ExternalCall.ACTION_EVENT_VIDEO_SUMMARIZE) ?: "gpt-5.4",
+            model = aiModels.modelOrDefault(ExternalCall.ACTION_EVENT_VIDEO_SUMMARIZE),
             action = ExternalCall.ACTION_EVENT_VIDEO_SUMMARIZE,
             username = username,
             subject = "EventVideo '${video.title.take(80)}'",

@@ -95,9 +95,17 @@
             <artifactId>kotlin-stdlib</artifactId>
         </dependency>
 
-        <!-- Jackson Kotlin module -->
+        <!-- Jackson Kotlin module (Jackson 2, voor de eigen ObjectMapper-bean) -->
         <dependency>
             <groupId>com.fasterxml.jackson.module</groupId>
+            <artifactId>jackson-module-kotlin</artifactId>
+        </dependency>
+        <!-- Jackson 3 Kotlin-module: Spring Boot 4 deserialiseert request-
+             bodies via Jackson 3 (tools.jackson); zonder deze module gelden
+             Kotlin default-waardes daar niet en gaf een weggelaten optioneel
+             veld een 500 (gevonden door SettingsE2eTest). -->
+        <dependency>
+            <groupId>tools.jackson.module</groupId>
             <artifactId>jackson-module-kotlin</artifactId>
         </dependency>
         <dependency>

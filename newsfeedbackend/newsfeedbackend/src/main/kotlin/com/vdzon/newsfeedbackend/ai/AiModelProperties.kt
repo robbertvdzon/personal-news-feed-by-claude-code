@@ -22,8 +22,39 @@ class AiModelProperties {
 
     /**
      * Het geconfigureerde model voor [action], of null als er geen mapping is.
-     * Callers kiezen zelf een fallback (meestal hun bestaande default), zodat
-     * een ontbrekende config nooit een NPE oplevert.
+     * Voor callers met een eigen, niet-model-gebonden fallback (zoals de
+     * Whisper-client); alle andere callers gebruiken [modelOrDefault].
      */
     fun modelFor(action: String): String? = models[action]
+
+    /**
+     * Het geconfigureerde model voor [action], met centrale fallback als de
+     * mapping ontbreekt. Vervangt de losse `modelFor(x) ?: "gpt-…"`-
+     * constructies die elk hun eigen kopie van de default hadden — de
+     * fallback-tabel staat nu op één plek, en een stille terugval wordt
+     * gelogd zodat een config-fout niet onopgemerkt blijft.
+     */
+    fun modelOrDefault(action: String): String {
+        models[action]?.let { return it }
+        val fallback = FALLBACKS[action] ?: DEFAULT_MODEL
+        log.warn("Geen AI-model geconfigureerd voor actie '{}' — fallback naar '{}'", action, fallback)
+        return fallback
+    }
+
+    companion object {
+        private val log = org.slf4j.LoggerFactory.getLogger(AiModelProperties::class.java)
+
+        const val DEFAULT_MODEL = "gpt-5.4-mini"
+
+        /**
+         * Per-actie fallback voor acties die bewust een ander model dan de
+         * default gebruiken. Spiegel van de defaults in
+         * `application.properties` (app.ai.models.*).
+         */
+        private val FALLBACKS = mapOf(
+            "daily_summary" to "gpt-5.4",
+            "event_video_summarize" to "gpt-5.4",
+            "event_discovery_date" to "gpt-5.4-nano"
+        )
+    }
 }

@@ -82,7 +82,7 @@ class PodcastEpisodeSummarizer(
         }
         val episodeAction = com.vdzon.newsfeedbackend.external_call.ExternalCall.ACTION_PODCAST_EPISODE_SUMMARIZE
         val ai = openAi.complete(
-            model = aiModels.modelFor(episodeAction) ?: "gpt-5.4-mini",
+            model = aiModels.modelOrDefault(episodeAction),
             action = episodeAction,
             username = username,
             subject = "Podcast '${ep.podcastName.take(40)}' — ${ep.title.take(80)}",

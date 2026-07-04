@@ -227,4 +227,28 @@ class SettingsE2eTest : E2eTestBase() {
             assertTrue(resp.status in listOf(401, 403), "$path: verwachtte 401/403, kreeg ${resp.status}")
         }
     }
+    // ── Jackson 3 Kotlin-defaults (regressie) ───────────────────────
+
+    /**
+     * Regressietest voor de HTTP-deserialisatie: Spring Boot 4 gebruikt
+     * Jackson 3 in de webconverter; zonder tools.jackson-kotlin-module
+     * gaf een weggelaten optioneel veld (isSystem/extraInstructions) een
+     * 500 "Cannot map null into type boolean" i.p.v. de Kotlin-default.
+     */
+    @Test
+    fun `PUT settings met weggelaten optionele velden gebruikt Kotlin-defaults`() {
+        val user = registerUser("settings")
+
+        val resp = put(
+            "/api/settings", user.token,
+            """[{"id": "kotlin", "name": "Kotlin"}]"""
+        )
+        assertEquals(200, resp.status, "verwachtte 200, kreeg ${resp.status}: ${resp.body}")
+
+        val saved = getJson("/api/settings", user.token)
+        val kotlinCat = saved.first { it.path("id").asText() == "kotlin" }
+        assertTrue(kotlinCat.path("enabled").asBoolean(), "enabled hoort default true te zijn")
+        assertFalse(kotlinCat.path("isSystem").asBoolean(), "isSystem hoort default false te zijn")
+        assertEquals("", kotlinCat.path("extraInstructions").asText())
+    }
 }

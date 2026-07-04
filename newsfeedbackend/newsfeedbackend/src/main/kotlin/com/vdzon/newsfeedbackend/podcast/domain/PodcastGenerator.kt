@@ -50,7 +50,7 @@ class PodcastGenerator(
 
             update(username, id) { it.copy(status = PodcastStatus.GENERATING_SCRIPT) }
             val scriptResp = openAi.complete(
-                model = aiModels.modelFor(ExternalCall.ACTION_PODCAST_SCRIPT) ?: "gpt-5.4-mini",
+                model = aiModels.modelOrDefault(ExternalCall.ACTION_PODCAST_SCRIPT),
                 action = ExternalCall.ACTION_PODCAST_SCRIPT,
                 username = username,
                 subject = "Podcast id=$id",
@@ -84,7 +84,7 @@ Doellengte: ongeveer $targetWords woorden in totaal.""",
             }
 
             val topicsResp = openAi.complete(
-                model = aiModels.modelFor(ExternalCall.ACTION_PODCAST_TOPICS) ?: "gpt-5.4-mini",
+                model = aiModels.modelOrDefault(ExternalCall.ACTION_PODCAST_TOPICS),
                 action = ExternalCall.ACTION_PODCAST_TOPICS,
                 username = username,
                 subject = "Podcast id=$id",
