@@ -50,7 +50,7 @@ De code is één deploybare Spring Boot-app, intern opgedeeld in **feature-modul
 - **Modulith i.p.v. microservices**: één persoon, één deploy, maar wél afdwingbare grenzen. Het geeft 90% van de ontwerpdiscipline zonder de operationele kosten.
 - **JDBC i.p.v. JPA**: repositories schrijven expliciete SQL (`NamedParameterJdbcTemplate`, jsonb-helpers in `storage/`). Geen lazy-loading-verrassingen, migraties via Flyway zijn de enige bron van schemawaarheid.
 - **`@Service`/`@Component` op domain-classes**: bewust pragmatisch. Puristische clean architecture houdt Spring uit het domein; hier is dat losgelaten omdat de e2e-teststrategie (hele app starten) het isolatievoordeel al levert. Niet "opschonen".
-- **Geen aparte DTO-laag** voor de meeste endpoints: domeinmodellen (`FeedItem`, `RssItem`) gaan direct de lijn over. Bewuste afweging: de enige consumenten zijn de eigen Flutter-apps, en `specs/openapi.yaml` is het contract. Let hierdoor wél op: **een veld hernoemen in een domeinmodel is een API-wijziging** (zie de `@JsonProperty`-annotaties op `isRead`/`isSummary` voor het waarom).
+- **DTO's in de `api/`-laag**: controllers geven DTO's terug (`feed/api/dto/FeedItemDto`, `rss/api/dto/RssItemDto`, `shared/api/dto/SharedFeedItemDto` + `toDto()`-mappers), niet de domeinmodellen zelf. Het JSON-contract leeft dus in de DTO (daar horen ook de `@JsonProperty`-annotaties); het domeinmodel kan vrij evolueren. Dit patroon is doorgevoerd voor feed/rss/shared — de contract-zware endpoints; de overige modules (settings, requests, admin, events) geven hun modellen nog direct terug en volgen dit patroon zodra ze worden aangeraakt. Kleine request-bodies (bv. `FeedbackBody`) zijn al DTO's.
 - **Eén injecteerbare `Clock`** (`common/ClockConfig`): tijd-afhankelijke logica (cleanup-cutoffs) gebruikt `Instant.now(clock)` zodat tests tijd kunnen bevriezen. Volg dat patroon bij nieuwe tijd-logica.
 - **`external_call` logt álle externe calls** (AI, TTS, Tavily, RSS-fetches) met kosten in USD naar de `external_calls`-tabel. Nieuwe externe integraties horen óók via `ExternalCallLogger` te loggen — het admin-kostendashboard leunt erop.
 
@@ -102,7 +102,7 @@ Dit harnas is gemodelleerd naar de succesvolle opzet in de `softwarefactory`-rep
 1. **Draai `mvn verify` vóór je begint** zodat je zeker weet dat je van groen vertrekt.
 2. Schrijf voor nieuw gedrag eerst (of tegelijk) een e2e-test; voor een bugfix eerst een falende test die de bug aantoont.
 3. Houd je aan de module-regels (§2). Twijfel je waar iets hoort? De vraag is "wie is de eigenaar van dit gegeven?" — die module krijgt de logica, de rest praat via haar publieke API of events.
-4. `mvn verify` groen → committen. De `main`-branch is tegelijk de deploy-branch (CI bouwt images, ArgoCD rolt uit — zie runbook §3).
+4. `mvn verify` groen → committen. CI (`backend-tests.yml`) draait `mvn verify` op elke PR en push naar main; de `main`-branch is tegelijk de deploy-branch (CI bouwt images, ArgoCD rolt uit — zie runbook §3).
 5. **Let op met migraties**: prod en alle PR-previews delen één Neon-database. Een `Vxx__*.sql` raakt prod-data direct bij de eerstvolgende deploy.
 
 ### Review-checklist
@@ -114,16 +114,17 @@ Dit harnas is gemodelleerd naar de succesvolle opzet in de `softwarefactory`-rep
 - [ ] AI-antwoorden geparsed via `AiJson.extract` + expliciete fallbacks (een LLM-antwoord is nooit gegarandeerd geldig JSON).
 - [ ] Foutafhandeling: geen nieuwe `!!` op waardes die extern of concurrent kunnen wijzigen; geen lege catch-blokken (minimaal een debug-log); verwachte fouten via de `@ResponseStatus`-exceptions uit `common/Exceptions.kt`.
 - [ ] Tijd via de geïnjecteerde `Clock` als het gedrag tijd-afhankelijk is.
-- [ ] API-wijziging? `specs/openapi.yaml` bijwerken en bedenken wat oude Flutter-clients doen (velden weglaten is veiliger dan hernoemen).
+- [ ] API-wijziging? Het contract leeft in de DTO's (`api/dto/`) — pas die aan, werk `specs/openapi.yaml` bij en bedenk wat oude Flutter-clients doen (velden weglaten is veiliger dan hernoemen). Nieuwe endpoints geven DTO's terug, geen domeinmodellen.
 - [ ] Nederlandse gebruikersteksten (foutmeldingen, AI-output), Engelse identifiers.
 
 ## 6. Valkuilen die je een middag kunnen kosten
 
-- **Twee Jacksons.** Spring Boot 4 deserialiseert request-bodies met **Jackson 3** (`tools.jackson`), terwijl de eigen `ObjectMapper`-bean (voor jsonb-opslag en AI-parsing) **Jackson 2** is. Beide hebben hun eigen Kotlin-module in de pom nodig. Symptoom van een ontbrekende: "Cannot map null into type boolean" bij weggelaten optionele velden.
+- **Jackson = Jackson 3 (`tools.jackson`), overal.** De app-code gebruikt de auto-geconfigureerde Boot-mapper; importeer nooit `com.fasterxml.jackson.databind` — dat is de oude Jackson 2, die alleen nog als interne runtime-dependency van jjwt op het classpath staat (niet aan koppelen). De annotaties (`@JsonProperty`) komen wél uit `com.fasterxml.jackson.annotation` — dat package deelt Jackson 3 met Jackson 2.
+- **Stale classes na verwijderen/hernoemen van bronbestanden.** De incrementele Kotlin-build ruimt `.class`-files van verwijderde bronbestanden niet op; een zombie-class kan de Spring-context laten crashen met verwarrende bean-fouten. Na het verwijderen of verplaatsen van classes: `mvn clean verify`. (Kostte ons twee keer een debugsessie.)
 - **De rol zit in het JWT.** Na een rolwijziging (admin ↔ user) werkt het oude token gewoon door tot de gebruiker opnieuw inlogt. Admin-tests loggen daarom expliciet opnieuw in.
 - **ShedLock + schedulers.** Cron-jobs (`@Scheduled`) zijn cluster-safe via de `shedlock`-tabel. Een nieuwe scheduled job zonder `@SchedulerLock` draait bij meerdere replica's dubbel.
 - **`gpt-5.4*` modelnamen** in `application.properties` zijn de actuele productie-defaults; wijzig modellen via `PNF_AI_MODEL_*`-env-vars, niet in code.
-- **De gedeelde prod-DB** (zie §5.5) en het feit dat lokaal draaien met de secrets-file je **direct aan prod** hangt — runbook §4 waarschuwt er niet voor niets voor.
+- **PR-previews delen de prod-DB.** Lokaal ontwikkelen gaat tegen een eigen Postgres (`docker-compose.dev.yml`, zie runbook §4) — maar de PR-preview-omgevingen op OpenShift praten nog met **dezelfde Neon-DB als prod**. Een migratie in een PR raakt dus prod-data zodra de preview deployt. Geplande verbetering: Neon-branches per preview.
 - **Er pusht een tweede committer.** Een lokale "software factory" van de eigenaar pusht af en toe `SF-…`-commits naar `main`; rebase vóór elke push.
 
 ## 7. Eerste dag — praktisch
