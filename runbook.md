@@ -103,9 +103,25 @@ make serve         # --web-port 3100, API_BASE_URL=http://localhost:8080
   `users`-tabel (bcrypt). Voor prod-toegang: vraag de eigenaar of maak een
   eigen account aan op de live-app.
 
-**E2E-tests:** browser-scenario's met GIF-opname in `e2e/` — zie `e2e/readme.md`.
-Geen testframework; menselijk-leesbare scripts die (door een agent) in Chrome
-worden afgespeeld. Volgorde: `start-scenario.md` → feature-scenario → `cleanup-scenario.md`.
+**Backend-tests** (vanuit `newsfeedbackend/newsfeedbackend`):
+```bash
+mvn test      # snelle unit tests (geen Docker nodig, ~15s)
+mvn verify    # unit + volledige e2e-suite: start de hele app per testklasse
+              # tegen een Testcontainers-Postgres; vereist Docker; ~7 min
+```
+- De e2e-tests (`src/test/kotlin/.../e2e/`) draaien de échte app met echte
+  Postgres en Flyway; alleen externe diensten (OpenAI, Tavily, ElevenLabs,
+  RSS-feeds) zijn gefaked. Geen secrets of netwerk nodig.
+- `ModuleStructureTest` bewaakt de Spring Modulith module-grenzen; de
+  allowlist is leeg en hoort leeg te blijven.
+- Coverage-rapport na `mvn verify`: `target/site/jacoco-it/index.html`.
+- Zie `docs/onboarding-senior-developer.md` voor de teststrategie en hoe je
+  een nieuwe e2e-test schrijft.
+
+**Browser-scenario's (handmatig/agent):** GIF-opname-scenario's in `e2e/` — zie
+`e2e/readme.md`. Geen testframework; menselijk-leesbare scripts die (door een
+agent) in Chrome worden afgespeeld. Volgorde: `start-scenario.md` →
+feature-scenario → `cleanup-scenario.md`.
 
 **Container-build lokaal:** `docker build` met `newsfeedbackend/newsfeedbackend/Dockerfile`
 (multi-stage: Maven/JDK21 → Temurin JRE21 + ffmpeg + yt-dlp).

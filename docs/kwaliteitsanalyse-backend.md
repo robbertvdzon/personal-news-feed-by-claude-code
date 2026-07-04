@@ -2,6 +2,24 @@
 
 *Datum: 2026-07-04 — analyse van de Kotlin/Spring Boot backend op architectuur, clean code, tests en documentatie. Alle bevindingen zijn geverifieerd in de code; paden zijn relatief aan `newsfeedbackend/newsfeedbackend/src/main/kotlin/com/vdzon/newsfeedbackend/`.*
 
+> **Status (2026-07-04, na uitvoering):** alle vijf fases zijn uitgevoerd.
+> Dit document is daarmee een historisch snapshot van de situatie vóór de
+> verbeterronde; de actuele stand staat in
+> [onboarding-senior-developer.md](onboarding-senior-developer.md).
+> Samengevat: e2e-harnas met 61 tests over 10 klassen (hele app +
+> Testcontainers-Postgres, alleen externe diensten gefaked, naar
+> softwarefactory-model); alle Modulith-schendingen en cycles weggewerkt
+> (allowlist van `ModuleStructureTest` is leeg); de drie god-classes
+> opgesplitst in stap-classes; `!!`-risico's en stille catches opgeruimd;
+> model-fallback gecentraliseerd. Onderweg gevonden en gefixt: een race
+> waardoor podcast-promoties stilletjes verloren gingen, en de ontbrekende
+> Jackson 3-Kotlin-module waardoor weggelaten optionele JSON-velden een
+> 500 gaven. Bewuste afwijkingen van het plan: afkap-limieten zijn lokale
+> constanten gebleven (de stap-classes zijn nu klein genoeg dat centrale
+> config meer ruis dan waarde geeft) en de TtsClient-voice-ID's bleken al
+> configureerbaar; log-niveaus in loops bleken bij nadere beschouwing
+> acceptabel (periodiek/laagfrequent).
+
 ## 1. Eindoordeel in het kort
 
 De backend zit **beter in elkaar dan typische vibe-code**. Er is een bewuste, herkenbare structuur: ±14 feature-modules (Spring Modulith) met per module een `api`/`domain`/`infrastructure`-indeling, nette public interfaces per module, overal constructor injection, en event-gedreven communicatie tussen modules. De documentatie (README, runbook, specs) klopt voor ~95% met de code — dat is uitzonderlijk goed.

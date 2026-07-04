@@ -49,4 +49,8 @@ De specificaties in de `specs/` map zijn het vertrekpunt: alle functionaliteit, 
 
 ## Ontwikkelen
 
+**Nieuw op dit project?** Begin met [`docs/onboarding-senior-developer.md`](./docs/onboarding-senior-developer.md) — architectuur, de waarom-keuzes, teststrategie en review-checklist. Operationele zaken (deployen, database, secrets, lokaal draaien) staan in [`runbook.md`](./runbook.md).
+
+Backend-tests: `mvn test` (snel, unit) en `mvn verify` (volledige e2e-suite tegen een echte Postgres via Testcontainers; Docker vereist).
+
 Een gecontaineriseerde dev-omgeving met de complete toolchain (JDK 21, Maven, Flutter, Android SDK, Node, Claude Code) is voorbereid voor wie z'n laptop schoon wil houden of z'n setup tussen machines wil delen. Zie [`.devcontainer/README.md`](./.devcontainer/README.md) voor de bouw-, start- en gebruiks-instructies.
