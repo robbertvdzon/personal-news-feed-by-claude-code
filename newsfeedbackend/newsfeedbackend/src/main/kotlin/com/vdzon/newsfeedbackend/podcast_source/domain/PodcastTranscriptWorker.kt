@@ -20,7 +20,7 @@ import java.time.Instant
  *
  *  1. **Transcript verwerken** — pak één aflevering met
  *     `status=NEEDS_TRANSCRIPT` en `next_attempt_at <= now()`, en draai
- *     [PodcastEpisodeProcessor.processTranscript]. Op 429/5xx wordt
+ *     [PodcastTranscriptProcessor.processTranscript]. Op 429/5xx wordt
  *     `retry_count++` en `next_attempt_at = now + backoff` geschreven
  *     volgens AC #4 (5m / 15m / 45m / 24h). MAX 1 aflevering per tick →
  *     spreidt de Whisper-load (AC #3, beschermt tegen het KAN-59-
@@ -42,7 +42,7 @@ import java.time.Instant
 @Component
 class PodcastTranscriptWorker(
     private val episodeRepo: PodcastEpisodeRepository,
-    private val processor: PodcastEpisodeProcessor,
+    private val processor: PodcastTranscriptProcessor,
     private val events: ApplicationEventPublisher,
     @Value("\${app.podcast.transcript-worker.promotion-timeout-hours:24}") promotionTimeoutHours: Long
 ) {
@@ -75,13 +75,13 @@ class PodcastTranscriptWorker(
             episode.username, episode.guid, episode.retryCount)
         val result = processor.processTranscript(episode.username, episode.guid)
         when (result) {
-            is PodcastEpisodeProcessor.TranscriptResult.Success,
-            is PodcastEpisodeProcessor.TranscriptResult.Fatal,
-            is PodcastEpisodeProcessor.TranscriptResult.Skipped -> {
+            is PodcastTranscriptProcessor.TranscriptResult.Success,
+            is PodcastTranscriptProcessor.TranscriptResult.Fatal,
+            is PodcastTranscriptProcessor.TranscriptResult.Skipped -> {
                 // De processor heeft de status zelf bijgewerkt (DONE,
                 // SHOW_NOTES_DONE, ongewijzigd). Niets meer te doen.
             }
-            is PodcastEpisodeProcessor.TranscriptResult.RateLimited -> scheduleBackoff(episode, now)
+            is PodcastTranscriptProcessor.TranscriptResult.RateLimited -> scheduleBackoff(episode, now)
         }
     }
 

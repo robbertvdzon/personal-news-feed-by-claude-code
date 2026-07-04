@@ -37,7 +37,7 @@ import java.util.concurrent.locks.ReentrantLock
  * top-7-window op) komt er één in de pipeline.
  *
  * Stap 4 spawnt async-tasks naar een aparte processor-bean
- * ([PodcastEpisodeProcessor]) zodat het Spring-@Async-proxy-mechanisme
+ * ([PodcastShowNotesProcessor]) zodat het Spring-@Async-proxy-mechanisme
  * werkt — een interne `this.process(...)` zou de proxy omzeilen.
  */
 @Component
@@ -45,7 +45,7 @@ class PodcastIngestionPipeline(
     private val settings: SettingsService,
     private val fetcher: PodcastFeedFetcher,
     private val episodeRepo: PodcastEpisodeRepository,
-    private val processor: PodcastEpisodeProcessor,
+    private val processor: PodcastShowNotesProcessor,
     private val events: ApplicationEventPublisher
 ) : PodcastIngestionTrigger {
 

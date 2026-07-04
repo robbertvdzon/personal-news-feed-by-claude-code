@@ -219,7 +219,7 @@ class EventVideoSummaryPipeline(
     }
 
     companion object {
-        /** Whisper-limit (zie [com.vdzon.newsfeedbackend.podcast_source.domain.PodcastEpisodeProcessor]). */
+        /** Whisper-limit (zie [com.vdzon.newsfeedbackend.podcast_source.domain.PodcastTranscriptProcessor]). */
         private const val MAX_WHISPER_BYTES = 25L * 1024 * 1024 - 1024 * 1024
         /**
          * Max aantal transcript-chars dat we naar Claude sturen. Gelijk

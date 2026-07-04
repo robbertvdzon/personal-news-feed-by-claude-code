@@ -52,7 +52,7 @@ data class PodcastEpisode(
      * scherm (3-5 alinea's, ~400-600 woorden). `null` voor cards die
      * nog niet door de uitgebreide Claude-prompt gegaan zijn — de
      * frontend valt in dat geval terug op de short-summary in
-     * [summary]. Wordt gevuld door [PodcastEpisodeProcessor.summarize]
+     * [summary]. Wordt gevuld door [PodcastEpisodeSummarizer.summarize]
      * (nieuwe afleveringen) en door [PodcastBackfillRunner] (de
      * 14 bestaande KAN-60-rijen).
      */

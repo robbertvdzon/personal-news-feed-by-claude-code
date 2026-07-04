@@ -1,6 +1,6 @@
 package com.vdzon.newsfeedbackend.podcast_source.infrastructure
 
-import com.vdzon.newsfeedbackend.podcast_source.domain.PodcastEpisodeProcessor
+import com.vdzon.newsfeedbackend.podcast_source.domain.PodcastLongSummaryBackfiller
 import org.slf4j.LoggerFactory
 import org.springframework.boot.context.event.ApplicationReadyEvent
 import org.springframework.context.event.EventListener
@@ -15,7 +15,8 @@ import java.util.concurrent.TimeUnit
  * nullable kolommen; alle bestaande KAN-60-rijen krijgen daardoor
  * NULL. Deze runner pakt ze één-voor-één op (FIFO, oudste eerst), haalt
  * de bestaande `transcript` uit DB (geen nieuwe Whisper-download — die
- * is al gedraaid) en stuurt 'm opnieuw door [PodcastEpisodeProcessor.summarize]
+ * is al gedraaid) en stuurt 'm opnieuw door
+ * [com.vdzon.newsfeedbackend.podcast_source.domain.PodcastEpisodeSummarizer.summarize]
  * zodat de detail-velden alsnog gevuld worden.
  *
  * Draait éénmalig na ApplicationReady in een dedicated background-
@@ -33,7 +34,7 @@ import java.util.concurrent.TimeUnit
 @Component
 class PodcastBackfillRunner(
     private val episodeRepo: PodcastEpisodeRepository,
-    private val processor: PodcastEpisodeProcessor
+    private val backfiller: PodcastLongSummaryBackfiller
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -92,7 +93,7 @@ class PodcastBackfillRunner(
                     ok++
                     continue
                 }
-                val success = processor.backfillLongSummary(ep)
+                val success = backfiller.backfillLongSummary(ep)
                 if (success) ok++ else failed++
             } catch (e: Exception) {
                 log.warn("[PodcastBackfill] onverwachte fout op guid={}: {}", guid, e.message)
