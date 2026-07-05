@@ -56,9 +56,10 @@ AuthGate
     ├── Tab 3: EventsScreen                  (KAN-65)
     │       └── navigeer naar → EventDetailScreen
     └── Tab 4: SettingsScreen
-            └── dialog → EditCategoryDialog
+            └── navigeer naar → CategoriesScreen         (SF-755)
+            │       └── dialog → AddCategoryDialog
+            │       └── dialog → EditCategoryDialog
             └── navigeer naar → RssFeedsScreen          (SF-220)
-            └── dialog → AddCategoryDialog
             └── dialog → CleanupDialog
             └── navigeer naar → AdminScreen          (alleen voor admins, via "Beheer gebruikers"-knop)
             └── navigeer naar → AdminCostsScreen     (alleen voor admins, via "Beheer kosten"-knop)
@@ -293,20 +294,8 @@ Toont de per-gebruiker AI-ontdekte tech-events uit `eventsProvider` (`GET /api/e
 - "Groot" schaalt alle tekst met factor ~1.38 (via `TextScaler` op `MediaQuery`)
 - Instelling opgeslagen in `SharedPreferences`
 
-### Categorieën
-Lijst van alle categorieën uit `GET /api/settings`.
-
-**Per categorie:**
-- **Schakelaar (enabled/disabled):** PUT `/api/settings` met bijgewerkte lijst
-- **Tik:** opent EditCategoryDialog
-  - Naam wijzigen
-  - Extra AI-instructies wijzigen
-  - Opslaan: PUT `/api/settings`
-  - Verwijderen (knop): PUT `/api/settings` met categorie verwijderd; systeemcategorieën (`isSystem: true`) hebben geen verwijderknop
-
-**Categorie toevoegen:** knop opent AddCategoryDialog
-- Naam invoeren
-- Opslaan: PUT `/api/settings` met nieuwe categorie toegevoegd (ID gegenereerd op basis van naam)
+### Categorieën (navigatie-tile, SF-755)
+Eén `ListTile` (`Icons.category`, titel "Categorieën", subtitle "Categorieën in-/uitschakelen en beheren", `Icons.chevron_right`) die via `MaterialPageRoute` naar de **Categorieën-subpagina** (`CategoriesScreen`, zie §9b) navigeert. De inline-lijst met alle categorieën stond vóór SF-755 rechtstreeks op deze pagina; die is nu naar de subpagina verplaatst zodat de Settings-tab korter blijft. Patroon is consistent met de RSS-feeds-tile (§9a).
 
 ### RSS-feeds (navigatie-tile, SF-220)
 Eén `ListTile` (`Icons.rss_feed`, titel "RSS-feeds", subtitle "RSS-feeds en podcast-bronnen beheren", `Icons.chevron_right`) die via `MaterialPageRoute` naar de **RSS-feeds-subpagina** (`RssFeedsScreen`, zie §9a) navigeert. De inline-editors voor RSS-feeds en podcast-bronnen stonden vóór SF-220 rechtstreeks op deze pagina; ze zijn nu naar de subpagina verplaatst zodat de Settings-tab korter blijft. Patroon is consistent met de bestaande Beheer-tiles (API-log/Admin).
@@ -400,6 +389,27 @@ Lijst van podcast-RSS-bronnen uit `GET /api/podcast-feeds` (`podcastFeedsProvide
 
 ---
 
+## 9b. Categorieën-subpagina (CategoriesScreen, SF-755)
+
+Aparte subpagina (`frontend/lib/screens/categories_screen.dart`) met een eigen `AppBar` (titel "Categorieën"), bereikbaar via de navigatie-tile in de Settings-tab (§9). Bevat de volledige categorieënlijst en het beheer daarvan; de lijst, toggles en add/edit/delete-dialogen zijn ongewijzigd t.o.v. de oude inline-sectie op de Settings-tab. Puur frontend-herstructurering — geen backend-, API- of providerwijzigingen (`settingsProvider` en `CategorySettings` blijven ongewijzigd).
+
+Lijst van alle categorieën uit `GET /api/settings` (`settingsProvider`), met de gebruikelijke loading-spinner en error-tekst "Fout: …".
+
+**Per categorie:**
+- **Schakelaar (enabled/disabled):** PUT `/api/settings` met bijgewerkte lijst
+- **Tik op bewerk-icoon:** opent EditCategoryDialog
+  - Naam wijzigen
+  - Extra AI-instructies wijzigen
+  - Opslaan: PUT `/api/settings`
+  - Verwijderen (knop): PUT `/api/settings` met categorie verwijderd
+- **Systeemcategorieën** (`isSystem: true`) tonen de subtitel "Systeem" en hebben geen bewerk-/verwijderoptie
+
+**Categorie toevoegen:** knop (`Icons.add`) opent AddCategoryDialog
+- Naam invoeren
+- Opslaan: PUT `/api/settings` met nieuwe categorie toegevoegd (ID gegenereerd op basis van naam)
+
+---
+
 ## 10. State Management Details
 
 De app gebruikt Riverpod. Providers zijn globaal beschikbaar via `ProviderScope` aan de root.
@@ -419,7 +429,7 @@ De app gebruikt Riverpod. Providers zijn globaal beschikbaar via `ProviderScope`
 | `filteredFeedProvider` | Afgeleide gefilterde feedlijst op basis van categorie, gelezen, ster, samenvatting |
 | `rssItemsProvider` | RSS-items (`/api/rss`) |
 | `requestProvider` | Verzoeken + WebSocket-updates (gebruikt door Settings → Achtergrond-taken voor knop-state en klaar-toast) |
-| `settingsProvider` | Categorie-instellingen |
+| `settingsProvider` | Categorie-instellingen (gebruikt door CategoriesScreen, §9b) |
 | `rssFeedsProvider` | RSS-feed URLs (gebruikt door RssFeedsScreen, §9a) |
 | `podcastFeedsProvider` | Podcast-RSS-bronnen + transcribe-toggle (KAN-56; gebruikt door RssFeedsScreen, §9a) |
 | `podcastProvider` | Podcasts + polling tijdens generatie |
