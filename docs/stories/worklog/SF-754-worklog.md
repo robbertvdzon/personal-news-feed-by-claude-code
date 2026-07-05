@@ -44,3 +44,31 @@ Test/validatie:
   gevalideerd (AC6).
 - Geen backend-, API- of datamodelwijzigingen; `settingsProvider` en `CategorySettings`
   ongewijzigd.
+
+## Review (SF-762) — reviewer
+
+Beoordeeld op basis van de volledige story-diff (`git diff main...HEAD`).
+
+- [info] Implementatie is een schone 1-op-1-verplaatsing. `categories_screen.dart`
+  bevat exact de logica die uit `settings_screen.dart` is verwijderd (toggle,
+  `_addCategory`, `_editCategory` incl. verwijderen, systeemcategorie-afhandeling
+  met subtitel "Systeem" en geen edit/verwijder). AC1–5 voldaan.
+- [info] Navigatietegel volgt hetzelfde patroon als de RSS-feeds-tegel
+  (`Icons.category` + subtitle + `chevron_right` + `MaterialPageRoute`), visueel
+  consistent. Inline lijst is niet meer op het hoofdscherm.
+- [info] Geen dangling references: `models.dart`-import nog nodig
+  (`NewsRequest`/`VersionInfo`), `settingsProvider` nog gebruikt (invalidate bij
+  logout). Ongebruikte `cats`-watch en helpers correct verwijderd — geen nieuwe
+  `flutter analyze`-waarschuwingen te verwachten (AC6, CI-gevalideerd).
+- [info] Testdekking adequaat: 5 widgettests (fake-notifier-patroon) dekken lijst,
+  systeemcategorie, toggle→save, toevoegen→save en verwijderen→save. Constructor-
+  en `copyWith`-signaturen van `CategorySettings` en `SettingsNotifier.save`
+  komen overeen met het gebruik.
+- [suggestie] `docs/factory/agents/documenter.md` en `planner.md` zijn in de
+  developer-commit meegenomen terwijl ze buiten de SF-762-scope (frontend-only)
+  vallen. Het zijn legitieme factory-docs die vóór de run al untracked waren en
+  door een blanket-commit zijn meegesleept; niet blokkerend, maar horen strikt
+  genomen niet bij deze story.
+
+Conclusie: akkoord. Geen bugs, regressies of scope-schendingen in de
+implementatie; `flutter analyze`/`flutter test` moeten door CI bevestigd worden.
