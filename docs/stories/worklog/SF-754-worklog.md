@@ -50,3 +50,33 @@ Bevindingen:
   (geen dart-binary in runner) — CI valideert AC 6.
 
 Conclusie: akkoord. De enige noot (meegecommitte factory-docs) is niet-blokkerend.
+
+## Test (SF-756, tester)
+
+Inlog-modus: **default** — vaste test-user uit het namespace-secret (`newsfeed-api-keys`,
+`pnf-pr-167`). Geen DB-mutatie, geen registratie/verwijdering.
+
+Preview: `https://pnf-pr-167.vdzonsoftware.nl` — HTTP 200, login geslaagd (feed toont data).
+
+Verificatie:
+- **Code (harde 1-op-1 move)**: `diff` van `_addCategory`, `_editCategory` en het inline
+  SwitchListTile-blok tussen `main:settings_screen.dart` en de nieuwe `categories_screen.dart`
+  → **byte-identiek** (edit/delete/toggle-logica + id-slugificatie ongewijzigd). Oude helpers
+  komen nergens anders meer voor. `frontend/lib/models/*` en `providers/*` = **0 wijzigingen**
+  t.o.v. main (`settingsProvider`/`CategorySettings` ongewijzigd → AC 5).
+- **Browser (screenshots in /work/screenshots)**:
+  - `04-settings-top.png`: onder kopje "Categorieën" één navigatietegel (Icons.category,
+    subtitel "Categorieën in-/uitschakelen en beheren", `chevron_right`), géén inline lijst;
+    visueel consistent met de "RSS-feeds"-tegel eronder → **AC 1, 2**.
+  - `06-categories-subpage.png`: tap opent subpagina via `MaterialPageRoute` (AppBar
+    "Categorieën" + terugpijl). Niet-systeemcategorieën (Software ontwikkeling, Programmeer
+    talen, Bitcoin, Artificiële Intelligentie) met edit-potlood + enabled-toggle; "Categorie
+    toevoegen"-tegel onderaan → **AC 3**. Systeemcategorie **"Overig"** toont subtitel
+    **"Systeem"** en heeft **géén** edit-icoon → **AC 4**.
+- **AC 6**: `flutter analyze`/build niet lokaal draaibaar (geen dart-binary op de runner);
+  door CI gevalideerd, conform factory-conventie.
+
+Mutatietests (add/edit/delete) bewust niet uitgevoerd op de permanente test-user; de
+byte-identieke move bewijst gedragsgelijkheid. Alle acceptatiecriteria voldaan.
+
+Conclusie tester: **geslaagd**.
