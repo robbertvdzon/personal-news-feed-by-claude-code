@@ -72,3 +72,48 @@ Beoordeeld op basis van de volledige story-diff (`git diff main...HEAD`).
 
 Conclusie: akkoord. Geen bugs, regressies of scope-schendingen in de
 implementatie; `flutter analyze`/`flutter test` moeten door CI bevestigd worden.
+
+## Test (SF-763) — tester
+
+Getest op branch `ai/SF-754` (preview `pnf-pr-168`, frontend-build 1d865ed / backend 34e4543,
+zichtbaar in "Over deze app").
+
+### Statische verificatie (1-op-1 move, byte-identiek)
+- `diff` van de verplaatste blokken tussen `main:settings_screen.dart` en de nieuwe
+  `categories_screen.dart`: lijst-block (SwitchListTile + "Categorie toevoegen"),
+  `_addCategory` en `_editCategory` zijn **byte-identiek** → gedrag ongewijzigd.
+- Geen dangling references in `settings_screen.dart` (`_addCategory`/`_editCategory`/
+  `CategorySettings`/"Categorie toevoegen" verwijderd); `models.dart`-import nog nodig
+  (`NewsRequest`/`VersionInfo`); `settingsProvider` nog gebruikt (invalidate bij logout).
+- Nav-tile volgt exact het RSS-feeds-patroon (`Icons.category` + subtitle + `chevron_right`
+  + `MaterialPageRoute`). `SettingsNotifier` (AsyncNotifier, `build()`/`save(List<CategorySettings>)`)
+  en `CategorySettings`-velden (`enabled`/`extraInstructions`/`isSystem`/`copyWith`) komen
+  overeen met het gebruik in scherm én widgettest; pubspec-naam `personal_news_feed` klopt.
+- Diff raakt uitsluitend `frontend/`-code + docs; geen backend-/API-/datamodelwijziging (AC5).
+
+### Preview-gedrag (Playwright, 420x900, ingelogd met TESTER-creds)
+- Instellingenscherm toont onder kopje "Categorieën" één nav-tile (chevron); de volledige
+  lijst staat niet meer inline — visueel consistent met de RSS-feeds-tile (AC1, AC2).
+  → `03-settings-top.png`
+- Subpagina "Categorieën" (eigen AppBar + back): lijst met toggles + edit-pencils,
+  "Categorie toevoegen"-tile; systeemcategorie "Overig" toont subtitel "Systeem" en
+  heeft géén edit/verwijder-knop (AC3, AC4). → `05-categories-subpage.png`
+- Edit-dialog via pencil: "Categorie: <naam>", velden Naam + Extra instructies, knoppen
+  Verwijderen/Annuleren/Opslaan (AC3). → `09-edit-dialog.png`
+- Toggle → `save()` persistent na herladen: een uitgeschakelde categorie bleef na verse
+  login/reload uit → round-trip via `settingsProvider.notifier.save(...)` bevestigd (AC5).
+  → `07-before-restore.png`
+
+### Cleanup testdata
+- Tijdens navigeren is per abuis "Programmeer talen" uitgeschakeld (opgeslagen). Direct
+  hersteld naar ingeschakeld; verse reload bevestigt alle categorieën weer ON, geen
+  resterende wijziging in de preview-DB. → `08-after-restore.png`, `11-final-verify-reload.png`
+- Tijdelijke creds/scripts opgeruimd.
+
+### AC6 (build/analyze)
+- Geen flutter/dart-binary op de tester-runner → `flutter analyze`/`flutter test` niet
+  lokaal draaibaar. Wel bewijs dat de code compileert: de preview draait op deze branch
+  (image-build slaagde: Frontend 1d865ed) en de app functioneert. CI-images bouwen de
+  Flutter-app (frontend-image + APK), waardoor compilefouten worden afgevangen.
+
+**Conclusie:** alle acceptatiecriteria (AC1–AC6) voldaan. Geen bugs of regressies.
