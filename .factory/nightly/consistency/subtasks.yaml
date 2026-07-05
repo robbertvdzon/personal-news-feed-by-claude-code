@@ -1,0 +1,20 @@
+# Subtaken voor de nachtelijke consistentie-job.
+# De volgorde van deze lijst is de uitvoervolgorde.
+# Dit bestand is volledig leidend: precies deze subtaken, niet meer en niet minder.
+# Het projectgedrag (merge = handmatig, deploy = openshift-watch) komt uit projects.yaml
+# in de software-factory-repo en wordt hier niet herhaald.
+subtasks:
+  - type: development
+    title: "Consistentie: afwijkende patronen gladstrijken"
+  - type: review
+    title: "Review de wijzigingen"
+  - type: test
+    title: "Test de wijzigingen"
+  - type: summary
+    title: "Vat de wijzigingen samen"
+  - type: documentation
+    title: "Werk documentatie bij"
+  - type: merge
+    title: "Merge"
+  - type: deploy
+    title: "Deploy"
