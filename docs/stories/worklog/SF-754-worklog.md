@@ -1,0 +1,119 @@
+# SF-754 - Worklog
+
+Story-context bij eerste pickup:
+CategoriesScreen als subpagina + navigatietegel op settings
+
+Maak nieuwe subpagina frontend/lib/screens/categories_screen.dart (ConsumerWidget naar model van RssFeedsScreen) met eigen Scaffold/AppBar 'Categorieën' en de volledige categorieënlijst: aan/uit (SwitchListTile op settingsProvider), toevoegen (_addCategory), bewerken (_editCategory: naam + extra instructies) en verwijderen, inclusief systeemcategorie-afhandeling (subtitel 'Systeem', geen edit/verwijder). Vervang op settings_screen.dart de inline categorie-sectie (regels ~68-92) door één navigatietegel (ListTile + leading-icoon + chevron_right + MaterialPageRoute), consistent met de RSS-feeds-tegel; voeg de import toe en verwijder de nu ongebruikte cats-watch en _addCategory/_editCategory zodat flutter analyze schoon blijft. Geen backend-/API-/datamodelwijzigingen; teksten, iconen en validatie ongewijzigd. Zorg dat flutter analyze geen nieuwe waarschuwingen geeft.
+
+Stappenplan:
+[x]: read issue and target docs
+[x]: implement requested changes
+[x]: run relevant tests
+[x]: update story-log with results
+
+Done / rationale:
+- Story-log aangemaakt zodat plan, voortgang en uitvoering onderdeel worden van de PR.
+- Nieuwe subpagina `frontend/lib/screens/categories_screen.dart` toegevoegd (SF-762):
+  `CategoriesScreen extends ConsumerWidget` met eigen Scaffold/AppBar 'Categorieën',
+  volgens hetzelfde patroon als `RssFeedsScreen`. De volledige categorieënlijst
+  (SwitchListTile op `settingsProvider`), de `_addCategory`- en `_editCategory`-dialogen
+  (inclusief verwijderen) en de systeemcategorie-afhandeling (subtitel 'Systeem',
+  geen edit/verwijder-knop) zijn 1-op-1 verplaatst — teksten, iconen en validatie
+  ongewijzigd.
+- `frontend/lib/screens/settings_screen.dart`:
+  - De inline uitgeklapte categorie-sectie vervangen door één navigatietegel onder
+    het kopje 'Categorieën' (`ListTile` met `Icons.category` + `chevron_right` +
+    `MaterialPageRoute`), visueel consistent met de bestaande RSS-feeds-tegel.
+  - Import `categories_screen.dart` toegevoegd.
+  - De nu ongebruikt geworden `final cats = ref.watch(settingsProvider);` verwijderd.
+  - De ongebruikt geworden helpers `_addCategory` en `_editCategory` verwijderd.
+  - `settingsProvider`-invalidate bij logout en de `models.dart`-import (nog gebruikt
+    door NewsRequest/VersionInfo) blijven behouden.
+- Widgettest `frontend/test/categories_screen_test.dart` toegevoegd (5 tests) naar
+  het bestaande fake-notifier-patroon (FakeSettingsNotifier extends SettingsNotifier,
+  override build()/save(), inject via settingsProvider.overrideWith): AppBar-titel +
+  lijst, systeemcategorie-subtitel + geen edit-knop, toggle → save, toevoegen → save,
+  verwijderen → save.
+
+Test/validatie:
+- De factory developer-runner heeft geen flutter/dart-binary (`which flutter dart`
+  faalt); `flutter analyze`/`flutter test` kunnen niet lokaal draaien. Code is
+  handmatig geverifieerd op dangling references (geen resterende `CategorySettings`/
+  `_addCategory`/`_editCategory`-verwijzingen in settings_screen; `settingsProvider`
+  en `models.dart`-import nog gebruikt en behouden). Analyze + tests worden door CI
+  gevalideerd (AC6).
+- Geen backend-, API- of datamodelwijzigingen; `settingsProvider` en `CategorySettings`
+  ongewijzigd.
+
+## Review (SF-762) — reviewer
+
+Beoordeeld op basis van de volledige story-diff (`git diff main...HEAD`).
+
+- [info] Implementatie is een schone 1-op-1-verplaatsing. `categories_screen.dart`
+  bevat exact de logica die uit `settings_screen.dart` is verwijderd (toggle,
+  `_addCategory`, `_editCategory` incl. verwijderen, systeemcategorie-afhandeling
+  met subtitel "Systeem" en geen edit/verwijder). AC1–5 voldaan.
+- [info] Navigatietegel volgt hetzelfde patroon als de RSS-feeds-tegel
+  (`Icons.category` + subtitle + `chevron_right` + `MaterialPageRoute`), visueel
+  consistent. Inline lijst is niet meer op het hoofdscherm.
+- [info] Geen dangling references: `models.dart`-import nog nodig
+  (`NewsRequest`/`VersionInfo`), `settingsProvider` nog gebruikt (invalidate bij
+  logout). Ongebruikte `cats`-watch en helpers correct verwijderd — geen nieuwe
+  `flutter analyze`-waarschuwingen te verwachten (AC6, CI-gevalideerd).
+- [info] Testdekking adequaat: 5 widgettests (fake-notifier-patroon) dekken lijst,
+  systeemcategorie, toggle→save, toevoegen→save en verwijderen→save. Constructor-
+  en `copyWith`-signaturen van `CategorySettings` en `SettingsNotifier.save`
+  komen overeen met het gebruik.
+- [suggestie] `docs/factory/agents/documenter.md` en `planner.md` zijn in de
+  developer-commit meegenomen terwijl ze buiten de SF-762-scope (frontend-only)
+  vallen. Het zijn legitieme factory-docs die vóór de run al untracked waren en
+  door een blanket-commit zijn meegesleept; niet blokkerend, maar horen strikt
+  genomen niet bij deze story.
+
+Conclusie: akkoord. Geen bugs, regressies of scope-schendingen in de
+implementatie; `flutter analyze`/`flutter test` moeten door CI bevestigd worden.
+
+## Test (SF-763) — tester
+
+Getest op branch `ai/SF-754` (preview `pnf-pr-168`, frontend-build 1d865ed / backend 34e4543,
+zichtbaar in "Over deze app").
+
+### Statische verificatie (1-op-1 move, byte-identiek)
+- `diff` van de verplaatste blokken tussen `main:settings_screen.dart` en de nieuwe
+  `categories_screen.dart`: lijst-block (SwitchListTile + "Categorie toevoegen"),
+  `_addCategory` en `_editCategory` zijn **byte-identiek** → gedrag ongewijzigd.
+- Geen dangling references in `settings_screen.dart` (`_addCategory`/`_editCategory`/
+  `CategorySettings`/"Categorie toevoegen" verwijderd); `models.dart`-import nog nodig
+  (`NewsRequest`/`VersionInfo`); `settingsProvider` nog gebruikt (invalidate bij logout).
+- Nav-tile volgt exact het RSS-feeds-patroon (`Icons.category` + subtitle + `chevron_right`
+  + `MaterialPageRoute`). `SettingsNotifier` (AsyncNotifier, `build()`/`save(List<CategorySettings>)`)
+  en `CategorySettings`-velden (`enabled`/`extraInstructions`/`isSystem`/`copyWith`) komen
+  overeen met het gebruik in scherm én widgettest; pubspec-naam `personal_news_feed` klopt.
+- Diff raakt uitsluitend `frontend/`-code + docs; geen backend-/API-/datamodelwijziging (AC5).
+
+### Preview-gedrag (Playwright, 420x900, ingelogd met TESTER-creds)
+- Instellingenscherm toont onder kopje "Categorieën" één nav-tile (chevron); de volledige
+  lijst staat niet meer inline — visueel consistent met de RSS-feeds-tile (AC1, AC2).
+  → `03-settings-top.png`
+- Subpagina "Categorieën" (eigen AppBar + back): lijst met toggles + edit-pencils,
+  "Categorie toevoegen"-tile; systeemcategorie "Overig" toont subtitel "Systeem" en
+  heeft géén edit/verwijder-knop (AC3, AC4). → `05-categories-subpage.png`
+- Edit-dialog via pencil: "Categorie: <naam>", velden Naam + Extra instructies, knoppen
+  Verwijderen/Annuleren/Opslaan (AC3). → `09-edit-dialog.png`
+- Toggle → `save()` persistent na herladen: een uitgeschakelde categorie bleef na verse
+  login/reload uit → round-trip via `settingsProvider.notifier.save(...)` bevestigd (AC5).
+  → `07-before-restore.png`
+
+### Cleanup testdata
+- Tijdens navigeren is per abuis "Programmeer talen" uitgeschakeld (opgeslagen). Direct
+  hersteld naar ingeschakeld; verse reload bevestigt alle categorieën weer ON, geen
+  resterende wijziging in de preview-DB. → `08-after-restore.png`, `11-final-verify-reload.png`
+- Tijdelijke creds/scripts opgeruimd.
+
+### AC6 (build/analyze)
+- Geen flutter/dart-binary op de tester-runner → `flutter analyze`/`flutter test` niet
+  lokaal draaibaar. Wel bewijs dat de code compileert: de preview draait op deze branch
+  (image-build slaagde: Frontend 1d865ed) en de app functioneert. CI-images bouwen de
+  Flutter-app (frontend-image + APK), waardoor compilefouten worden afgevangen.
+
+**Conclusie:** alle acceptatiecriteria (AC1–AC6) voldaan. Geen bugs of regressies.
