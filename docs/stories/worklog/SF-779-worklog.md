@@ -55,3 +55,12 @@ Config-only wijziging (geen broncode), dus geverifieerd met een validatiescript 
 PyYAML is niet aanwezig op de runner (bekend, zie agent-tip `pnf-runner-no-pip`); de YAML-vorm is
 daarom met een structurele parser gecontroleerd. CI/de verwerkende factory-code valideert het
 definitieve parse-gedrag.
+
+## Review (SF-780) — 2026-07-05
+
+[info] Volledige story-diff `git diff main...HEAD` gereviewd: 36 nieuwe bestanden (6 jobs × 6) + worklog, alle status A (geen bestaand bestand gewijzigd, niets buiten `.factory/nightly/`).
+[info] 6× `subtasks.yaml`: geldige YAML, `subtasks:`-lijst van {type,title} in correcte volgorde development→review→test→summary→documentation→merge→deploy; alle types binnen de geldige set; sluit aan op de `subtasks`-conventie uit `docs/factory/agents/planner.md`.
+[info] Development-`.md` bestandsnamen == exacte H1 uit de eigen `story.md` van elke job (incl. `:`/`?`/apostrof); inhoud dekt scope + randvoorwaarden van de story herkenbaar.
+[info] Generieke AI-`.md` (review/test/summary/documentation) aanwezig per job, job-specifiek en zelfstandig leesbaar; `merge`/`deploy` hebben terecht géén `.md`.
+[info] Worklog vrij van JSON-artefacten (`agent_tips_update`/`phase`).
+Akkoord — geen blockers/bugs.
