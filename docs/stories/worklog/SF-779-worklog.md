@@ -64,3 +64,12 @@ definitieve parse-gedrag.
 [info] Generieke AI-`.md` (review/test/summary/documentation) aanwezig per job, job-specifiek en zelfstandig leesbaar; `merge`/`deploy` hebben terecht géén `.md`.
 [info] Worklog vrij van JSON-artefacten (`agent_tips_update`/`phase`).
 Akkoord — geen blockers/bugs.
+
+## Test (SF-781) — 2026-07-05
+
+[info] Story is config/tekst-only binnen `.factory/nightly/`; geen broncode gewijzigd → geen build/preview-run nodig. `git diff main..HEAD`: 36 nieuwe bestanden (6 jobs × subtasks.yaml + 5 .md) + worklog, alle status A. Niets buiten `.factory/nightly/` behalve worklog; geen bestaande `job.yaml`/`story.md` gewijzigd.
+[info] Structurele validatie (eigen parser, PyYAML afwezig op runner): elke `subtasks.yaml` heeft `subtasks:`-lijst met per entry `type`+`title` in volgorde development→review→test→summary→documentation→merge→deploy; alle 6 jobs identieke keten; alle types binnen geldige set.
+[info] Bestandsnaam-matching geverifieerd voor alle 6 jobs: elke AI-subtaak (development/review/test/summary/documentation) heeft `<title>.md` met exact matchende naam (incl. `:`, `?`, apostrof); `merge`/`deploy` hebben géén `.md`.
+[info] `development`-title == exacte H1 van de eigen `story.md` per job (6/6 match); dev-`.md` inhoud dekt scope + randvoorwaarden van de story herkenbaar (identiek aan story + toevoeging dat de subtaak het ontwikkelwerk incl. tests omvat).
+[info] Generieke `.md` (review/test/summary/documentation) per job job-specifiek en zelfstandig leesbaar.
+Akkoord — alle acceptatiecriteria voldaan, geen blockers.
