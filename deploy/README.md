@@ -31,24 +31,33 @@ de runtime-state staan in het cluster.
 
 ### 1. Bootstrap
 
-`deploy/bootstrap.sh` doet alle cluster-bootstrap in één keer (idempotent):
-
-1. Installeert de Sealed Secrets controller
-2. Haalt het public-cert op naar `deploy/cluster-cert.pem`
-3. Installeert + configureert local-path-provisioner (default StorageClass,
-   privileged helper-pod voor SELinux/RHCOS-compat, path naar `/var/lib`)
-4. Maakt namespace `personal-news-feed` met de `argocd.argoproj.io/managed-by`-label
-5. Apply't de ArgoCD `Application`
-
-Vereisten: `oc` ingelogd, `kubeseal` geïnstalleerd. ArgoCD wordt verwacht
-in namespace `argocd` (anders pas `ARGOCD_NS` aan in het script).
+Twee stappen, twee repo's — het generieke cluster-brede deel (ArgoCD,
+Sealed Secrets, storage, Reflector) is verhuisd naar `robberts-infrastructure`
+(2026-07-07): dat is geen personal-news-feed-ding, youtrack/dashboard/
+smb-timemachine leunen er net zo goed op.
 
 ```bash
+# 1. Cluster-brede bootstrap (eenmalig per cluster, niet per app)
+~/git/robberts-infrastructure/scripts/bootstrap/bootstrap-cluster.sh
+
+# 2. App-specifieke bootstrap (dit hier)
 ./deploy/bootstrap.sh
 git add deploy/cluster-cert.pem
 git commit -m "deploy: add cluster public cert"
 git push
 ```
+
+`deploy/bootstrap.sh` checkt vooraf of stap 1 al gedraaid is (ArgoCD-CRD,
+sealed-secrets-controller, local-path StorageClass, reflector) en stopt met
+een duidelijke melding zo niet. Daarna:
+
+1. Haalt het public-cert op naar `deploy/cluster-cert.pem`
+2. Maakt namespace `personal-news-feed` met de `argocd.argoproj.io/managed-by`-label
+3. Kopieert `GITHUB_TOKEN` naar een `github-pr-token`-secret in `argocd` (voor de preview-ApplicationSet)
+4. Deployt de preview-ns-labeller
+5. Apply't de ArgoCD `Application` + `ApplicationSet`
+
+Vereisten: `oc` ingelogd, `kubeseal` geïnstalleerd.
 
 Het cert is **public**, mag in git. Het private keypaar blijft op het
 cluster (`kube-system/sealed-secrets-key…`). Maak daar een offsite
