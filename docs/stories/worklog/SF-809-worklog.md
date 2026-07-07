@@ -45,3 +45,40 @@ Test-uitvoering:
   faalt), dus `flutter analyze` en `flutter test` kunnen niet lokaal draaien.
   CI valideert analyze/test op de PR. De wijziging is puur een herschikking
   van bestaande widgets zonder nieuwe imports of ongebruikte variabelen.
+
+---
+
+## SF-811 — Tester (2026-07-07)
+
+**Inlog-modus:** FALLBACK wegwerp-account `tester_sf-809`. De vaste
+test-user-creds (`TESTER_USERNAME`/`TESTER_PASSWORD`) waren niet beschikbaar:
+de service-account `claude-agent` heeft geen leesrechten op
+`secret/newsfeed-api-keys` in namespace `pnf-pr-170` (Forbidden). Daarom
+via de UI geregistreerd/ingelogd en achteraf opgeruimd met
+`DELETE /api/account/me` → HTTP 200.
+
+**Preview:** `https://pnf-pr-170.vdzonsoftware.nl` (HTTP 200, live).
+Flutter/dart-binary ontbreekt op de runner, dus widgettests niet lokaal
+gedraaid; geverifieerd via code-inspectie (diff) + browser-preview
+(Playwright, 420x900). Screenshots in `/work/screenshots`.
+
+**Verificatie acceptatiecriteria:**
+- AC1 — Weergave als laatste sectie: bevestigd in preview
+  (`06-settings-bottom2.png`). Volgorde onderaan: Achtergrond-taken →
+  Opruimen → Debug → **Weergave** ("Grote tekst"). Weergave staat ná Debug.
+  (Wegwerp-user is niet-admin, dus geen Beheer-sectie zichtbaar; de
+  admin-volgorde na Beheer is gedekt door de code (regel 105-131) en de
+  door de developer geschreven widgettest.)
+- AC2 — overige secties behouden onderlinge volgorde: bevestigd
+  (`04-settings-top.png`): Over deze app → Account → Categorieën → RSS-feeds
+  → Achtergrond-taken; geen Weergave meer bovenin.
+- AC3 — "Grote tekst"-switch functioneel: toggle in preview toont direct
+  het grote-tekst-effect (`07-largefont-on.png`); `onChanged` roept
+  `setLarge` op `appearanceProvider` aan (code regel 130).
+- AC4 — correcte Divider vóór Weergave, geen dubbele/overgebleven divider
+  op de oude plek: bevestigd via diff (Divider verplaatst mee; op oude plek
+  resteert alleen de bestaande Account-divider) en visueel in de preview.
+- AC5 — bottom-inset-padding behouden: `ListView`-padding
+  `EdgeInsets.fromLTRB(16,16,16,16+bottomInset)` ongewijzigd (regel 31).
+
+**Resultaat:** alle acceptatiecriteria voldaan. Geen bugs gevonden.
