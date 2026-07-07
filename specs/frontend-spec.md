@@ -289,11 +289,6 @@ Toont de per-gebruiker AI-ontdekte tech-events uit `eventsProvider` (`GET /api/e
 - **Uitloggen:** wist token, navigeer naar LoginScreen
 - **Wachtwoord wijzigen:** `ListTile` opent een dialoog met velden voor huidig en nieuw wachtwoord; opslaan stuurt `PUT /api/account/password`
 
-### Weergave
-- Lettergrootte-instelling: "Normaal" of "Groot"
-- "Groot" schaalt alle tekst met factor ~1.38 (via `TextScaler` op `MediaQuery`)
-- Instelling opgeslagen in `SharedPreferences`
-
 ### Categorieën (navigatie-tile, SF-754)
 Eén `ListTile` (`Icons.category`, titel "Categorieën", `Icons.chevron_right`) die via `MaterialPageRoute` naar de **Categorieën-subpagina** (`CategoriesScreen`, zie §9b) navigeert. De volledige categorieënlijst stond vóór SF-754 inline uitgeklapt op deze pagina; ze is nu naar de subpagina verplaatst zodat de Settings-tab korter blijft — hetzelfde patroon als de RSS-feeds-tile (SF-220).
 
@@ -365,6 +360,14 @@ Onderaan het instellingen-scherm verschijnt een extra sectie **"Beheer"** die al
   - AdminCostsScreen toont kostenoverzichten per dag, per gebruiker en gedetailleerd logboek van externe API-calls.
 
 Er is geen aparte Admin-tab in de bottom navigation bar — alle admin-functionaliteit zit achter de twee Beheer-knoppen in Settings.
+
+### Weergave (onderste sectie, SF-809)
+Staat als **laatste sectie onderaan** het instellingen-scherm, ná alle andere secties (dus ook ná de admin-only Beheer-sectie; voor niet-admins staat Weergave onder Debug). Vóór SF-809 stond dit blok bovenin, direct onder Account. Puur een herschikking van de sectievolgorde — het gedrag van de switch is ongewijzigd.
+
+- Lettergrootte-instelling: "Normaal" of "Groot" (`SwitchListTile` "Grote tekst")
+- "Groot" schaalt alle tekst met factor ~1.38 (via `TextScaler` op `MediaQuery`)
+- Waarde komt uit `appearanceProvider`; aanpassen roept `setLarge` aan
+- Instelling opgeslagen in `SharedPreferences`
 
 ---
 

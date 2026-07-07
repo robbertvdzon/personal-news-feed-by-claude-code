@@ -58,13 +58,6 @@ class SettingsScreen extends ConsumerWidget {
           onTap: () => _changePassword(context, ref),
         ),
         const Divider(),
-        Text('Weergave', style: Theme.of(context).textTheme.titleLarge),
-        SwitchListTile(
-          title: const Text('Grote tekst'),
-          value: appearance.largeFont,
-          onChanged: (v) => ref.read(appearanceProvider.notifier).setLarge(v),
-        ),
-        const Divider(),
         Text('Categorieën', style: Theme.of(context).textTheme.titleLarge),
         ListTile(
           leading: const Icon(Icons.category),
@@ -129,6 +122,13 @@ class SettingsScreen extends ConsumerWidget {
             ),
           ),
         ],
+        const Divider(),
+        Text('Weergave', style: Theme.of(context).textTheme.titleLarge),
+        SwitchListTile(
+          title: const Text('Grote tekst'),
+          value: appearance.largeFont,
+          onChanged: (v) => ref.read(appearanceProvider.notifier).setLarge(v),
+        ),
       ]),
     );
   }
