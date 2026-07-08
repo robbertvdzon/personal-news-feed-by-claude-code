@@ -31,37 +31,30 @@ de runtime-state staan in het cluster.
 
 ### 1. Bootstrap
 
-Twee stappen, twee repo's — het generieke cluster-brede deel (ArgoCD,
-Sealed Secrets, storage, Reflector) is verhuisd naar `robberts-infrastructure`
-(2026-07-07): dat is geen personal-news-feed-ding, dashboard/smb-timemachine
-leunen er net zo goed op.
+Er is geen app-specifieke bootstrap meer — alles voor deze app gaat via
+GitOps vanuit `robberts-infrastructure` (het cluster-brede deel verhuisde
+daar al op 2026-07-07 heen; op 2026-07-08 volgden de laatste twee
+imperatieve stappen toen de ArgoCD-instance cluster-scoped werd):
 
 ```bash
-# 1. Cluster-brede bootstrap (eenmalig per cluster, niet per app)
+# Eenmalig per cluster (niet per app), in robberts-infrastructure:
 ~/git/robberts-infrastructure/scripts/bootstrap/bootstrap-cluster.sh
-
-# 2. App-specifieke bootstrap (dit hier)
-./deploy/bootstrap.sh
+~/git/robberts-infrastructure/scripts/bootstrap/bootstrap-apps.sh
 ```
 
-`deploy/bootstrap.sh` checkt vooraf of stap 1 al gedraaid is (ArgoCD-CRD,
-sealed-secrets-controller, local-path StorageClass, reflector) en stopt met
-een duidelijke melding zo niet. Daarna nog maar 2 dingen (2026-07-08: de
-rest — cert-fetch, github-pr-token, preview-ns-labeller's Deployment, de
-ArgoCD Application, de ApplicationSet — is verhuisd naar pure GitOps of
-vervallen als duplicaat):
+`deploy/bootstrap.sh` hier is verouderd en doet niets meer. Wat het deed:
 
-1. Maakt namespace `personal-news-feed` met de `argocd.argoproj.io/managed-by`-label
-   — kan niet via ArgoCD zelf, ook niet met `CreateNamespace=true` (kip-en-ei,
-   zie `robberts-infrastructure/docs/architecture.md`).
-2. Apply't preview-ns-labeller's RBAC (ClusterRole/ClusterRoleBinding) —
-   ArgoCD's eigen ServiceAccount mag dat soort objecten niet zelf aanmaken.
+1. Namespace `personal-news-feed` aanmaken + labelen — overbodig:
+   `CreateNamespace=true` werkt echt sinds ArgoCD cluster-scoped draait
+   (zie `robberts-infrastructure/docs/architecture.md`, "Historie" voor het
+   oude kip-en-ei).
+2. preview-ns-labeller's RBAC applyen — verhuisd naar GitOps:
+   `robberts-infrastructure/manifests/root-app/apps/preview-ns-labeller-rbac.yaml`.
 
 De ArgoCD `Application`, de `ApplicationSet`, de `github-pr-token`-SealedSecret
-en preview-ns-labeller's `Deployment` staan sinds 2026-07-08 allemaal in
+en preview-ns-labeller's `Deployment` + `RBAC` staan allemaal in
 `robberts-infrastructure/manifests/root-app/apps/` — één root-Application
-(`oc apply -f manifests/root-app/root-application.yaml` in die repo) beheert
-ze samen met de andere apps. Zie
+beheert ze samen met de andere apps. Zie
 `robberts-infrastructure/docs/disaster-recovery-playbook.md` stap 4.
 
 Vereisten: `oc` ingelogd.
@@ -220,12 +213,12 @@ PR-nummer is). Bij merge/close wordt de preview opgeruimd.
 ```
 deploy/
 ├── README.md                    ← deze file
-├── bootstrap.sh                 ← namespace + preview-ns-labeller-RBAC (2 stappen)
+├── bootstrap.sh                 ← VEROUDERD (doet niets meer; alles via GitOps)
 ├── seal-secrets.sh              ← .env → SealedSecret YAML (cert komt uit robberts-infrastructure)
 ├── secrets-cluster.env.example  ← template
 ├── secrets-cluster.env          ← (gitignored) jouw waarden
 ├── preview-ns-labeller/
-│   ├── rbac.yaml                ← ClusterRole/ClusterRoleBinding/ServiceAccount (blijft hier, handmatig)
+│   ├── rbac.yaml                ← VERHUISD naar robberts-infrastructure (pointer-file)
 │   ├── labeller.sh
 │   └── Dockerfile
 ├── base/
@@ -245,6 +238,6 @@ deploy/
 ```
 
 De ArgoCD `Application`, `ApplicationSet`, `github-pr-token`-SealedSecret en
-preview-ns-labeller's `Deployment` staan **niet** meer in deze map — die
-staan sinds 2026-07-08 in `robberts-infrastructure/manifests/root-app/apps/`
+preview-ns-labeller's `Deployment` + `RBAC` staan **niet** meer in deze map —
+die staan sinds 2026-07-08 in `robberts-infrastructure/manifests/root-app/apps/`
 (app-of-apps-consolidatie, zie hierboven).
