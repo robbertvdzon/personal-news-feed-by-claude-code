@@ -59,13 +59,17 @@ metadata:
   name: ${SECRET_NAME}
   namespace: ${NAMESPACE}
   annotations:
-    # Reflector mirror't deze Secret naar elke preview-namespace pnf-*
-    # zodra die wordt aangemaakt. Zonder deze annotaties hebben preview-
-    # backends geen credentials en falen ze met "secret not found".
+    # Reflector mirror't deze Secret naar elke preview-namespace pnf-* zodra
+    # die wordt aangemaakt (preview-backends hebben anders geen credentials
+    # en falen met "secret not found"), én naar de argocd-namespace zelf
+    # (preview-ns-labeller leest hier NEON_API_KEY/NEON_PROJECT_ID uit —
+    # gat gevonden 2026-07-08: deze regex matchte 'argocd' nooit, ondanks
+    # een code-comment elders die beweerde dat 't al zo was, met een
+    # 51+ dagen kapotte pod (CreateContainerConfigError) als gevolg).
     reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
-    reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "pnf-.*"
+    reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "^(pnf-.*|argocd)$"
     reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
-    reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "pnf-.*"
+    reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "^(pnf-.*|argocd)$"
 type: Opaque
 stringData:
 EOF
