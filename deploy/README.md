@@ -33,8 +33,8 @@ de runtime-state staan in het cluster.
 
 Twee stappen, twee repo's — het generieke cluster-brede deel (ArgoCD,
 Sealed Secrets, storage, Reflector) is verhuisd naar `robberts-infrastructure`
-(2026-07-07): dat is geen personal-news-feed-ding, youtrack/dashboard/
-smb-timemachine leunen er net zo goed op.
+(2026-07-07): dat is geen personal-news-feed-ding, dashboard/smb-timemachine
+leunen er net zo goed op.
 
 ```bash
 # 1. Cluster-brede bootstrap (eenmalig per cluster, niet per app)
@@ -55,7 +55,12 @@ een duidelijke melding zo niet. Daarna:
 2. Maakt namespace `personal-news-feed` met de `argocd.argoproj.io/managed-by`-label
 3. Kopieert `GITHUB_TOKEN` naar een `github-pr-token`-secret in `argocd` (voor de preview-ApplicationSet)
 4. Deployt de preview-ns-labeller
-5. Apply't de ArgoCD `Application` + `ApplicationSet`
+5. Apply't de `ApplicationSet` (voor preview-deploys per PR)
+
+De ArgoCD `Application` zelf (prod) apply je **niet** hier — die pointer
+staat sinds 2026-07-08 in `robberts-infrastructure/manifests/root-app/apps/`,
+één root-Application beheert 'm samen met de andere apps. Zie
+`robberts-infrastructure/docs/disaster-recovery-playbook.md` stap 4.
 
 Vereisten: `oc` ingelogd, `kubeseal` geïnstalleerd.
 
@@ -202,7 +207,6 @@ PR-nummer is). Bij merge/close wordt de preview opgeruimd.
 ```
 deploy/
 ├── README.md                    ← deze file
-├── argocd-application.yaml      ← één keer apply'en
 ├── cluster-cert.pem             ← public, voor lokaal `kubeseal`
 ├── seal-secrets.sh              ← .env → SealedSecret YAML
 ├── secrets-cluster.env.example  ← template

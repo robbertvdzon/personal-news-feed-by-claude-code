@@ -13,8 +13,10 @@
 #    2. Namespace personal-news-feed aanmaken met argocd managed-by label
 #    3. github-pr-token secret in argocd-namespace (voor PullRequest-generator)
 #    4. Preview-ns-labeller deployen (auto-label van pnf-pr-* namespaces)
-#    5. ArgoCD Application apply'en zodat sync start
-#    6. ApplicationSet apply'en voor automatische preview-deploys per PR
+#    5. ApplicationSet apply'en voor automatische preview-deploys per PR
+#
+# De ArgoCD Application zelf (prod) staat sinds 2026-07-08 niet meer hier —
+# zie robberts-infrastructure/manifests/root-app/apps/.
 #
 # Aannames:
 #   - `oc` is geïnstalleerd en ingelogd op het juiste cluster (`oc whoami`).
@@ -139,14 +141,13 @@ oc apply -f "$DEPLOY_DIR/preview-ns-labeller/rbac.yaml"
 oc apply -f "$DEPLOY_DIR/preview-ns-labeller/deployment.yaml"
 oc rollout status -n "$ARGOCD_NS" deploy/preview-ns-labeller --timeout=60s 2>/dev/null || true
 
-# ─── 5. ArgoCD Application (prod) ────────────────────────────────────
+# ─── 5. ApplicationSet (preview-deploys per PR) ──────────────────────
+# De ArgoCD Application zelf (prod) wordt niet meer hier apply't — die
+# pointer staat sinds de app-of-apps-consolidatie (2026-07-08) in
+# robberts-infrastructure/manifests/root-app/apps/, en wordt van daaruit
+# aangemaakt/beheerd. Zie robberts-infrastructure/docs/disaster-recovery-playbook.md.
 echo
-echo "[5/6] ArgoCD Application apply"
-oc apply -n "$ARGOCD_NS" -f "$DEPLOY_DIR/argocd-application.yaml"
-
-# ─── 6. ApplicationSet (preview-deploys per PR) ──────────────────────
-echo
-echo "[6/6] ApplicationSet voor preview-deploys"
+echo "[5/5] ApplicationSet voor preview-deploys"
 oc apply -n "$ARGOCD_NS" -f "$DEPLOY_DIR/applicationset.yaml"
 
 echo
