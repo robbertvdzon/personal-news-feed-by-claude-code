@@ -11,6 +11,13 @@
 # Cluster-scope omdat ArgoCD pr-namespaces dynamisch aanmaakt; we kunnen
 # niet per-namespace een Role/RoleBinding hand-onderhouden. De ClusterRole
 # is bewust beperkt tot secrets + pods (niet alles).
+#
+# Dit bestand blijft bewust een losse, handmatige `oc apply` (via
+# ../bootstrap.sh) — ArgoCD's eigen ServiceAccount mag geen ClusterRole/
+# ClusterRoleBinding-objecten aanmaken, en dat bewust niet fixen (zou ArgoCD
+# praktisch rechten-op-alles kunnen geven). De bijbehorende Deployment staat
+# sinds 2026-07-08 wél in GitOps, zie
+# robberts-infrastructure/manifests/root-app/apps/preview-ns-labeller-deployment.yaml.
 apiVersion: v1
 kind: ServiceAccount
 metadata:

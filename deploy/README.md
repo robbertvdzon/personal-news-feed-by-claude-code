@@ -42,33 +42,38 @@ leunen er net zo goed op.
 
 # 2. App-specifieke bootstrap (dit hier)
 ./deploy/bootstrap.sh
-git add deploy/cluster-cert.pem
-git commit -m "deploy: add cluster public cert"
-git push
 ```
 
 `deploy/bootstrap.sh` checkt vooraf of stap 1 al gedraaid is (ArgoCD-CRD,
 sealed-secrets-controller, local-path StorageClass, reflector) en stopt met
-een duidelijke melding zo niet. Daarna:
+een duidelijke melding zo niet. Daarna nog maar 2 dingen (2026-07-08: de
+rest — cert-fetch, github-pr-token, preview-ns-labeller's Deployment, de
+ArgoCD Application, de ApplicationSet — is verhuisd naar pure GitOps of
+vervallen als duplicaat):
 
-1. Haalt het public-cert op naar `deploy/cluster-cert.pem`
-2. Maakt namespace `personal-news-feed` met de `argocd.argoproj.io/managed-by`-label
-3. Kopieert `GITHUB_TOKEN` naar een `github-pr-token`-secret in `argocd` (voor de preview-ApplicationSet)
-4. Deployt de preview-ns-labeller
-5. Apply't de `ApplicationSet` (voor preview-deploys per PR)
+1. Maakt namespace `personal-news-feed` met de `argocd.argoproj.io/managed-by`-label
+   — kan niet via ArgoCD zelf, ook niet met `CreateNamespace=true` (kip-en-ei,
+   zie `robberts-infrastructure/docs/architecture.md`).
+2. Apply't preview-ns-labeller's RBAC (ClusterRole/ClusterRoleBinding) —
+   ArgoCD's eigen ServiceAccount mag dat soort objecten niet zelf aanmaken.
 
-De ArgoCD `Application` zelf (prod) apply je **niet** hier — die pointer
-staat sinds 2026-07-08 in `robberts-infrastructure/manifests/root-app/apps/`,
-één root-Application beheert 'm samen met de andere apps. Zie
+De ArgoCD `Application`, de `ApplicationSet`, de `github-pr-token`-SealedSecret
+en preview-ns-labeller's `Deployment` staan sinds 2026-07-08 allemaal in
+`robberts-infrastructure/manifests/root-app/apps/` — één root-Application
+(`oc apply -f manifests/root-app/root-application.yaml` in die repo) beheert
+ze samen met de andere apps. Zie
 `robberts-infrastructure/docs/disaster-recovery-playbook.md` stap 4.
 
-Vereisten: `oc` ingelogd, `kubeseal` geïnstalleerd.
+Vereisten: `oc` ingelogd.
 
-Het cert is **public**, mag in git. Het private keypaar blijft op het
-cluster (`kube-system/sealed-secrets-key…`). Maak daar een offsite
-backup van als je `oc get secret -n kube-system -l sealedsecrets.bitnami.com/sealed-secrets-key`
-exporteert — anders ben je bij cluster-reinstall alle sealed-secrets
-kwijt.
+Het sealed-secrets public-cert staat sinds 2026-07-08 alleen nog in
+`robberts-infrastructure/manifests/cluster-bootstrap/cluster-cert.pem`
+(was hier een duplicaat dat kon verouderen — de sealed-secrets-key roteert
+periodiek). `seal-secrets.sh` hieronder gebruikt die gedeelde kopie. Het
+private keypaar blijft op het cluster (`kube-system/sealed-secrets-key…`).
+Maak daar een offsite backup van als je
+`oc get secret -n kube-system -l sealedsecrets.bitnami.com/sealed-secrets-key`
+exporteert — anders ben je bij cluster-reinstall alle sealed-secrets kwijt.
 
 ### 2. Cluster-secrets aanmaken en encrypten
 
@@ -164,11 +169,14 @@ PR-nummer is). Bij merge/close wordt de preview opgeruimd.
 
 1. **GitHub Actions** bouwt op elke `pull_request` event een image en
    tagt 'm met `sha-<short-sha>` van de PR's HEAD.
-2. **ApplicationSet** (`deploy/applicationset.yaml`) pollt elke 3 min
-   GitHub voor open PR's matching `^ai/.+$` en spawnt per PR een
-   ArgoCD Application.
-3. **Preview-ns-labeller** (`deploy/preview-ns-labeller/`) zorgt dat
-   de bijbehorende namespace `pnf-pr-<N>` bestaat met de
+2. **ApplicationSet** (sinds 2026-07-08 in
+   `robberts-infrastructure/manifests/root-app/apps/personal-news-feed-applicationset.yaml`)
+   pollt elke 3 min GitHub voor open PR's matching `^ai/.+$` en spawnt per
+   PR een ArgoCD Application.
+3. **Preview-ns-labeller** (RBAC hier in `deploy/preview-ns-labeller/`,
+   Deployment sinds 2026-07-08 in
+   `robberts-infrastructure/manifests/root-app/apps/preview-ns-labeller-deployment.yaml`)
+   zorgt dat de bijbehorende namespace `pnf-pr-<N>` bestaat met de
    `argocd.argoproj.io/managed-by`-label (anders blokkeert de
    argocd-operator).
 4. **Reflector** mirror't de `newsfeed-api-keys` Secret automatisch
@@ -196,21 +204,30 @@ PR-nummer is). Bij merge/close wordt de preview opgeruimd.
   heeft; (b) zonder NEON_API_KEY degradeert de labeller naar
   labeling-only en draaien previews wél op prod.
 
-- **Geen automatic preview cleanup van orphan namespaces.** Bij merge
-  ruimt ArgoCD de Application + resources op (`prune: true`), de
-  namespace zelf blijft achter als 'er nog ander state in zit. Voor
-  een schone start: handmatig `oc delete ns pnf-pr-<N>` als de PR
-  echt afgesloten is.
+- **Geen automatic preview cleanup van orphan namespaces.** Bij merge/close
+  ruimt ArgoCD de gegenereerde Application + resources netjes op
+  (`prune: true`), maar de namespace zelf **altijd**: `CreateNamespace=true`
+  wordt door ArgoCD niet als resource getrackt en dus nooit geprund (geen
+  uitzondering-scenario, structureel — zie
+  `robberts-infrastructure/docs/cluster-inventory.md` §8). Dit veroorzaakte
+  29 stale `pnf-pr-*`-namespaces (opgeruimd 2026-07-08), nog niet
+  structureel gefixt. Voor een schone start: handmatig
+  `oc delete ns pnf-pr-<N>` als de PR echt afgesloten is, of periodiek
+  cross-checken met `gh pr list --state open`.
 
 ## Bestanden in deze map
 
 ```
 deploy/
 ├── README.md                    ← deze file
-├── cluster-cert.pem             ← public, voor lokaal `kubeseal`
-├── seal-secrets.sh              ← .env → SealedSecret YAML
+├── bootstrap.sh                 ← namespace + preview-ns-labeller-RBAC (2 stappen)
+├── seal-secrets.sh              ← .env → SealedSecret YAML (cert komt uit robberts-infrastructure)
 ├── secrets-cluster.env.example  ← template
 ├── secrets-cluster.env          ← (gitignored) jouw waarden
+├── preview-ns-labeller/
+│   ├── rbac.yaml                ← ClusterRole/ClusterRoleBinding/ServiceAccount (blijft hier, handmatig)
+│   ├── labeller.sh
+│   └── Dockerfile
 ├── base/
 │   ├── kustomization.yaml
 │   ├── namespace.yaml
@@ -226,3 +243,8 @@ deploy/
     └── openshift/
         └── kustomization.yaml  ← cluster-specifieke patches
 ```
+
+De ArgoCD `Application`, `ApplicationSet`, `github-pr-token`-SealedSecret en
+preview-ns-labeller's `Deployment` staan **niet** meer in deze map — die
+staan sinds 2026-07-08 in `robberts-infrastructure/manifests/root-app/apps/`
+(app-of-apps-consolidatie, zie hierboven).

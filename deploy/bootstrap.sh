@@ -5,22 +5,28 @@
 # Het generieke cluster-brede deel (ArgoCD-operator, ArgoCD CR, Sealed
 # Secrets, local-path-provisioner, Reflector) is verhuisd naar de
 # robberts-infrastructure-repo (2026-07-07) — dat is geen personal-news-feed
-# ding, en youtrack/dashboard/smb-timemachine leunen er net zo goed op. Dit
-# script hier verwacht dat dat AL gedraaid is en checkt dat vooraf.
+# ding, en dashboard/smb-timemachine leunen er net zo goed op. Dit script
+# hier verwacht dat dat AL gedraaid is en checkt dat vooraf.
 #
-# Doet:
-#    1. Cluster public-cert ophalen → deploy/cluster-cert.pem
-#    2. Namespace personal-news-feed aanmaken met argocd managed-by label
-#    3. github-pr-token secret in argocd-namespace (voor PullRequest-generator)
-#    4. Preview-ns-labeller deployen (auto-label van pnf-pr-* namespaces)
-#    5. ApplicationSet apply'en voor automatische preview-deploys per PR
+# Doet nog maar 2 dingen — de rest (cert-fetch, github-pr-token, preview-ns-
+# labeller's Deployment, de ArgoCD Application, de ApplicationSet) is
+# verhuisd naar pure GitOps (robberts-infrastructure/manifests/root-app/apps/)
+# of vervallen als duplicaat. Deze 2 blijven bewust HIER en HANDMATIG:
 #
-# De ArgoCD Application zelf (prod) staat sinds 2026-07-08 niet meer hier —
-# zie robberts-infrastructure/manifests/root-app/apps/.
+#    1. Namespace personal-news-feed aanmaken met argocd managed-by label —
+#       kan niet via ArgoCD zelf, ook niet met CreateNamespace=true: deze
+#       ArgoCD-installatie mag een namespace pas beheren NADAT 'ie al bestaat
+#       + gelabeld is (kip-en-ei, geverifieerd 2026-07-08 met een echte
+#       test-PR — zie robberts-infrastructure/docs/architecture.md).
+#    2. preview-ns-labeller's RBAC (ClusterRole + ClusterRoleBinding +
+#       ServiceAccount) — ArgoCD's eigen ServiceAccount mag geen
+#       ClusterRole/ClusterRoleBinding-objecten aanmaken (bewust niet
+#       gefixt, dat zou ArgoCD praktisch rechten-op-alles kunnen geven).
+#       De Deployment zelf staat wél in GitOps, zie
+#       robberts-infrastructure/manifests/root-app/apps/.
 #
 # Aannames:
 #   - `oc` is geïnstalleerd en ingelogd op het juiste cluster (`oc whoami`).
-#   - `kubeseal` is geïnstalleerd (brew install kubeseal).
 #   - ArgoCD/Sealed Secrets/storage/Reflector staan al (zie hieronder — dit
 #     script checkt het en stopt met een duidelijke melding zo niet).
 #
@@ -38,15 +44,12 @@ DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 NAMESPACE="personal-news-feed"
 ARGOCD_NS="argocd"
-CERT_FILE="$DEPLOY_DIR/cluster-cert.pem"
 
 # ─── pre-flight ───────────────────────────────────────────────────────
-for cmd in oc kubeseal; do
-  if ! command -v "$cmd" >/dev/null 2>&1; then
-    echo "Error: $cmd niet gevonden in PATH." >&2
-    exit 1
-  fi
-done
+if ! command -v oc >/dev/null 2>&1; then
+  echo "Error: oc niet gevonden in PATH." >&2
+  exit 1
+fi
 
 if ! oc whoami >/dev/null 2>&1; then
   echo "Error: 'oc whoami' faalt — ben je ingelogd? Check 'oc login' of KUBECONFIG." >&2
@@ -73,86 +76,27 @@ if [[ "$missing" -eq 1 ]]; then
 fi
 echo "      ok"
 
-# ─── 1. Cluster cert ophalen ──────────────────────────────────────────
-# Op een vers cluster heeft de sealed-secrets controller een NIEUWE
-# keypair. De bestaande deploy/base/sealed-secret-api-keys.yaml in git
-# is versleuteld met de OUDE keypair en kan niet ontsleuteld worden door
-# dit nieuwe cluster.
-#
-# DR-opties als het cert wijzigt:
-#   (a) Restore de oude master-key uit je backup:
-#       oc apply -f <backup>/sealed-secrets-key-*.yaml
-#       oc delete pod -n kube-system -l name=sealed-secrets-controller
-#   (b) Re-encrypt (vereist deploy/secrets-cluster.env uit 1Password):
-#       ./deploy/seal-secrets.sh
-#       git add deploy/base/sealed-secret-api-keys.yaml && git commit && git push
+# ─── 1. Namespace (app) met argocd managed-by label ───────────────────
 echo
-echo "[1/6] Cluster public-cert ophalen → $CERT_FILE"
-if [[ -f "$CERT_FILE" ]]; then
-  tmp="$(mktemp)"
-  trap 'rm -f "$tmp"' EXIT
-  kubeseal --fetch-cert > "$tmp"
-  if cmp -s "$tmp" "$CERT_FILE"; then
-    echo "      cert is ongewijzigd."
-  else
-    mv "$tmp" "$CERT_FILE"
-    echo "      ⚠️  cert is GEWIJZIGD — bestaande sealed secrets werken niet meer."
-    echo "      Restore een oude master-key OF run ./deploy/seal-secrets.sh + commit."
-  fi
-else
-  kubeseal --fetch-cert > "$CERT_FILE"
-  echo "      cert opgehaald — commit deploy/cluster-cert.pem!"
-fi
-
-# ─── 2. Namespace (app) met argocd managed-by label ───────────────────
-echo
-echo "[2/6] Namespace met argocd-label"
+echo "[1/2] Namespace met argocd-label"
 oc create namespace "$NAMESPACE" --dry-run=client -o yaml | oc apply -f -
 oc label namespace "$NAMESPACE" "argocd.argoproj.io/managed-by=$ARGOCD_NS" --overwrite
 
-# ─── 3. GitHub PR-token in argocd-namespace ──────────────────────────
-# De ApplicationSet's PullRequest-generator heeft een GitHub-token nodig
-# om open PR's te lezen. We hergebruiken de GITHUB_TOKEN uit de sealed
-# secret in personal-news-feed.
-echo
-echo "[3/6] github-pr-token secret in $ARGOCD_NS"
-if oc get secret -n "$NAMESPACE" newsfeed-api-keys >/dev/null 2>&1; then
-  GH_TOKEN="$(oc get secret -n "$NAMESPACE" newsfeed-api-keys -o jsonpath='{.data.GITHUB_TOKEN}' | base64 -d)"
-  if [[ -n "$GH_TOKEN" ]]; then
-    oc create secret generic github-pr-token \
-      --from-literal=token="$GH_TOKEN" \
-      -n "$ARGOCD_NS" \
-      --dry-run=client -o yaml | oc apply -f -
-    echo "      github-pr-token gekopieerd uit newsfeed-api-keys"
-  else
-    echo "      (GITHUB_TOKEN ontbreekt in newsfeed-api-keys — preview-PR-deploys werken niet)"
-  fi
-else
-  echo "      (newsfeed-api-keys nog niet aanwezig — voer ./deploy/seal-secrets.sh"
-  echo "       en ArgoCD-sync uit, run dan bootstrap opnieuw)"
-fi
-
-# ─── 4. Preview-ns-labeller ──────────────────────────────────────────
+# ─── 2. Preview-ns-labeller RBAC ──────────────────────────────────────
 # Watcht Application-objecten en labelt pnf-pr-* namespaces zodat de
-# argocd-operator ze accepteert ("namespace not managed"-fout omzeilen).
+# argocd-operator ze accepteert ("namespace not managed"-fout omzeilen —
+# hetzelfde kip-en-ei-mechanisme als stap 1 hierboven, maar dan voor
+# dynamisch aangemaakte PR-preview-namespaces waarvan de naam vooraf niet
+# bekend is). Alleen de RBAC (ClusterRole/ClusterRoleBinding/ServiceAccount)
+# hier — de Deployment zelf staat in GitOps
+# (robberts-infrastructure/manifests/root-app/apps/preview-ns-labeller-deployment.yaml).
 echo
-echo "[4/6] Preview-ns-labeller (RBAC + deployment)"
+echo "[2/2] Preview-ns-labeller RBAC"
 oc apply -f "$DEPLOY_DIR/preview-ns-labeller/rbac.yaml"
-oc apply -f "$DEPLOY_DIR/preview-ns-labeller/deployment.yaml"
-oc rollout status -n "$ARGOCD_NS" deploy/preview-ns-labeller --timeout=60s 2>/dev/null || true
-
-# ─── 5. ApplicationSet (preview-deploys per PR) ──────────────────────
-# De ArgoCD Application zelf (prod) wordt niet meer hier apply't — die
-# pointer staat sinds de app-of-apps-consolidatie (2026-07-08) in
-# robberts-infrastructure/manifests/root-app/apps/, en wordt van daaruit
-# aangemaakt/beheerd. Zie robberts-infrastructure/docs/disaster-recovery-playbook.md.
-echo
-echo "[5/5] ApplicationSet voor preview-deploys"
-oc apply -n "$ARGOCD_NS" -f "$DEPLOY_DIR/applicationset.yaml"
 
 echo
 echo "[bootstrap] klaar."
-echo "Volg de sync:"
+echo "Volg de sync (na 'oc apply -f manifests/root-app/root-application.yaml' in robberts-infrastructure):"
 echo "  oc get application personal-news-feed -n $ARGOCD_NS -w"
 echo "  oc get pods -n $NAMESPACE -w"
 echo

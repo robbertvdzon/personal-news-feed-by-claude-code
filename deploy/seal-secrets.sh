@@ -11,14 +11,16 @@
 #   3. Commit de regenereerde deploy/base/sealed-secret-api-keys.yaml.
 #
 # Vereist GEEN kubectl/oc/kubeconfig — we bouwen de Secret-YAML direct
-# in bash en pipen 'm door kubeseal. Alleen het public cert
-# (deploy/cluster-cert.pem) heeft kubeseal nodig.
+# in bash en pipen 'm door kubeseal. Alleen het public cert heeft kubeseal
+# nodig — dat cert leeft sinds 2026-07-08 alleen nog in robberts-
+# infrastructure (gedeeld met alle apps, was hier een duplicaat dat kon
+# verouderen omdat de sealed-secrets-key periodiek roteert).
 
 set -euo pipefail
 
 DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC="${DEPLOY_DIR}/secrets-cluster.env"
-CERT="${DEPLOY_DIR}/cluster-cert.pem"
+CERT="${DEPLOY_DIR}/../../robberts-infrastructure/manifests/cluster-bootstrap/cluster-cert.pem"
 OUT="${DEPLOY_DIR}/base/sealed-secret-api-keys.yaml"
 NAMESPACE="personal-news-feed"
 SECRET_NAME="newsfeed-api-keys"
@@ -37,7 +39,8 @@ fi
 
 if [[ ! -f "$CERT" ]]; then
   echo "Error: $CERT bestaat niet." >&2
-  echo "Haal het public cert op met:" >&2
+  echo "Verwacht robberts-infrastructure als sibling-repo (~/git/robberts-infrastructure)." >&2
+  echo "Cert daar verversen met:" >&2
   echo "  kubeseal --fetch-cert > $CERT" >&2
   exit 1
 fi
