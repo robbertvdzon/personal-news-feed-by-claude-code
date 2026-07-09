@@ -64,14 +64,13 @@ Widget _wrap() {
 }
 
 void main() {
-  testWidgets('bottom-navigatie toont "Settings" i.p.v. "instellingen"',
+  testWidgets('bottom-navigatie toont "Instellingen" i.p.v. "Settings"',
       (WidgetTester tester) async {
     await tester.pumpWidget(_wrap());
     await tester.pump();
 
-    expect(find.widgetWithText(NavigationDestination, 'Settings'), findsOneWidget);
-    expect(find.text('instellingen'), findsNothing);
-    expect(find.text('Instellingen'), findsNothing);
+    expect(find.widgetWithText(NavigationDestination, 'Instellingen'), findsOneWidget);
+    expect(find.text('Settings'), findsNothing);
   });
 
   testWidgets('settings-tab blijft navigeerbaar via het settings-icoon',
@@ -79,7 +78,7 @@ void main() {
     await tester.pumpWidget(_wrap());
     await tester.pump();
 
-    await tester.tap(find.widgetWithText(NavigationDestination, 'Settings'));
+    await tester.tap(find.widgetWithText(NavigationDestination, 'Instellingen'));
     await tester.pumpAndSettle();
 
     expect(find.text('Instellingen'), findsOneWidget);
