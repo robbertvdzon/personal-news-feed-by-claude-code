@@ -25,3 +25,9 @@ Geverifieerd: `git diff main...HEAD` bevat exact de geclaimde wijzigingen (main_
 Suggestie voor fix: gebruik een specifiekere finder na de tap, bv. `find.descendant(of: find.byType(AppBar), matching: find.text('Instellingen'))` of `find.widgetWithText(NavigationDestination, 'Instellingen')` blijft aanwezig i.p.v. `find.text('Instellingen')` los te gebruiken.
 
 [info] De kernwijziging (het label zelf) is correct en minimaal; alleen de nieuwe testassertie is stuk. Na fix van bovenstaande test-regel is deze story review-ready.
+
+## Fix SF-884 (developer, 2026-07-09)
+
+- `frontend/test/main_shell_test.dart`: reviewer-bug opgelost. De assertie na de tap gebruikte `find.text('Instellingen')`, wat na de labelwijziging 2 widgets matcht (bottom-nav-label + SettingsScreen AppBar-titel, beide "Instellingen"). Vervangen door `find.descendant(of: find.byType(AppBar), matching: find.text('Instellingen'))`, zodat alleen de AppBar-titel wordt gecontroleerd en de test ondubbelzinnig `findsOneWidget` oplevert.
+- Geen overige wijzigingen; `main_shell.dart` (het label zelf) was al correct sinds de vorige commit en blijft ongewijzigd.
+- Niet gedaan: tests lokaal draaien — `flutter`/Dart SDK ontbreekt nog steeds in deze sandbox. De fix is mechanisch (finder-specificiteit) en mechanisch geverifieerd door diff-review; CI/reviewer moet `flutter test test/main_shell_test.dart` bevestigen.

@@ -81,6 +81,10 @@ void main() {
     await tester.tap(find.widgetWithText(NavigationDestination, 'Instellingen'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Instellingen'), findsOneWidget);
+    expect(
+      find.descendant(
+          of: find.byType(AppBar), matching: find.text('Instellingen')),
+      findsOneWidget,
+    );
   });
 }
