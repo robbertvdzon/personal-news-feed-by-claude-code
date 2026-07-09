@@ -31,3 +31,14 @@ Suggestie voor fix: gebruik een specifiekere finder na de tap, bv. `find.descend
 - `frontend/test/main_shell_test.dart`: reviewer-bug opgelost. De assertie na de tap gebruikte `find.text('Instellingen')`, wat na de labelwijziging 2 widgets matcht (bottom-nav-label + SettingsScreen AppBar-titel, beide "Instellingen"). Vervangen door `find.descendant(of: find.byType(AppBar), matching: find.text('Instellingen'))`, zodat alleen de AppBar-titel wordt gecontroleerd en de test ondubbelzinnig `findsOneWidget` oplevert.
 - Geen overige wijzigingen; `main_shell.dart` (het label zelf) was al correct sinds de vorige commit en blijft ongewijzigd.
 - Niet gedaan: tests lokaal draaien — `flutter`/Dart SDK ontbreekt nog steeds in deze sandbox. De fix is mechanisch (finder-specificiteit) en mechanisch geverifieerd door diff-review; CI/reviewer moet `flutter test test/main_shell_test.dart` bevestigen.
+
+## Test SF-885 (tester, 2026-07-09)
+
+- `git diff main...HEAD` bevat exact de geclaimde wijzigingen: `main_shell.dart` (label `'Settings'` → `'Instellingen'`), `main_shell_test.dart` (assertie-fix uit reviewronde), deze worklog. Geen scope-overschrijding.
+- Flutter/Dart-SDK niet beschikbaar in deze testomgeving → widget-tests niet lokaal gedraaid; verificatie via browser op de preview (`https://pnf-pr-174.vdzonsoftware.nl`, PR 174).
+- `oc get secret` faalde met "error loading config file .../.kube/config: is a directory" (bekend agent:local-mankement) → `TESTER_USERNAME`/`TESTER_PASSWORD` niet resolvebaar. Teruggevallen op wegwerpaccount `tester_sf-883`: geregistreerd via de UI, getest, en aan het eind opgeruimd met `DELETE /api/account/me` → HTTP 200.
+- Browser-verificatie (Playwright, viewport 420x900, screenshots in `/work/screenshots`):
+  - `06_main_shell_bottom_nav.png`: bottom-navigatiebalk toont "Instellingen" i.p.v. "Settings"; icoon (tandwiel) en volgorde (Feed, RSS, Podcast, Events, Instellingen) ongewijzigd.
+  - `07_settings_tab_open.png`: na tap op de tab opent het instellingenscherm met AppBar-titel "Instellingen" (was al correct, ongewijzigd).
+- Geen regressies waargenomen in de overige tabs (Feed/RSS/Podcast/Events) of in login/registratie-flow.
+- Conclusie: acceptatiecriteria van SF-883/SF-884 zijn voldaan. Test-rapport: `tested`.
