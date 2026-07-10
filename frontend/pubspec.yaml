@@ -45,3 +45,11 @@ flutter_launcher_icons:
   adaptive_icon_background: "#3F51B5"
   adaptive_icon_foreground: "assets/app_icon.png"
   remove_alpha_ios: true
+  # Web (favicon + PWA-manifesticonen), zelfde bronicoon en achtergrondkleur
+  # als de Android adaptive icon. Regenereren na wijziging van app_icon.png:
+  #   dart run flutter_launcher_icons
+  web:
+    generate: true
+    image_path: "assets/app_icon.png"
+    background_color: "#3F51B5"
+    theme_color: "#3F51B5"

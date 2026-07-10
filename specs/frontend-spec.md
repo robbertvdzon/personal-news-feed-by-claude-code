@@ -466,15 +466,18 @@ Detail-schermen zonder bottom navigation bar (FeedItemDetailScreen, RssItemDetai
 | App-icoon | `flutter_launcher_icons` in `pubspec.yaml` (zie hieronder) | — |
 
 ### App-icoon
-Het icoon is **`assets/app_icon.png`** (1024×1024, indigo achtergrond met witte feed-lijnen + RSS-arc, gegenereerd met `tools/make_icon.py` of vergelijkbaar). De `flutter_launcher_icons`-config in `pubspec.yaml` schaalt 'm naar alle Android- en iOS-formaten:
+Het icoon is **`assets/app_icon.png`** (1024×1024, indigo achtergrond met witte feed-lijnen + RSS-arc, gegenereerd met `tools/make_icon.py` of vergelijkbaar). De `flutter_launcher_icons`-config in `pubspec.yaml` schaalt 'm naar alle Android-, iOS- en web-formaten:
 - Android: alle `mipmap-*` resoluties + adaptive-icon (`mipmap-anydpi-v26`) met `#3F51B5` (indigo) als achtergrond
 - iOS: `Assets.xcassets/AppIcon.appiconset` (alpha verwijderd)
+- Web: `web/favicon.png` en `web/icons/Icon-{192,512,maskable-192,maskable-512}.png`, met `#3F51B5` als achtergrond voor de maskable-varianten (zelfde safe-zone-conventie als de Android adaptive icon)
 
 Genereren na een wijziging in `assets/app_icon.png`:
 ```
 flutter pub get
 flutter pub run flutter_launcher_icons
 ```
+
+`web/manifest.json` (`theme_color`/`background_color`) volgt dezelfde `#3F51B5`-kleur en wordt niet automatisch door `flutter_launcher_icons` bijgewerkt — handmatig in lijn houden bij een kleurwijziging.
 
 In de app zelf wordt hetzelfde icoon klein (32px, afgerond) als `leading` van elke `AppBar` getoond (Feed, RSS, Podcast, Settings) via de `AppLogo`-helper in `lib/widgets/app_logo.dart`.
 
