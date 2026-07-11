@@ -1,0 +1,10 @@
+version: 1
+commands:
+  - id: backend-maven-verify
+    argv:
+      - mvn
+      - -B
+      - --no-transfer-progress
+      - verify
+    workingDirectory: newsfeedbackend/newsfeedbackend
+    timeoutSeconds: 1800
