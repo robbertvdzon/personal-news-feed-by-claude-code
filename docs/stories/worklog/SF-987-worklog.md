@@ -25,3 +25,11 @@ Done / rationale:
 - Zelf herbevestigd: `flutter test` (volledige suite, 16/16 groen) en `mvn test` (backend unit-tests, 37/37 groen, BUILD SUCCESS, geen Docker nodig) — beide reproduceerbaar groen.
 - De bekende `mvn verify`-blocker (Testcontainers/Docker ontbreekt, zie agent-tips `pnf-backend-verify-requires-docker-blocks-every-story*`) is een omgevingsbeperking van het story-brede vangnet (SF-1032), niet van deze development-subtaak; backend is hier ongewijzigd.
 - Geen bevindingen. Akkoord.
+
+## Review SF-1031 (herbeoordeling na tester-commit `069e6c3`)
+
+- Volledige story-diff (`git diff main...HEAD`) herbeoordeeld, niet alleen de laatste commit. Bevat 3 commits: developer (`settings_screen.dart`/`settings_screen_test.dart`), reviewer (worklog), tester (`frontend/pubspec.lock`).
+- Kernwijziging blijft scope-conform: alleen `settings_screen.dart:35` (`'Account'` → `'Account Settings'`) en de bijbehorende assertie in `settings_screen_test.dart:85`. Grep op `'Account'` in `frontend/`, `e2e/`, `specs/`, `docs/` bevestigt geen overige plekken.
+- [blocker] Commit `069e6c3` ("SF-987: tester changes") wijzigt uitsluitend `frontend/pubspec.lock` (11 transitieve dependency-versies opgehoogd, o.a. `material_color_utilities` 0.11.1→0.13.0, `meta` 1.16.0→1.18.0). Dit is buiten de scope van SF-1031/SF-987. Precedent in deze zelfde story (issue comment 1265): de developer heeft exact dezelfde incidentele `pubspec.lock`-wijziging (bijproduct van `flutter pub get`) eerder bewust teruggedraaid als "out of scope". Nu is die drift via de tester-rol weer teruggekomen, zonder toelichting in de worklog en zonder gedocumenteerd testbewijs voor deze subtaak. Voorstel: `frontend/pubspec.lock` terugzetten naar de main-versie, tenzij er een expliciete, gedocumenteerde reden is om de lockfile te bumpen.
+- Testbewijs zelf herverifieerd op de huidige branch-state (incl. de gewijzigde `pubspec.lock`): `flutter test` (volledige frontend-suite) — 16/16 groen. Backend is in deze subtaak ongewijzigd; de bekende `mvn verify`-Docker-blocker blijft een omgevingsbeperking van het story-brede vangnet, niet van deze wijziging.
+- Conclusie: functionele wijziging is correct en test-groen, maar de undocumented/out-of-scope `pubspec.lock`-drift moet eruit of expliciet verantwoord worden voordat deze subtaak definitief akkoord kan.
