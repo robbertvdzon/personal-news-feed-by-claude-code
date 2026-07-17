@@ -32,7 +32,7 @@ class SettingsScreen extends ConsumerWidget {
         Text('Over deze app', style: Theme.of(context).textTheme.titleLarge),
         const _VersionBlock(),
         const Divider(),
-        Text('Account Settings', style: Theme.of(context).textTheme.titleLarge),
+        Text('Account', style: Theme.of(context).textTheme.titleLarge),
         ListTile(
           leading: const Icon(Icons.person),
           title: Text(auth.username ?? 'Onbekend'),
