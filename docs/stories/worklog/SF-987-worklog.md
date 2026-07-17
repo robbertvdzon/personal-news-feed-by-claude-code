@@ -48,3 +48,13 @@ Done / rationale:
 - Vangnet herbevestigd op de huidige branch-state: `flutter test` in `frontend/` — 16/16 groen (incl. `settings_screen_test.dart`). `mvn test` in `newsfeedbackend/newsfeedbackend/` — BUILD SUCCESS, exitcode 0.
 - De kernwijziging (`settings_screen.dart:35` en `settings_screen_test.dart:85`) was al correct en scope-conform; er zijn geen nieuwe codewijzigingen nodig voor SF-1031. De eerder gemelde `[blocker]` op `pubspec.lock` is hiermee opgelost via expliciete product owner-beslissing, niet via een code-revert.
 - Zie ook `docs/stories/SF-1031-account-settings.md` voor het volledige stappenplan van deze subtaak.
+
+## Review SF-1031 (herbeoordeling na product owner-beslissing over pubspec.lock)
+
+- Volledige story-diff (`git diff main...HEAD`) herbeoordeeld: `settings_screen.dart:35` (`'Account'` → `'Account Settings'`), `settings_screen_test.dart:85` (bijbehorende assertie), `frontend/pubspec.lock` (11 transitieve dependency-bumps) en de story-log/worklog-bestanden.
+- Kernwijziging blijft correct en scope-conform. Grep op letterlijke string `'Account'` in `frontend/`, `e2e/`, `specs/`, `docs/` bevestigt geen gemiste plekken.
+- De eerder gemelde `[blocker]` op `frontend/pubspec.lock`-drift is opgelost: issue comment 1274 is een expliciete, in `.task.md` gedocumenteerde product owner-beslissing ("die zijn gewenst en moet niet terug") die de dependency-bumps goedkeurt. Geen actie meer vereist.
+- Zelf herverifieerd: `mvn test` in `newsfeedbackend/newsfeedbackend/` — BUILD SUCCESS, exitcode 0. `flutter pub get` + `flutter test` in `frontend/` — 16/16 groen, geen wijziging aan `pubspec.lock` na `pub get` (lockfile reproduceerbaar).
+- Geen JSON-artefacten of procesnotities in de story-log-bestanden aangetroffen.
+- De bekende `mvn verify`-Docker/Testcontainers-blocker (agent-tips `pnf-backend-verify-requires-docker-blocks-every-story*`) is een omgevingsbeperking van het story-brede vangnet (SF-1032); deze development-subtaak raakt de backend niet en `mvn test` (unit) is groen.
+- Geen bevindingen. Akkoord.
