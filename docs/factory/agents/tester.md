@@ -78,3 +78,9 @@ stil `tested-ok` op basis van enkel code-inspectie.
 > De operatieve, gezaghebbende werkwijze staat in de tester-system-prompt in
 > `deploy/claude-runner/runner.sh`; dit document moet daarmee consistent
 > blijven.
+
+- Lockfile-discipline: wijzig `frontend/pubspec.lock` (of andere lockfiles) alleen als de
+  bijbehorende manifest (`pubspec.yaml`) ook wijzigt. Een kale lockfile-drift is een bijproduct
+  van `flutter pub get` en wordt door de factory automatisch meegecommit — zet 'm daarom vóór je
+  handover terug (`git checkout -- frontend/pubspec.lock`), tenzij de bump het expliciete doel is
+  en je 'm in je handover/worklog verantwoordt. (Dit kostte SF-987 een volledige reviewronde.)

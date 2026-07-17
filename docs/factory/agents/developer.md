@@ -9,3 +9,9 @@
 - Flyway-migraties toevoegen als `V{n+1}__beschrijving.sql`; nooit een bestaande migratie aanpassen.
 - Laat geen raw JSON-artefacten (`agent_tips_update`, `phase`) achter in story-bestanden — verwijder vóór commit.
 - Controleer na elk `Write`-tool-gebruik met `tail -20` dat het bestand eindigt waar verwacht.
+
+- Lockfile-discipline: wijzig `frontend/pubspec.lock` (of andere lockfiles) alleen als de
+  bijbehorende manifest (`pubspec.yaml`) ook wijzigt. Een kale lockfile-drift is een bijproduct
+  van `flutter pub get` en wordt door de factory automatisch meegecommit — zet 'm daarom vóór je
+  handover terug (`git checkout -- frontend/pubspec.lock`), tenzij de bump het expliciete doel is
+  en je 'm in je handover/worklog verantwoordt. (Dit kostte SF-987 een volledige reviewronde.)
