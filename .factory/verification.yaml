@@ -5,6 +5,7 @@ commands:
       - mvn
       - -B
       - --no-transfer-progress
+      - clean
       - verify
     workingDirectory: newsfeedbackend/newsfeedbackend
     timeoutSeconds: 1800
