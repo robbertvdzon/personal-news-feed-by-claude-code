@@ -73,3 +73,12 @@ Done / rationale:
 - Fix: `.factory/verification.yaml` — `clean` toegevoegd vóór `verify` in de `backend-maven-verify`-argv (`mvn -B --no-transfer-progress clean verify`). Geen wijziging aan applicatie- of testcode.
 - Herverificatie: `mvn -B --no-transfer-progress clean verify` in `newsfeedbackend/newsfeedbackend/` — **BUILD SUCCESS**, `Tests run: 61, Failures: 0, Errors: 0, Skipped: 0`. `flutter clean && flutter pub get && flutter test` in `frontend/` — **16/16 groen** (een eerdere `Matrix4`-laadfout bleek eveneens stale `.dart_tool`-cache, opgelost door `flutter clean`, geen codewijziging nodig). `pubspec.lock` blijft ongewijzigd na `pub get`.
 - De sectiekop-kernwijziging (`settings_screen.dart:35` / `settings_screen_test.dart:85`) was al aanwezig en correct; deze run voegt uitsluitend de vangnet-configuratiefix toe die de `test-rejected`-blocker wegneemt. Zie ook `docs/stories/SF-1031-account-settings.md`.
+
+## Review SF-1031 (herbeoordeling na JaCoCo-`clean`-fix)
+
+- Volledige story-diff (`git diff main...HEAD --stat`) herbeoordeeld: `.factory/verification.yaml` (+`clean`), `settings_screen.dart:35`, `settings_screen_test.dart:85`, `frontend/pubspec.lock` (11 transitieve bumps, expliciet goedgekeurd door product owner in issue comment 1274), plus docs/worklog.
+- Kernwijziging scope-conform: alleen de sectiekop-string en de bijbehorende testassertie zijn functioneel gewijzigd. Grep op letterlijke `'Account'` in `frontend/`, `e2e/`, `specs/`, `docs/` bevestigt geen gemiste plekken.
+- Zelf onafhankelijk geverifieerd (niet alleen op de developer-claims vertrouwd):
+  - `mvn -B --no-transfer-progress clean verify` in `newsfeedbackend/newsfeedbackend/` → **BUILD SUCCESS**, `Tests run: 61, Failures: 0, Errors: 0, Skipped: 0`, JaCoCo `report` + `report-integration` beide succesvol. De `clean`-toevoeging in `.factory/verification.yaml` lost de eerder gemelde `Unknown block type 64`-fout aantoonbaar op.
+  - `flutter clean && flutter pub get && flutter test` in `frontend/` → **16/16 groen**. `pubspec.lock` blijft ongewijzigd na `pub get` (`git status --short` leeg), dus de lockfile-bump is reproduceerbaar en consistent, conform de product owner-beslissing.
+- Geen bevindingen. Akkoord.
