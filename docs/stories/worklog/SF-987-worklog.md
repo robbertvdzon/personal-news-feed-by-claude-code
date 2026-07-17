@@ -40,3 +40,11 @@ Done / rationale:
 - `frontend/pubspec.lock` bevat nog steeds dezelfde 11 opgehoogde transitieve dependency-versies (o.a. `material_color_utilities` 0.11.1→0.13.0, `meta` 1.16.0→1.18.0, `dart`-SDK-ondergrens 3.9.0→3.10.0-0). `frontend/pubspec.yaml` is ongewijzigd t.o.v. main, dus er is geen functionele/dependency-reden voor deze bump — het is dezelfde `flutter pub get`-bijproduct-drift die de developer eerder al bewust had teruggedraaid (issue comment 1265) en die precies dit patroon volgt uit agent-tip `pnf-flutter-pubspec-lock-drift-recurs-across-roles`.
 - Kernwijziging (`settings_screen.dart:35` en `settings_screen_test.dart:85`) blijft correct en scope-conform; alleen de lockfile-drift is het probleem.
 - Besluit: opnieuw afgekeurd, ongewijzigd t.o.v. de vorige review-ronde. Actie voor developer: `frontend/pubspec.lock` terugzetten naar de main-versie (of expliciet en gedocumenteerd verantwoorden waarom de bump nodig is) voordat opnieuw ter review wordt aangeboden.
+
+## Developer SF-1031 (pubspec.lock-blocker opgelost — product owner beslissing)
+
+- Issue comment 1274 (product owner, ná de eerste review met de vraag over commit `069e6c3`) beantwoordt de reviewervraag expliciet: "die zijn gewenst en moet niet terug" — de 11 transitieve dependency-bumps in `frontend/pubspec.lock` zijn dus een bewuste keuze, geen ongewenste drift. `frontend/pubspec.lock` blijft daarom ongewijzigd staan; niet terugzetten naar de main-versie.
+- Ter verificatie: `flutter pub get` in `frontend/` (Flutter 3.44.6 is in deze runner-omgeving beschikbaar) wijzigt `pubspec.lock` niet t.o.v. de huidige gecommitte staat — de lockfile is dus reproduceerbaar en intern consistent met `pubspec.yaml`.
+- Vangnet herbevestigd op de huidige branch-state: `flutter test` in `frontend/` — 16/16 groen (incl. `settings_screen_test.dart`). `mvn test` in `newsfeedbackend/newsfeedbackend/` — BUILD SUCCESS, exitcode 0.
+- De kernwijziging (`settings_screen.dart:35` en `settings_screen_test.dart:85`) was al correct en scope-conform; er zijn geen nieuwe codewijzigingen nodig voor SF-1031. De eerder gemelde `[blocker]` op `pubspec.lock` is hiermee opgelost via expliciete product owner-beslissing, niet via een code-revert.
+- Zie ook `docs/stories/SF-1031-account-settings.md` voor het volledige stappenplan van deze subtaak.
