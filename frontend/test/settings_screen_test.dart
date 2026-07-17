@@ -82,7 +82,7 @@ void main() {
 
     // Er is geen aparte Weergave-sectie meer tussen Account en Categorieën:
     // Account staat boven Categorieën, Weergave onder beide.
-    final accountDy = tester.getTopLeft(find.text('Account')).dy;
+    final accountDy = tester.getTopLeft(find.text('Account Settings')).dy;
     final categoriesDy = tester.getTopLeft(find.text('Categorieën').first).dy;
     expect(accountDy, lessThan(categoriesDy));
     expect(weergaveDy, greaterThan(categoriesDy));
