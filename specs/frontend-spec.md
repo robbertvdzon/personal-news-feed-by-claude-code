@@ -294,13 +294,13 @@ Sectiekop boven het account-blok heet sinds SF-1046 weer **"Account"**; tussen S
 ### Categorieën (navigatie-tile, SF-754)
 Eén `ListTile` (`Icons.category`, titel "Categorieën", `Icons.chevron_right`) die via `MaterialPageRoute` naar de **Categorieën-subpagina** (`CategoriesScreen`, zie §9b) navigeert. De volledige categorieënlijst stond vóór SF-754 inline uitgeklapt op deze pagina; ze is nu naar de subpagina verplaatst zodat de Settings-tab korter blijft — hetzelfde patroon als de RSS-feeds-tile (SF-220).
 
-### RSS-feeds (navigatie-tile, SF-220)
-Eén `ListTile` (`Icons.rss_feed`, titel "RSS-feeds", subtitle "RSS-feeds en podcast-bronnen beheren", `Icons.chevron_right`) die via `MaterialPageRoute` naar de **RSS-feeds-subpagina** (`RssFeedsScreen`, zie §9a) navigeert. De inline-editors voor RSS-feeds en podcast-bronnen stonden vóór SF-220 rechtstreeks op deze pagina; ze zijn nu naar de subpagina verplaatst zodat de Settings-tab korter blijft. Patroon is consistent met de bestaande Beheer-tiles (API-log/Admin).
+### RSS feeds (navigatie-tile, SF-220, tekst "RSS feeds" sinds SF-1077/SF-1085)
+Eén `ListTile` (`Icons.rss_feed`, titel "RSS feeds", subtitle "RSS feeds en podcast-bronnen beheren", `Icons.chevron_right`) die via `MaterialPageRoute` naar de **RSS-feeds-subpagina** (`RssFeedsScreen`, zie §9a) navigeert. De inline-editors voor RSS-feeds en podcast-bronnen stonden vóór SF-220 rechtstreeks op deze pagina; ze zijn nu naar de subpagina verplaatst zodat de Settings-tab korter blijft. Patroon is consistent met de bestaande Beheer-tiles (API-log/Admin). Vóór SF-1077 stond hier de tekst "RSS-feeds" (met koppelteken); alleen op deze Settings-tab gecorrigeerd naar "RSS feeds" — de subpagina (§9a) gebruikt bewust nog de oude schrijfwijze, buiten scope van SF-1077.
 
 ### Achtergrond-taken
 Twee handmatige triggers voor de scheduled jobs (die zelf gewoon doorlopen op hun schedule — hourly RSS-refresh en de daily summary om 06:00):
 
-- **"RSS-feeds nu vernieuwen"** — stuurt `POST /api/requests/{hourly-update-{username}}/rerun`.
+- **"RSS feeds nu vernieuwen"** (vóór SF-1077: "RSS-feeds nu vernieuwen") — stuurt `POST /api/requests/{hourly-update-{username}}/rerun`.
 - **"Genereer dagelijkse samenvatting nu"** — stuurt `POST /api/requests/{daily-summary-{username}}/rerun`.
 
 Gedrag per rij:
