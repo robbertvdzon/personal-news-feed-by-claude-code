@@ -37,10 +37,10 @@ commonLabels:
 images:
 - name: backend
   newName: ghcr.io/robbertvdzon/personal-news-feed-backend
-  newTag: sha-76149bf
+  newTag: sha-9b634b1
 - name: frontend
   newName: ghcr.io/robbertvdzon/personal-news-feed-frontend
-  newTag: sha-76149bf
+  newTag: sha-9b634b1
 - name: reader
   newName: ghcr.io/robbertvdzon/personal-news-feed-reader
-  newTag: sha-76149bf
+  newTag: sha-9b634b1
