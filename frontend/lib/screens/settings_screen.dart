@@ -69,11 +69,11 @@ class SettingsScreen extends ConsumerWidget {
           ),
         ),
         const Divider(),
-        Text('RSS-feeds', style: Theme.of(context).textTheme.titleLarge),
+        Text('RSS feeds', style: Theme.of(context).textTheme.titleLarge),
         ListTile(
           leading: const Icon(Icons.rss_feed),
-          title: const Text('RSS-feeds'),
-          subtitle: const Text('RSS-feeds en podcast-bronnen beheren'),
+          title: const Text('RSS feeds'),
+          subtitle: const Text('RSS feeds en podcast-bronnen beheren'),
           trailing: const Icon(Icons.chevron_right),
           onTap: () => Navigator.of(context).push(
             MaterialPageRoute<void>(builder: (_) => const RssFeedsScreen()),
@@ -366,7 +366,7 @@ class _BackgroundJobsSectionState extends ConsumerState<_BackgroundJobsSection> 
         return Column(children: [
           _BackgroundJobTile(
             icon: Icons.rss_feed,
-            title: 'RSS-feeds nu vernieuwen',
+            title: 'RSS feeds nu vernieuwen',
             request: hourly,
             onPressed: hourly == null
                 ? null
