@@ -1,0 +1,122 @@
+name: Cleanup oude releases en images
+
+# Elke push naar main die frontend/** raakt maakt in build-apk.yml /
+# build-apk-reader.yml een nieuwe GitHub Release aan (tag apk-<ts>-<sha>
+# resp. reader-apk-<ts>-<sha>). build-images.yml + labeller-image.yml
+# pushen op hun beurt bij elke main-push én elke PR een container-image
+# met een sha-tag naar ghcr.io. Geen van beide ruimt zichzelf op, dus de
+# Releases-lijst (Downloads-tab op het dashboard) en de ghcr.io-packages
+# groeien voor altijd. Deze workflow bewaart per soort alleen de recentste
+# en verwijdert de rest.
+
+on:
+  schedule:
+    - cron: '30 2 * * *' # dagelijks 02:30 UTC
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Alleen tonen wat verwijderd zou worden, niet echt verwijderen'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup-releases:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      KEEP: 3
+    steps:
+      - name: Prune oude APK-releases (keep laatste ${{ env.KEEP }} per soort)
+        run: |
+          set -euo pipefail
+          for prefix in apk- reader-apk-; do
+            echo "=== prefix: ${prefix} ==="
+            mapfile -t tags < <(
+              gh release list --repo "${{ github.repository }}" --limit 500 \
+                --json tagName,createdAt \
+                --jq "[.[] | select(.tagName | startswith(\"${prefix}\"))] | sort_by(.createdAt) | reverse | .[].tagName"
+            )
+            total=${#tags[@]}
+            echo "gevonden: ${total}"
+            if (( total <= KEEP )); then
+              echo "niets te doen (<= ${KEEP})"
+              continue
+            fi
+            for tag in "${tags[@]:$KEEP}"; do
+              if [[ "${{ inputs.dry_run }}" == "true" ]]; then
+                echo "[dry-run] zou verwijderen: ${tag}"
+              else
+                echo "verwijderen: ${tag}"
+                gh release delete "${tag}" --repo "${{ github.repository }}" --yes --cleanup-tag
+              fi
+            done
+          done
+
+  cleanup-packages:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      KEEP: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check PACKAGES_PAT
+        id: check
+        run: |
+          if [[ -z "${{ secrets.PACKAGES_PAT }}" ]]; then
+            echo "::warning::PACKAGES_PAT secret ontbreekt (nodig: personal access token met read:packages + delete:packages scope, aan te maken via https://github.com/settings/tokens/new?scopes=read:packages,delete:packages en op te slaan als repo-secret PACKAGES_PAT). Package-cleanup wordt overgeslagen."
+            echo "has_pat=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_pat=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Verzamel te behouden sha-tags (productie + open PR's)
+        if: steps.check.outputs.has_pat == 'true'
+        run: |
+          set -euo pipefail
+          {
+            grep -rhoE 'sha-[0-9a-f]{7,}' deploy/ 2>/dev/null || true
+            gh pr list --repo "${{ github.repository }}" --state open --json headRefOid --jq '.[].headRefOid' \
+              | cut -c1-7 | sed 's/^/sha-/'
+          } | grep -v '^$' | sort -u | jq -R . | jq -s . > /tmp/keep-tags.json
+          echo "te behouden tags (excl. main + recente buffer):"
+          cat /tmp/keep-tags.json
+
+      - name: Prune package-versions (keep laatste ${{ env.KEEP }} + productie + open PR's)
+        if: steps.check.outputs.has_pat == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PACKAGES_PAT }}
+        run: |
+          set -euo pipefail
+          owner="${{ github.repository_owner }}"
+          for pkg in personal-news-feed-backend personal-news-feed-frontend personal-news-feed-reader preview-ns-labeller; do
+            echo "=== package: ${pkg} ==="
+            gh api --paginate "/users/${owner}/packages/container/${pkg}/versions?per_page=100" \
+              > "/tmp/versions-${pkg}.json" || { echo "kon versions niet ophalen, skip"; continue; }
+
+            mapfile -t delete_ids < <(
+              jq -r --argjson keepTags "$(cat /tmp/keep-tags.json)" --argjson keep "${KEEP}" '
+                sort_by(.created_at) | reverse | to_entries
+                | map(. as $e
+                    | ($e.value.metadata.container.tags // []) as $tags
+                    | { id: $e.value.id, idx: $e.key, tags: $tags,
+                        keep: ( ($e.key < $keep)
+                                or ($tags | any(. == "main"))
+                                or ($tags | any(. as $t | $keepTags | index($t) != null)) ) })
+                | map(select(.keep | not)) | .[].id
+              ' "/tmp/versions-${pkg}.json"
+            )
+            echo "te verwijderen versions: ${#delete_ids[@]}"
+            for id in "${delete_ids[@]:-}"; do
+              [[ -z "$id" ]] && continue
+              if [[ "${{ inputs.dry_run }}" == "true" ]]; then
+                echo "[dry-run] zou verwijderen: ${pkg} versie ${id}"
+              else
+                echo "verwijderen: ${pkg} versie ${id}"
+                gh api -X DELETE "/users/${owner}/packages/container/${pkg}/versions/${id}"
+              fi
+            done
+          done
