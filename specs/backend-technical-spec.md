@@ -73,7 +73,7 @@ De backend gebruikt **Spring Modulith** voor het afdwingen van modulegescheiden 
 - Communicatie tussen modules verloopt via:
   - Directe aanroep van de **publieke service-interface** van de doelmodule
   - Spring Application Events (`ApplicationEventPublisher`) voor losgekoppelde communicatie
-- Spring Modulith-moduleregels kunnen worden afgedwongen met een test die `ApplicationModules.of(Application::class.java).verify()` aanroept; zo'n verificatie-test is op dit moment **niet** in de repo aanwezig (zie §7).
+- Spring Modulith-moduleregels worden afgedwongen door `ModuleStructureTest.kt` (`ApplicationModules.of(Application::class.java).verify()`), met een lege allowlist; deze test draait bij elke `mvn test` en dient als ratchet tegen nieuwe modulegrens-overtredingen (zie §7).
 
 ### Packagestructuur per module (voorbeeld: `rss`)
 ```
@@ -292,25 +292,47 @@ Grafana dashboard (JSON-provisioning) toont minimaal:
 ## 7. Tests
 
 ### Huidige testsuite
-De automatische tests draaien met `mvn test` (JUnit 5 / Kotlin). De huidige suite
-in `src/test/kotlin/com/vdzon/newsfeedbackend/` bestaat uit gerichte unit-tests:
+De automatische tests draaien met `mvn test` (surefire; JUnit 5 / Kotlin), en
+sluiten de e2e-suite uit (`**/e2e/**`). De suite in
+`src/test/kotlin/com/vdzon/newsfeedbackend/` bestaat uit gerichte unit-tests:
 
 - `rss/RssFetcherImageUrlTest.kt` — extractie van de afbeeldings-URL uit RSS
+- `ai/AiJsonTest.kt` — JSON-hulpfuncties voor AI-responses
 - `ai/AiPricingPropertiesTest.kt` — OpenAI-prijsconfiguratie (`app.ai.pricing`)
+- `api/dto/ApiRequestDtoContractTest.kt` — contract van de request-DTO's
+- `events/infrastructure/VideoAudioDownloaderArgsTest.kt` — argumentopbouw voor `yt-dlp`
 - `podcast/domain/PodcastScriptParserTest.kt` — parser van INTERVIEWER/GAST-scripts
 
-### Beschikbare testtooling
-De `pom.xml` bevat naast JUnit 5 ook test-dependencies voor Cucumber
-(`cucumber-spring`, `cucumber-junit-platform-engine`) en WireMock
-(`wiremock-standalone`). Die zijn bedoeld voor toekomstige Spring Boot
-integratietests met gestubde externe API's (OpenAI, Tavily, TTS); er zijn op dit
-moment **nog geen** feature-bestanden, step-definitions of WireMock-stubs in de
-repo. Nieuwe integratietests volgen bij voorkeur de Given/When/Then-conventie in
-het Nederlands.
+Daarnaast draait bij elke `mvn test` ook `ModuleStructureTest.kt` —
+`ApplicationModules.of(Application::class.java).verify()` met een lege
+allowlist — die bewaakt de Spring Modulith-modulegrenzen als ratchet (nieuwe
+overtredingen laten de build falen; bestaande overtredingen zijn niet
+opgenomen in de allowlist, zie §3).
 
-> Spring Modulith-moduleregels kunnen geverifieerd worden met een test die
-> `ApplicationModules.of(Application::class.java).verify()` aanroept; voeg zo'n
-> test toe wanneer modulegrenzen geborgd moeten worden.
+### E2e-testsuite (`mvn verify`)
+Naast de unit-tests bestaat er een e2e-suite onder
+`src/test/kotlin/com/vdzon/newsfeedbackend/e2e/`, o.a. `RssRefreshE2eTest`,
+`SettingsE2eTest`, `EventsE2eTest`, `AdminE2eTest`, `AuthE2eTest`, `FeedE2eTest`,
+`PodcastGenerationE2eTest`, `PodcastIngestE2eTest`, `RequestsE2eTest` en
+`SharedFeedE2eTest`. Het gedeelde harnas (`E2eTestBase`/`E2eTestConfig`) start
+de volledige Spring-app tegen een echte PostgreSQL via Testcontainers (met
+echte Flyway-migraties); alleen de externe diensten zijn gefaked
+(`FakeOpenAiChatClient`, `FakeContentServer`).
+
+`mvn test` (surefire) draait alleen de unit-tests en `ModuleStructureTest`
+(sluit `**/e2e/**` uit, geen Docker nodig). `mvn verify` (failsafe) draait
+daarnaast de e2e-suite — dit vereist Docker (Testcontainers) en start elke
+e2e-testklasse in een eigen JVM-fork om state-accumulatie tussen klassen te
+voorkomen.
+
+### Ongebruikte testtooling (bevinding)
+De `pom.xml` bevat nog test-dependencies voor Cucumber (`cucumber-spring`,
+`cucumber-junit-platform-engine`) en WireMock (`wiremock-standalone`). Er zijn
+geen feature-bestanden, step-definitions of WireMock-stubs in de repo — de
+e2e-strategie is in de praktijk vervangen door Testcontainers + de
+handgeschreven Fake-clients hierboven. Deze dependencies lijken daarmee
+(vermoedelijk) legacy/ongebruikt; het verwijderen ervan is een codewijziging
+en valt buiten de scope van deze documentatie-update.
 
 ---
 

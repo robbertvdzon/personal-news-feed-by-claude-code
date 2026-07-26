@@ -7,7 +7,7 @@
 | Backend taal | Kotlin 2.x |
 | Backend framework | Spring Boot 4.x, poort 8080 |
 | Build tool backend | Maven — root: `newsfeedbackend/newsfeedbackend/` |
-| Modulestructuur | Spring Modulith (verify-test optioneel; nog niet in de repo) |
+| Modulestructuur | Spring Modulith (`ModuleStructureTest`, lege allowlist, draait bij elke `mvn test`) |
 | Database | PostgreSQL (Neon cloud), Flyway-migraties |
 | Frontend | Flutter / Dart ^3.9 — iOS, Android, web |
 | State management | Riverpod 2.x |
