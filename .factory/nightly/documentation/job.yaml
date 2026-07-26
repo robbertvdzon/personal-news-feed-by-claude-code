@@ -1,4 +1,3 @@
-title: "nightly: Documentatie in lijn brengen met de code"
+title: "audit: Documentatie-check"
 enabled: true
-silent: true
 aiSupplier: claude

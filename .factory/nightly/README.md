@@ -1,59 +1,52 @@
-# Nachtelijke jobs (`.factory/nightly/`)
+# Audits (`.factory/nightly/`)
 
-Elke submap hier is één **nachtelijke job**: een autonome verbetertaak die de Software Factory
-'s nachts oppakt en als *silent* story verwerkt — zonder interactie, en bij echte onduidelijkheid
-gaat de story in error i.p.v. te wachten op een mens.
+Elke submap hier is één **audit**: een read-only AI-agent-run die de Software Factory elke ochtend
+om 08:00 oppakt. Een audit past **nooit zelf code aan** — hij onderzoekt, schrijft een rapport, en
+stelt hoogstens 1 kleine, afgebakende vervolg-story voor om het belangrijkste gevonden probleem op
+te lossen. Die vervolg-story is een gewone (niet-silent) story: vragen zijn toegestaan, goedkeuring
+is automatisch, en hij start in de wachtrij (`start-next`) i.p.v. meteen.
+
+Per project draait **hoogstens 1 audit per nacht**: de scheduler kiest per project de enabled audit
+met de oudste laatste-rapport-timestamp (nooit gedraaid = oudste), zodat alle geconfigureerde
+audits om beurten aan bod komen.
 
 ## Structuur
 
 ```
-.factory/nightly/<job-naam>/
+.factory/nightly/<audit-naam>/
   job.yaml         # metadata (titel, aan/uit, AI-instellingen)
-  story.md         # de story-beschrijving die de agent uitvoert
-  subtasks.yaml    # geordende lijst subtaken (uitvoervolgorde)
-  <titel>.md       # één beschrijving per AI-subtaak, bestandsnaam == title
+  prompt.md         # de vaste audit-instructie die de agent uitvoert
 ```
 
 ## job.yaml
 
 | veld        | verplicht | uitleg |
 |-------------|-----------|--------|
-| `title`     | ja        | titel van de aangemaakte story |
-| `enabled`   | ja        | `false` = job overslaan zonder hem te verwijderen |
-| `silent`    | ja        | altijd `true` voor nachtelijke jobs (autonoom; vragen → error) |
+| `title`     | ja        | titel van de audit (gebruikt in het dashboard/rapport) |
+| `enabled`   | ja        | `false` = audit overslaan zonder hem te verwijderen |
 | `aiSupplier`| nee       | bv. `claude`; anders de default van de factory |
 | `aiModel`   | nee       | specifiek model |
 | `priority`  | nee       | voor latere volgorde-bepaling (nu nog niet gebruikt) |
 
 De **repo** wordt hier niet gezet: die volgt uit de repo waarin deze map staat.
-Het **ritme** (nachtelijk) volgt uit deze `nightly/`-map.
 
-## subtasks.yaml
+## prompt.md
 
-`subtasks.yaml` bepaalt uit welke subtaken de story bestaat en in welke volgorde ze draaien;
-daarmee slaat de factory de refine- en plan-fase over. Het bestand is **volledig leidend**:
-precies de opgesomde subtaken, niet meer en niet minder.
+De vaste instructie voor de auditor-agent: wat te onderzoeken. De agent krijgt er automatisch bij:
+de laatste eerdere rapporten voor deze audit (historische context, incl. score-trend indien
+aanwezig) en zijn eigen memory-tips van vorige keren (via het knowledge-domein van de
+software-factory — rol `auditor`, category = audit-naam).
 
-Het bevat een top-level `subtasks:`-lijst; elke entry heeft een `type` en een `title`. De
-volgorde in het bestand is de uitvoervolgorde. De standaardketen per job is:
+De agent sluit af met een JSON-besluit: `{"phase":"audited"}`, optioneel aangevuld met `score`,
+`scoreLabel` en/of `proposedStory` (titel + beschrijving, hoogstens 1 per run).
 
-```
-development → review → test → summary → documentation → merge → deploy
-```
+## Regel voor álle audits
 
-Geldige `type`-waarden: `development`, `review`, `test`, `summary`, `documentation`, `merge`,
-`deploy`, `manual-approve`. Het projectgedrag (bv. `merge` = handmatig, `deploy` =
-openshift-watch) komt uit `projects.yaml` in de software-factory-repo en wordt hier niet herhaald.
+Functioneel niets veranderen — een audit **wijzigt geen code, maakt geen commits, geen PR**. Bij
+onduidelijkheid rapporteert de audit dat gewoon; hij is nooit interactief.
 
-## Subtaak-beschrijvingen (`<titel>.md`)
+## Geschiedenis
 
-Voor elke AI-subtaak (`development`, `review`, `test`, `summary`, `documentation`) staat in de
-jobmap een beschrijvingsbestand waarvan de bestandsnaam **exact** gelijk is aan de `title` uit
-`subtasks.yaml` (bv. titel `Werk documentatie bij` → bestand `Werk documentatie bij.md`). De
-`development`-`.md` draagt de inhoud van `story.md`; de overige beschrijven de generieke stap.
-Subtaken van type `merge` en `deploy` krijgen **geen** `.md`.
-
-## Regel voor álle nachtelijke jobs
-
-Functioneel niets veranderen. Zolang alle tests slagen mag de job autonoom afgerond worden;
-faalt iets, of is er een echte inhoudelijke vraag, dan gaat de story in error.
+Tot medio 2026 waren dit "nachtelijke jobs" die zelf code aanpasten (tot en met automerge/deploy),
+via een `story.md`+`subtasks.yaml`-config. Dat bleek achteraf de verkeerde vorm: eigenlijk was het
+een audit, geen ontwikkelwerk. Vervangen door bovenstaande opzet.
