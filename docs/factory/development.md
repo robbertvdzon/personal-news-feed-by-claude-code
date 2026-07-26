@@ -18,17 +18,23 @@ devcontainer exec --workspace-folder . zsh
 cd newsfeedbackend/newsfeedbackend
 mvn -DskipTests package
 
-# Unit-tests (huidige suite: enkele JUnit/Kotlin-tests onder src/test/kotlin)
+# Unit-tests + ModuleStructureTest (snel, geen Docker; sluit **/e2e/** uit)
 mvn test
 
-# Eén specifieke test draaien (indien aanwezig), bijv. een Spring Modulith-verificatietest:
+# E2e-suite erbij (Testcontainers/Docker vereist, elke e2e-klasse in eigen JVM-fork)
+mvn verify
+
+# Eén specifieke test draaien, bijv. de Spring Modulith-verificatietest:
 # mvn test -Dtest=ModuleStructureTest
 ```
 
-> Let op: de repo bevat momenteel alleen een beperkt aantal unit-tests; de
-> Cucumber/WireMock-integratietests en een `ModuleStructureTest` zijn nog niet
-> aanwezig (de dependencies staan wel in `pom.xml`). Zie
-> `specs/backend-technical-spec.md` §7.
+> `mvn test` (surefire) draait de unit-tests plus `ModuleStructureTest`
+> (Spring Modulith-verificatie, lege allowlist). `mvn verify` (failsafe)
+> draait daarnaast de e2e-suite onder `src/test/kotlin/.../e2e/` (Testcontainers-Postgres,
+> echte Flyway-migraties, alleen externe diensten gefaked) — zie
+> `specs/backend-technical-spec.md` §7. De Cucumber/WireMock-dependencies staan
+> nog in `pom.xml`, maar lijken ongebruikt (geen feature-bestanden/stubs
+> gevonden); de e2e-strategie is in de praktijk vervangen door Testcontainers.
 
 ### Frontend (Flutter)
 
@@ -57,7 +63,7 @@ Of via IntelliJ (open `newsfeedbackend/newsfeedbackend/` als project).
 
 - **Maven-root**: open altijd `newsfeedbackend/newsfeedbackend/` als IntelliJ-projectroot.
 - **OpenAPI-first**: wijzig eerst `specs/openapi.yaml`, daarna de met de hand geschreven Kotlin-`@RestController`-implementatie, en houd beide consistent. Er is geen code-generatiestap (geen OpenAPI Generator-plugin in `pom.xml`).
-- **Spring Modulith**: modules communiceren alleen via publieke service-interfaces of Spring Application Events. Een `ModuleStructureTest` (`ApplicationModules…verify()`) die dit afdwingt bestaat nog niet in de repo (zie `specs/backend-technical-spec.md` §7); voeg er een toe als modulegrenzen geborgd moeten worden.
+- **Spring Modulith**: modules communiceren alleen via publieke service-interfaces of Spring Application Events. `ModuleStructureTest` (`ApplicationModules…verify()`, lege allowlist) dwingt dit af en draait bij elke `mvn test` (zie `specs/backend-technical-spec.md` §7); raadpleeg/pas die test aan bij nieuwe modulegrens-schendingen in plaats van een nieuwe test toe te voegen.
 - **Flyway**: nieuwe database-wijzigingen toevoegen als `V{n+1}__beschrijving.sql` in `src/main/resources/db/migration/`.
 - **Branches**: prefix `ai/` voor factory-branches (bv. `ai/PNF-2`).
 - **Commits**: Nederlandstalige of Engelstalige boodschappen; geen force-push naar main.
@@ -65,11 +71,20 @@ Of via IntelliJ (open `newsfeedbackend/newsfeedbackend/` als project).
 ## Tests draaien
 
 ```bash
-# Alle tests (vereist lokale database-verbinding via PNF_DATABASE_URL)
+# Snel: unit-tests + ModuleStructureTest, geen Docker nodig
 cd newsfeedbackend/newsfeedbackend
 mvn test
+
+# Incl. e2e-suite (Testcontainers/Docker vereist), zoals ook geconfigureerd
+# in .factory/verification.yaml (command backend-maven-verify)
+mvn verify
 ```
 
-De Cucumber- en WireMock-dependencies staan in `pom.xml`, maar er zijn momenteel
-nog **geen** feature-bestanden, step-definitions of WireMock-stubs in de repo; de
-actuele testsuite bestaat uit enkele unit-tests (zie `specs/backend-technical-spec.md` §7).
+`mvn test` (surefire) draait alleen de snelle unit-tests + `ModuleStructureTest`
+en sluit `**/e2e/**` uit. `mvn verify` (failsafe) draait daarnaast de
+e2e-suite onder `src/test/kotlin/.../e2e/` (10 testklassen, o.a.
+`RssRefreshE2eTest`/`SettingsE2eTest`/`EventsE2eTest`, harnas
+`E2eTestBase`/`E2eTestConfig`, fakes `FakeOpenAiChatClient`/`FakeContentServer`) —
+zie `specs/backend-technical-spec.md` §7. De Cucumber- en WireMock-dependencies
+staan nog in `pom.xml`, maar lijken ongebruikt (geen feature-bestanden,
+step-definitions of WireMock-stubs gevonden).
