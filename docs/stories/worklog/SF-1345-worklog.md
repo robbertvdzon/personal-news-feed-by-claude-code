@@ -127,3 +127,38 @@ stond al volledig op de branch. Geverifieerd:
   (Testcontainers-e2e) kon niet lokaal herbevestigd worden — de fix is qua
   code/wiring geverifieerd, de definitieve bevestiging dat de e2e-suite nu
   groen is moet via de factory-harness (die wel Docker heeft) komen.
+
+## Review (SF-1346, 2026-07-27)
+
+Volledige story-diff t.o.v. `main` beoordeeld (`common/SsrfUrlValidator.kt`,
+`RssFetcher.fetch()`, `SettingsServiceImpl.saveRssFeeds`, `specs/openapi.yaml`,
+alle nieuwe/aangepaste tests). Bevindingen:
+
+- Scheme-, IP-range- (loopback/link-local/RFC1918/IPv6-ULA/multicast) en
+  fail-closed-logica in `SsrfUrlValidator` correct en volledig getest (22
+  tests, incl. IPv4-mapped-IPv6-bypass en meerdere-adressen-conservatief).
+  `allowLoopback` is default `false` en enkel op `true` gezet in
+  `E2eTestBase` (@DynamicPropertySource) — geen productierisico.
+- `SettingsServiceImpl.saveRssFeeds` gooit `BadRequestException` bij
+  afwijzing (→ 400 via bestaande `GlobalExceptionHandler`), niets opgeslagen.
+  `specs/openapi.yaml` is bijgewerkt met de 400-response en beschrijving.
+- `RssFetcher.fetch()`: SSRF-validatie zit ná het bouwen van het
+  `HttpRequest` maar vóór `http.send(...)` — voor scheme-afwijzingen (bv.
+  `file:`) gooit `HttpRequest.newBuilder().uri(...)` zelf al een
+  `IllegalArgumentException` (bestaand generiek catch-pad), dus de nieuwe
+  SSRF-scheme-check is voor dat geval technisch overbodig; het IP-gebaseerde
+  pad (loopback/private/etc.) wordt wel degelijk via de nieuwe validator
+  afgehandeld (geverifieerd door `RssFetcherSsrfTest` te draaien — logregel
+  "blocked SSRF-risky URL" verschijnt voor 127.0.0.1/10.0.0.5). Geen
+  functioneel gat, wel non-blocking [info].
+- Geen Spring Modulith-schendingen: `SsrfUrlValidator` staat op root-niveau
+  van `common`, conform bestaande conventie (`Exceptions.kt`).
+- Gericht gedraaid: `mvn test` in `newsfeedbackend/newsfeedbackend` — BUILD
+  SUCCESS, 65 tests, 0 failures/errors, 0 skipped (incl.
+  `SsrfUrlValidatorTest` 22, `SettingsServiceImplSaveRssFeedsTest` 3,
+  `RssFetcherSsrfTest` 3, `ModuleStructureTest` groen). Docker niet
+  beschikbaar in deze sandbox, dus `mvn verify` (e2e) niet lokaal herhaald —
+  de story bereikte fase "reviewing" via de factory-verify-gate
+  (`backend-maven-verify`), dus dat bewijs is al elders geleverd.
+
+Oordeel: akkoord, geen blockers.
