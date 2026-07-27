@@ -7,7 +7,7 @@ Vereiste environment-variabelen voor lokaal draaien van de backend. Zet echte wa
 | Variabele | Doel | Hoe te verkrijgen |
 |-----------|------|------------------|
 | `PNF_DATABASE_URL` | PostgreSQL connection string | Neon dashboard → connection string, bv. `jdbc:postgresql://ep-xxx.neon.tech/neondb?user=…&password=…&sslmode=require` |
-| `JWT_SECRET` | JWT signing key (≥ 32 tekens) | `openssl rand -base64 48` |
+| `APP_JWT_SECRET` | JWT signing key (≥ 32 tekens) | `openssl rand -base64 48` |
 | `PNF_OPENAI_API_KEY` | OpenAI API-sleutel (alle AI-tekst, transcriptie, TTS) | platform.openai.com → API Keys |
 | `PNF_TAVILY_API_KEY` | Tavily websearch-sleutel | app.tavily.com → API Keys |
 | `PNF_ELEVENLABS_API_KEY` | ElevenLabs TTS-sleutel (optioneel) | elevenlabs.io → Profile → API Key |
