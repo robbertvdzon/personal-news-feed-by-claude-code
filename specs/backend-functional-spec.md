@@ -493,6 +493,24 @@ Gewone HTTP GET-requests naar door de gebruiker geconfigureerde RSS-feed URLs.
 - Publicatiedatums worden geparsed in diverse formaten
 - Artikelen ouder dan 4 dagen worden gefilterd
 
+**SSRF-hardening (SF-1345):** elke feed-URL wordt gevalideerd voordat er een
+server-side fetch naartoe gaat — alleen `http`/`https` toegestaan, en de host
+mag niet resolven naar een loopback-, link-local-, private- (RFC1918/ULA) of
+multicast-adres. Dit gebeurt op twee plekken:
+- **Bij opslaan** (`PUT /api/rss-feeds`, in `SettingsServiceImpl.saveRssFeeds`):
+  bij afwijzing → HTTP 400 met een Nederlandse foutmelding, niets wordt
+  opgeslagen.
+- **Vlak vóór elke fetch** (`RssFetcher.fetch()`), met een verse DNS-resolutie
+  op dat moment — dekt DNS-rebinding af (een URL die bij opslaan nog geldig
+  was maar inmiddels naar een privé-adres resolvet). Bij afwijzing wordt er
+  geen HTTP-request verstuurd; de fetch wordt behandeld als een gewone
+  fetch-fout (`status="error"`, lege itemlijst, gelogd via `logFetch`).
+
+Buiten scope: `PodcastFeedFetcher` (podcast-RSS-bronnen, §6.4) heeft deze
+validatie nog niet — apart vervolgticket. Ook wordt SSRF-via-redirect (een
+server die pas ná validatie via een 3xx naar een privé-adres doorstuurt) niet
+tegengehouden — bekend restrisico, `HttpClient.Redirect.ALWAYS` is ongewijzigd.
+
 ---
 
 ## 8. Configuratie
@@ -531,6 +549,7 @@ Alle configuratie via `application.properties` of omgevingsvariabelen.
 ## 10. Foutafhandeling & Grenzen
 
 - **RSS-verwerking:** Als de AI-aanroep mislukt voor één artikel, wordt dat artikel overgeslagen; verwerking gaat door.
+- **RSS SSRF-afwijzing (SF-1345):** wijst de defense-in-depth-check in `RssFetcher.fetch()` een feed-URL af (zie §7.5), dan wordt die feed als `status="error"` gelogd en levert de fetch een lege itemlijst op — geen exception richting de caller/scheduler.
 - **Podcast:** Bij een fout in een van de stappen wordt de podcast gemarkeerd als `FAILED`. Ook als de TTS-fase geen audio oplevert (alle segmenten faalden of het script bevatte geen INTERVIEWER/GAST-regels) wordt de podcast `FAILED`, niet `DONE`.
 - **Ad-hoc verzoek:** Bij een fatale fout wordt het verzoek gemarkeerd als `FAILED`.
 - **Annulering:** Verzoeken kunnen geannuleerd worden; de verwerking stopt bij het eerstvolgende controlepunt.
