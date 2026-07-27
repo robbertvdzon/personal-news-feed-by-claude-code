@@ -87,6 +87,12 @@ class SettingsServiceImpl(
     override fun getPodcastFeeds(username: String): PodcastFeedsSettings = podcastFeedsRepo.load(username)
 
     override fun savePodcastFeeds(username: String, settings: PodcastFeedsSettings): PodcastFeedsSettings {
+        settings.feeds.map { it.url }.forEach { url ->
+            val result = SsrfUrlValidator.validate(url, allowLoopback = ssrfAllowLoopback)
+            if (result is SsrfUrlValidator.ValidationResult.Invalid) {
+                throw BadRequestException("Ongeldige podcast-feed-URL '$url': ${result.reason}")
+            }
+        }
         podcastFeedsRepo.save(username, settings)
         return settings
     }

@@ -268,6 +268,21 @@ Variaties:
 
 **Validatie bij toevoegen:** `PUT /api/podcast-feeds` toetst nieuwe URLs synchroon door één feed-fetch te doen. Faalt die binnen ~10s → HTTP 400 met Nederlandse foutmelding ("Kon feed niet ophalen: ..."). Bestaande URLs worden niet hertoetst.
 
+**SSRF-hardening (SF-1387):** analoog aan de RSS-feeds (§7.5) wordt elke
+podcast-feed-URL gevalideerd via `SsrfUrlValidator` — alleen `http`/`https`
+toegestaan, en de host mag niet resolven naar een loopback-, link-local-,
+private- (RFC1918/ULA) of multicast-adres. Op twee plekken:
+- **Bij opslaan** (`PUT /api/podcast-feeds`, in `SettingsServiceImpl.savePodcastFeeds`):
+  bij afwijzing → HTTP 400 met een Nederlandse foutmelding, niets wordt opgeslagen.
+- **Vlak vóór elke fetch** (`PodcastFeedFetcher.fetch()`), met een verse
+  DNS-resolutie op dat moment (dekt DNS-rebinding af). Bij afwijzing wordt
+  er geen HTTP-request verstuurd; de fetch levert `FetchResult(ok=false)` op
+  met een `errorMessage` die "geblokkeerd" bevat, gelogd als `status="error"`.
+
+Hiermee is de eerdere uitzondering uit §7.5 ("Buiten scope: `PodcastFeedFetcher`
+heeft deze validatie nog niet") vervallen — beide feed-fetchers zijn nu gelijk
+gehard.
+
 **Kosten:** ~$0.05 per aflevering (Whisper $0.006/min × ~7 min + AI-samenvatting ~$0.011). Gelogd in `external_calls` als `podcast_transcribe`, `podcast_episode_summarize`, `podcast_audio_download`, `podcast_feed_fetch`.
 
 **KAN-62 retroactieve verrijking ([PodcastBackfillRunner]):** bij elke app-start scant een achtergrond-runner alle `podcast_episodes` met `status=DONE`, `summary_source='transcript'` en `long_summary IS NULL` en draait de AI opnieuw op het al opgeslagen transcript om alsnog `long_summary` + `key_takeaways` te vullen. Geen nieuwe Whisper-call — transcript zit al in DB. Tempo: 5 seconden pauze tussen AI-calls (single-threaded, daemon-thread) zodat een lopende backfill nieuwe live-podcast-ingest niet blokkeert en de OpenAI-quota gespaard blijven. Voor 14 bestaande rijen ≈ 8 min totaal. Idempotent — een tweede run vindt geen werk meer.
@@ -506,10 +521,11 @@ multicast-adres. Dit gebeurt op twee plekken:
   geen HTTP-request verstuurd; de fetch wordt behandeld als een gewone
   fetch-fout (`status="error"`, lege itemlijst, gelogd via `logFetch`).
 
-Buiten scope: `PodcastFeedFetcher` (podcast-RSS-bronnen, §6.4) heeft deze
-validatie nog niet — apart vervolgticket. Ook wordt SSRF-via-redirect (een
-server die pas ná validatie via een 3xx naar een privé-adres doorstuurt) niet
-tegengehouden — bekend restrisico, `HttpClient.Redirect.ALWAYS` is ongewijzigd.
+`PodcastFeedFetcher` (podcast-RSS-bronnen, §6.4) is sinds SF-1387 op dezelfde
+manier gehard. Ook wordt SSRF-via-redirect (een server die pas ná validatie
+via een 3xx naar een privé-adres doorstuurt) niet tegengehouden — bekend
+restrisico, `HttpClient.Redirect.ALWAYS` is ongewijzigd (geldt voor zowel
+`RssFetcher` als `PodcastFeedFetcher`).
 
 ---
 
@@ -550,6 +566,7 @@ Alle configuratie via `application.properties` of omgevingsvariabelen.
 
 - **RSS-verwerking:** Als de AI-aanroep mislukt voor één artikel, wordt dat artikel overgeslagen; verwerking gaat door.
 - **RSS SSRF-afwijzing (SF-1345):** wijst de defense-in-depth-check in `RssFetcher.fetch()` een feed-URL af (zie §7.5), dan wordt die feed als `status="error"` gelogd en levert de fetch een lege itemlijst op — geen exception richting de caller/scheduler.
+- **Podcast-feed SSRF-afwijzing (SF-1387):** wijst de defense-in-depth-check in `PodcastFeedFetcher.fetch()` een feed-URL af (zie §6.4), dan wordt de externe call als `status="error"` gelogd en levert de fetch `FetchResult(ok=false, errorMessage bevat "geblokkeerd")` op — geen HTTP-request, geen exception richting de caller.
 - **Podcast:** Bij een fout in een van de stappen wordt de podcast gemarkeerd als `FAILED`. Ook als de TTS-fase geen audio oplevert (alle segmenten faalden of het script bevatte geen INTERVIEWER/GAST-regels) wordt de podcast `FAILED`, niet `DONE`.
 - **Ad-hoc verzoek:** Bij een fatale fout wordt het verzoek gemarkeerd als `FAILED`.
 - **Annulering:** Verzoeken kunnen geannuleerd worden; de verwerking stopt bij het eerstvolgende controlepunt.

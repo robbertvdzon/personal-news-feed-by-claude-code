@@ -305,6 +305,8 @@ sluiten de e2e-suite uit (`**/e2e/**`). De suite in
 - `podcast/domain/PodcastScriptParserTest.kt` — parser van INTERVIEWER/GAST-scripts
 - `common/SsrfUrlValidatorTest.kt` — scheme-afwijzing, elke geblokkeerde IP-range-categorie, geldige publieke URL, niet-resolvebare host (SF-1345)
 - `settings/domain/SettingsServiceImplSaveRssFeedsTest.kt` — `saveRssFeeds` wijst ongeldige/SSRF-risicovolle feed-URLs af vóór opslag (SF-1345)
+- `podcast_source/PodcastFeedFetcherSsrfTest.kt` — SSRF-defense-in-depth-check vlak vóór `http.send(...)` in `PodcastFeedFetcher.fetch()` (SF-1387)
+- `settings/domain/SettingsServiceImplSavePodcastFeedsTest.kt` — `savePodcastFeeds` wijst ongeldige/SSRF-risicovolle feed-URLs af vóór opslag (SF-1387)
 
 Daarnaast draait bij elke `mvn test` ook `ModuleStructureTest.kt` —
 `ApplicationModules.of(Application::class.java).verify()` met een lege
