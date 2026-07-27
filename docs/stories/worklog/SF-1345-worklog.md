@@ -162,3 +162,60 @@ alle nieuwe/aangepaste tests). Bevindingen:
   (`backend-maven-verify`), dus dat bewijs is al elders geleverd.
 
 Oordeel: akkoord, geen blockers.
+
+## Test (SF-1347, 2026-07-27)
+
+Story-brede test uitgevoerd tegen preview `pnf-pr-187`
+(`https://pnf-pr-187.vdzonsoftware.nl`). Backend-only wijziging (geen
+frontend-diff), dus getest via directe API-calls i.p.v. browser/Playwright —
+conform de bestaande aanpak voor backend-only stories.
+
+- `TESTER_USERNAME`/`TESTER_PASSWORD` niet leesbaar (SA
+  `system:serviceaccount:agent-access:claude-agent` krijgt `Forbidden` op
+  `oc get secret newsfeed-api-keys -n pnf-pr-187`, zoals eerder gezien in
+  agent-tip `pnf-agent-local-sa-no-secret-read-fallback`) → teruggevallen op
+  wegwerp-account `tester_sf-1345` (POST `/api/auth/register` → 201), aan het
+  eind opgeruimd met `DELETE /api/account/me` (200, `deleted:true`).
+- **AC1** (non-http scheme): `PUT /api/rss-feeds` met `file:///etc/passwd` →
+  HTTP 400, `error`-veld met NL-melding "alleen http/https-URLs zijn
+  toegestaan"; niets opgeslagen.
+- **AC2** (geblokkeerde IP-ranges), elk los getest en HTTP 400 met correcte
+  categorie in de foutmelding:
+  - loopback `http://127.0.0.1/feed.xml` → "loopback: 127.0.0.1"
+  - private RFC1918 `http://10.0.0.5/feed.xml` → "private: 10.0.0.5"
+  - private RFC1918 `http://192.168.1.1/x` → "private: 192.168.1.1"
+  - link-local `http://169.254.169.254/latest/meta-data` → "link-local:
+    169.254.169.254" (bevestigt ook dat de AWS/GCP metadata-endpoint-vector
+    geblokkeerd is)
+  - In alle gevallen: instellingen niet opgeslagen (geverifieerd met
+    vervolg-GET, zie hieronder).
+- **AC3** (geldige publieke URL): `PUT /api/rss-feeds` met
+  `https://feeds.bbci.co.uk/news/rss.xml` → HTTP 200, feed opgeslagen;
+  vervolgende `GET /api/rss-feeds` bevestigt persistentie.
+- Niet-opslaan-bij-afwijzing extra bevestigd: na de succesvolle AC3-save een
+  gemengde array `["https://example.com/rss.xml","http://192.168.1.1/x"]`
+  gestuurd → HTTP 400, en de daaropvolgende `GET` toont nog steeds de oude
+  waarde (`feeds.bbci.co.uk`) — geen partiële/foutieve overschrijving.
+- **AC4** (defense-in-depth in `RssFetcher.fetch()`): niet end-to-end via de
+  scheduler getest (geen HTTP-response-pad om te observeren), maar bevestigd
+  via `mvn test -Dtest=RssFetcherSsrfTest` (3/3 groen) — logregel "blocked
+  SSRF-risky URL" verschijnt voor zowel `127.0.0.1` als `10.0.0.5`, lege
+  lijst wordt geretourneerd, geen daadwerkelijke HTTP-request.
+- **AC5** (geen regressie): `RssFetcherImageUrlTest` (bestaande suite) blijft
+  groen — parsing/itemlogica ongewijzigd.
+- **AC6** (unit test-dekking): `mvn test` in
+  `newsfeedbackend/newsfeedbackend` — BUILD SUCCESS, 65/65 tests groen, 0
+  failures/errors/skipped, incl. `SsrfUrlValidatorTest` (22, alle
+  IP-categorieën + scheme + niet-resolvebare host + geldige URL),
+  `SettingsServiceImplSaveRssFeedsTest` (3), `RssFetcherSsrfTest` (3),
+  `ModuleStructureTest` (groen, geen Modulith-schending).
+- `mvn verify` (Testcontainers-e2e) niet lokaal gedraaid: Docker-daemon
+  ontbreekt in deze omgeving (`docker: command not found`), consistent met
+  eerdere runs op deze branch. Het deterministische vangnet
+  (`.factory/verification.yaml`) draait dit automatisch na deze
+  test-subtaak; niet gedupliceerd.
+
+Geen bugs gevonden. Alle acceptatiecriteria geverifieerd tegen de levende
+preview (behalve AC4, dat via de bestaande gerichte unit-test bevestigd is
+omdat de scheduler-flow geen extern waarneembaar HTTP-pad heeft) en tegen de
+volledige unit-testsuite. Oordeel: `tested`.
