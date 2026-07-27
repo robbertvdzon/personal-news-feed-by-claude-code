@@ -61,3 +61,13 @@ Done / rationale:
   (Testcontainers-e2e) kon niet lokaal draaien — geen backend-e2e-tests geraakt
   door deze wijziging (alleen `rss`/`settings`-unit-tests en de gedeelde
   `common`-utility).
+
+## SF-1346 (developer, duplicaat-pickup)
+
+Subtaak `SF-1346` had exact dezelfde scope/beschrijving als deze al afgeronde
+SF-1345-run (zie hierboven). Bij pickup was de implementatie
+(`common/SsrfUrlValidator.kt`, `SettingsServiceImpl.saveRssFeeds`,
+`RssFetcher.fetch()`, 63 tests) al volledig aanwezig op de branch. Geen
+code-wijziging nodig; alleen opnieuw geverifieerd — `mvn test`: BUILD SUCCESS,
+63 tests, 0 failures/errors. Docker was ook in deze run niet beschikbaar,
+dus `mvn verify` (e2e) is niet lokaal gedraaid.
