@@ -89,3 +89,13 @@ Wederom dezelfde SF-1346-scope binnengekomen op deze branch (2026-07-27).
 `SsrfUrlValidator`. Alleen opnieuw geverifieerd: `mvn test` — BUILD SUCCESS,
 63 tests, 0 failures/errors, 0 skipped. Docker (`docker info`) was ook nu niet
 beschikbaar, dus `mvn verify` (Testcontainers-e2e) is niet lokaal gedraaid.
+
+## Weer een developer-pickup (opnieuw dezelfde scope, 2026-07-27)
+
+Nogmaals dezelfde SF-1346-scope binnengekomen op deze branch. `git status`:
+working tree clean, geen wijzigingen nodig. Bevestigd dat `common/SsrfUrlValidator.kt`
+bestaat en aangeroepen wordt vanuit zowel `SettingsServiceImpl.saveRssFeeds` als
+`RssFetcher.fetch()` (vlak vóór `http.send`). Alleen opnieuw geverifieerd:
+`mvn test` — BUILD SUCCESS, 63 tests, 0 failures/errors, 0 skipped. Docker
+(`docker info`) was ook nu niet beschikbaar, dus `mvn verify` (Testcontainers-e2e)
+is niet lokaal gedraaid.
