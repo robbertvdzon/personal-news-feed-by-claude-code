@@ -23,3 +23,14 @@ Done / rationale:
 - `mvn test`: BUILD SUCCESS, 37 tests, 0 failures/errors (ongewijzigd t.o.v. acceptatiecriterium).
 - Docker niet beschikbaar in deze run, dus `mvn verify` (e2e/Testcontainers) niet lokaal gedraaid;
   niet nodig voor deze mechanische rename, main-code wijziging raakt geen e2e-paden.
+
+Tester-verificatie (SF-1340):
+- Diff-scope bevestigd: exact de 10 genoemde main-bestanden + worklog gewijzigd, geen
+  test-/e2e-bestanden geraakt. Per-bestand `.asString(` telling (1/1/2/8/3/5/3/2/3/6) = 34,
+  komt overeen met de story-claim. `grep -rn '.asText(' src/main` levert 0 hits.
+- `mvn clean compile`: BUILD SUCCESS, 0 warnings (geen enkele asText-deprecation meer in main).
+- `mvn clean test`: BUILD SUCCESS, 37 tests, 0 failures/errors, 0 skipped — exact conform
+  acceptatiecriterium. Resterende asText-deprecation-warnings in de output komen uitsluitend uit
+  `src/test/kotlin/.../e2e/*.kt` (bewust buiten scope, ongewijzigd).
+- Geen frontend/UI-impact (pure backend JsonNode-rename, geen publiek gedrag gewijzigd) → geen
+  preview/browser-test nodig, conform eerdere backend-only precedenten.
