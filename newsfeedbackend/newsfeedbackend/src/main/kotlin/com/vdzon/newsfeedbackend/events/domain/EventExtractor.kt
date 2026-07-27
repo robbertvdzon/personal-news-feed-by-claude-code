@@ -241,18 +241,18 @@ class EventExtractor(
                 return emptyList()
             }
             tree.mapNotNull { node ->
-                val name = node.path("name").asText("").trim()
+                val name = node.path("name").asString("").trim()
                 if (name.isBlank()) return@mapNotNull null
-                val rawId = node.path("id").asText("").ifBlank { name }
+                val rawId = node.path("id").asString("").ifBlank { name }
                 Event(
                     id = normalizeId(rawId),
                     name = name,
-                    organization = node.path("organization").asText(null)?.ifBlank { null },
-                    startDate = node.path("startDate").asText(null)?.ifBlank { null },
-                    endDate = node.path("endDate").asText(null)?.ifBlank { null },
-                    location = node.path("location").asText(""),
-                    description = node.path("description").asText(""),
-                    sourceLinks = node.path("sourceLinks").mapNotNull { it.asText(null) }.filter { it.isNotBlank() },
+                    organization = node.path("organization").asString(null)?.ifBlank { null },
+                    startDate = node.path("startDate").asString(null)?.ifBlank { null },
+                    endDate = node.path("endDate").asString(null)?.ifBlank { null },
+                    location = node.path("location").asString(""),
+                    description = node.path("description").asString(""),
+                    sourceLinks = node.path("sourceLinks").mapNotNull { it.asString(null) }.filter { it.isNotBlank() },
                     category = defaultCategory
                 )
             }

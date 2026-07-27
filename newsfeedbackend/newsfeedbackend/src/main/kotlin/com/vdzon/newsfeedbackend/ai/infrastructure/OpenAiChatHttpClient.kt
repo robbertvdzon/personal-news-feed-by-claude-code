@@ -177,7 +177,7 @@ class OpenAiChatHttpClient(
                 return OpenAiChatResponse("", 0, 0, 0.0, model, "error", "HTTP $code: ${errBody.take(160)}")
             }
             val tree = mapper.readTree(resp.body())
-            val text = tree.path("choices").path(0).path("message").path("content").asText("")
+            val text = tree.path("choices").path(0).path("message").path("content").asString("")
             val usage = tree.path("usage")
             val inputTokens = usage.path("prompt_tokens").asInt(0)
             val outputTokens = usage.path("completion_tokens").asInt(0)

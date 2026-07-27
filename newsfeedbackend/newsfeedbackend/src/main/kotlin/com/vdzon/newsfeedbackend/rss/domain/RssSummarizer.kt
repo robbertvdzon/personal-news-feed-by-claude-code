@@ -51,9 +51,9 @@ class RssSummarizer(
         return try {
             val tree = mapper.readTree(AiJson.extract(ai.text))
             rss.copy(
-                summary = tree.path("summary").asText(""),
-                category = tree.path("category").asText("overig").ifBlank { "overig" },
-                topics = tree.path("topics").values().map { it.asText() },
+                summary = tree.path("summary").asString(""),
+                category = tree.path("category").asString("overig").ifBlank { "overig" },
+                topics = tree.path("topics").values().map { it.asString() },
                 processedAt = Instant.now()
             )
         } catch (e: Exception) {

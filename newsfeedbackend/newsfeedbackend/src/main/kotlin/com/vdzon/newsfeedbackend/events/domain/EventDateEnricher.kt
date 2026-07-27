@@ -84,8 +84,8 @@ class EventDateEnricher(
         )
         return try {
             val tree = mapper.readTree(AiJson.extract(ai.text))
-            val start = tree.path("startDate").asText(null)?.takeIf { it.isNotBlank() }
-            val end = tree.path("endDate").asText(null)?.takeIf { it.isNotBlank() }
+            val start = tree.path("startDate").asString(null)?.takeIf { it.isNotBlank() }
+            val end = tree.path("endDate").asString(null)?.takeIf { it.isNotBlank() }
             if (start == null || runCatching { LocalDate.parse(start) }.isFailure) {
                 ev
             } else {
