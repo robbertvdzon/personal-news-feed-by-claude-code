@@ -4,6 +4,7 @@ import com.rometools.rome.feed.synd.SyndEntry
 import com.rometools.rome.feed.synd.SyndFeed
 import com.rometools.rome.io.SyndFeedInput
 import com.rometools.rome.io.XmlReader
+import com.vdzon.newsfeedbackend.common.SsrfUrlValidator
 import com.vdzon.newsfeedbackend.external_call.ExternalCall
 import com.vdzon.newsfeedbackend.external_call.ExternalCallLogger
 import com.vdzon.newsfeedbackend.rss.RssItem
@@ -49,6 +50,15 @@ class RssFetcher(
                 .header("User-Agent", "PersonalNewsFeed/1.0")
                 .timeout(java.time.Duration.ofSeconds(20))
                 .GET().build()
+            // Defense-in-depth: verse DNS-resolutie vlak vóór het versturen,
+            // ook al is de URL al gevalideerd bij opslaan (dekt DNS-rebinding af).
+            val validation = SsrfUrlValidator.validate(feedUrl)
+            if (validation is SsrfUrlValidator.ValidationResult.Invalid) {
+                log.warn("[RSS] blocked SSRF-risky URL {}: {}", feedUrl, validation.reason)
+                status = "error"
+                errorMessage = "geblokkeerd: ${validation.reason}"
+                return emptyList()
+            }
             val resp = http.send(req, HttpResponse.BodyHandlers.ofInputStream())
             if (resp.statusCode() >= 400) {
                 log.warn("[RSS] {} -> {}", feedUrl, resp.statusCode())

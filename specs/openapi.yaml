@@ -197,6 +197,12 @@ paths:
       tags: [RSS Feeds]
       operationId: saveRssFeeds
       summary: Sla RSS-feed URLs op
+      description: |
+        Elke URL wordt vóór opslag SSRF-gevalideerd (SF-1345): alleen
+        `http`/`https`-schemes zijn toegestaan en de host mag niet naar een
+        loopback-, link-local-, private- (RFC1918/ULA) of multicast-adres
+        resolven. Bij afwijzing komt er HTTP 400 met een Nederlandse
+        foutmelding en wordt er niets opgeslagen.
       requestBody:
         required: true
         content:
@@ -210,6 +216,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RssFeedsSettings'
+        '400':
+          description: Ongeldige RSS-feed-URL (verboden scheme of niet-publiek adres, zie message-veld)
 
   # ── Podcast Feeds (KAN-56) ────────────────────────────────────────────────────
 

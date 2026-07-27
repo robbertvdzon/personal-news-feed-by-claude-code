@@ -1,5 +1,7 @@
 package com.vdzon.newsfeedbackend.settings.domain
 
+import com.vdzon.newsfeedbackend.common.BadRequestException
+import com.vdzon.newsfeedbackend.common.SsrfUrlValidator
 import com.vdzon.newsfeedbackend.settings.CategorySettings
 import com.vdzon.newsfeedbackend.settings.EventDenylist
 import com.vdzon.newsfeedbackend.settings.EventPreferences
@@ -67,6 +69,12 @@ class SettingsServiceImpl(
     override fun getRssFeeds(username: String): RssFeedsSettings = rssFeedsRepo.load(username)
 
     override fun saveRssFeeds(username: String, settings: RssFeedsSettings): RssFeedsSettings {
+        settings.feeds.forEach { url ->
+            val result = SsrfUrlValidator.validate(url)
+            if (result is SsrfUrlValidator.ValidationResult.Invalid) {
+                throw BadRequestException("Ongeldige RSS-feed-URL '$url': ${result.reason}")
+            }
+        }
         rssFeedsRepo.save(username, settings)
         return settings
     }
