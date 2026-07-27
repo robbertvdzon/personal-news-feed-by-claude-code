@@ -82,8 +82,8 @@ mvn verify
 
 `mvn test` (surefire) draait alleen de snelle unit-tests + `ModuleStructureTest`
 en sluit `**/e2e/**` uit. `mvn verify` (failsafe) draait daarnaast de
-e2e-suite onder `src/test/kotlin/.../e2e/` (10 testklassen, o.a.
-`RssRefreshE2eTest`/`SettingsE2eTest`/`EventsE2eTest`, harnas
+e2e-suite onder `src/test/kotlin/.../e2e/` (11 testklassen, o.a.
+`RssRefreshE2eTest`/`SettingsE2eTest`/`EventsE2eTest`/`EventVideosE2eTest`, harnas
 `E2eTestBase`/`E2eTestConfig`, fakes `FakeOpenAiChatClient`/`FakeContentServer`) —
 zie `specs/backend-technical-spec.md` §7. De Cucumber- en WireMock-dependencies
 staan nog in `pom.xml`, maar lijken ongebruikt (geen feature-bestanden,

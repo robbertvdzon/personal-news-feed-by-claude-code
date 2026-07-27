@@ -312,9 +312,10 @@ opgenomen in de allowlist, zie §3).
 ### E2e-testsuite (`mvn verify`)
 Naast de unit-tests bestaat er een e2e-suite onder
 `src/test/kotlin/com/vdzon/newsfeedbackend/e2e/`, o.a. `RssRefreshE2eTest`,
-`SettingsE2eTest`, `EventsE2eTest`, `AdminE2eTest`, `AuthE2eTest`, `FeedE2eTest`,
-`PodcastGenerationE2eTest`, `PodcastIngestE2eTest`, `RequestsE2eTest` en
-`SharedFeedE2eTest`. Het gedeelde harnas (`E2eTestBase`/`E2eTestConfig`) start
+`SettingsE2eTest`, `EventsE2eTest`, `EventVideosE2eTest`, `AdminE2eTest`,
+`AuthE2eTest`, `FeedE2eTest`, `PodcastGenerationE2eTest`,
+`PodcastIngestE2eTest`, `RequestsE2eTest` en `SharedFeedE2eTest`. Het gedeelde
+harnas (`E2eTestBase`/`E2eTestConfig`) start
 de volledige Spring-app tegen een echte PostgreSQL via Testcontainers (met
 echte Flyway-migraties); alleen de externe diensten zijn gefaked
 (`FakeOpenAiChatClient`, `FakeContentServer`).
