@@ -14,7 +14,7 @@
 
 | Dependency | Doel |
 |-----------|------|
-| `com.fasterxml.jackson.module:jackson-module-kotlin` + `com.fasterxml.jackson.datatype:jackson-datatype-jsr310` | JSON-serialisatie (Kotlin-support + Java-tijd) — `pom.xml` en alle imports gebruiken de `com.fasterxml.jackson`-groupId |
+| `tools.jackson.module:jackson-module-kotlin` | JSON-serialisatie (Jackson 3, Kotlin-support; java-time is ingebouwd, geen aparte `jackson-datatype-jsr310`-module meer) — `pom.xml` en vrijwel alle main-code-imports gebruiken de `tools.jackson`-groupId. Uitzondering: `jackson-annotations` (`@JsonProperty` e.d. in DTO's) blijft bewust onder het `com.fasterxml.jackson.annotation`-package (dat package is in Jackson 3 niet hernoemd). Los daarvan gebruikt `jjwt-jackson` (zie hieronder) intern nog Jackson 2 voor JWT-payloads — een bewuste, geïsoleerde afwijking, geen inconsistentie. |
 | `io.jsonwebtoken:jjwt-api` / `jjwt-impl` / `jjwt-jackson` | JWT aanmaken en valideren |
 | `com.rometools:rome` | RSS 2.0 en Atom feeds parsen |
 | `spring-boot-starter-websocket` | WebSocket support — **niet** WebFlux |
