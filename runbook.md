@@ -49,7 +49,8 @@ Data:  Postgres (Neon, extern) — audio-bytes sinds V5 óók in Postgres.
 - **GitOps:** ArgoCD synct elke commit op `main` vanaf `deploy/overlays/openshift`
   (→ `deploy/base`). Geen handmatige deploy-stap.
 - **PR-previews:** elke `ai/*`-PR krijgt `https://pnf-pr-<N>.vdzonsoftware.nl`
-  via een ArgoCD ApplicationSet (`deploy/applicationset.yaml`) + de
+  via een ArgoCD ApplicationSet (`robberts-infrastructure/manifests/root-app/apps/`,
+  zie `deploy/README.md` voor het volledige verhaal) + de
   `preview-ns-labeller` (Neon DB-branch per preview).
 
 ---
@@ -222,7 +223,8 @@ psql "$PSQL_URL" -c "SELECT count(*) FROM events WHERE username='robbert';"
     preview-labeller-image (`labeller-image.yml`).
   - Auth: `GITHUB_TOKEN` uit de secrets-file → `GH_TOKEN="$GITHUB_TOKEN" gh ...`.
 - **OpenShift** — SNO-lab, `oc login` met `OPENSHIFT_API_TOKEN` (zie §8).
-- **ArgoCD** — GitOps; Application `personal-news-feed` (`deploy/argocd-application.yaml`)
+- **ArgoCD** — GitOps; Application `personal-news-feed`
+  (`robberts-infrastructure/manifests/root-app/apps/`, zie `deploy/README.md`)
   in ns `argocd`/`openshift-gitops`. `prune: true`, `selfHeal: true`.
 - **Cloudflare Tunnel** — `cloudflared`-pod in de cluster, token `TUNNEL_TOKEN`.
   Public hostnames in het Cloudflare Zero-Trust dashboard → in-cluster services
@@ -276,9 +278,9 @@ oc rollout restart -n personal-news-feed deploy/frontend
 **Webapp openen/screenshotten:** `https://news.vdzonsoftware.nl` (full),
 `https://reader.vdzonsoftware.nl` (reader). Health: `/actuator/health`.
 
-**Preview hangt op "Pending":** waarschijnlijk raakte de PR alleen `specs/**` of
-`deploy/**` → geen image-build (path-filter in `build-images.yml`). Workaround:
-triviale commit in `newsfeedbackend/**` of `frontend/**`. Orphan-namespace
+**Preview hangt op "Pending":** de ArgoCD ApplicationSet pollt elke ~3 min
+GitHub voor nieuwe/gewijzigde PR's (zie `deploy/README.md`
+§"Preview-deploys per PR (S-06)") — even wachten lost dit meestal op. Orphan-namespace
 opruimen: `oc delete ns pnf-pr-<N>`.
 
 ---
