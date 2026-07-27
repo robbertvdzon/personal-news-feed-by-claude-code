@@ -1,5 +1,6 @@
 package com.vdzon.newsfeedbackend.podcast.domain
 
+import com.vdzon.newsfeedbackend.common.ConflictException
 import com.vdzon.newsfeedbackend.podcast.EpisodeLookup
 import com.vdzon.newsfeedbackend.podcast.Podcast
 import com.vdzon.newsfeedbackend.podcast.PodcastStatus
@@ -54,15 +55,15 @@ class PodcastTranslationServiceImpl(
 
     override fun startTranslation(username: String, episodeGuid: String): TranslationStart {
         val episode = episodeRepo.get(username, episodeGuid)
-            ?: throw TranslationException("Aflevering niet gevonden: $episodeGuid")
+            ?: throw ConflictException("Aflevering niet gevonden: $episodeGuid")
         if (episode.status != PodcastEpisodeStatus.DONE) {
             // AC: alleen actief wanneer Engels transcript klaar is.
-            throw TranslationException(
+            throw ConflictException(
                 "Aflevering is nog niet klaar (status=${episode.status}). Wacht tot het transcript verwerkt is."
             )
         }
         if (episode.transcript.isBlank()) {
-            throw TranslationException("Aflevering heeft (nog) geen transcript")
+            throw ConflictException("Aflevering heeft (nog) geen transcript")
         }
 
         val existing = podcastRepo.findByTranslatedFromEpisodeGuid(username, episodeGuid)
@@ -104,11 +105,3 @@ class PodcastTranslationServiceImpl(
         return TranslationStart(saved.id, saved.status.name, created = true)
     }
 }
-
-/**
- * Wordt door [PodcastTranslationServiceImpl] gegooid wanneer de aanvraag
- * niet door pre-validatie heen komt (geen aflevering, nog geen
- * transcript, etc.). [com.vdzon.newsfeedbackend.podcast.api.PodcastTranslationController]
- * vangt 'm en returnt HTTP 409 met de message.
- */
-class TranslationException(message: String) : RuntimeException(message)
