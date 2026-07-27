@@ -13,6 +13,7 @@ import com.vdzon.newsfeedbackend.settings.infrastructure.EventDenylistRepository
 import com.vdzon.newsfeedbackend.settings.infrastructure.EventPreferencesRepository
 import com.vdzon.newsfeedbackend.settings.infrastructure.PodcastFeedsRepository
 import com.vdzon.newsfeedbackend.settings.infrastructure.RssFeedsRepository
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Service
 
 @Service
@@ -21,7 +22,11 @@ class SettingsServiceImpl(
     private val rssFeedsRepo: RssFeedsRepository,
     private val podcastFeedsRepo: PodcastFeedsRepository,
     private val eventPreferencesRepo: EventPreferencesRepository,
-    private val eventDenylistRepo: EventDenylistRepository
+    private val eventDenylistRepo: EventDenylistRepository,
+    // Alleen "true" in de e2e-testomgeving (zie E2eTestBase) — de fake content-server
+    // draait per definitie op 127.0.0.1. Ontbreekt de property (elke echte omgeving),
+    // dan blijft loopback geblokkeerd zoals SsrfUrlValidator standaard doet.
+    @Value("\${app.security.ssrf.allow-loopback:false}") private val ssrfAllowLoopback: Boolean = false,
 ) : SettingsService {
 
     private val defaultCategories = listOf(
@@ -70,7 +75,7 @@ class SettingsServiceImpl(
 
     override fun saveRssFeeds(username: String, settings: RssFeedsSettings): RssFeedsSettings {
         settings.feeds.forEach { url ->
-            val result = SsrfUrlValidator.validate(url)
+            val result = SsrfUrlValidator.validate(url, allowLoopback = ssrfAllowLoopback)
             if (result is SsrfUrlValidator.ValidationResult.Invalid) {
                 throw BadRequestException("Ongeldige RSS-feed-URL '$url': ${result.reason}")
             }

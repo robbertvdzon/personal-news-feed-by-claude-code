@@ -28,7 +28,13 @@ object SsrfUrlValidator {
      */
     fun validate(
         url: String,
-        resolveHost: (String) -> List<InetAddress> = { host -> InetAddress.getAllByName(host).toList() }
+        resolveHost: (String) -> List<InetAddress> = { host -> InetAddress.getAllByName(host).toList() },
+        // Alleen true in de e2e-testomgeving (app.security.ssrf.allow-loopback), waar de
+        // fake content-server per definitie op 127.0.0.1 draait. Nooit true in productie —
+        // link-local/private/ULA/multicast blijven ook dan geblokkeerd. Laatste parameter (na
+        // resolveHost) + altijd named doorgegeven vanuit callers, zodat bestaande
+        // trailing-lambda call-sites voor resolveHost ongewijzigd blijven werken.
+        allowLoopback: Boolean = false,
     ): ValidationResult {
         val uri = try {
             URI(url)
@@ -56,7 +62,7 @@ object SsrfUrlValidator {
         }
 
         for (address in addresses) {
-            val reason = blockedReasonFor(address)
+            val reason = blockedReasonFor(address, allowLoopback)
             if (reason != null) {
                 return ValidationResult.Invalid(
                     "host '$host' resolvet naar een niet-toegestaan adres (${reason}: ${address.hostAddress})"
@@ -67,11 +73,11 @@ object SsrfUrlValidator {
         return ValidationResult.Valid
     }
 
-    private fun blockedReasonFor(address: InetAddress): String? {
+    private fun blockedReasonFor(address: InetAddress, allowLoopback: Boolean): String? {
         val normalized = normalize(address)
         return when {
             normalized.isAnyLocalAddress -> "wildcard"
-            normalized.isLoopbackAddress -> "loopback"
+            normalized.isLoopbackAddress -> if (allowLoopback) null else "loopback"
             normalized.isLinkLocalAddress -> "link-local"
             normalized.isSiteLocalAddress -> "private"
             isIpv6UniqueLocal(normalized) -> "unique-local (ULA)"

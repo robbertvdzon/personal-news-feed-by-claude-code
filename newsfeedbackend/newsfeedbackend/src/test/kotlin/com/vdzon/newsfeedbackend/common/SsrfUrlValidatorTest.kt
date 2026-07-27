@@ -11,13 +11,13 @@ class SsrfUrlValidatorTest {
 
     @Test
     fun `rejects non-http scheme`() {
-        val result = SsrfUrlValidator.validate("file:///etc/passwd") { emptyList() }
+        val result = SsrfUrlValidator.validate("file:///etc/passwd", resolveHost = { emptyList() })
         assertTrue(result is SsrfUrlValidator.ValidationResult.Invalid)
     }
 
     @Test
     fun `rejects ftp scheme`() {
-        val result = SsrfUrlValidator.validate("ftp://example.com/feed") { emptyList() }
+        val result = SsrfUrlValidator.validate("ftp://example.com/feed", resolveHost = { emptyList() })
         assertTrue(result is SsrfUrlValidator.ValidationResult.Invalid)
     }
 
@@ -116,21 +116,42 @@ class SsrfUrlValidatorTest {
 
     @Test
     fun `rejects non-resolvable host`() {
-        val result = SsrfUrlValidator.validate("http://this-host-does-not-resolve.invalid/feed") {
-            throw java.net.UnknownHostException("not found")
-        }
+        val result = SsrfUrlValidator.validate(
+            "http://this-host-does-not-resolve.invalid/feed",
+            resolveHost = { throw java.net.UnknownHostException("not found") },
+        )
         assertTrue(result is SsrfUrlValidator.ValidationResult.Invalid)
     }
 
     @Test
     fun `rejects malformed url`() {
-        val result = SsrfUrlValidator.validate("not a url") { emptyList() }
+        val result = SsrfUrlValidator.validate("not a url", resolveHost = { emptyList() })
         assertTrue(result is SsrfUrlValidator.ValidationResult.Invalid)
     }
 
     @Test
     fun `uses real dns resolution by default for loopback host`() {
         val result = SsrfUrlValidator.validate("http://localhost/feed")
+        assertTrue(result is SsrfUrlValidator.ValidationResult.Invalid)
+    }
+
+    @Test
+    fun `allows loopback when explicitly permitted (e2e test escape hatch)`() {
+        val result = SsrfUrlValidator.validate(
+            "http://internal.example/feed",
+            resolverFor("127.0.0.1"),
+            allowLoopback = true,
+        )
+        assertTrue(result is SsrfUrlValidator.ValidationResult.Valid)
+    }
+
+    @Test
+    fun `still rejects private rfc1918 when loopback is allowed`() {
+        val result = SsrfUrlValidator.validate(
+            "http://internal.example/feed",
+            resolverFor("10.1.2.3"),
+            allowLoopback = true,
+        )
         assertTrue(result is SsrfUrlValidator.ValidationResult.Invalid)
     }
 }

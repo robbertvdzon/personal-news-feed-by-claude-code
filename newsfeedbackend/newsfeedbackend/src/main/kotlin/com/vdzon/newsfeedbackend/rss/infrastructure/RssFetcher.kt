@@ -9,6 +9,7 @@ import com.vdzon.newsfeedbackend.external_call.ExternalCall
 import com.vdzon.newsfeedbackend.external_call.ExternalCallLogger
 import com.vdzon.newsfeedbackend.rss.RssItem
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
 import java.net.URI
 import java.net.http.HttpClient
@@ -22,7 +23,10 @@ import java.util.UUID
 
 @Component
 class RssFetcher(
-    private val callLogger: ExternalCallLogger
+    private val callLogger: ExternalCallLogger,
+    // Zie SettingsServiceImpl.ssrfAllowLoopback — zelfde e2e-only escape-hatch, hier voor de
+    // defense-in-depth-check vlak vóór het echte fetch-request.
+    @Value("\${app.security.ssrf.allow-loopback:false}") private val ssrfAllowLoopback: Boolean = false,
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -52,7 +56,7 @@ class RssFetcher(
                 .GET().build()
             // Defense-in-depth: verse DNS-resolutie vlak vóór het versturen,
             // ook al is de URL al gevalideerd bij opslaan (dekt DNS-rebinding af).
-            val validation = SsrfUrlValidator.validate(feedUrl)
+            val validation = SsrfUrlValidator.validate(feedUrl, allowLoopback = ssrfAllowLoopback)
             if (validation is SsrfUrlValidator.ValidationResult.Invalid) {
                 log.warn("[RSS] blocked SSRF-risky URL {}: {}", feedUrl, validation.reason)
                 status = "error"
