@@ -71,3 +71,12 @@ SF-1345-run (zie hierboven). Bij pickup was de implementatie
 code-wijziging nodig; alleen opnieuw geverifieerd — `mvn test`: BUILD SUCCESS,
 63 tests, 0 failures/errors. Docker was ook in deze run niet beschikbaar,
 dus `mvn verify` (e2e) is niet lokaal gedraaid.
+
+## Nieuwe developer-pickup (opnieuw dezelfde scope)
+
+Nog een developer-subtaak met dezelfde scope/beschrijving als hierboven kwam
+binnen op deze branch. Working tree was al clean (`git status`: nothing to
+commit) — de implementatie stond al volledig op de branch. Opnieuw alleen
+geverifieerd, geen code-wijziging: `mvn test` — BUILD SUCCESS, 63 tests,
+0 failures/errors, 0 skipped. Docker (`docker info`) was ook nu niet
+beschikbaar, dus `mvn verify` (Testcontainers-e2e) is niet lokaal gedraaid.
