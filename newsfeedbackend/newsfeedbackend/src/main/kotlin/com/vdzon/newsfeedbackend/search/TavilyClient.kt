@@ -60,12 +60,12 @@ class TavilyClient(
             }
             val tree = mapper.readTree(resp.body())
             val results = tree.path("results").mapNotNull { node ->
-                val url = node.path("url").asText(null) ?: return@mapNotNull null
+                val url = node.path("url").asString(null) ?: return@mapNotNull null
                 TavilyResult(
-                    title = node.path("title").asText(""),
+                    title = node.path("title").asString(""),
                     url = url,
-                    snippet = node.path("content").asText(""),
-                    publishedDate = node.path("published_date").asText(null)
+                    snippet = node.path("content").asString(""),
+                    publishedDate = node.path("published_date").asString(null)
                 )
             }
             logCall(ExternalCall.ACTION_TAVILY_SEARCH, username, query, started,
@@ -101,8 +101,8 @@ class TavilyClient(
             }
             val tree = mapper.readTree(resp.body())
             val out = tree.path("results").associate { node ->
-                val url = node.path("url").asText("")
-                val text = node.path("raw_content").asText("").take(8000)
+                val url = node.path("url").asString("")
+                val text = node.path("raw_content").asString("").take(8000)
                 url to text
             }
             logCall(ExternalCall.ACTION_TAVILY_EXTRACT, username, subj, started,

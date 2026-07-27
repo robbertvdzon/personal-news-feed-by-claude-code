@@ -168,14 +168,14 @@ class EventVideoDiscoveryPipeline(
                 return emptyList()
             }
             tree.mapNotNull { node ->
-                val url = node.path("url").asText("").trim()
-                val title = node.path("title").asText("").trim()
+                val url = node.path("url").asString("").trim()
+                val title = node.path("title").asString("").trim()
                 if (url.isBlank() || title.isBlank()) return@mapNotNull null
                 EventVideo(
                     eventId = ev.id,
                     videoUrl = url,
                     title = title,
-                    descriptionNl = node.path("description").asText(null)?.ifBlank { null }
+                    descriptionNl = node.path("description").asString(null)?.ifBlank { null }
                 )
             }
         } catch (e: Exception) {

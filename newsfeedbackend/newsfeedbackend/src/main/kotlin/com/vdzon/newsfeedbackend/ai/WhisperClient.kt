@@ -115,7 +115,7 @@ class WhisperClient(
                 }
             }
             val tree = mapper.readTree(resp.body())
-            val text = tree.path("text").asText("")
+            val text = tree.path("text").asString("")
             val cost = pricing.transcriptionCost(whisperModel, audioDurationSec)
             logCall(username, started, audioDurationSec, cost, "ok", null, subject)
             log.info("[Whisper] transcribed guid={} chars={} durationSec={} cost=${'$'}{}",
