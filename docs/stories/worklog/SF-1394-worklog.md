@@ -23,3 +23,12 @@ Done / rationale:
 - [info] Kleine feitelijke onnauwkeurigheid in de "Done/rationale"-sectie hierboven: die stelt dat `runbook.md` geen JWT_SECRET-referentie meer bevat, maar `runbook.md:159` (repo-root) noemt nog steeds `JWT_SECRET` als primaire naam ("`JWT_SECRET` — signing key voor JWT-auth (≥32 chars). In de app: `APP_JWT_SECRET`."). Dit is echter expliciet buiten scope van deze subtaak (alleen `secrets-local.md` mag wijzigen) — geen blocker, wel iets voor een eventuele latere runbook-opschoning.
 - Testbewijs (`mvn test`, 65/0 fail) is voldoende voor een pure doc-only wijziging zonder codewijzigingen; `mvn verify` (Docker/Testcontainers) is bekend niet beschikbaar in deze omgeving voor alle stories, geen regressie van deze wijziging.
 - Akkoord.
+
+## Test (SF-1396)
+
+- Diff-check (`git diff main...HEAD --stat`): alleen `docs/factory/secrets-local.md` (1 regel) en deze worklog gewijzigd/toegevoegd — geen codewijzigingen, geen andere docs.
+- `grep -n "JWT_SECRET\|APP_JWT_SECRET" docs/factory/secrets-local.md`: precies 1 hit, regel 10, `APP_JWT_SECRET`. Nergens meer de kale naam `JWT_SECRET` in dit bestand.
+- Consistentiecheck: `APP_JWT_SECRET` komt overeen met `runbook.md:86` (al correct) en `application.properties:34` (`app.jwt.secret=${APP_JWT_SECRET:}`).
+- Bevestigd (out of scope, geen blocker, zoals al genoteerd door reviewer): `runbook.md:159` noemt in de tekst nog steeds `JWT_SECRET` als primaire naam ("In de app: `APP_JWT_SECRET`"), maar de story-scope is expliciet beperkt tot `secrets-local.md` — terecht ongemoeid gelaten.
+- Pure doc-only wijziging zonder gedragswijziging → geen preview/browser-run of backend-testrun nodig (consistent met eerdere aanpak bij vergelijkbare docs-only stories, zie agent-tips `docs-only-pr-test-approach`).
+- Alle acceptance criteria uit de story zijn voldaan; akkoord.
