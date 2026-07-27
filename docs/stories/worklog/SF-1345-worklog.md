@@ -99,3 +99,31 @@ bestaat en aangeroepen wordt vanuit zowel `SettingsServiceImpl.saveRssFeeds` als
 `mvn test` — BUILD SUCCESS, 63 tests, 0 failures/errors, 0 skipped. Docker
 (`docker info`) was ook nu niet beschikbaar, dus `mvn verify` (Testcontainers-e2e)
 is niet lokaal gedraaid.
+
+## Nog een developer-pickup (na verify-gate-fix, 2026-07-27)
+
+Vorige `[FACTORY VERIFICATION]`-afwijzing van `backend-maven-verify` bleek
+veroorzaakt door een echt e2e-probleem (niet door het niet-draaien van
+`mvn verify` in eerdere developer-pickups): `RssRefreshE2eTest`/`SettingsE2eTest`
+wijzen hun testfeeds naar `FakeContentServer` op `http://127.0.0.1:<poort>`, en
+`SsrfUrlValidator` blokkeert loopback-adressen standaard — dus elke opslag/fetch
+van een e2e-testfeed werd sindsdien afgewezen. Commit `2b546df` (al aanwezig op
+deze branch bij pickup) lost dit op met een `allowLoopback`-escape-hatch,
+default `false`, aangestuurd via de property `app.security.ssrf.allow-loopback`
+en alleen op `true` gezet in `E2eTestBase` (dus nooit in productie). Bij deze
+pickup was de working tree clean (`git status`: nothing to commit) — de fix
+stond al volledig op de branch. Geverifieerd:
+- Code gelezen: `SsrfUrlValidator.validate(..., allowLoopback: Boolean = false)`,
+  beide call sites (`SettingsServiceImpl.saveRssFeeds`, `RssFetcher.fetch()`)
+  geven `ssrfAllowLoopback` door vanuit een `@Value("\${app.security.ssrf.allow-loopback:false}")`-property;
+  `E2eTestBase` zet die property naar `"true"` via `@DynamicPropertySource`.
+  Alle e2e-tests die `FakeContentServer` gebruiken (o.a. `RssRefreshE2eTest`,
+  `SettingsE2eTest`) lopen via deze gedeelde basisklasse, dus de fix dekt ze
+  allemaal.
+- `mvn test`: BUILD SUCCESS, 65 tests, 0 failures/errors, 0 skipped (2 extra
+  t.o.v. eerdere 63 door de nieuwe `allowLoopback`-tests in
+  `SsrfUrlValidatorTest`).
+- Docker (`docker info`) was in deze run niet beschikbaar, dus `mvn verify`
+  (Testcontainers-e2e) kon niet lokaal herbevestigd worden — de fix is qua
+  code/wiring geverifieerd, de definitieve bevestiging dat de e2e-suite nu
+  groen is moet via de factory-harness (die wel Docker heeft) komen.
