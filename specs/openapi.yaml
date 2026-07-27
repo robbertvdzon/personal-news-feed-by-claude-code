@@ -242,6 +242,12 @@ paths:
         Per bron is een `transcribeEnabled`-toggle beschikbaar — uit betekent
         terugvallen op show-notes als input voor de AI-samenvatting.
 
+        Elke URL wordt vóór opslag SSRF-gevalideerd (SF-1387, analoog aan
+        RSS-feeds): alleen `http`/`https`-schemes zijn toegestaan en de host
+        mag niet naar een loopback-, link-local-, private- (RFC1918/ULA) of
+        multicast-adres resolven. Bij afwijzing komt er HTTP 400 met een
+        Nederlandse foutmelding en wordt er niets opgeslagen.
+
         Nieuwe URLs (die nog niet in de bestaande lijst staan) worden
         synchroon getoetst door de feed één keer op te halen. Bij een fout
         komt er HTTP 400 met een Nederlandse foutmelding zodat de UI binnen
@@ -264,7 +270,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PodcastFeedsSettings'
         '400':
-          description: Ongeldige podcast-RSS-URL (zie message-veld)
+          description: Ongeldige podcast-RSS-URL (verboden scheme, niet-publiek adres of ophaal-fout, zie message-veld)
 
   # ── Event Preferences (KAN-68) ────────────────────────────────────────────────
 
