@@ -48,6 +48,10 @@ abstract class E2eTestBase {
             registry.add("app.openai.base-url") { E2eTestConfig.CONTENT.url("/openai") }
             registry.add("app.tavily.base-url") { E2eTestConfig.CONTENT.url("/tavily") }
             registry.add("app.elevenlabs.base-url") { E2eTestConfig.CONTENT.url("/elevenlabs") }
+            // FakeContentServer draait per definitie op 127.0.0.1 (zie url() hieronder) —
+            // zonder deze override blokkeert SsrfUrlValidator (SF-1345) elke RSS-feed-URL die
+            // ernaar wijst. Alleen hier aangezet; elke echte omgeving blijft loopback blokkeren.
+            registry.add("app.security.ssrf.allow-loopback") { "true" }
         }
     }
 

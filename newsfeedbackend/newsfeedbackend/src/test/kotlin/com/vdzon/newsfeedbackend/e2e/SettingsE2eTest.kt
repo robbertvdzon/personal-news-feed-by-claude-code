@@ -90,14 +90,17 @@ class SettingsE2eTest : E2eTestBase() {
         // Fresh user: nog geen feeds.
         assertEquals(0, getJson("/api/rss-feeds", user.token).path("feeds").size())
 
+        // example.com/example.org zijn IANA-gereserveerde documentatie-domeinen: altijd echt
+        // resolvebaar (in tegenstelling tot de eerder gebruikte verzonnen voorbeeld.nl/ander.nl),
+        // nodig sinds SsrfUrlValidator (SF-1345) DNS-resolutie afdwingt bij het opslaan.
         val saved = put(
             "/api/rss-feeds", user.token,
-            """{"feeds": ["https://voorbeeld.nl/feed.xml", "https://ander.nl/rss"]}"""
+            """{"feeds": ["https://example.com/feed.xml", "https://example.org/rss"]}"""
         )
         assertEquals(200, saved.status)
 
         val feeds = getJson("/api/rss-feeds", user.token).path("feeds").values().map { it.asText() }
-        assertEquals(listOf("https://voorbeeld.nl/feed.xml", "https://ander.nl/rss"), feeds)
+        assertEquals(listOf("https://example.com/feed.xml", "https://example.org/rss"), feeds)
     }
 
     // ── event-voorkeuren (KAN-68) ───────────────────────────────────

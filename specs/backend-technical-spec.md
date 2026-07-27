@@ -65,7 +65,7 @@ De backend gebruikt **Spring Modulith** voor het afdwingen van modulegescheiden 
 | `external_call` | `com.vdzon.newsfeedbackend.external_call` | Logging en kostenberekening van externe API-aanroepen (`external_calls`-tabel) |
 | `podcast_source` | `com.vdzon.newsfeedbackend.podcast_source` | Ingest van podcast-RSS-bronnen en episode-verwerking (transcript-lookup) |
 | `version` | `com.vdzon.newsfeedbackend.version` | Build-/versie-info endpoint |
-| `common` | `com.vdzon.newsfeedbackend.common` | Gedeelde helpers (security, exceptions, Jackson-config) |
+| `common` | `com.vdzon.newsfeedbackend.common` | Gedeelde helpers (security, exceptions, Jackson-config, SSRF-URL-validatie) |
 
 ### Moduleregels (Spring Modulith)
 - Klassen in subpackages van een module zijn **privé** voor die module; alleen klassen direct in de moduleroot (of expliciet gemarkeerd als `@ApplicationModule(type = OPEN)`) zijn van buiten toegankelijk.
@@ -297,11 +297,14 @@ sluiten de e2e-suite uit (`**/e2e/**`). De suite in
 `src/test/kotlin/com/vdzon/newsfeedbackend/` bestaat uit gerichte unit-tests:
 
 - `rss/RssFetcherImageUrlTest.kt` — extractie van de afbeeldings-URL uit RSS
+- `rss/RssFetcherSsrfTest.kt` — SSRF-defense-in-depth-check vlak vóór `http.send(...)` in `RssFetcher.fetch()` (SF-1345)
 - `ai/AiJsonTest.kt` — JSON-hulpfuncties voor AI-responses
 - `ai/AiPricingPropertiesTest.kt` — OpenAI-prijsconfiguratie (`app.ai.pricing`)
 - `api/dto/ApiRequestDtoContractTest.kt` — contract van de request-DTO's
 - `events/infrastructure/VideoAudioDownloaderArgsTest.kt` — argumentopbouw voor `yt-dlp`
 - `podcast/domain/PodcastScriptParserTest.kt` — parser van INTERVIEWER/GAST-scripts
+- `common/SsrfUrlValidatorTest.kt` — scheme-afwijzing, elke geblokkeerde IP-range-categorie, geldige publieke URL, niet-resolvebare host (SF-1345)
+- `settings/domain/SettingsServiceImplSaveRssFeedsTest.kt` — `saveRssFeeds` wijst ongeldige/SSRF-risicovolle feed-URLs af vóór opslag (SF-1345)
 
 Daarnaast draait bij elke `mvn test` ook `ModuleStructureTest.kt` —
 `ApplicationModules.of(Application::class.java).verify()` met een lege
