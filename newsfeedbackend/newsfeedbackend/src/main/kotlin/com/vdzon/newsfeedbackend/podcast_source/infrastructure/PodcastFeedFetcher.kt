@@ -37,7 +37,7 @@ class PodcastFeedFetcher(
     private val callLogger: ExternalCallLogger,
     // Zie SettingsServiceImpl.ssrfAllowLoopback / RssFetcher — zelfde e2e-only escape-hatch,
     // hier voor de defense-in-depth-check vlak vóór het echte fetch-request.
-    @Value("\${app.security.ssrf.allow-loopback:false}") private val ssrfAllowLoopback: Boolean = false,
+    @param:Value("\${app.security.ssrf.allow-loopback:false}") private val ssrfAllowLoopback: Boolean = false,
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
