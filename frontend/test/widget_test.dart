@@ -10,4 +10,15 @@ void main() {
     await tester.pump();
     expect(find.byType(MaterialApp), findsOneWidget);
   });
+
+  testWidgets('App theme uses the teal seed color (0xFF00897B)',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(const ProviderScope(child: NewsFeedApp()));
+    await tester.pump();
+
+    final materialApp = tester.widget<MaterialApp>(find.byType(MaterialApp));
+    final expectedScheme =
+        ColorScheme.fromSeed(seedColor: const Color(0xFF00897B));
+    expect(materialApp.theme?.colorScheme.primary, expectedScheme.primary);
+  });
 }

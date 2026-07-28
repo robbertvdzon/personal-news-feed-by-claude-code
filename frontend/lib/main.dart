@@ -129,7 +129,7 @@ class _NewsFeedAppState extends ConsumerState<NewsFeedApp>
       scaffoldMessengerKey: _msgKey,
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.red),
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF00897B)),
         useMaterial3: true,
       ),
       builder: (context, child) {
