@@ -21,3 +21,14 @@ Done / rationale:
   in de repo (PodcastAsyncConfig.kt @Bean-parameter, PodcastTranscriptWorker.kt plain param zonder `val`) zijn
   bekende, reeds gedocumenteerde uitzonderingen en vielen buiten scope van deze subtaak.
 - `mvn test` in newsfeedbackend/newsfeedbackend: BUILD SUCCESS, geen failures/errors.
+
+Tester (SF-1403):
+- Diff geverifieerd: exact de 3 verwachte regels gewijzigd (SettingsServiceImpl.kt:29, RssFetcher.kt:29,
+  PodcastFeedFetcher.kt:40), `@Value(...)` -> `@param:Value(...)`, verder geen wijzigingen buiten worklog.
+- Bestaande code-comments boven de parameter zijn ongewijzigd behouden.
+- `grep -rn "@Value" src/main/kotlin | grep -v "@param:Value"` geeft alleen de twee bekende, buiten-scope
+  uitzonderingen (PodcastAsyncConfig.kt @Bean-parameter, PodcastTranscriptWorker.kt plain ctor-param zonder
+  val/var) - geen resterend kaal `@Value`-gebruik op de doelparameters.
+- `mvn test` in newsfeedbackend/newsfeedbackend: BUILD SUCCESS, 71/71 tests groen, 0 failures/errors.
+- Pure Kotlin-annotatie-syntaxwijziging (use-site-target) zonder gedragsverandering -> geen preview/browsertest
+  nodig, conform eerdere vergelijkbare stories (zie agent-tips pnf-adr-audit-worklog-only-verify).
