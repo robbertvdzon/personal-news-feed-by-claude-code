@@ -66,6 +66,9 @@ De backend gebruikt **Spring Modulith** voor het afdwingen van modulegescheiden 
 | `podcast_source` | `com.vdzon.newsfeedbackend.podcast_source` | Ingest van podcast-RSS-bronnen en episode-verwerking (transcript-lookup) |
 | `version` | `com.vdzon.newsfeedbackend.version` | Build-/versie-info endpoint |
 | `common` | `com.vdzon.newsfeedbackend.common` | Gedeelde helpers (security, exceptions, Jackson-config, SSRF-URL-validatie) |
+| `media` | `com.vdzon.newsfeedbackend.media` | Comprimeert podcast-audio (mono, lage bitrate MP3) zodat bestanden onder Whisper's 25 MB-limiet blijven |
+| `search` | `com.vdzon.newsfeedbackend.search` | Tavily-websearch-integratie voor ad-hoc/events-discovery |
+| `shared` | `com.vdzon.newsfeedbackend.shared` | Publieke, read-only gedeelde-feed-endpoints (`/api/shared/feed`, `/api/shared/categories`) voor de reader-app, zonder authenticatie |
 
 ### Moduleregels (Spring Modulith)
 - Klassen in subpackages van een module zijn **privé** voor die module; alleen klassen direct in de moduleroot (of expliciet gemarkeerd als `@ApplicationModule(type = OPEN)`) zijn van buiten toegankelijk.
