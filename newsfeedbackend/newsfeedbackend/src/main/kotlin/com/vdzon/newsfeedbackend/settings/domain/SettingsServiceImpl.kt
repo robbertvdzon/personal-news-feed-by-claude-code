@@ -26,7 +26,7 @@ class SettingsServiceImpl(
     // Alleen "true" in de e2e-testomgeving (zie E2eTestBase) — de fake content-server
     // draait per definitie op 127.0.0.1. Ontbreekt de property (elke echte omgeving),
     // dan blijft loopback geblokkeerd zoals SsrfUrlValidator standaard doet.
-    @Value("\${app.security.ssrf.allow-loopback:false}") private val ssrfAllowLoopback: Boolean = false,
+    @param:Value("\${app.security.ssrf.allow-loopback:false}") private val ssrfAllowLoopback: Boolean = false,
 ) : SettingsService {
 
     private val defaultCategories = listOf(
