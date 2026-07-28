@@ -30,3 +30,23 @@ Done / rationale:
 - Geen broncodewijzigingen; alleen `specs/backend-technical-spec.md` gewijzigd.
 - `mvn test` in `newsfeedbackend/newsfeedbackend`: BUILD SUCCESS, 71 tests, 0 failures/errors (ongewijzigd
   t.o.v. voor de wijziging — pure documentatiewijziging).
+
+## Tester-verificatie (SF-1410)
+- `git diff main...HEAD --name-only`: alleen `specs/backend-technical-spec.md` + worklog gewijzigd, geen
+  broncode geraakt.
+- `ls newsfeedbackend/newsfeedbackend/src/main/kotlin/com/vdzon/newsfeedbackend/` telt 18 top-level packages;
+  de moduletabel in `specs/backend-technical-spec.md` §3 bevat nu exact 18 rijen — komt overeen.
+- Elke nieuwe rij geverifieerd tegen de daadwerkelijke klasse:
+  - `media`: `AudioTranscoder.kt` comprimeert naar mono 32 kbps MP3 zodat Whisper's 25 MB-limiet niet wordt
+    geraakt — komt overeen met de omschrijving.
+  - `search`: `TavilyClient.kt` doet Tavily-websearch (`api.tavily.com`) — komt overeen.
+  - `shared`: `SharedFeedController.kt` (`@RequestMapping("/api/shared")`) exposeert `GET /feed` en
+    `GET /categories`, geen `@PreAuthorize`/auth-check, KDoc bevestigt "zonder dat de caller hoeft in te
+    loggen" — komt overeen.
+- Bevestigd dat `docs/factory/technical-spec.md` (§Modulestructuur verwijst bewust naar §3) en
+  `specs/README.md` (geen moduletabel) ongewijzigd zijn gebleven, conform AC.
+- `git diff --check`: geen whitespace-issues.
+- Pure docs-only wijziging zonder gedragsimpact → geen preview/browser-test nodig (consistent met eerdere
+  soortgelijke doc-only stories, zie agent-tip `pnf-adr-audit-worklog-only-verify`). Deterministisch vangnet
+  (`mvn verify`) draait de harness automatisch na deze run.
+- Resultaat: alle acceptatiecriteria voldaan, geen bugs gevonden.
