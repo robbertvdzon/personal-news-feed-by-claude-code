@@ -11,6 +11,17 @@ Stappenplan:
 [x]: run relevant tests
 [x]: update story-log with results
 
+Tester (SF-1468):
+- `mvn -B --no-transfer-progress clean verify` in newsfeedbackend/newsfeedbackend
+  (het deterministische vangnet uit .factory/verification.yaml, incl. Testcontainers
+  e2e-suite): BUILD SUCCESS, 0 failures/errors. `PodcastTranslationServiceImplTest`
+  zelf: 9/9 groen (surefire-report), inhoud geverifieerd tegen
+  `PodcastTranslationServiceImpl.kt` — alle 6 startTranslation-scenario's en 3
+  lookup-scenario's uit de story komen exact overeen met de service-implementatie.
+  Diff was strikt backend-test + story-doc + worklog, geen productiecode-wijziging
+  nodig (geen bug blootgelegd). Geen preview/browser-test nodig (backend-only
+  unit-testtoevoeging zonder gedragswijziging).
+
 Done / rationale:
 - Story-log aangemaakt zodat plan, voortgang en uitvoering onderdeel worden van de PR.
 - `PodcastTranslationServiceImplTest.kt` toegevoegd (9 tests) volgens het
