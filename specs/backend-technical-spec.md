@@ -310,6 +310,7 @@ sluiten de e2e-suite uit (`**/e2e/**`). De suite in
 - `settings/domain/SettingsServiceImplSaveRssFeedsTest.kt` — `saveRssFeeds` wijst ongeldige/SSRF-risicovolle feed-URLs af vóór opslag (SF-1345)
 - `podcast_source/PodcastFeedFetcherSsrfTest.kt` — SSRF-defense-in-depth-check vlak vóór `http.send(...)` in `PodcastFeedFetcher.fetch()` (SF-1387)
 - `settings/domain/SettingsServiceImplSavePodcastFeedsTest.kt` — `savePodcastFeeds` wijst ongeldige/SSRF-risicovolle feed-URLs af vóór opslag (SF-1387)
+- `podcast/domain/PodcastTranslationServiceImplTest.kt` — guard-clauses en idempotency van `startTranslation` (episode niet gevonden, episode-status ≠ DONE, leeg transcript, bestaande vertaling met status ≠/== FAILED, happy path) en `lookup` (episode niet gevonden, met/zonder bestaande vertaling), gemockte `PodcastRepository`/`PodcastEpisodeLookup`/`PodcastTranslator` (SF-1466/SF-1467)
 
 Daarnaast draait bij elke `mvn test` ook `ModuleStructureTest.kt` —
 `ApplicationModules.of(Application::class.java).verify()` met een lege
