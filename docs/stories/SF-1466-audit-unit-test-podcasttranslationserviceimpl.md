@@ -1,56 +1,40 @@
 # SF-1466 - [Audit] Unit-test toevoegen voor guard-clause-logica van PodcastTranslationServiceImpl
 
-## Stappenplan
+## Story
 
-- [x] `.task.md`, `docs/factory/development.md` en `docs/factory/technical-spec.md` gelezen.
-- [x] `PodcastTranslationServiceImpl` en zijn dependencies (`PodcastRepository`,
-      `PodcastEpisodeLookup`, `PodcastTranslator`, `Podcast`, `PodcastEpisode`,
-      `EpisodeLookup`, `TranslationStart`) doorgenomen.
-- [x] Referentiepatroon `SettingsServiceImplSavePodcastFeedsTest.kt` gevolgd
-      (`@ExtendWith(MockitoExtension::class)`, `Mockito.mock(...)` in `@BeforeEach`).
-- [x] `PodcastTranslationServiceImplTest.kt` toegevoegd met dekking voor
-      `startTranslation` (6 scenario's) en `lookup` (3 scenario's).
-- [x] `mvn test` gedraaid: BUILD SUCCESS, 80 tests groen (was 71), 0 failures/errors.
+[Audit] Unit-test toevoegen voor guard-clause-logica van PodcastTranslationServiceImpl
 
-## Gedaan
+Voeg PodcastTranslationServiceImplTest.kt toe (newsfeedbackend/newsfeedbackend/src/test/kotlin/com/vdzon/newsfeedbackend/podcast/domain/) die PodcastTranslationServiceImpl unit-test met gemockte dependencies (PodcastRepository, PodcastEpisodeLookup, PodcastTranslator via Mockito.mock(...), zelfde patroon als SettingsServiceImplSavePodcastFeedsTest.kt - geen e2e-harnas, geen ffmpeg/Whisper nodig). Dek in startTranslation(username, episodeGuid): (1) episode niet gevonden -> ConflictException; (2) episode-status niet DONE -> ConflictException; (3) episode DONE maar leeg transcript -> ConflictException; (4) bestaande vertaling met status != FAILED -> idempotent return (created=false, geen nieuwe upsert/translate-call); (5) bestaande vertaling met status FAILED -> nieuwe job (created=true, translator.translate aangeroepen); (6) happy path zonder bestaande vertaling -> nieuwe Podcast correct gevuld, translator.translate aangeroepen. Dek ook lookup(username, rssItemId): episode niet gevonden -> null; zonder bestaande vertaling -> EpisodeLookup met translatedPodcastId=null; met bestaande vertaling -> velden correct gevuld. Geen wijzigingen aan productiecode tenzij een bug wordt blootgelegd (dan expliciet melden). De ffmpeg-afhankelijke e2e-vertaalflow blijft buiten scope.
 
-Nieuw bestand:
-`newsfeedbackend/newsfeedbackend/src/test/kotlin/com/vdzon/newsfeedbackend/podcast/domain/PodcastTranslationServiceImplTest.kt`
-(9 tests):
+## Eindsamenvatting
 
-- `startTranslation`:
-  1. episode niet gevonden → `ConflictException`.
-  2. episode-status != DONE → `ConflictException`.
-  3. episode DONE maar blank transcript → `ConflictException`.
-  4. bestaande vertaling met status != FAILED → idempotent (`created=false`),
-     geen `upsert`/`translate`-aanroep (geverifieerd via
-     `verifyNoMoreInteractions(podcastRepo)` / `verifyNoInteractions(translator)`).
-  5. bestaande vertaling met status FAILED → nieuwe job (`created=true`),
-     `podcastNumber = max+1`, `translator.translate` aangeroepen.
-  6. happy path zonder bestaande vertaling → nieuwe `Podcast` correct gevuld
-     (title, alle `translatedFrom*`-velden, status=PENDING, ttsProvider=OPENAI,
-     podcastNumber=1) en `translator.translate` aangeroepen.
-- `lookup`:
-  1. episode niet gevonden → `null`.
-  2. zonder bestaande vertaling → `EpisodeLookup` met `translatedPodcastId=null`
-     (en overige `translatedPodcast*`-velden null).
-  3. met bestaande vertaling → alle `translatedPodcast*`-velden correct gevuld.
+## Eindsamenvatting SF-1466 — Unit-test voor guard-clause-logica van PodcastTranslationServiceImpl
 
-Mocking-detail: `PodcastTranslator.translate(username, podcastId, episodeGuid)`
-genereert de `podcastId` intern via `UUID.randomUUID()`, dus die kan niet
-vooraf met een exacte waarde gestubd/geverifieerd worden. Om de bekende
-`any()`-op-Kotlin-non-null-parameter-NPE te vermijden (zie agent-tip
-`pnf-mockito-first-use-sf1345`) is het `upsert`-argument gevangen via een
-`doAnswer`-lambda i.p.v. matchers, en is daarna met de zo verkregen concrete
-waarde geverifieerd (`verify(translator).translate("alice", saved.id, ep.guid)`).
+**Wat is gebouwd**
+Er is een nieuw testbestand toegevoegd: `PodcastTranslationServiceImplTest.kt` (in `newsfeedbackend/newsfeedbackend/src/test/kotlin/.../podcast/domain/`), met 9 unit tests die `PodcastTranslationServiceImpl` volledig dekken met gemockte dependencies (`PodcastRepository`, `PodcastEpisodeLookup`, `PodcastTranslator`).
 
-`mvn verify` (Testcontainers e2e) kon niet lokaal gedraaid worden — Docker was
-niet beschikbaar in deze sandbox (`docker info` faalt). Buiten scope van deze
-subtaak (geen e2e/ffmpeg-wijzigingen).
+Gedekte scenario's voor `startTranslation(username, episodeGuid)`:
+1. Episode niet gevonden → `ConflictException`.
+2. Episode-status ongelijk aan DONE → `ConflictException`.
+3. Episode DONE maar leeg/blank transcript → `ConflictException`.
+4. Bestaande vertaling met status ≠ FAILED → idempotent resultaat (`created=false`), geen nieuwe upsert/translate-aanroep.
+5. Bestaande vertaling met status FAILED → nieuwe job (`created=true`), `translator.translate` wordt aangeroepen.
+6. Happy path zonder bestaande vertaling → nieuwe `Podcast` correct gevuld (title, translatedFrom-velden, status=PENDING, ttsProvider=OPENAI, podcastNumber) en `translator.translate` aangeroepen.
 
-## Niet gedaan / aangepast
+En voor `lookup(username, rssItemId)`:
+- Episode niet gevonden → `null`.
+- Zonder bestaande vertaling → `EpisodeLookup` met `translatedPodcastId=null`.
+- Met bestaande vertaling → alle velden correct gevuld.
 
-- Geen wijzigingen aan productiecode: `PodcastTranslationServiceImpl` gedraagt
-  zich exact zoals in de story beschreven, er is geen bug blootgelegd.
-- De ffmpeg-afhankelijke e2e-vertaalflow (`PodcastTranslator.translate`) blijft
-  buiten scope, zoals gevraagd.
+**Gemaakte keuzes**
+- Gevolgd is exact het bestaande testpatroon uit `SettingsServiceImplSavePodcastFeedsTest.kt` (JUnit5 + MockitoExtension, mocks in `@BeforeEach`).
+- Omdat `PodcastTranslator.translate` intern een `UUID.randomUUID()` genereert, kon het `upsert`-argument niet vooraf exact gestubd worden; dit is opgelost door het argument via een `doAnswer`-lambda te vangen en pas daarna te verifiëren — dit voorkomt een bekend Mockito/Kotlin-NPE-probleem met `any()` op non-null parameters.
+
+**Wat is getest**
+- `mvn test`: BUILD SUCCESS, 80 tests groen (was 71 vóór deze story), 0 failures/errors.
+- Door de tester nogmaals bevestigd via `mvn clean verify` (volledige suite inclusief Testcontainers e2e-tests): BUILD SUCCESS, 0 failures/errors. De 9 nieuwe tests zijn inhoudelijk geverifieerd tegen de service-implementatie — alle 6 startTranslation- en 3 lookup-scenario's kloppen exact.
+
+**Bewust niet gedaan**
+- Geen wijzigingen aan productiecode: `PodcastTranslationServiceImpl` gedraagt zich zoals verwacht, er is geen bug blootgelegd.
+- De ffmpeg-afhankelijke e2e-vertaalflow (`PodcastTranslator.translate`) blijft buiten scope, zoals vooraf afgesproken.
+- `mvn verify` kon door de developer zelf niet lokaal gedraaid worden (Docker niet beschikbaar in de sandbox); dit is later door de tester alsnog succesvol uitgevoerd.
