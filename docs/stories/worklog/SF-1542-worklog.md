@@ -110,3 +110,52 @@ Bevindingen:
 - [info] `Route/reader` staat ook in de preview-render, maar dat was vóór deze
   wijziging al zo (de overlay delete alleen frontend + backend-debug) — pre-existing,
   geen regressie van deze story.
+
+## Test (SF-1635)
+
+Rol: tester. Geen code-, test- of infra-wijziging gemaakt; alleen deze worklog +
+screenshots in `/work/screenshots`.
+
+Render-verificatie (kustomize v5.7.1 via kubectl v1.35.2):
+- `kubectl kustomize deploy/overlays/preview` → exitcode 0 (alleen de bestaande
+  `commonLabels`-deprecation-warning, ook op `main`).
+- Diff van de volledige preview-render tegen die van `main` is exact:
+  `+ APP_JWT_SECRET: value: ""` en `- APP_JWT_SECRET: valueFrom.secretKeyRef
+  {key: JWT_SECRET, name: newsfeed-api-keys}`. Verder 0 regels verschil → alle
+  overige env-vars, `emptyDir` voor `data`, `strategy.type: RollingUpdate`,
+  `replicas: 1` en de resource-set ongewijzigd.
+- `APP_JWT_SECRET` komt exact 1× voor in de render; `JWT_SECRET` als secret-key
+  komt er 0× in voor. Geen SealedSecret/PVC/cloudflared/preview-router.
+- `kubectl kustomize deploy/overlays/openshift` → exitcode 0 en byte-identiek aan
+  de render van `main`; `APP_JWT_SECRET` verwijst daar nog steeds naar
+  `secretKeyRef key: JWT_SECRET` (productie ongemoeid).
+- Diff tegen `main` raakt alleen `deploy/overlays/preview/kustomization.yaml` +
+  deze worklog.
+
+Live preview (`pnf-pr-196`, ArgoCD-gedeployd van deze branch):
+- `oc get deployment backend -n pnf-pr-196` toont `APP_JWT_SECRET` zonder `value`
+  en zonder `valueFrom` (lege string), geen `secretKeyRef` naar `JWT_SECRET`.
+  De prod-JWT-sleutel zit dus daadwerkelijk niet meer in de preview-pod.
+- Backend-pod `1/1 Running`, 0 restarts → Spring-context boot normaal met een
+  lege `APP_JWT_SECRET`.
+- Backend-log bevat na het eerste tokengebruik de verwachte
+  `JwtService`-WARN "Geen app.jwt.secret geconfigureerd — ephemeral secret
+  gegenereerd" → hard bewijs van de ephemeral sleutel per pod.
+- Auth-round-trip via API: `GET /api/feed` zonder token → 403; register →
+  201 met 3-segment JWT; datzelfde token op `GET /api/feed` → 200. Sign+verify
+  werkt dus met de ephemeral sleutel.
+- UI-login via Playwright (420x900, Flutter CanvasKit) slaagt en landt op het
+  Feed-scherm: `SF-1542-01-login.png`, `SF-1542-02-na-login.png`.
+
+Inlogmodus: **fallback wegwerp-account** `tester_sf-1542`. Reden: `TESTER_USERNAME`/
+`TESTER_PASSWORD` waren niet gezet en `oc get secret newsfeed-api-keys -n pnf-pr-196`
+is Forbidden voor deze SA (bekend, zie agent-tips). Account is aan het eind
+opgeruimd met `DELETE /api/account/me` → 200; geen andere DB-mutaties, prod niet
+aangeraakt.
+
+Backend-vangnet (`mvn -B --no-transfer-progress clean verify`) niet zelf herdraaid:
+de diff raakt uitsluitend `deploy/**`-YAML en een worklog, dus geen enkele
+build-input van de Maven-module; het revisiegebonden vangnet draait sowieso
+automatisch na deze run.
+
+Bevindingen: geen. Alle acceptatiecriteria voldaan.
