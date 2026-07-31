@@ -41,8 +41,10 @@ De Instellingen-tab doorlopen voor wat daadwerkelijk in de UI zit: categorieën 
 #### 3a. RSS-feeds
 - Het blok toont de bestaande feed-URL(s) (monospace), elk met een **×**-icoon om te verwijderen.
 - Onderaan een veld **"Nieuwe feed-URL"** (hint `https://...`) met een **+**-icoon.
-- Typ een URL (bv. `https://www.theverge.com/rss/index.xml`) en klik **+** → de URL verschijnt in de lijst.
-- Klik op het **×** naast die net toegevoegde URL → hij verdwijnt weer (laat de TechCrunch-feed uit `start-scenario` staan).
+- Typ een URL (bv. `https://www.theverge.com/rss/index.xml`) en klik **+** → tijdens het opslaan is het veld uitgeschakeld en staat er een spinner op de plek van de **+**; daarna verschijnt de URL in de lijst en is het veld leeg.
+- Typ nu een door `SsrfUrlValidator` geweigerde URL (bv. `http://127.0.0.1:8080/rss` of `ftp://example.com/rss`) en klik **+**.
+  - Verwacht: een **rode snackbar** met een Nederlandse foutmelding (bv. "Ongeldige RSS-feed-URL '…': …"), de URL wordt **niet** aan de lijst toegevoegd en het invoerveld **behoudt** de ingetypte tekst. Maak het veld daarna handmatig leeg.
+- Klik op het **×** naast de eerder toegevoegde Verge-URL → hij verdwijnt weer (laat de TechCrunch-feed uit `start-scenario` staan). Zou de server het verwijderen weigeren, dan blijft de feed staan en verschijnt dezelfde rode snackbar.
 
 #### 3b. Podcast-bronnen
 - Het blok **"Podcast-bronnen"** toont eventuele podcast-RSS-bronnen met per bron een **"Transcriberen aan/uit"**-switch en een **×**-icoon.
@@ -69,7 +71,7 @@ De Instellingen-tab doorlopen voor wat daadwerkelijk in de UI zit: categorieën 
 ## Verwacht resultaat
 
 - Een categorie toevoegen, bewerken (incl. extra instructies) en verwijderen werkt en is direct zichtbaar; "Overig" blijft een niet-bewerkbare systeem-categorie.
-- De RSS-feeds-editor voegt feed-URL's toe en verwijdert ze; de podcast-bronnen-editor valideert URL's serverseitig (geldige → toegevoegd, ongeldige → rode snackbar).
+- De RSS-feeds-editor voegt feed-URL's toe en verwijdert ze, en valideert URL's serverseitig (geldige → toegevoegd; ongeldige → rode snackbar met Nederlandse foutmelding, URL niet toegevoegd, invoerveld behoudt de tekst); de podcast-bronnen-editor gedraagt zich identiek.
 - De vier Achtergrond-taken-knoppen starten hun job met de juiste snackbar/spinner-feedback.
 
 ## Graceful degradation
