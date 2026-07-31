@@ -49,6 +49,22 @@ Elke open PR met branch-prefix `ai/` krijgt automatisch een preview op:
 https://pnf-pr-<N>.vdzonsoftware.nl
 ```
 
+### Preview-JWT — ephemeral sleutel per pod (NIET de prod-sleutel)
+
+Previews krijgen sinds SF-1542 **niet** meer de productie-JWT-sleutel mee:
+de `preview`-overlay (`deploy/overlays/preview/kustomization.yaml`) zet
+`APP_JWT_SECRET` leeg en laat de `secretKeyRef` naar
+`newsfeed-api-keys`/`JWT_SECRET` vervallen. De backend genereert dan bij het
+opstarten zelf een random ephemeral sleutel. Gevolgen voor de factory:
+
+- Tokens uit een preview zijn **alleen daar** geldig, niet op productie
+  (en omgekeerd) — code op een PR-branch kan geen prod-token meer smeden.
+- Tokens vervallen bij pod-herstart. De tester en de e2e-runner loggen per
+  run opnieuw in via de UI / `POST /api/auth/login`, dus dat is geen
+  regressie; zie je onverwacht een 401 na een redeploy, log dan opnieuw in.
+- Productie (`openshift`-overlay) blijft de vaste sleutel uit de
+  SealedSecret gebruiken; er is geen nieuw secret of her-sealen nodig.
+
 ### Preview-DB — eigen per-PR Neon-branch (NIET prod)
 
 Elke preview krijgt een **eigen, wegwerp-Neon-branch** `pr-<N>`, afgesplitst

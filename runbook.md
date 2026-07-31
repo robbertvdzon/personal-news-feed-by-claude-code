@@ -157,6 +157,9 @@ Bestanden staan lokaal (gitignored). Voor de assistent worden ze read-only besch
 **Secrets / env-vars (naam — waarvoor):**
 - `PNF_DATABASE_URL` — JDBC-URL naar prod-Postgres (Neon). Backend mapt 'm óók op `SPRING_DATASOURCE_URL`.
 - `JWT_SECRET` — signing key voor JWT-auth (≥32 chars). In de app: `APP_JWT_SECRET`.
+  Alleen de productie-overlay koppelt deze door; PR-previews zetten
+  `APP_JWT_SECRET` bewust leeg en draaien op een ephemeral sleutel per pod
+  (SF-1542, zie `deploy/README.md`).
 - `PNF_OPENAI_API_KEY` — OpenAI (samenvatting/selectie/podcast/events/TTS-transcribe).
 - `PNF_TAVILY_API_KEY` — Tavily websearch (ad-hoc zoeken + events-discovery).
 - `PNF_ELEVENLABS_API_KEY` — ElevenLabs TTS voor podcast-audio.

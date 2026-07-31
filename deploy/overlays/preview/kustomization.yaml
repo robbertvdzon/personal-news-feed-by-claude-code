@@ -9,6 +9,9 @@
 #   * Geen SealedSecret (reflector mirror't 'm automatisch vanuit
 #     personal-news-feed naar pnf-*)
 #   * Geen preview-router (loopt al in personal-news-feed)
+#   * Geen productie-JWT-sleutel: APP_JWT_SECRET wordt leeggezet, waardoor
+#     de backend bij het opstarten zelf een ephemeral sleutel per pod
+#     genereert (tokens gelden alleen binnen die preview)
 #
 # De ApplicationSet patcht namespace + image-tag in.
 
@@ -113,3 +116,28 @@ patches:
         path: /spec/strategy
         value:
           type: RollingUpdate
+
+  # Backend: geen productie-JWT-sleutel in previews. De secretKeyRef naar
+  # newsfeed-api-keys/JWT_SECRET vervalt (valueFrom: null) en APP_JWT_SECRET
+  # blijft zichtbaar leeg achter, zodat de backend bij het opstarten zelf een
+  # ephemeral sleutel genereert. Bewust een strategic-merge-patch in een eigen
+  # entry: een positionele JSON6902-patch op de env-index zou meeschuiven zodra
+  # er een env-var in de base bijkomt, en kustomize mengt beide patch-vormen
+  # niet binnen één entry.
+  - target:
+      kind: Deployment
+      name: backend
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: backend
+      spec:
+        template:
+          spec:
+            containers:
+              - name: backend
+                env:
+                  - name: APP_JWT_SECRET
+                    value: ""
+                    valueFrom: null

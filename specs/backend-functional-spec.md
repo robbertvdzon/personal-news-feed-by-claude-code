@@ -538,7 +538,7 @@ Alle configuratie via `application.properties` of omgevingsvariabelen.
 | `server.port` | — | `8080` | Serverpoort |
 | `app.data-dir` | — | `./data` | Root voor het `external_calls.jsonl` audit-log en runtime-paden |
 | `PNF_DATABASE_URL` | `PNF_DATABASE_URL` | — | Verplicht — JDBC-URL naar PostgreSQL (Neon) |
-| `app.jwt.secret` | — | (hardcoded default) | JWT-signeringssleutel (wijzigen in productie!) |
+| `app.jwt.secret` | `APP_JWT_SECRET` | leeg | JWT-signeringssleutel (≥ 32 bytes). Leeg/ontbrekend → de backend genereert bij het opstarten een random ephemeral sleutel en logt een waarschuwing; alle tokens vervallen dan bij herstart. In productie verplicht te zetten; PR-previews draaien bewust op de ephemeral sleutel. |
 | `app.openai.api-key` | `PNF_OPENAI_API_KEY` | — | Verplicht (AI-tekst, transcriptie, TTS) |
 | `app.openai.base-url` | — | `https://api.openai.com` | — |
 | `app.ai.models.<actie>` | `PNF_AI_MODEL_*` | per actie (bijv. `gpt-5.4-mini`) | OpenAI-model per AI-actie |
