@@ -69,3 +69,33 @@ Review (subtaak SF-1577, reviewer):
   bij een ge-escapete quote in de servertekst - jsonDecode zou robuuster zijn; (b) bij een
   toevoeg-actie die op een niet-400-fout stukloopt toont de snackbar alleen
   'Kon feed niet opslaan' zonder detail (bewust gespiegeld aan podcast).
+
+Test (subtaak SF-1578, tester):
+- Inlogmodus: FALLBACK wegwerp-account `tester_sf-1552`. De vaste test-user-creds waren niet
+  resolvebaar: `oc get secret newsfeed-api-keys -n pnf-pr-195` gaf Forbidden voor
+  system:serviceaccount:agent-access:claude-agent en TESTER_USERNAME/TESTER_PASSWORD waren leeg.
+  Account via de UI geregistreerd en na afloop van elke run opgeruimd via
+  DELETE /api/account/me -> 200 (laatste run: opgeruimd).
+- Preview pnf-pr-195 draait de juiste revisie: "Over deze app" toont frontend-buildhash
+  ba69254 = branch-HEAD (screenshot 02-settings-top.png).
+- AC1 (live): RSS-editor, URL `http://127.0.0.1/rss` + '+' -> PUT /api/rss-feeds gaf
+  400 {"error":"Ongeldige RSS-feed-URL 'http://127.0.0.1/rss': host '127.0.0.1' resolvet naar
+  een niet-toegestaan adres (loopback: 127.0.0.1)"}; rode snackbar toont exact die Nederlandse
+  tekst (geen rauwe JSON), de URL staat NIET in de lijst en het invoerveld behoudt de tekst
+  (13-invalid-snackbar.png). Na het weglopen van de snackbar is de lijst nog steeds leeg
+  (14-after-snackbar.png).
+- AC2 (live): geldige URL `https://feeds.bbci.co.uk/news/rss.xml` -> PUT 200, verschijnt in de
+  lijst en het invoerveld is leeg (15-valid-added.png / 22-valid-added.png).
+- AC3 (live, succespad): kruisje naast die feed -> PUT 200 {"feeds":[]}, feed verdwijnt
+  (23-after-delete.png). Het faalpad bij verwijderen is niet live uit te lokken (de backend
+  weigert een kleinere, geldige lijst niet) en is gedekt door de nieuwe widgettest.
+- AC5 (live): met een kunstmatig vertraagde PUT (Playwright-route-delay, app ongewijzigd) is de
+  busy-state zichtbaar: de +-knop van de RSS-editor is vervangen door een spinner en het
+  invoerveld is uitgeschakeld/grijs; de podcast-editor blijft normaal (30-busy-spinner.png).
+- AC6: GlobalExceptionHandler serialiseert overal naar {"error": ...} (geverifieerd in
+  common/Exceptions.kt) en de live-400 hierboven bewijst de extractie end-to-end.
+- AC7: `cd frontend && flutter test` -> 19/19 groen, All tests passed.
+- AC8/AC9: specs/frontend-spec.md en e2e/scenarios/settings-scenario.md §3a bevatten de
+  aangevulde verwachtingen; `git diff main...HEAD --name-only -- newsfeedbackend` is leeg.
+- Werkboom bleef schoon (geen pubspec.lock-drift na `flutter test`).
+- Screenshots: /work/screenshots (00-31).
