@@ -53,3 +53,19 @@ Verificatie:
   kon de Postgres-container wel starten en de volledige e2e-suite draaide.
 - Geen bestand onder newsfeedbackend/ gewijzigd; frontend/pubspec.lock ongewijzigd (geen
   manifest-wijziging, dus geen lockfile-drift).
+
+Review (subtaak SF-1577, reviewer):
+- Volledige story-diff t.o.v. main beoordeeld (7 bestanden, geen backend-, OpenAPI- of
+  Flyway-wijziging; Modulith-moduleregels niet geraakt).
+- AC 1-9 nagelopen: save-volgorde in RssFeedsNotifier is 1-op-1 gelijk aan
+  PodcastFeedsNotifier (PUT -> LocalCache -> state), _save/busy-affordances en de gedeelde
+  _extractDutchMessage komen overeen met de podcast-variant. De "error"-i.p.v.-"message"-fix
+  klopt met GlobalExceptionHandler (common/Exceptions.kt: overal mapOf("error" to ...)) en met
+  de 400-melding uit SettingsServiceImpl ("Ongeldige RSS-feed-URL '...': ...").
+- Gerichte hercontrole gedraaid: `flutter test` -> 19/19 groen; `flutter analyze` -> 7
+  pre-existing info-meldingen, geen in de gewijzigde bestanden; werkboom bleef schoon
+  (geen pubspec.lock-drift).
+- Niet-blokkerende suggesties: (a) _extractDutchMessage matcht met regex `"([^"]+)"` en kapt af
+  bij een ge-escapete quote in de servertekst - jsonDecode zou robuuster zijn; (b) bij een
+  toevoeg-actie die op een niet-400-fout stukloopt toont de snackbar alleen
+  'Kon feed niet opslaan' zonder detail (bewust gespiegeld aan podcast).
