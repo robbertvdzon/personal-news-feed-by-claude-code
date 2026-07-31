@@ -178,6 +178,19 @@ PR-nummer is). Bij merge/close wordt de preview opgeruimd.
    `*.vdzonsoftware.nl` traffic via Cloudflare en route't host-based
    naar de juiste preview-namespace.
 
+**Geen productie-JWT-sleutel in previews (SF-1542).** De
+`preview`-overlay overschrijft `APP_JWT_SECRET` op de backend-Deployment
+naar een lege waarde (strategic-merge-patch met `valueFrom: null`), zodat
+de `secretKeyRef` naar `newsfeed-api-keys`/`JWT_SECRET` daar vervalt. De
+backend genereert dan bij het opstarten zelf een random ephemeral sleutel
+per pod: tokens uit een preview zijn alleen binnen die preview geldig, niet
+op productie, en vervallen bij pod-herstart. Dat is prima — previews zijn
+wegwerp en de e2e-runner logt per run opnieuw in. De
+`openshift`-(productie)overlay blijft de vaste sleutel uit de SealedSecret
+gebruiken. De rest van het `newsfeed-api-keys`-secret wordt nog steeds
+volledig gespiegeld (o.a. `PNF_DATABASE_URL`); alleen de koppeling van de
+JWT-sleutel aan de preview-Deployment is verbroken.
+
 **Beperkingen:**
 
 - **Alleen code-changes triggeren een preview.** PR's die alleen
