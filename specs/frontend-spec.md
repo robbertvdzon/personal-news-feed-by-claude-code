@@ -381,8 +381,8 @@ Aparte subpagina (`frontend/lib/screens/rss_feeds_screen.dart`) met een eigen `A
 Lijst van geconfigureerde RSS-feed URLs uit `GET /api/rss-feeds` (`rssFeedsProvider`), met de gebruikelijke loading-spinner en error-tekst "Fout: …".
 
 - **Tik op URL:** opent URL (monospace-weergave) in externe browser
-- **Verwijder-icoon (×):** verwijder feed-URL, PUT `/api/rss-feeds` (`rssFeedsProvider.save`)
-- **Invoerveld + toevoegen-knop:** nieuwe URL toevoegen, PUT `/api/rss-feeds`
+- **Verwijder-icoon (×):** verwijder feed-URL, PUT `/api/rss-feeds` (`rssFeedsProvider.save`); tijdens het opslaan is de knop uitgeschakeld. Weigert de server, dan blijft de feed in de lijst staan en verschijnt een rode snackbar.
+- **Invoerveld + toevoegen-knop:** nieuwe URL toevoegen met synchrone server-side URL-validatie (SSRF-check), PUT `/api/rss-feeds`. Tijdens het opslaan is het invoerveld uitgeschakeld en staat er een spinner op de plek van de **+**-knop. Bij een afwijzing (HTTP 400) verschijnt een **rode snackbar** met de Nederlandse foutmelding uit het `error`-veld van de responsbody, wordt de URL **niet** aan de lijst toegevoegd en behoudt het invoerveld de ingetypte tekst (SF-1552).
 
 ### Podcast-bronnen (sectie, KAN-56)
 Lijst van podcast-RSS-bronnen uit `GET /api/podcast-feeds` (`podcastFeedsProvider`), eveneens met loading-spinner en "Fout: …"-afhandeling.
@@ -390,7 +390,7 @@ Lijst van podcast-RSS-bronnen uit `GET /api/podcast-feeds` (`podcastFeedsProvide
 - **Tik op URL:** opent de bron in externe browser
 - **"Transcriberen aan/uit"-toggle:** per bron schakelbaar; staat de toggle uit, dan valt de backend terug op de show-notes als input voor de AI-samenvatting (zonder Whisper-kosten).
 - **Verwijder-icoon:** verwijder bron, PUT `/api/podcast-feeds`
-- **Invoerveld + toevoegen-knop:** nieuwe URL toevoegen met synchrone server-side URL-validatie; een ongeldige URL geeft een snackbar (AC #7). Opslaan via `podcastFeedsProvider.save`.
+- **Invoerveld + toevoegen-knop:** nieuwe URL toevoegen met synchrone server-side URL-validatie; een ongeldige URL geeft een rode snackbar met de Nederlandse foutmelding uit het `error`-veld van de responsbody (AC #7). Opslaan via `podcastFeedsProvider.save`.
 
 ---
 

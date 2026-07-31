@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:personal_news_feed/api/api_client.dart';
 import 'package:personal_news_feed/models/models.dart';
 import 'package:personal_news_feed/providers/data_providers.dart';
 import 'package:personal_news_feed/screens/rss_feeds_screen.dart';
@@ -23,6 +26,42 @@ class _FakeRssFeedsNotifier extends RssFeedsNotifier {
   }
 }
 
+/// SF-1552: fake-notifier die het faalpad van de backend nabootst — een
+/// HTTP 400 met een Nederlandse foutmelding in het `error`-veld. De state
+/// wordt bewust níét gemuteerd, net als de echte [RssFeedsNotifier.save].
+class _FailingRssFeedsNotifier extends RssFeedsNotifier {
+  _FailingRssFeedsNotifier(this._initial, this._body);
+  final List<String> _initial;
+  final String _body;
+  int saveCalls = 0;
+
+  @override
+  Future<List<String>> build() async => _initial;
+
+  @override
+  Future<void> save(List<String> feeds) async {
+    saveCalls++;
+    throw ApiException(400, _body);
+  }
+}
+
+/// SF-1552: fake-notifier waarvan de save pas afrondt als de meegegeven
+/// future compleet is — zo is de busy-state observeerbaar in de widgettest.
+class _SlowRssFeedsNotifier extends RssFeedsNotifier {
+  _SlowRssFeedsNotifier(this._initial, this._gate);
+  final List<String> _initial;
+  final Future<void> _gate;
+
+  @override
+  Future<List<String>> build() async => _initial;
+
+  @override
+  Future<void> save(List<String> feeds) async {
+    await _gate;
+    state = AsyncData(feeds);
+  }
+}
+
 /// Fake-notifier voor [podcastFeedsProvider], zelfde principe.
 class _FakePodcastFeedsNotifier extends PodcastFeedsNotifier {
   _FakePodcastFeedsNotifier(this._initial);
@@ -39,9 +78,22 @@ class _FakePodcastFeedsNotifier extends PodcastFeedsNotifier {
   }
 }
 
+/// SF-1552: podcast-tegenhanger van [_FailingRssFeedsNotifier] — bewijst dat
+/// beide editors dezelfde message-extractie op het `error`-veld gebruiken.
+class _FailingPodcastFeedsNotifier extends PodcastFeedsNotifier {
+  _FailingPodcastFeedsNotifier(this._body);
+  final String _body;
+
+  @override
+  Future<List<PodcastFeed>> build() async => const [];
+
+  @override
+  Future<void> save(List<PodcastFeed> feeds) async => throw ApiException(400, _body);
+}
+
 Widget _wrap({
-  required _FakeRssFeedsNotifier rss,
-  required _FakePodcastFeedsNotifier podcasts,
+  required RssFeedsNotifier rss,
+  required PodcastFeedsNotifier podcasts,
 }) {
   return ProviderScope(
     overrides: [
@@ -94,6 +146,101 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(rss.lastSaved, isEmpty);
+  });
+
+  testWidgets('RSS-feed toevoegen: 400 toont servertekst, lijst en veld ongewijzigd',
+      (tester) async {
+    const serverMsg = "Ongeldige RSS-feed-URL 'http://127.0.0.1/rss': loopback-adres niet toegestaan";
+    final rss = _FailingRssFeedsNotifier(
+      const ['https://bestaand.example/rss'],
+      '{"error":"$serverMsg"}',
+    );
+    await tester.pumpWidget(_wrap(
+      rss: rss,
+      podcasts: _FakePodcastFeedsNotifier(const []),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).first, 'http://127.0.0.1/rss');
+    await tester.tap(find.byIcon(Icons.add).first);
+    await tester.pumpAndSettle();
+
+    expect(rss.saveCalls, 1);
+    // Snackbar toont de Nederlandse servertekst, niet de rauwe JSON.
+    expect(find.text(serverMsg), findsOneWidget);
+    // De URL is niet aan de lijst toegevoegd (hij staat alleen nog in het
+    // invoerveld, niet als ListTile-titel)...
+    expect(
+      find.descendant(of: find.byType(ListTile), matching: find.text('http://127.0.0.1/rss')),
+      findsNothing,
+    );
+    expect(find.text('https://bestaand.example/rss'), findsOneWidget);
+    // ...en het invoerveld behoudt de ingetypte tekst.
+    final field = tester.widget<TextField>(find.byType(TextField).first);
+    expect(field.controller!.text, 'http://127.0.0.1/rss');
+  });
+
+  testWidgets('RSS-feed verwijderen: 400 laat feed staan en toont snackbar', (tester) async {
+    const serverMsg = 'Opslaan mislukt: feeds niet geldig';
+    final rss = _FailingRssFeedsNotifier(
+      const ['https://blijft.example/rss'],
+      '{"error":"$serverMsg"}',
+    );
+    await tester.pumpWidget(_wrap(
+      rss: rss,
+      podcasts: _FakePodcastFeedsNotifier(const []),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.close).first);
+    await tester.pumpAndSettle();
+
+    expect(rss.saveCalls, 1);
+    expect(find.text(serverMsg), findsOneWidget);
+    expect(find.text('https://blijft.example/rss'), findsOneWidget);
+  });
+
+  testWidgets('RSS-editor toont spinner en blokkeert invoer tijdens opslaan', (tester) async {
+    final completer = Completer<void>();
+    final rss = _SlowRssFeedsNotifier(const [], completer.future);
+    await tester.pumpWidget(_wrap(
+      rss: rss,
+      podcasts: _FakePodcastFeedsNotifier(const []),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).first, 'https://traag.example/rss');
+    await tester.tap(find.byIcon(Icons.add).first);
+    await tester.pump();
+
+    // De +-knop van de RSS-editor is vervangen door een spinner (die van de
+    // podcast-editor blijft staan) en het veld is uitgeschakeld.
+    expect(find.byIcon(Icons.add), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(tester.widget<TextField>(find.byType(TextField).first).enabled, isFalse);
+
+    completer.complete();
+    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.add), findsNWidgets(2));
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(tester.widget<TextField>(find.byType(TextField).first).controller!.text, isEmpty);
+  });
+
+  testWidgets('podcast-fout toont de tekst uit het error-veld, niet de rauwe JSON', (tester) async {
+    const serverMsg = 'Kon podcast-feed niet ophalen: 404';
+    final podcasts = _FailingPodcastFeedsNotifier('{"error":"$serverMsg"}');
+    await tester.pumpWidget(_wrap(
+      rss: _FakeRssFeedsNotifier(const []),
+      podcasts: podcasts,
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).last, 'https://kapot.example/feed');
+    await tester.tap(find.byIcon(Icons.add).last);
+    await tester.pumpAndSettle();
+
+    expect(find.text(serverMsg), findsOneWidget);
+    expect(find.textContaining('"error"'), findsNothing);
   });
 
   testWidgets('podcast-transcriptie-toggle slaat gewijzigde waarde op', (tester) async {

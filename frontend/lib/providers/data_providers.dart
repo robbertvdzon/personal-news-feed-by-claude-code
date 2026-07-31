@@ -194,11 +194,16 @@ class RssFeedsNotifier extends AsyncNotifier<List<String>> {
     return List<String>.from(r['feeds'] ?? []);
   }
 
+  /// SF-1552: slaat de lijst op zonder eerst de state te muteren — bij een
+  /// validatie-fout (HTTP 400) blijven zowel de UI-state als de lokale cache
+  /// ongewijzigd en propageert de [ApiException] naar de caller
+  /// (rss_feeds_screen._RssFeedsEditor), die er een snackbar van maakt.
+  /// Gelijk aan [PodcastFeedsNotifier.save].
   Future<void> save(List<String> feeds) async {
-    state = AsyncData(feeds);
     final body = {'feeds': feeds};
     await _api.put('/api/rss-feeds', body);
     await LocalCache.saveObject(_user, 'rss-feeds', body);
+    state = AsyncData(feeds);
   }
 }
 

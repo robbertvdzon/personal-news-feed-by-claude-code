@@ -49,6 +49,7 @@ class _RssFeedsEditor extends ConsumerStatefulWidget {
 
 class _RssFeedsEditorState extends ConsumerState<_RssFeedsEditor> {
   final _controller = TextEditingController();
+  bool _busy = false;
 
   @override
   Widget build(BuildContext context) {
@@ -59,21 +60,30 @@ class _RssFeedsEditorState extends ConsumerState<_RssFeedsEditor> {
           onTap: () => launchUrl(Uri.parse(f), mode: LaunchMode.externalApplication),
           trailing: IconButton(
             icon: const Icon(Icons.close),
-            onPressed: () {
-              final next = widget.feeds.where((x) => x != f).toList();
-              ref.read(rssFeedsProvider.notifier).save(next);
-            },
+            onPressed: _busy
+                ? null
+                : () {
+                    final next = widget.feeds.where((x) => x != f).toList();
+                    _save(next, validateFailureMessage: null);
+                  },
           ),
         ),
       Row(children: [
         Expanded(
           child: TextField(
             controller: _controller,
+            enabled: !_busy,
             decoration: const InputDecoration(labelText: 'Nieuwe feed-URL', hintText: 'https://...'),
-            onSubmitted: (_) => _add(),
+            onSubmitted: _busy ? null : (_) => _add(),
           ),
         ),
-        IconButton(icon: const Icon(Icons.add), onPressed: _add),
+        if (_busy)
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 12),
+            child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+          )
+        else
+          IconButton(icon: const Icon(Icons.add), onPressed: _add),
       ]),
     ]);
   }
@@ -82,9 +92,50 @@ class _RssFeedsEditorState extends ConsumerState<_RssFeedsEditor> {
     final url = _controller.text.trim();
     if (url.isEmpty) return;
     final next = [...widget.feeds, url];
-    ref.read(rssFeedsProvider.notifier).save(next);
-    _controller.clear();
+    _save(next, validateFailureMessage: 'Kon feed niet opslaan');
   }
+
+  /// SF-1552: identiek faalcontract als [_PodcastFeedsEditorState._save] —
+  /// de lijst muteert pas nadat de PUT geslaagd is, en het invoerveld wordt
+  /// alleen geleegd bij een geslaagde toevoeg-actie
+  /// (`validateFailureMessage != null`).
+  Future<void> _save(List<String> next, {String? validateFailureMessage}) async {
+    setState(() => _busy = true);
+    try {
+      await ref.read(rssFeedsProvider.notifier).save(next);
+      if (validateFailureMessage != null) _controller.clear();
+    } catch (e) {
+      if (!mounted) return;
+      // Backend stuurt bij een ongeldige URL HTTP 400 met een
+      // Nederlandse foutmelding in de body — die tonen we direct.
+      final msg = e is ApiException && e.statusCode == 400
+          ? _extractDutchMessage(e.body,
+              emptyFallback: validateFailureMessage ?? 'Kon feed niet opslaan')
+          : (validateFailureMessage ?? 'Fout bij opslaan: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(msg),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+}
+
+/// SF-1552: gedeelde message-extractie voor beide editors op dit scherm.
+/// `GlobalExceptionHandler` (backend `common/Exceptions.kt`) serialiseert
+/// elke fout naar `{"error": "..."}` — we pakken dat veld eruit en vallen
+/// terug op de rauwe body (of [emptyFallback] bij een lege body).
+String _extractDutchMessage(String body, {required String emptyFallback}) {
+  final raw = body.trim();
+  if (raw.startsWith('{')) {
+    // Heel simpele extractie — geen JSON-parser nodig.
+    final match = RegExp('"error"\\s*:\\s*"([^"]+)"').firstMatch(raw);
+    if (match != null) return match.group(1) ?? raw;
+  }
+  return raw.isEmpty ? emptyFallback : raw;
 }
 
 /// KAN-56: tegenhanger van [_RssFeedsEditor] voor podcast-RSS-bronnen.
@@ -188,7 +239,8 @@ class _PodcastFeedsEditorState extends ConsumerState<_PodcastFeedsEditor> {
       // Backend stuurt bij een ongeldige URL HTTP 400 met een
       // Nederlandse foutmelding in de body — die tonen we direct.
       final msg = e is ApiException && e.statusCode == 400
-          ? _extractDutchMessage(e.body)
+          ? _extractDutchMessage(e.body,
+              emptyFallback: validateFailureMessage ?? 'Kon feed niet ophalen')
           : (validateFailureMessage ?? 'Fout bij opslaan: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -199,17 +251,5 @@ class _PodcastFeedsEditorState extends ConsumerState<_PodcastFeedsEditor> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
-  }
-
-  /// Spring's ResponseStatusException serialiseert naar een JSON-blob met
-  /// een `message`-veld. We pakken dat eruit; falt back op de raw body.
-  String _extractDutchMessage(String body) {
-    final raw = body.trim();
-    if (raw.startsWith('{')) {
-      // Heel simpele extractie — geen JSON-parser nodig.
-      final match = RegExp('"message"\\s*:\\s*"([^"]+)"').firstMatch(raw);
-      if (match != null) return match.group(1) ?? raw;
-    }
-    return raw.isEmpty ? 'Kon feed niet ophalen' : raw;
   }
 }
