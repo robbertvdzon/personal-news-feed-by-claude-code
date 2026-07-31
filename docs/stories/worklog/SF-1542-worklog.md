@@ -73,3 +73,40 @@ Verificatie:
   manifest-vergelijking hierboven.
 - `git status` toont alleen deploy/overlays/preview/kustomization.yaml plus deze
   worklog.
+
+## Review (SF-1634)
+
+Akkoord — geen blockers.
+
+Zelf geverifieerd (render-diff `main` vs. branch, `kubectl kustomize`):
+- Preview-render verschilt in exact twee hunks: `APP_JWT_SECRET` met `value: ""`
+  erbij, de `secretKeyRef`-variant naar `newsfeed-api-keys/JWT_SECRET` eraf.
+  Geen enkele andere wijziging in de gerenderde manifest-set.
+- `APP_JWT_SECRET` komt precies één keer voor, zonder `valueFrom`; er is precies
+  één container `backend` — de merge-keys (`name: backend`, `name: APP_JWT_SECRET`)
+  zijn dus correct en voegen niets stilzwijgend toe.
+- Overige env-vars (PNF_DATABASE_URL, SPRING_DATASOURCE_URL, PNF_OPENAI_API_KEY,
+  PNF_TAVILY_API_KEY, PNF_ELEVENLABS_API_KEY, JAVA_TOOL_OPTIONS, TZ, APP_DATA_DIR)
+  inhoudelijk ongewijzigd; alleen de volgorde is verschoven.
+- `emptyDir` voor het `data`-volume en `strategy.type: RollingUpdate` intact; geen
+  SealedSecret, geen frontend/backend-debug Route, geen PVC, geen cloudflared en
+  geen preview-router in de render.
+- `kubectl kustomize deploy/overlays/openshift` is byte-identiek aan die van
+  `main` — productie blijft de vaste JWT-sleutel gebruiken.
+- Runtime-gedrag klopt: `application.properties` gebruikt `app.jwt.secret=${APP_JWT_SECRET:}`
+  en `JwtService` gaat bij een blanke waarde over op een 64-byte ephemeral sleutel
+  met waarschuwing in de log — een lege string valt dus in het `isBlank()`-pad.
+- Diff raakt uitsluitend `deploy/overlays/preview/kustomization.yaml` + deze worklog;
+  geen scope-creep.
+
+Bevindingen:
+- [info] De strategic-merge-patch adresseert de container via merge-key
+  `name: backend`. Wordt de container in de base ooit hernoemd, dan voegt de patch
+  stilzwijgend een extra (incomplete) container toe in plaats van te falen. Bewuste
+  eigenschap van deze patch-vorm en conform de story; wel iets om bij een
+  container-rename in de base opnieuw te checken.
+- [info] De verouderde verwijzing naar `deploy/applicationset.yaml` in de
+  commentaarkop staat er nog; expliciet buiten scope van deze story.
+- [info] `Route/reader` staat ook in de preview-render, maar dat was vóór deze
+  wijziging al zo (de overlay delete alleen frontend + backend-debug) — pre-existing,
+  geen regressie van deze story.
