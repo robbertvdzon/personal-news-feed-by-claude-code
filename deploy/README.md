@@ -232,6 +232,7 @@ JWT-sleutel aan de preview-Deployment is verbroken.
 deploy/
 ├── README.md                    ← deze file
 ├── seal-secrets.sh              ← .env → SealedSecret YAML (cert komt uit robberts-infrastructure)
+├── neon-endpoint-config.sh      ← Neon-endpoint op suspend=300s / 0.25–1 CU (idempotent, zie runbook §6.1)
 ├── secrets-cluster.env.example  ← template
 ├── secrets-cluster.env          ← (gitignored) jouw waarden
 ├── preview-ns-labeller/

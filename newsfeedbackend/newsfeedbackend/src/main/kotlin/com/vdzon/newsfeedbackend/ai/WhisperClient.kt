@@ -28,7 +28,7 @@ import kotlin.concurrent.thread
  * naam), niet de JSON-body die de TTS-endpoint gebruikt.
  *
  * KAN-60: de transcribe-call retourneert nu een sealed [TranscribeOutcome]
- * zodat de async transcript-worker rate-limit-/server-fouten (429/5xx)
+ * zodat de async transcriptfase rate-limit-/server-fouten (429/5xx)
  * kan onderscheiden van fatale fouten. Bij 429/5xx wordt de aflevering
  * geretryd met backoff; bij fatale fouten of "no api key" gaat 'ie naar
  * de show-notes-only-eindstaat (geen oneindige retry-storm).
@@ -69,7 +69,7 @@ class WhisperClient(
 
     /**
      * Stuurt [audioFile] als MP3 naar Whisper. Resultaat is een
-     * [TranscribeOutcome] zodat de caller (PodcastTranscriptWorker) weet
+     * [TranscribeOutcome] zodat de caller (PodcastTranscriptPipeline) weet
      * of 'ie moet retryen (RateLimited), opgeven (FatalError/NoApiKey)
      * of door kan met de tekst (Success).
      *

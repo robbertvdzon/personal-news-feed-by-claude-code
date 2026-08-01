@@ -96,20 +96,32 @@ class PodcastEpisodeRepository(
     /**
      * KAN-60: pakt globaal de oudste aflevering die klaar is voor een
      * (nieuwe) Whisper-poging — status=NEEDS_TRANSCRIPT en niet meer in
-     * de backoff-wachtkamer. FIFO over alle gebruikers heen; per tick
-     * wordt er max één opgepakt zodat we Whisper niet weer met een burst
+     * de backoff-wachtkamer. FIFO over alle gebruikers heen; er wordt er
+     * max één opgepakt zodat we Whisper niet weer met een burst
      * overstelpen (AC #3).
      */
     fun findOneReadyForTranscript(now: Instant): PodcastEpisode? =
+        findReadyForTranscript(now, 1).firstOrNull()
+
+    /**
+     * SF-1739: zelfde selectie als [findOneReadyForTranscript], maar met
+     * een instelbare bovengrens. De uurlijkse recovery-job gebruikt 'm om
+     * een achterstand (bv. events die door een restart verloren gingen)
+     * in één run te hertriggeren; de verwerking zelf blijft serieel via
+     * de single-threaded transcript-executor.
+     */
+    fun findReadyForTranscript(now: Instant, limit: Int): List<PodcastEpisode> =
         jdbc.query(
             """SELECT * FROM podcast_episodes
                WHERE status = 'NEEDS_TRANSCRIPT'
                  AND (next_attempt_at IS NULL OR next_attempt_at <= :now)
                ORDER BY created_at ASC
-               LIMIT 1""",
-            MapSqlParameterSource("now", Timestamp.from(now)),
+               LIMIT :limit""",
+            MapSqlParameterSource()
+                .addValue("now", Timestamp.from(now))
+                .addValue("limit", limit),
             ::map
-        ).firstOrNull()
+        )
 
     /**
      * KAN-60: pakt afleveringen die langer dan [olderThan] vastzitten op
@@ -120,7 +132,7 @@ class PodcastEpisodeRepository(
      * V8/follow-up: filteren op `feed_promotion_attempted_at IS NULL`
      * i.p.v. `ri.feed_item_id IS NULL`. Een AI-afwijzing in
      * `promoteSingleItem` laat `feed_item_id` op NULL staan, dus die
-     * conditie matchte iedere tick opnieuw → Claude-call-loop.
+     * conditie matchte iedere run opnieuw → Claude-call-loop.
      */
     fun findShowNotesExpiredForPromotion(now: Instant, olderThan: java.time.Duration): List<PodcastEpisode> {
         val threshold = now.minus(olderThan)

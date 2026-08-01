@@ -20,4 +20,23 @@ class PodcastAsyncConfig {
         executor.initialize()
         return executor
     }
+
+    /**
+     * SF-1739: aparte, expliciet single-threaded executor voor de
+     * event-driven transcript-fase. Eén thread = max één aflevering
+     * tegelijk in verwerking (de garantie die vroeger uit "max 1 episode
+     * per scheduled tick" kwam). Bewust gescheiden van
+     * `podcastTaskExecutor`, zodat een minutenlange Whisper-run de snelle
+     * show-notes-cards niet ophoudt.
+     */
+    @Bean(name = ["podcastTranscriptExecutor"])
+    fun podcastTranscriptExecutor(): ThreadPoolTaskExecutor {
+        val executor = ThreadPoolTaskExecutor()
+        executor.corePoolSize = 1
+        executor.maxPoolSize = 1
+        executor.queueCapacity = 200
+        executor.setThreadNamePrefix("podcast-transcript-")
+        executor.initialize()
+        return executor
+    }
 }

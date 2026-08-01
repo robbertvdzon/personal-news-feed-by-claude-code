@@ -14,7 +14,7 @@ import java.util.UUID
 
 /**
  * KAN-60: fase 2 van de tweefasen-pipeline — async transcript
- * ([processTranscript], door [PodcastTranscriptWorker] aangeroepen):
+ * ([processTranscript], door [PodcastTranscriptPipeline] aangeroepen):
  *
  *   NEEDS_TRANSCRIPT → DOWNLOADING → TRANSCRIBING → SUMMARIZING → DONE
  *
@@ -52,7 +52,7 @@ class PodcastTranscriptProcessor(
 
     /**
      * Fase 2 — transcript-fase. Wordt synchroon aangeroepen vanuit
-     * [PodcastTranscriptWorker] (de scheduled tick pakt MAX 1 episode op).
+     * [PodcastTranscriptPipeline] (die verwerkt MAX 1 episode tegelijk).
      * Retourneert hoe het is afgelopen zodat de worker bij rate-limit de
      * backoff kan instellen.
      */
@@ -213,7 +213,7 @@ class PodcastTranscriptProcessor(
 
     /**
      * Backoff-tabel uit de story (AC #4): 5m → 15m → 45m → 24h. retryCount
-     * is het aantal mislukte pogingen vóór deze tick; retryCount=0 ná de
+     * is het aantal mislukte pogingen vóór deze poging; retryCount=0 ná de
      * eerste 429 → wachttijd 5m.
      */
     fun nextRetryDelay(retryCount: Int): Duration = when (retryCount) {

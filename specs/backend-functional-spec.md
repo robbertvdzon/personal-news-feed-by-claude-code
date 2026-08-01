@@ -246,22 +246,24 @@ Variaties:
 3. `SUMMARIZING_FROM_NOTES`: de AI krijgt de `<description>` (show-notes) als input en levert in één call `shortSummary`, `longSummary`, `keyTakeaways`, `topics` en `category` (KAN-62). Geen MP3-download, geen Whisper-call. Resultaat: een `rss_items`-rij met `media_type='PODCAST'`, `summary_source='show_notes'`. De RSS-tab toont de card direct met een `📝 voorlopig`-badge.
 4. Status naar `NEEDS_TRANSCRIPT` (of `SHOW_NOTES_DONE` bij uitgeschakelde transcriptie).
 
-**Async transcript-fase ([PodcastTranscriptWorker], @Scheduled fixedDelay):**
-- Tickt elke `app.podcast.transcript-worker.interval-ms` (default 2 min). Pakt **maximaal één aflevering per tick** op met `status=NEEDS_TRANSCRIPT` en `next_attempt_at <= now()` (FIFO over alle gebruikers, oudste eerst). AC #3.
+**Async transcript-fase ([PodcastTranscriptPipeline], event-driven — SF-1739):**
+- Start op het applicatie-event `PodcastTranscriptRequested` (username + guid), dat de show-notes-fase publiceert bij de overgang naar `NEEDS_TRANSCRIPT`. Er is **geen poll meer**: de oude `@Scheduled(fixedDelay=2 min)`-tick van `PodcastTranscriptWorker` is verwijderd omdat die de database wakker hield en Neon-scale-to-zero blokkeerde.
+- De `@EventListener @Async`-consument draait op de single-threaded executor `podcastTranscriptExecutor` en neemt daarnaast een proceswijde lock: **maximaal één aflevering tegelijk** in verwerking (AC #3). Per event wordt de rij opnieuw uit de database gelezen; alleen `status=NEEDS_TRANSCRIPT` met `next_attempt_at <= now()` wordt opgepakt, dus dubbele events leiden niet tot dubbele verwerking (idempotent).
+- **Vangnet ([PodcastRecoveryScheduler], `@Scheduled(cron)` + `@SchedulerLock`):** draait hoogstens elk uur (`app.podcast.recovery.cron`, default `0 5 * * * *`; `-` schakelt 'm uit) en hertriggert afleveringen op `NEEDS_TRANSCRIPT` met een verlopen (of lege) `next_attempt_at` — bv. omdat het event door een restart verloren ging of omdat een backoff-retry aan de beurt is. De job doet zelf geen Whisper-werk maar publiceert hetzelfde event (max 10 per run), zodat alles serieel via dezelfde pipeline loopt. Bewuste keuze: er is géén in-memory hertrigger op `next_attempt_at`, dus een retry start op z'n laatst bij de eerstvolgende uurlijkse run.
 - Doorloopt `DOWNLOADING` → `TRANSCRIBING` → `SUMMARIZING` → `DONE`. Het transcript wordt opgeslagen, de AI genereert een nieuwe samenvatting en overschrijft `rss_items.summary` + `rss_items.long_summary` + `rss_items.key_takeaways` + zet `summary_source='transcript'` (badge verdwijnt — AC #5). KAN-62: de AI krijgt tot 80.000 chars transcript-input zodat de lange samenvatting (3-5 alinea's, ~400-600 woorden) het inhoudelijk verloop van een 60-90-min aflevering reflecteert i.p.v. alleen de opening.
 - **Rate-limit-retry (AC #4):** bij HTTP 429 of 5xx van Whisper blijft de aflevering op `NEEDS_TRANSCRIPT` met `retry_count++` en `next_attempt_at = now() + backoff`:
   - 1e mislukte poging → wacht 5 min
   - 2e → wacht 15 min
   - 3e → wacht 45 min
   - 4e+ → wacht 24 u
-  De retry-state overleeft een restart (kolommen `retry_count` + `next_attempt_at` op `podcast_episodes`).
+  De retry-state overleeft een restart (kolommen `retry_count` + `next_attempt_at` op `podcast_episodes`); de uurlijkse recovery-job pakt 'm daarna weer op.
 - Bij een fatale fout (geen API-key, HTTP 4xx ≠ 429, parse-fout, lege transcript): status naar `SHOW_NOTES_DONE`. De show-notes-card blijft permanent staan; geen retry-storm.
 
 **Feed-promotie (AC #6):**
-- Voor podcasts is promotie naar de Feed-tab **niet automatisch via de hourly RSS-refresh**: de async transcript-worker (of de show-notes-fase bij `transcribeEnabled=false`) publiceert een `PodcastPromotionRequested`-event waarop `RssRefreshPipeline.promoteSingleItem(...)` reageert. Die draait de bestaande AI-feed-selectie op precies die ene rss-rij en — bij positief verdict — genereert een FeedItem.
+- Voor podcasts is promotie naar de Feed-tab **niet automatisch via de hourly RSS-refresh**: de async transcript-fase (of de show-notes-fase bij `transcribeEnabled=false`) publiceert een `PodcastPromotionRequested`-event waarop `RssRefreshPipeline.promoteSingleItem(...)` reageert. Die draait de bestaande AI-feed-selectie op precies die ene rss-rij en — bij positief verdict — genereert een FeedItem.
 - Promotie gebeurt:
   - **Op het transcript-pad:** zodra `status=DONE` is gezet.
-  - **Op het show-notes-timeout-pad:** als een aflevering langer dan `app.podcast.transcript-worker.promotion-timeout-hours` (default 24h) op `NEEDS_TRANSCRIPT` staat én de show-notes-promotie nog niet eerder is getriggerd (kolom `feed_promotion_attempted_at IS NULL`). De aflevering blijft daarna `NEEDS_TRANSCRIPT` — de transcript-poging gaat door — maar het FeedItem is alvast aangemaakt op basis van de show-notes-samenvatting. De worker zet `feed_promotion_attempted_at = now()` vóór het publishen van het event, zodat een AI-afwijzing (die `rss_items.feed_item_id` op NULL laat) niet leidt tot een loop van AI-selectie-calls op iedere tick.
+  - **Op het show-notes-timeout-pad:** als een aflevering langer dan `app.podcast.transcript-worker.promotion-timeout-hours` (default 24h) op `NEEDS_TRANSCRIPT` staat én de show-notes-promotie nog niet eerder is getriggerd (kolom `feed_promotion_attempted_at IS NULL`). De aflevering blijft daarna `NEEDS_TRANSCRIPT` — de transcript-poging gaat door — maar het FeedItem is alvast aangemaakt op basis van de show-notes-samenvatting. De recovery-job zet `feed_promotion_attempted_at = now()` vóór het publishen van het event, zodat een AI-afwijzing (die `rss_items.feed_item_id` op NULL laat) niet leidt tot een loop van AI-selectie-calls op iedere run.
 - De promoter is idempotent: rss-items met een bestaande `feed_item_id` worden overgeslagen.
 - `generateFeedItem(...)` gebruikt het transcript (via `PodcastTranscriptLookup`) i.p.v. de MP3-URL voor de uitgebreide samenvatting; bij show-notes-timeout-promotie valt 'ie terug op `snippet` (show-notes-tekst).
 - `FeedItem.media_type` wordt overgenomen van de bron-rss-rij zodat de Feed-tab filter (AC #8) op rij-niveau kan filteren.
@@ -558,7 +560,7 @@ Alle configuratie via `application.properties` of omgevingsvariabelen.
 | Dagelijks 06:00 (`0 0 6 * * *`) | Dagelijkse AI-samenvatting genereren voor alle gebruikers |
 | Wekelijks zondag 02:00 (`0 0 2 * * SUN`) | Tech-events ontdekken voor alle gebruikers (KAN-65) |
 | Wekelijks zondag 03:00 (`0 0 3 * * SUN`) | Event-video's ontdekken voor alle gebruikers (KAN-66) |
-| Elke ~2 min (`fixedDelay`, default `app.podcast.transcript-worker.interval-ms`) | Podcast-transcript-worker: max. één `NEEDS_TRANSCRIPT`-aflevering per tick (Whisper + samenvatting) met rate-limit-backoff (zie 6.4) |
+| Elk uur op :05 (`app.podcast.recovery.cron`, default `0 5 * * * *`) | Podcast-recovery-job (vangnet, SF-1739): hertriggert `NEEDS_TRANSCRIPT`-afleveringen met verlopen `next_attempt_at` en doet de show-notes-timeout-promotie. De normale transcript-start is event-driven, niet gepland (zie 6.4) |
 
 ---
 
