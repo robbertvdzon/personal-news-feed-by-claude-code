@@ -1,6 +1,7 @@
-# PersistentVolumeClaim voor audio-files (podcast-MP3's). Andere data
-# leeft in Postgres (Neon); alleen audio blijft op disk omdat MP3's te
-# groot zijn voor DB-blobs.
+# PersistentVolumeClaim voor runtime-state van de backend (o.a. de paden
+# die de admin-cleanup opruimt). Alle applicatiedata leeft in Postgres
+# (Neon) — ook de podcast-audio, die sinds migratie
+# V5__podcast_audio_bytes.sql als BYTEA in de database staat.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
