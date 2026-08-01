@@ -63,7 +63,7 @@ De backend gebruikt **Spring Modulith** voor het afdwingen van modulegescheiden 
 | `websocket` | `com.vdzon.newsfeedbackend.websocket` | WebSocket handler voor request-statusupdates |
 | `admin` | `com.vdzon.newsfeedbackend.admin` | Gebruikersbeheer en AI-kostenoverzicht (admin-only endpoints) |
 | `external_call` | `com.vdzon.newsfeedbackend.external_call` | Logging en kostenberekening van externe API-aanroepen (`external_calls`-tabel) |
-| `podcast_source` | `com.vdzon.newsfeedbackend.podcast_source` | Ingest van podcast-RSS-bronnen en episode-verwerking (transcript-lookup) |
+| `podcast_source` | `com.vdzon.newsfeedbackend.podcast_source` | Ingest van podcast-RSS-bronnen en episode-verwerking (transcript-lookup); beheer van de feed-lijst incl. validatie van nieuwe feeds en ingestion-trigger achter `PodcastFeedsService` |
 | `version` | `com.vdzon.newsfeedbackend.version` | Build-/versie-info endpoint |
 | `common` | `com.vdzon.newsfeedbackend.common` | Gedeelde helpers (security, exceptions, Jackson-config, SSRF-URL-validatie) |
 | `media` | `com.vdzon.newsfeedbackend.media` | Comprimeert podcast-audio (mono, lage bitrate MP3) zodat bestanden onder Whisper's 25 MB-limiet blijven |
@@ -310,6 +310,7 @@ sluiten de e2e-suite uit (`**/e2e/**`). De suite in
 - `settings/domain/SettingsServiceImplSaveRssFeedsTest.kt` — `saveRssFeeds` wijst ongeldige/SSRF-risicovolle feed-URLs af vóór opslag (SF-1345)
 - `podcast_source/PodcastFeedFetcherSsrfTest.kt` — SSRF-defense-in-depth-check vlak vóór `http.send(...)` in `PodcastFeedFetcher.fetch()` (SF-1387)
 - `settings/domain/SettingsServiceImplSavePodcastFeedsTest.kt` — `savePodcastFeeds` wijst ongeldige/SSRF-risicovolle feed-URLs af vóór opslag (SF-1387)
+- `podcast_source/domain/PodcastFeedsServiceImplTest.kt` — `savePodcastFeeds` fetcht alleen nieuwe, niet-blanco URLs (bestaande en blanco worden overgeslagen), slaat op vóór het triggeren van de ingestion, en gooit bij een mislukte fetch een `BadRequestException` met de melding `Kon feed niet ophalen: <url> (<reden>|onbekende fout)` zonder op te slaan of te triggeren; gemockte `SettingsService`/`PodcastIngestionTrigger`/`PodcastFeedFetcher` (SF-1683)
 - `podcast/domain/PodcastTranslationServiceImplTest.kt` — guard-clauses en idempotency van `startTranslation` (episode niet gevonden, episode-status ≠ DONE, leeg transcript, bestaande vertaling met status ≠/== FAILED, happy path) en `lookup` (episode niet gevonden, met/zonder bestaande vertaling), gemockte `PodcastRepository`/`PodcastEpisodeLookup`/`PodcastTranslator` (SF-1466/SF-1467)
 
 Daarnaast draait bij elke `mvn test` ook `ModuleStructureTest.kt` —

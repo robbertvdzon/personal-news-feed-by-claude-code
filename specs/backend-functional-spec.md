@@ -266,7 +266,7 @@ Variaties:
 - `generateFeedItem(...)` gebruikt het transcript (via `PodcastTranscriptLookup`) i.p.v. de MP3-URL voor de uitgebreide samenvatting; bij show-notes-timeout-promotie valt 'ie terug op `snippet` (show-notes-tekst).
 - `FeedItem.media_type` wordt overgenomen van de bron-rss-rij zodat de Feed-tab filter (AC #8) op rij-niveau kan filteren.
 
-**Validatie bij toevoegen:** `PUT /api/podcast-feeds` toetst nieuwe URLs synchroon door één feed-fetch te doen. Faalt die binnen ~10s → HTTP 400 met Nederlandse foutmelding ("Kon feed niet ophalen: ..."). Bestaande URLs worden niet hertoetst.
+**Validatie bij toevoegen:** `PUT /api/podcast-feeds` toetst nieuwe URLs synchroon door één feed-fetch te doen. Faalt die binnen ~10s → HTTP 400 met Nederlandse foutmelding ("Kon feed niet ophalen: ..."). Bestaande URLs (en blanco URLs) worden niet hertoetst. Sinds SF-1683 zit die validatie — samen met opslaan en het triggeren van de ingestion, in die volgorde — achter de publieke `PodcastFeedsService` van de module `podcast_source` (implementatie in `podcast_source/domain/`); `PodcastFeedsController` delegeert er alleen naartoe. Gedrag en responsvorm zijn ongewijzigd.
 
 **SSRF-hardening (SF-1387):** analoog aan de RSS-feeds (§7.5) wordt elke
 podcast-feed-URL gevalideerd via `SsrfUrlValidator` — alleen `http`/`https`
