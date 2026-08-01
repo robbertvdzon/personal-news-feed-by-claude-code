@@ -123,3 +123,65 @@ Bevindingen: geen blockers, geen bugs.
 - [info] Testbewijs: doc-only wijziging zonder runtime-oppervlak; het volledige vangnet is
   door de developer groen gedraaid (mvn clean verify 80+65, flutter 19+2). Geen eigen
   herhaling van het vangnet nodig.
+
+## SF-1692 (tester) — akkoord
+
+Documentatie-only story (Markdown + YAML-commentaarregels). Diff t.o.v. `main`:
+`.github/workflows/build-images.yml`, `deploy/README.md`, `deploy/base/backend-pvc.yaml`,
+`docs/factory/deployment.md` + dit worklog — geen Kotlin/Dart/tests/manifest-inhoud.
+
+Verificatie per acceptatiecriterium:
+
+1. **Diagrammen** — beide diagrammen (`docs/factory/deployment.md` §Architectuur,
+   `deploy/README.md` §Architectuur) noemen reader (Pod+Service+Route,
+   `reader.vdzonsoftware.nl`), cloudflared (tunnel `*.vdzonsoftware.nl`) en
+   preview-router (nginx, host-based routing). Tegen de manifests gecontroleerd:
+   `reader-route.yaml` verwijst naar `reader.vdzonsoftware.nl` (Cloudflare hostname),
+   `cloudflared-deployment.yaml` draait `cloudflare/cloudflared:2025.10.0` als
+   uitgaande tunnel, `preview-router-deployment.yaml` draait
+   `nginxinc/nginx-unprivileged`. Geen tegenspraak met `runbook.md` §2 (regels 33-47).
+2. **Drie images** — deploy-flow in `docs/factory/deployment.md` en §Code-wijziging in
+   `deploy/README.md` noemen `{backend,frontend,reader}`; `grep -rn "{backend,frontend}"`
+   over de repo geeft 0 hits (alleen het worklog). Klopt met de jobs `build-backend`,
+   `build-frontend`, `build-reader` in `build-images.yml` en de drie `newTag`-entries in
+   `deploy/base/kustomization.yaml`.
+3. **PVC/audio** — `grep -niE "audio|mp3"` over de drie scope-bestanden levert alleen nog
+   regels die zeggen dat de audio *in Postgres* (BYTEA, `V5__podcast_audio_bytes.sql`)
+   staat en dat het PVC alleen runtime-state / admin-cleanup paden houdt. De PVC-spec zelf
+   is buiten de comments byte-identiek aan `main` (5Gi ongewijzigd).
+4. **Bestandenlijst** — 1-op-1 gediffed tegen `find deploy -type f` (23 bestanden):
+   alle bestaande paden staan in de lijst, `bootstrap.sh` en `base/namespace.yaml` zijn
+   weg, `reader-{deployment,service,route}.yaml`, `cloudflared-deployment.yaml`,
+   `preview-router-{deployment,config}.yaml` en `overlays/preview/kustomization.yaml`
+   toegevoegd. Enige niet-gevonden entry is het gitignorede `secrets-cluster.env`, conform
+   de story-aanname. De preview-annotatie (geen Routes/PVC/cloudflared, emptyDir,
+   ephemeral JWT) klopt met `deploy/overlays/preview/kustomization.yaml` (`$patch: delete`
+   op Routes/PVC/cloudflared, `emptyDir: {}`, leeg `APP_JWT_SECRET`).
+5. **Beperkingen-bullet** — geen paths-filter-bewering meer over de `pull_request`-trigger;
+   de enige `paths:`-vermelding in `deploy/README.md` stelt nu juist dat die filter er
+   *niet* is, wat klopt met `build-images.yml:26-28` + toelichting op :12-16. De
+   ~3 min ArgoCD-pollinterval komt overeen met `runbook.md` §8.
+   `bootstrap.sh` komt in `deploy/README.md` niet meer voor (enige resterende hit is het
+   bewust buiten scope gelaten historische comment in `deploy/base/kustomization.yaml:15`).
+
+Gedragsneutraliteit hard aangetoond:
+
+- `diff <(kubectl kustomize /tmp/mainco/deploy/overlays/<o>) <(kubectl kustomize
+  deploy/overlays/<o>)` voor **beide** overlays (`openshift`, `preview`) → byte-identiek
+  aan `main`. De comment-wijziging in `backend-pvc.yaml` raakt de gerenderde manifests dus
+  aantoonbaar niet.
+- `build-images.yml` zonder commentaarregels gediffed tegen `main` → identiek; alleen
+  regel 3 (header-comment) wijzigde, geen trigger/job-gedrag.
+- Preview `pnf-pr-198` live en gezond: frontend `/` → 200, `/actuator/health` → 200,
+  `/api/feed` zonder token → 403 (security actief).
+
+Geen browser-/screenshotbewijs: de story raakt geen frontend-code (0 regels Dart/Kotlin),
+dus er is geen UI-gedrag om visueel te verifiëren. Er is geen testdata aangemaakt en er
+zijn geen DB-mutaties gedaan; werkboom bevat alleen deze worklog-toevoeging.
+
+Bevindingen: geen blockers, geen bugs.
+
+- [non-blocker, buiten scope] Dezelfde audio-op-PVC-drift staat nog in comments buiten de
+  story-scope: `deploy/overlays/preview/kustomization.yaml:7,104` en
+  `deploy/base/backend-deployment.yaml:10`. Al gesignaleerd door de reviewer; kandidaat
+  voor een vervolg-story.
