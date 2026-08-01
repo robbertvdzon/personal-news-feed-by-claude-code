@@ -29,13 +29,18 @@ GitHub Actions ── builds ──► ghcr.io (public)
         ├── pusht nieuwe SHA naar deploy/base/kustomization.yaml
         ▼
 ArgoCD ◄── synct main ── namespace: personal-news-feed (OpenShift)
-        ├── backend Pod + Service (poort 8080)
-        ├── frontend Pod + Service
-        ├── PVC (audio-MP3, 5 Gi)
+        ├── backend   Pod + Service (poort 8080) + Route (debug)
+        │              + PVC (runtime-state, 5 Gi)
+        ├── frontend  Pod + Service + Route ← gebruikers (news.vdzonsoftware.nl)
+        ├── reader    Pod + Service + Route ← reader.vdzonsoftware.nl
+        ├── cloudflared    (tunnel: *.vdzonsoftware.nl → in-cluster services)
+        ├── preview-router (nginx, host-based routing voor PR-previews)
         └── Secret (via SealedSecret in git)
 ```
 
-Data staat in externe PostgreSQL (Neon); audio-MP3's staan als BYTEA in de DB.
+Data staat in externe PostgreSQL (Neon); de podcast-audio staat sinds migratie
+`V5__podcast_audio_bytes.sql` als BYTEA in de DB. Het PVC houdt alleen
+runtime-state / admin-cleanup paden.
 
 ## Productie-URL
 
@@ -116,7 +121,7 @@ eind). Zie `docs/factory/agents/tester.md`.
 ## Deploy-flow (dagelijks gebruik)
 
 Push naar `main`:
-1. GitHub Actions bouwt nieuwe backend- en frontend-images (`ghcr.io/robbertvdzon/personal-news-feed-{backend,frontend}:sha-…`).
+1. GitHub Actions bouwt nieuwe backend-, frontend- en reader-images (`ghcr.io/robbertvdzon/personal-news-feed-{backend,frontend,reader}:sha-…`).
 2. Workflow committet de nieuwe SHA in `deploy/base/kustomization.yaml`.
 3. ArgoCD detecteert de manifest-wijziging, pods rollen automatisch.
 

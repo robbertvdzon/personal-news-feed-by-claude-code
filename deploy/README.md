@@ -18,14 +18,17 @@ ArgoCD ◄── synct main ──── git ──┘
         │
         ▼
 OpenShift cluster (personal-news-feed)
-  ├── backend Pod + Service + Route (debug)
-  ├── frontend Pod + Service + Route ← gebruikers
-  ├── PVC (audio files, 5 Gi)
+  ├── backend Pod + Service + Route (debug) + PVC (runtime-state, 5 Gi)
+  ├── frontend Pod + Service + Route ← gebruikers (news.vdzonsoftware.nl)
+  ├── reader Pod + Service + Route   ← reader.vdzonsoftware.nl
+  ├── cloudflared    (tunnel: *.vdzonsoftware.nl → in-cluster services)
+  ├── preview-router (nginx, host-based routing voor PR-previews)
   └── Secret (uit SealedSecret in git, ge-decrypt door cluster)
 ```
 
-Data zelf staat in een externe Postgres (Neon); alleen audio-MP3's en
-de runtime-state staan in het cluster.
+Data zelf staat in een externe Postgres (Neon) — inclusief de podcast-audio,
+die sinds migratie `V5__podcast_audio_bytes.sql` als BYTEA in de database
+staat. Het PVC houdt alleen runtime-state / admin-cleanup paden.
 
 ## Eenmalige cluster-setup
 
@@ -42,7 +45,8 @@ imperatieve stappen toen de ArgoCD-instance cluster-scoped werd):
 ~/git/robberts-infrastructure/scripts/bootstrap/bootstrap-apps.sh
 ```
 
-`deploy/bootstrap.sh` hier is verouderd en doet niets meer. Wat het deed:
+De twee imperatieve stappen die hier ooit een eigen bootstrap-script nodig
+hadden, zijn allebei vervallen:
 
 1. Namespace `personal-news-feed` aanmaken + labelen — overbodig:
    `CreateNamespace=true` werkt echt sinds ArgoCD cluster-scoped draait
@@ -94,7 +98,7 @@ ontstaat in de namespace → backend pod start.
 ### Code-wijziging
 
 Push naar `main`:
-- GitHub Actions bouwt nieuwe images, pusht naar `ghcr.io/robbertvdzon/personal-news-feed-{backend,frontend}:sha-…`
+- GitHub Actions bouwt nieuwe images, pusht naar `ghcr.io/robbertvdzon/personal-news-feed-{backend,frontend,reader}:sha-…`
 - Workflow committet de nieuwe SHA in `deploy/base/kustomization.yaml`
 - ArgoCD detecteert de manifest-wijziging, doet `kubectl apply`, pods rollen
 - Geen handmatige stap nodig
@@ -193,13 +197,14 @@ JWT-sleutel aan de preview-Deployment is verbroken.
 
 **Beperkingen:**
 
-- **Alleen code-changes triggeren een preview.** PR's die alleen
-  `specs/**` of `deploy/**` aanraken matchen niet de paths-filter
-  van `build-images.yml` → er wordt geen image gebouwd → de preview
-  blijft hangen op "Pending". Niet kritiek (geen runtime-impact
-  om te previewen) maar wel verwarrend. Workaround: tijdelijk een
-  trivial commit in `newsfeedbackend/**` of `frontend/**` toevoegen
-  om de build te forceren.
+- **Een preview verschijnt niet meteen.** De ArgoCD ApplicationSet pollt
+  GitHub elke ~3 min voor nieuwe/gewijzigde PR's, dus tussen het openen
+  van de PR en een draaiende preview zit al gauw een paar minuten
+  ("Pending"). Even wachten lost dit meestal op. Elke `pull_request`-event
+  bouwt wél altijd een image: het trigger-blok in `build-images.yml` heeft
+  bewust **geen** `paths:`-filter, zodat ook docs-only PR's een image met
+  hun eigen SHA krijgen en de preview niet op `ImagePullBackOff` blijft
+  staan.
 
 - **Database per preview.** De `preview-ns-labeller` maakt per
   preview een Neon-branch `pr-<N>` aan en patcht `PNF_DATABASE_URL`
@@ -226,7 +231,6 @@ JWT-sleutel aan de preview-Deployment is verbroken.
 ```
 deploy/
 ├── README.md                    ← deze file
-├── bootstrap.sh                 ← VEROUDERD (doet niets meer; alles via GitOps)
 ├── seal-secrets.sh              ← .env → SealedSecret YAML (cert komt uit robberts-infrastructure)
 ├── secrets-cluster.env.example  ← template
 ├── secrets-cluster.env          ← (gitignored) jouw waarden
@@ -236,18 +240,27 @@ deploy/
 │   └── Dockerfile
 ├── base/
 │   ├── kustomization.yaml
-│   ├── namespace.yaml
 │   ├── backend-deployment.yaml
 │   ├── backend-service.yaml
-│   ├── backend-route.yaml      ← optioneel/debug
-│   ├── backend-pvc.yaml         ← audio storage
+│   ├── backend-route.yaml       ← optioneel/debug
+│   ├── backend-pvc.yaml         ← runtime-state / admin-cleanup paden
 │   ├── frontend-deployment.yaml
 │   ├── frontend-service.yaml
 │   ├── frontend-route.yaml
+│   ├── reader-deployment.yaml
+│   ├── reader-service.yaml
+│   ├── reader-route.yaml        ← reader.vdzonsoftware.nl
+│   ├── cloudflared-deployment.yaml   ← tunnel *.vdzonsoftware.nl
+│   ├── preview-router-deployment.yaml  ← nginx, host-based routing previews
+│   ├── preview-router-config.yaml      ← nginx-config van de preview-router
 │   └── sealed-secret-api-keys.yaml  ← na seal-secrets.sh
 └── overlays/
-    └── openshift/
-        └── kustomization.yaml  ← cluster-specifieke patches
+    ├── openshift/
+    │   └── kustomization.yaml  ← cluster-specifieke patches (productie)
+    └── preview/
+        └── kustomization.yaml  ← per-PR preview: geen Routes/PVC/cloudflared,
+                                   emptyDir i.p.v. PVC en een ephemeral
+                                   JWT-sleutel (SF-1542)
 ```
 
 De ArgoCD `Application`, `ApplicationSet`, `github-pr-token`-SealedSecret en
