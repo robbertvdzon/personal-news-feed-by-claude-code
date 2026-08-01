@@ -165,7 +165,7 @@ Bestanden staan lokaal (gitignored). Voor de assistent worden ze read-only besch
 - `PNF_ELEVENLABS_API_KEY` — ElevenLabs TTS voor podcast-audio.
 - `TUNNEL_TOKEN` — Cloudflare-tunnel token (cloudflared-pod → publiceert `*.vdzonsoftware.nl`).
 - `GITHUB_TOKEN` — PAT voor `gh`/`git push` naar deze repo (CI + ArgoCD PR-preview-generator).
-- `NEON_API_KEY` / `NEON_PROJECT_ID` — Neon API (DB-branches/beheer, o.a. preview-branches).
+- `NEON_API_KEY` / `NEON_PROJECT_ID` — Neon API (DB-branches/beheer, o.a. preview-branches en `deploy/neon-endpoint-config.sh`, zie §6.1).
 - `OPENSHIFT_API_TOKEN` — `oc login`-token voor het SNO-lab.
 
 ---
