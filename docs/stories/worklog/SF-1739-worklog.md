@@ -96,3 +96,58 @@ Niet-blokkerende opmerkingen:
   uurlijkse run) staat conform de story gedocumenteerd in KDoc, spec, story-log en worklog.
 - [info] `MAX_EPISODES_PER_RUN = 10` betekent dat een achterstand van >10 afleveringen met ~10 per
   uur leegloopt; staat gedocumenteerd in de spec en is met een event-driven happy path onwaarschijnlijk.
+
+## SF-1741 — Tester (story-brede test)
+
+Omgeving: preview `https://pnf-pr-199.vdzonsoftware.nl` (namespace `pnf-pr-199`),
+backend-image `sha-ab5ace9`. De reviewer-commit `a66905c` is worklog-only, dus de
+preview draait de volledige code van deze story.
+
+Uitgevoerde verificatie:
+- **Unit-/componenttests**: `mvn -B --no-transfer-progress clean test` in
+  `newsfeedbackend/newsfeedbackend` → BUILD SUCCESS, exitcode 0, **100/100 groen**,
+  0 failures/errors. Nieuw en groen: `PodcastTranscriptPipelineTest` (8) en
+  `PodcastRecoverySchedulerTest` (8). De Testcontainers-e2e (`PodcastIngestE2eTest`
+  incl. de 2 nieuwe SF-1739-tests) draait in het volledige harness-vangnet
+  (`mvn clean verify`); op deze tester-runner ontbreekt Docker (`docker: command not found`),
+  daarom hier alleen de surefire-suite gedraaid — het vangnet zelf draait de harness.
+- **AC1/AC3 (event-driven + recovery)**: `PodcastShowNotesProcessor` publiceert
+  `PodcastTranscriptRequested` bij de overgang naar `NEEDS_TRANSCRIPT`;
+  `PodcastTranscriptPipeline` (`@EventListener @Async("podcastTranscriptExecutor")`,
+  corePool=maxPool=1 + `ReentrantLock`) verwerkt serieel, herleest de status en
+  skipt bij status≠NEEDS_TRANSCRIPT of lopende backoff (idempotentie).
+  `PodcastRecoveryScheduler` staat op `@Scheduled(cron=0 5 * * * *)` +
+  `@SchedulerLock(podcastRecovery)` en hertriggert via hetzelfde event.
+- **AC2 (geen poll meer)**: `PodcastTranscriptWorker.kt` is verwijderd; grep over
+  `src/main` geeft nog exact 4 `@Scheduled`-annotaties (RSS hourly + daily 06:00,
+  2× weekly events) plus de nieuwe uurlijkse recovery — niets vaker dan 1×/uur.
+  `app.podcast.transcript-worker.interval-ms`/`initial-delay-ms` komen nergens meer
+  voor; alleen `promotion-timeout-hours` blijft (bewust).
+- **AC5 live bewezen**: `/actuator/prometheus` op de preview toont
+  `hikaricp_connections_min{pool="HikariPool-1"} 0.0` (en max 5.0), dus
+  `minimum-idle=0` is daadwerkelijk actief; `idle-timeout=60000` (<300s), geen
+  keepalive/validatie-timer in de properties.
+- **AC6 live bewezen**: `/actuator/health/readiness` en `/actuator/health/liveness`
+  geven beide alleen `{"status":"UP"}` zonder db-component (de db-indicator zit
+  alleen in de ongegroepeerde `/actuator/health`); geen
+  `management.endpoint.health.group.*` in de config.
+- **AC7**: `deploy/neon-endpoint-config.sh` is executable, `bash -n` groen, leest
+  `NEON_API_KEY`/`NEON_PROJECT_ID` uitsluitend uit env, logt geen headers/tokens,
+  patcht alleen bij afwijking (idempotent) en leest de effectieve waarden terug;
+  `--verify` doet uitsluitend GET's.
+- **AC8**: runbook §6.1 dekt waarden, script draaien, read-only verifiëren,
+  cold-startgedrag en terugdraaien (incl. `SUSPEND_TIMEOUT_SECONDS=0`/`MAX_CU=8`).
+  `deploy/README.md`, `specs/backend-functional-spec.md`, `specs/frontend-spec.md`
+  en `docs/onboarding-senior-developer.md` zijn consistent bijgewerkt.
+- **AC9**: `RssScheduler`, `EventScheduler` en `EventVideoScheduler` zijn 0 regels
+  gewijzigd; `RssRefreshPipeline` alleen een KDoc-regel.
+- **Live sanity preview**: `/` → 200, `/actuator/health` → 200 (UP, db UP),
+  `/api/feed` zonder token → 403.
+
+Geen browser-screenshots gemaakt: de diff bevat 0 regels Dart/frontend-code
+(alleen `specs/frontend-spec.md` als tekst), dus er is geen UI-gedrag gewijzigd om
+visueel te bewijzen. Op deze runner zijn Playwright/Chromium ook niet beschikbaar
+en bestaat `/work/screenshots` niet.
+
+Geen bevindingen die de story blokkeren. Geen code, tests of infra gewijzigd door de
+tester; alleen dit worklog.
