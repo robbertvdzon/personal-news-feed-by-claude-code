@@ -78,3 +78,34 @@ Review (SF-1684, reviewer-run):
   unit-test lijkt overbodig (alle stubs worden gebruikt) en wijkt af van de referentietest;
   (b) `podcast_source/domain/PodcastIngestionPipeline.kt:63` noemt nog `SettingsController`
   in KDoc — buiten scope van deze story (AC #6 betreft alleen `PodcastIngestionTrigger.kt`).
+
+Test (SF-1685, tester-run):
+- Vangnet `.factory/verification.yaml` (`mvn -B --no-transfer-progress clean verify` in
+  `newsfeedbackend/newsfeedbackend`): exitcode 0, BUILD SUCCESS — unit 84/84 (incl.
+  `ModuleStructureTest` en de nieuwe `PodcastFeedsServiceImplTest` 4/4), e2e 65/65
+  (incl. `PodcastIngestE2eTest` 4/4). 0 failures, 0 errors.
+- Statische AC-checks: grep over alle 14 `@RestController`-klassen -> nul
+  `domain`/`infrastructure`-imports (AC1); `PodcastIngestionTrigger.kt` noemt
+  `SettingsController` niet meer (AC6); `specs/openapi.yaml` en `PodcastIngestE2eTest.kt`
+  0 diff t.o.v. main (AC7/AC9). Reviewer-commit `cbcad21` is worklog-only, dus de preview
+  (build `386f1fa`) draait alle codewijzigingen van de story.
+- Preview pnf-pr-197, API-gedrag `PUT /api/podcast-feeds` (wegwerp-user `tester_sf-1683`,
+  na afloop verwijderd via `DELETE /api/account/me` -> 200, login daarna 401):
+  onbereikbare feed -> 400 `{"error":"Kon feed niet ophalen: <url> (<reden>)"}` en niets
+  opgeslagen; geldige feed -> 200 + persistent via GET; bestaande URL opnieuw meesturen ->
+  200 zonder nieuwe fetch (backend-logs tonen geen `PodcastFeedFetcher`-regel voor die URL);
+  bestaande + nieuwe kapotte URL -> 400 terwijl de bestaande lijst ongewijzigd blijft;
+  bestaande + nieuwe geldige URL -> 200 en alleen de nieuwe wordt gefetcht.
+- Volgorde valideren -> opslaan -> triggeren bevestigd in de backend-logs: na elke
+  geslaagde PUT volgt `[PodcastIngest] start voor 'tester_sf-1683'`, na een 400 niet.
+  De 400 loopt nu zichtbaar via `GlobalExceptionHandler` (`400 Bad Request: Kon feed niet
+  ophalen: ...`), wat de overstap naar `BadRequestException` bevestigt.
+- Browser (Playwright, 420x900, screenshots in /work/screenshots): via Instellingen ->
+  RSS feeds een onbereikbare podcast-URL toegevoegd -> rode snackbar met exact
+  "Kon feed niet ophalen: ... (geblokkeerd: ... kan niet worden geresolved)", bestaande
+  feeds blijven staan (06-foutmelding.png).
+- Opmerking (pre-existing, niet door deze story veroorzaakt): een blanco podcast-URL wordt
+  door de fetch-lus overgeslagen maar daarna alsnog door `SettingsService` afgewezen met
+  400 `{"error":"Ongeldige podcast-feed-URL '  ': ongeldige URL"}` — identiek aan main.
+- Tijdens de run herstartte de backend-pod (nieuwe rollout), waardoor bestaande JWT's door
+  het ephemeral secret ongeldig werden (403). Opnieuw ingelogd; geen productbug.
