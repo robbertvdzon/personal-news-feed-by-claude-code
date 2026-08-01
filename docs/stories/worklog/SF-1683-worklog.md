@@ -61,3 +61,20 @@ Verificatie:
 - Grep over alle `@RestController`-klassen: nul imports uit `…domain.` of
   `…infrastructure.` (exit 1 = geen treffers).
 - `git diff --stat` toont geen wijziging in `specs/openapi.yaml` en `PodcastIngestE2eTest.kt`.
+
+Review (SF-1684, reviewer-run):
+- Volledige story-diff `git diff main...HEAD` beoordeeld (6 bestanden, 265+/37-). Akkoord.
+- AC 1-9 nagelopen: controller heeft geen `domain`/`infrastructure`-import meer (grep over
+  alle 14 `@RestController`-klassen: nul treffers), businesslogica staat 1-op-1 in
+  `podcast_source/domain/PodcastFeedsServiceImpl.kt` achter de moduleroot-interface
+  `PodcastFeedsService`, volgorde valideren -> opslaan -> triggeren ongewijzigd.
+- Gedragsneutraliteit responsvorm bevestigd: `ResponseStatusException(BAD_REQUEST, msg)`
+  ging via `handleResponseStatus` naar 400 + `{"error": reason}`; `BadRequestException`
+  gaat via `handleBadRequest` naar 400 + `{"error": message}` — identiek. Meldingstekst
+  letterlijk overgenomen incl. de `onbekende fout`-fallback.
+- Gerichte eigen check: `mvn -B -o test -Dtest=PodcastFeedsServiceImplTest,ModuleStructureTest`
+  -> 5 tests, 0 failures / 0 errors (BUILD SUCCESS); geen nieuwe Modulith-schendingen.
+- Niet-blokkerende opmerkingen: (a) `@MockitoSettings(strictness = LENIENT)` in de nieuwe
+  unit-test lijkt overbodig (alle stubs worden gebruikt) en wijkt af van de referentietest;
+  (b) `podcast_source/domain/PodcastIngestionPipeline.kt:63` noemt nog `SettingsController`
+  in KDoc — buiten scope van deze story (AC #6 betreft alleen `PodcastIngestionTrigger.kt`).
