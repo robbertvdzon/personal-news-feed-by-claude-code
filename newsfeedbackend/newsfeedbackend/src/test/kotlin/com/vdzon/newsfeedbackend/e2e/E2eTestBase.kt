@@ -40,9 +40,9 @@ abstract class E2eTestBase {
             registry.add("spring.datasource.username") { E2eTestConfig.POSTGRES.username }
             registry.add("spring.datasource.password") { E2eTestConfig.POSTGRES.password }
             registry.add("app.data-dir") { E2eTestConfig.DATA_DIR }
-            // Transcript-worker niet laten ticken tijdens tests: de
-            // transcript-fase (Whisper) hoort expliciet gescript te zijn.
-            registry.add("app.podcast.transcript-worker.initial-delay-ms") { "3600000" }
+            // Recovery-job uit tijdens tests (`-` = Scheduled.CRON_DISABLED):
+            // de transcript-fase (Whisper) hoort expliciet gescript te zijn.
+            registry.add("app.podcast.recovery.cron") { "-" }
             // Base-URL's van externe services naar de fake-server zodat een
             // gemiste seam nooit het echte internet raakt.
             registry.add("app.openai.base-url") { E2eTestConfig.CONTENT.url("/openai") }

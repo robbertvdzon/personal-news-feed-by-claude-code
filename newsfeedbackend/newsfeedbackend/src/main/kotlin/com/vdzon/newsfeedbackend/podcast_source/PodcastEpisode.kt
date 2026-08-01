@@ -35,7 +35,7 @@ data class PodcastEpisode(
     /** KAN-60: aantal mislukte Whisper-pogingen (429/5xx). Stuurt de backoff. */
     val retryCount: Int = 0,
     /**
-     * KAN-60: wanneer de [PodcastTranscriptWorker] op z'n vroegst opnieuw
+     * KAN-60: wanneer de transcriptfase op z'n vroegst opnieuw
      * mag proberen. `null` = direct opneembaar. Wordt door de worker
      * gezet bij 429/5xx; volgt de tabel 5m → 15m → 45m → 24h.
      */
@@ -65,7 +65,7 @@ data class PodcastEpisode(
     val keyTakeaways: List<String> = emptyList(),
     /**
      * KAN-60 (V8): wanneer de show-notes-timeout-promotie 1x getriggerd
-     * is voor deze aflevering. Voorkomt dat de worker elke tick opnieuw
+     * is voor deze aflevering. Voorkomt dat de recovery-job elke run opnieuw
      * een Claude-selectie-call afvuurt voor een door AI afgewezen item
      * (waar `rss_items.feed_item_id` NULL blijft). `null` = nog niet
      * geprobeerd.

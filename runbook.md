@@ -165,7 +165,7 @@ Bestanden staan lokaal (gitignored). Voor de assistent worden ze read-only besch
 - `PNF_ELEVENLABS_API_KEY` — ElevenLabs TTS voor podcast-audio.
 - `TUNNEL_TOKEN` — Cloudflare-tunnel token (cloudflared-pod → publiceert `*.vdzonsoftware.nl`).
 - `GITHUB_TOKEN` — PAT voor `gh`/`git push` naar deze repo (CI + ArgoCD PR-preview-generator).
-- `NEON_API_KEY` / `NEON_PROJECT_ID` — Neon API (DB-branches/beheer, o.a. preview-branches).
+- `NEON_API_KEY` / `NEON_PROJECT_ID` — Neon API (DB-branches/beheer, o.a. preview-branches en `deploy/neon-endpoint-config.sh`, zie §6.1).
 - `OPENSHIFT_API_TOKEN` — `oc login`-token voor het SNO-lab.
 
 ---
@@ -206,6 +206,73 @@ psql "$PSQL_URL" -c "SELECT count(*) FROM events WHERE username='robbert';"
 ```
 > Read-only discipline: gebruik alleen `SELECT`. Er is geen aparte read-only
 > rol; voorzichtig zijn met `UPDATE/DELETE` op de gedeelde prod-DB.
+
+### 6.1 Neon-kosten: scale-to-zero + compute-cap (SF-1739)
+
+De Neon-rekening loopt vrijwel volledig op **compute-tijd**, niet op opslag.
+Drie dingen houden die tijd laag:
+
+| Instelling | Waarde | Waarom |
+|---|---|---|
+| `suspend_timeout_seconds` | `300` | compute mag na 5 min stilte slapen |
+| `autoscaling_limit_min_cu` | `0.25` | kleinste compute-eenheid |
+| `autoscaling_limit_max_cu` | `1` | compute-cap; geen 8×-uitschieters |
+
+Aan de applicatiekant hoort daarbij (staat in `application.properties`):
+`spring.datasource.hikari.minimum-idle=0` + `idle-timeout=60000`, zodat de
+connection-pool bij inactiviteit écht leegloopt (zonder `minimum-idle=0` is
+`minimumIdle == maximumPoolSize` en doet `idle-timeout` niets, waardoor er
+permanent 5 verbindingen openstaan en Neon nooit suspendt). Er is bewust
+**geen** keepalive/validatie-timer, en er is sinds SF-1739 **geen** `@Scheduled`
+meer die vaker dan één keer per uur de database raakt (de podcast-transcript-
+verwerking is event-driven; alleen een uurlijkse recovery-job blijft over).
+De Kubernetes-probes raken de DB niet: readiness/liveness gebruiken de
+standaard Spring-groepen (`/actuator/health/{readiness,liveness}`) zonder
+db-indicator — voeg dus **geen** `management.endpoint.health.group.*`-config toe.
+
+**Script draaien (operatorstap; credentials staan alleen in het cluster-secret):**
+
+```bash
+# NEON_API_KEY + NEON_PROJECT_ID uit deploy/secrets-cluster.env (niet committen)
+set -a; source deploy/secrets-cluster.env; set +a
+export NEON_API_KEY NEON_PROJECT_ID
+./deploy/neon-endpoint-config.sh
+```
+
+Het script zoekt zelf de read/write-endpoint van de default-(prod-)branch,
+patcht alleen als er iets afwijkt (idempotent — meerdere keren draaien is
+veilig) en print daarna de **teruggelezen** effectieve waarden.
+
+**Read-only verifiëren (patcht niets):**
+
+```bash
+./deploy/neon-endpoint-config.sh --verify
+```
+
+Verwachte output bevat `"suspend_timeout_seconds": 300`,
+`"autoscaling_limit_min_cu": 0.25` en `"autoscaling_limit_max_cu": 1`.
+`current_state` is `idle` als de compute slaapt en `active` als 'ie draait.
+
+**Cold start na suspend:** het eerste request nadat Neon geslapen heeft, wacht
+op het opstarten van de compute (orde seconden). Dat is verwacht gedrag en
+geaccepteerd; er is bewust geen warmhoudmechanisme gebouwd (dat zou het hele
+doel ondermijnen). De backend heeft `connection-timeout=30000`, ruim genoeg.
+Een openstaande frontend die blijft pollen kan de endpoint overigens wakker
+houden — dat is normaal gebruik, geen misconfiguratie.
+
+**Terugdraaien naar de oude waarden** (nooit suspenden, tot 8 CU):
+
+```bash
+SUSPEND_TIMEOUT_SECONDS=0 AUTOSCALING_MIN_CU=0.25 AUTOSCALING_MAX_CU=8 \
+  ./deploy/neon-endpoint-config.sh
+./deploy/neon-endpoint-config.sh --verify      # controleren
+```
+
+(`suspend_timeout_seconds=0` = Neon-default: nooit automatisch suspenden.)
+Rol daarnaast de `minimum-idle`/`idle-timeout`-regels in
+`application.properties` terug als je ook het pool-gedrag wilt herstellen.
+Blijkt 1 CU in de praktijk te krap, dan mag de operator `AUTOSCALING_MAX_CU=2`
+zetten — leg de meting waarop dat besluit rust hier vast.
 
 > **Over de Cloudflare-tunnel + DB:** `TUNNEL_TOKEN` dient om de cluster-**frontends**
 > publiek te maken (`*.vdzonsoftware.nl`), **niet** om de DB te bereiken — de

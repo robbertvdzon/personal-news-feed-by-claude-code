@@ -63,7 +63,7 @@ De backend gebruikt **Spring Modulith** voor het afdwingen van modulegescheiden 
 | `websocket` | `com.vdzon.newsfeedbackend.websocket` | WebSocket handler voor request-statusupdates |
 | `admin` | `com.vdzon.newsfeedbackend.admin` | Gebruikersbeheer en AI-kostenoverzicht (admin-only endpoints) |
 | `external_call` | `com.vdzon.newsfeedbackend.external_call` | Logging en kostenberekening van externe API-aanroepen (`external_calls`-tabel) |
-| `podcast_source` | `com.vdzon.newsfeedbackend.podcast_source` | Ingest van podcast-RSS-bronnen en episode-verwerking (transcript-lookup); beheer van de feed-lijst incl. validatie van nieuwe feeds en ingestion-trigger achter `PodcastFeedsService` |
+| `podcast_source` | `com.vdzon.newsfeedbackend.podcast_source` | Ingest van podcast-RSS-bronnen en episode-verwerking (transcript-lookup); event-driven transcript-fase (`PodcastTranscriptPipeline`) met uurlijks vangnet (`PodcastRecoveryScheduler`); beheer van de feed-lijst incl. validatie van nieuwe feeds en ingestion-trigger achter `PodcastFeedsService` |
 | `version` | `com.vdzon.newsfeedbackend.version` | Build-/versie-info endpoint |
 | `common` | `com.vdzon.newsfeedbackend.common` | Gedeelde helpers (security, exceptions, Jackson-config, SSRF-URL-validatie) |
 | `media` | `com.vdzon.newsfeedbackend.media` | Comprimeert podcast-audio (mono, lage bitrate MP3) zodat bestanden onder Whisper's 25 MB-limiet blijven |
@@ -312,6 +312,8 @@ sluiten de e2e-suite uit (`**/e2e/**`). De suite in
 - `settings/domain/SettingsServiceImplSavePodcastFeedsTest.kt` — `savePodcastFeeds` wijst ongeldige/SSRF-risicovolle feed-URLs af vóór opslag (SF-1387)
 - `podcast_source/domain/PodcastFeedsServiceImplTest.kt` — `savePodcastFeeds` fetcht alleen nieuwe, niet-blanco URLs (bestaande en blanco worden overgeslagen), slaat op vóór het triggeren van de ingestion, en gooit bij een mislukte fetch een `BadRequestException` met de melding `Kon feed niet ophalen: <url> (<reden>|onbekende fout)` zonder op te slaan of te triggeren; gemockte `SettingsService`/`PodcastIngestionTrigger`/`PodcastFeedFetcher` (SF-1683)
 - `podcast/domain/PodcastTranslationServiceImplTest.kt` — guard-clauses en idempotency van `startTranslation` (episode niet gevonden, episode-status ≠ DONE, leeg transcript, bestaande vertaling met status ≠/== FAILED, happy path) en `lookup` (episode niet gevonden, met/zonder bestaande vertaling), gemockte `PodcastRepository`/`PodcastEpisodeLookup`/`PodcastTranslator` (SF-1466/SF-1467)
+- `podcast_source/domain/PodcastTranscriptPipelineTest.kt` — de event-driven transcript-fase: een `PodcastTranscriptRequested`-event start de verwerking, rate-limit schrijft `retry_count++` + `next_attempt_at` volgens de backoff-tabel (5m/15m/45m/24h), een aflevering in de backoff-wachtkamer wordt niet opgepakt, dubbele events leiden niet tot dubbele verwerking, een verdwenen aflevering en een exception uit de processor laten de pipeline niet omvallen, en er wordt nooit meer dan één aflevering tegelijk verwerkt (SF-1739)
+- `podcast_source/domain/PodcastRecoverySchedulerTest.kt` — het uurlijkse vangnet: afleveringen met verlopen `next_attempt_at` worden hertriggerd, zonder achterstand publiceert de job niets, hoogstens `MAX_EPISODES_PER_RUN` per run, show-notes-timeout zet de `feed_promotion_attempted_at`-marker vóór het promotie-event (en een mislukte marker blokkeert het event — anti-loop), afleveringen zonder `rss_item_id` worden niet gepromoot, de promotie-timeout komt uit de property, en een fout in de transcript-stap blokkeert de promotie-stap niet (SF-1739)
 
 Daarnaast draait bij elke `mvn test` ook `ModuleStructureTest.kt` —
 `ApplicationModules.of(Application::class.java).verify()` met een lege
@@ -329,6 +331,14 @@ harnas (`E2eTestBase`/`E2eTestConfig`) start
 de volledige Spring-app tegen een echte PostgreSQL via Testcontainers (met
 echte Flyway-migraties); alleen de externe diensten zijn gefaked
 (`FakeOpenAiChatClient`, `FakeContentServer`).
+
+`E2eTestBase` zet `app.podcast.recovery.cron` op `-`
+(`Scheduled.CRON_DISABLED`), zodat de podcast-recovery-job niet meeloopt en de
+transcript-fase in tests expliciet gescript is. `PodcastIngestE2eTest` gebruikt
+dat: één test bewijst dat fase 2 bij `transcribeEnabled=true` puur op het
+`PodcastTranscriptRequested`-event start (zonder scheduler), een andere roept
+`PodcastRecoveryScheduler.recover()` handmatig aan om een door een restart
+gemist event alsnog opgepakt te zien worden (SF-1739).
 
 `mvn test` (surefire) draait alleen de unit-tests en `ModuleStructureTest`
 (sluit `**/e2e/**` uit, geen Docker nodig). `mvn verify` (failsafe) draait

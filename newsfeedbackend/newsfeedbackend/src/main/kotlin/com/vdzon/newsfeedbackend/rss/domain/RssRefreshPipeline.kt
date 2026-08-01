@@ -245,7 +245,7 @@ class RssRefreshPipeline(
 
     /**
      * KAN-60: feed-promotie voor één rss_items-rij. Wordt aangeroepen
-     * vanuit de podcast-transcript-worker zodra een aflevering klaar is
+     * vanuit de podcast-transcriptfase zodra een aflevering klaar is
      * (echte transcript-summary of 24h-show-notes-timeout).
      *
      * - Skip als het item niet bestaat of al een feed_item heeft

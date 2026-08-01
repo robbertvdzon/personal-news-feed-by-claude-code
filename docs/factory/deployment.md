@@ -42,6 +42,11 @@ Data staat in externe PostgreSQL (Neon); de podcast-audio staat sinds migratie
 `V5__podcast_audio_bytes.sql` als BYTEA in de DB. Het PVC houdt alleen
 runtime-state / admin-cleanup paden.
 
+De prod-Neon-endpoint staat sinds SF-1739 op scale-to-zero: `suspend_timeout_seconds=300`
+en max 1 CU, gezet met het idempotente `deploy/neon-endpoint-config.sh` (credentials
+uitsluitend uit `NEON_API_KEY`/`NEON_PROJECT_ID`). Zie runbook §6.1 voor draaien,
+read-only verifiëren (`--verify`), cold-startgedrag en terugdraaien.
+
 ## Productie-URL
 
 `https://news.vdzonsoftware.nl` (via Cloudflare Tunnel → OpenShift-frontend)

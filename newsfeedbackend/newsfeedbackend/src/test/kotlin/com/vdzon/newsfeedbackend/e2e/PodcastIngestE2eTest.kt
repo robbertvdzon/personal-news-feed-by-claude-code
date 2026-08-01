@@ -1,16 +1,32 @@
 package com.vdzon.newsfeedbackend.e2e
 
 import com.vdzon.newsfeedbackend.external_call.ExternalCall
+import com.vdzon.newsfeedbackend.podcast_source.PodcastEpisodeStatus
+import com.vdzon.newsfeedbackend.podcast_source.domain.PodcastRecoveryScheduler
+import com.vdzon.newsfeedbackend.podcast_source.infrastructure.PodcastEpisodeRepository
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.springframework.beans.factory.annotation.Autowired
+import java.time.Instant
 
 /**
  * Podcast-ingestion (fase 1: show-notes, transcribeEnabled=false zodat
  * de Whisper-fase buiten scope blijft): feed opslaan → automatische
  * ingestion → card in de RSS-tab → promotie naar de feed.
+ *
+ * SF-1739: plus twee tests op de event-driven fase 2 — die start nu op
+ * een applicatie-event i.p.v. op de verwijderde 2-minuten-tick (de
+ * recovery-cron staat in de e2e-suite uit, zie [E2eTestBase]).
  */
 class PodcastIngestE2eTest : E2eTestBase() {
+
+    @Autowired
+    private lateinit var episodeRepo: PodcastEpisodeRepository
+
+    @Autowired
+    private lateinit var recovery: PodcastRecoveryScheduler
 
     private fun servePodcastFeed(episodes: Int = 2, path: String = "/podcast.xml"): String {
         val eps = (1..episodes).map { n ->
@@ -91,6 +107,62 @@ class PodcastIngestE2eTest : E2eTestBase() {
         // Even wachten of er niet tóch meer bijkomen.
         Thread.sleep(1500)
         assertEquals(7, getJson("/api/rss", user.token).size())
+    }
+
+    @Test
+    fun `transcribeEnabled true start de transcript-fase direct via het event`() {
+        // Geen scheduler actief in de e2e-suite: als fase 2 toch loopt,
+        // kan dat alleen via het PodcastTranscriptRequested-event.
+        // De audio-URL wordt bewust niet geserveerd → download 404 →
+        // terminale SHOW_NOTES_DONE met een herkenbare foutmelding.
+        val user = registerUser("podcast")
+        val feedUrl = servePodcastFeed(episodes = 1, path = "/podcast-transcribe.xml")
+
+        val save = put(
+            "/api/podcast-feeds", user.token,
+            """{"feeds": [{"url": "$feedUrl", "transcribeEnabled": true}]}"""
+        )
+        assertEquals(200, save.status)
+
+        await { episodeRepo.get(user.username, "ep-1")?.status == PodcastEpisodeStatus.SHOW_NOTES_DONE }
+        val ep = episodeRepo.get(user.username, "ep-1")!!
+        assertTrue(
+            ep.errorMessage?.contains("Audio-download faalde") == true,
+            "verwacht dat de transcript-fase daadwerkelijk gedraaid heeft, errorMessage=${ep.errorMessage}"
+        )
+    }
+
+    @Test
+    fun `de recovery-job pakt een door restart gemiste aflevering alsnog op`() {
+        val user = registerUser("podcast")
+        val feedUrl = servePodcastFeed(episodes = 1, path = "/podcast-recovery.xml")
+        put(
+            "/api/podcast-feeds", user.token,
+            """{"feeds": [{"url": "$feedUrl", "transcribeEnabled": false}]}"""
+        )
+        await { getJson("/api/rss", user.token).size() == 1 }
+
+        // Simuleer "event verloren gegaan bij een restart": de aflevering
+        // staat op NEEDS_TRANSCRIPT met een verlopen next_attempt_at,
+        // maar er is nooit een event voor gepubliceerd.
+        val seeded = episodeRepo.get(user.username, "ep-1")!!
+        episodeRepo.upsert(
+            seeded.copy(
+                status = PodcastEpisodeStatus.NEEDS_TRANSCRIPT,
+                retryCount = 1,
+                nextAttemptAt = Instant.now().minusSeconds(60),
+                errorMessage = null
+            )
+        )
+        assertNotNull(episodeRepo.get(user.username, "ep-1")?.nextAttemptAt)
+
+        recovery.recover()
+
+        await { episodeRepo.get(user.username, "ep-1")?.status != PodcastEpisodeStatus.NEEDS_TRANSCRIPT }
+        assertEquals(
+            PodcastEpisodeStatus.SHOW_NOTES_DONE,
+            episodeRepo.get(user.username, "ep-1")?.status
+        )
     }
 
     @Test
