@@ -87,3 +87,39 @@ Documentatie-only; geen enkele gedragsverandering. Bron van waarheid: `runbook.m
   YAML-commentaarregels, er is geen runtime-gedrag om te dekken.
 - `frontend-reader/pubspec.lock`-drift van `flutter test` teruggezet (`git checkout --`),
   conform de lockfile-discipline.
+
+## SF-1691 (reviewer) — akkoord
+
+Volledige story-diff t.o.v. `main` gereviewd (5 bestanden, +137/-29; alleen Markdown,
+YAML-commentaarregels en de worklog — geen Kotlin/Dart/manifest-inhoud).
+
+Verificatie per acceptatiecriterium:
+
+1. Beide diagrammen noemen reader (Pod+Service+Route, `reader.vdzonsoftware.nl`),
+   cloudflared en preview-router; inhoudelijk 1-op-1 met `runbook.md:35-47`, geen
+   tegenspraak.
+2. Deploy-flow in `docs/factory/deployment.md` noemt drie images; `deploy/README.md`
+   §Code-wijziging is meegetrokken (terecht — anders sprak het README zichzelf tegen).
+   `grep -rn "{backend,frontend}"` over de hele repo geeft 0 hits.
+3. Geen bewering meer dat audio op het PVC/filesystem leeft in
+   `docs/factory/deployment.md`, `deploy/README.md` of `deploy/base/backend-pvc.yaml`;
+   `V5__podcast_audio_bytes.sql` bestaat en de PVC-spec (5Gi) is byte-voor-byte
+   ongewijzigd.
+4. Bestandenlijst gediffed tegen `find deploy -type f`: alle 23 paden gedekt, geen
+   niet-bestaand bestand meer (`bootstrap.sh`, `base/namespace.yaml` weg), en geen enkele
+   verwijzing naar `bootstrap.sh` meer in de docs.
+5. De paths-filter-bullet is vervangen door de ArgoCD-pollinterval (~3 min), consistent
+   met `runbook.md:284`; de nieuwe tekst ("`pull_request`-trigger heeft bewust géén
+   `paths:`-filter") klopt met `build-images.yml:26-28` en het toelichtende blok op :13-16.
+   De preview-overlay-annotatie in de bestandenlijst klopt met
+   `deploy/overlays/preview/kustomization.yaml`.
+
+Bevindingen: geen blockers, geen bugs.
+
+- [suggestie] Dezelfde audio-op-PVC-drift zit nog in commentaarregels buiten de
+  story-scope: `deploy/overlays/preview/kustomization.yaml:7,104` ("PVC voor audio",
+  "audio is throwaway") en `deploy/base/backend-deployment.yaml:10` ("Audio-PVC is RWO").
+  Bewust buiten scope gelaten; kandidaat voor een vervolg-story.
+- [info] Testbewijs: doc-only wijziging zonder runtime-oppervlak; het volledige vangnet is
+  door de developer groen gedraaid (mvn clean verify 80+65, flutter 19+2). Geen eigen
+  herhaling van het vangnet nodig.
