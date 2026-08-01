@@ -49,3 +49,50 @@ Kort:
 
 Vangnet: `mvn -B clean verify` in `newsfeedbackend/newsfeedbackend` → **BUILD SUCCESS**,
 100 unit-tests + 67 e2e-tests, 0 failures, 0 errors (3:28 min).
+
+## Review SF-1740 (reviewer)
+
+Beoordeeld: volledige story-diff `git diff main...HEAD` (25 bestanden) tegen de story-AC's,
+`docs/factory/technical-spec.md` en de bestaande repo-conventies. **Akkoord, geen blockers.**
+
+Geverifieerd per AC:
+- AC1/2: event wordt gepubliceerd ná `save(...)` in `PodcastShowNotesProcessor.kt:118-120`, alleen
+  bij `nextStatus == NEEDS_TRANSCRIPT`. Grep bevestigt dat er nog exact twee plekken zijn die
+  `NEEDS_TRANSCRIPT` zetten (show-notes-fase → event; rate-limit-pad in `PodcastTranscriptProcessor`
+  → recovery-job). `@Scheduled` in `src/main`: alleen RssScheduler (uurlijks/dagelijks), twee weekly
+  event-jobs en `PodcastRecoveryScheduler` (cron, uurlijks). `transcript-worker.interval-ms` en
+  `initial-delay-ms` komen nergens in code/config meer voor.
+- AC3: `@Scheduled(cron = ${app.podcast.recovery.cron:0 5 * * * *})` + `@SchedulerLock` conform
+  `RssScheduler`; e2e `de recovery-job pakt een door restart gemiste aflevering alsnog op` dekt het
+  restart-scenario.
+- AC4: `scheduleBackoff` is 1-op-1 overgenomen uit de verwijderde `PodcastTranscriptWorker`
+  (retry_count++, `nextRetryDelay(retryCount)`, re-load vóór upsert); marker-vóór-publish
+  (anti-loop) idem. Tests dekken de hele tabel (0/1/2/3/9), de wachtkamer, dubbele events,
+  max-1-tegelijk (concurrency-test met 4 threads) en de marker-volgorde via `inOrder`.
+- AC5: `minimum-idle=0` + `idle-timeout=60000` (< 300s), geen keepalive/validatie-timer.
+- AC6: `deploy/base/backend-deployment.yaml:95-105` ongewijzigd op de standaardgroepen; geen
+  `management.endpoint.health.group.*` in de diff.
+- AC7: `deploy/neon-endpoint-config.sh` — mode 100755, `bash -n` groen, credentials alleen uit env,
+  Authorization-header nooit gelogd, `--verify` doet uitsluitend GET's, patch alleen bij afwijking
+  (numerieke `jq -e`-vergelijking, dus 1 vs 1.0 telt niet als drift).
+- AC8/9: runbook §6.1 dekt instellingen, draaien, read-only verifiëren, cold start en terugdraaien;
+  specs/onboarding bijgewerkt. Geen endpoint-wijziging → `specs/openapi.yaml` terecht ongemoeid
+  (de "~2 min" op regel 257 gaat over fase 1, niet over de verwijderde tick). Geen Flyway-migratie,
+  schema ongewijzigd. Modulith-grens ok: event staat op moduleniveau (`podcast_source/`), net als
+  `rss/RssEvents.kt`.
+- AC10: vangnetbewijs = developer-run `mvn -B clean verify` BUILD SUCCESS (100 unit + 67 e2e,
+  0 failures/errors) op deze revisie; niet opnieuw gedraaid conform reviewer-instructie.
+
+Niet-blokkerende opmerkingen:
+- [suggestie] `PodcastEpisodeRepository.findOneReadyForTranscript` heeft na deze wijziging geen
+  enkele caller meer (alleen nog een KDoc-verwijzing). De story vroeg 'm te behouden, dus laten
+  staan is verdedigbaar; overweeg 'm in een opruimstory te verwijderen of expliciet als
+  "bewust behouden, ongebruikt" te markeren.
+- [suggestie] De e2e roept `recovery.recover()` via de ShedLock-proxy aan met
+  `lockAtLeastFor = "1m"`. Zou een toekomstige test binnen dezelfde minuut nogmaals `recover()`
+  aanroepen, dan slaat ShedLock die stil over en faalt de test raadselachtig. Vermeld dat in een
+  comment als er tests bijkomen.
+- [info] Bewuste keuze "geen in-memory hertrigger" (retry start uiterlijk bij de eerstvolgende
+  uurlijkse run) staat conform de story gedocumenteerd in KDoc, spec, story-log en worklog.
+- [info] `MAX_EPISODES_PER_RUN = 10` betekent dat een achterstand van >10 afleveringen met ~10 per
+  uur leegloopt; staat gedocumenteerd in de spec en is met een event-driven happy path onwaarschijnlijk.
