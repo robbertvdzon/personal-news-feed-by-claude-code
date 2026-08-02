@@ -14,10 +14,6 @@ class RssFetcherImageUrlTest {
 
     private val fetcher = RssFetcher(object : ExternalCallLogger {
         override fun log(call: ExternalCall) {}
-        override fun timed(
-            provider: String, action: String, username: String, unitType: String,
-            subject: String?, block: ExternalCallLogger.TimedContext.() -> Unit
-        ) {}
     })
 
     @Test

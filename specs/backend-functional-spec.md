@@ -363,8 +363,10 @@ Deze geschiedenis wordt als context meegegeven aan de AI bij:
 
 ### 7.1 OpenAI (AI backbone)
 
-**API:** `https://api.openai.com/v1/chat/completions` (chat-completions, incl.
-Structured Outputs). Transcriptie via `/v1/audio/transcriptions`.
+**API:** `https://api.openai.com/v1/chat/completions` (chat-completions; alle
+JSON-antwoorden worden uit vrije tekst geparsed, er wordt geen `response_format`/
+Structured Outputs gebruikt — de ongebruikte `completeJson`-variant is in SF-1753
+verwijderd). Transcriptie via `/v1/audio/transcriptions`.
 
 **Configuratie:**
 - Model per actie is configureerbaar via `PNF_AI_MODEL_*` omgevingsvariabelen

@@ -46,8 +46,6 @@ class AuthServiceImpl(
         return AuthToken(jwt.create(username, user.role), username, user.role)
     }
 
-    override fun userExists(username: String): Boolean = users.findByUsername(username) != null
-
     override fun listUsernames(): List<String> = users.usernames()
 
     override fun changePassword(username: String, currentPassword: String, newPassword: String) {
