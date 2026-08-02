@@ -31,3 +31,17 @@ Done / rationale:
     `mvn -B --no-transfer-progress clean verify` in newsfeedbackend/newsfeedbackend =
     BUILD SUCCESS, exit 0, 0 failures/errors (61 e2e + unit, ~3:54 min).
   - `frontend/pubspec.lock` niet gewijzigd (geen lockfile-drift).
+- SF-1769 review (reviewer, 2026-08-02): akkoord, geen blockers.
+  - Volledige story-diff `git diff main...HEAD` beoordeeld (4 bestanden, alleen
+    `settings_screen.dart` + `settings_screen_test.dart` als code).
+  - Sectievolgorde geverifieerd in de code: Weergave → Over deze app → Account →
+    Categorieën → RSS feeds → Achtergrond-taken → Opruimen → Debug → [admin] Beheer.
+    Dividers: 8 in het bestand, geen bovenaan, geen restant/dubbele tussen Debug en
+    Beheer, lijst eindigt in beide varianten netjes op de laatste sectie.
+  - Switch functioneel identiek (`appearance.largeFont` / `setLarge(v)`), `main.dart`
+    niet aangeraakt; scope niet overschreden (geen backend/frontend-reader/provider-
+    wijzigingen, SF-809-story-doc ongemoeid).
+  - Gerichte hercontrole: `flutter test` in frontend/ = 22 tests groen (exit 0);
+    `flutter analyze` = 7 issues, allemaal pre-existing `info` in ws_client.dart,
+    feed_screen.dart, podcast_detail_screen.dart, rss_detail_screen.dart en
+    rss_screen.dart — niets in `settings_screen.dart`. Geen pubspec.lock-drift.
