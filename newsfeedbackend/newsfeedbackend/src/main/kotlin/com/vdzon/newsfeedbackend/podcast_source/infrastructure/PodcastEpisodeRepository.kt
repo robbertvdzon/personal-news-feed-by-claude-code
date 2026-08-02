@@ -65,24 +65,11 @@ class PodcastEpisodeRepository(
             String::class.java
         ).toSet()
 
-    fun countForFeed(username: String, feedUrl: String): Int =
-        jdbc.queryForObject(
-            "SELECT COUNT(*) FROM podcast_episodes WHERE username = :u AND feed_url = :f",
-            MapSqlParameterSource().addValue("u", username).addValue("f", feedUrl),
-            Int::class.java
-        ) ?: 0
-
     fun upsert(ep: PodcastEpisode): PodcastEpisode {
         val withTs = ep.copy(updatedAt = Instant.now())
         jdbc.update(UPSERT_SQL, params(withTs))
         return withTs
     }
-
-    fun deleteForFeed(username: String, feedUrl: String): Int =
-        jdbc.update(
-            "DELETE FROM podcast_episodes WHERE username = :u AND feed_url = :f",
-            MapSqlParameterSource().addValue("u", username).addValue("f", feedUrl)
-        )
 
     fun resetFailedWithOomError(): Int =
         jdbc.update(
@@ -94,21 +81,13 @@ class PodcastEpisodeRepository(
         )
 
     /**
-     * KAN-60: pakt globaal de oudste aflevering die klaar is voor een
-     * (nieuwe) Whisper-poging — status=NEEDS_TRANSCRIPT en niet meer in
-     * de backoff-wachtkamer. FIFO over alle gebruikers heen; er wordt er
-     * max één opgepakt zodat we Whisper niet weer met een burst
-     * overstelpen (AC #3).
-     */
-    fun findOneReadyForTranscript(now: Instant): PodcastEpisode? =
-        findReadyForTranscript(now, 1).firstOrNull()
-
-    /**
-     * SF-1739: zelfde selectie als [findOneReadyForTranscript], maar met
-     * een instelbare bovengrens. De uurlijkse recovery-job gebruikt 'm om
-     * een achterstand (bv. events die door een restart verloren gingen)
-     * in één run te hertriggeren; de verwerking zelf blijft serieel via
-     * de single-threaded transcript-executor.
+     * SF-1739: pakt globaal de oudste afleveringen die klaar zijn voor een
+     * (nieuwe) Whisper-poging — status=NEEDS_TRANSCRIPT en niet meer in de
+     * backoff-wachtkamer — FIFO over alle gebruikers heen, tot maximaal
+     * [limit] stuks. De uurlijkse recovery-job gebruikt 'm om een
+     * achterstand (bv. events die door een restart verloren gingen) in één
+     * run te hertriggeren; de verwerking zelf blijft serieel via de
+     * single-threaded transcript-executor.
      */
     fun findReadyForTranscript(now: Instant, limit: Int): List<PodcastEpisode> =
         jdbc.query(

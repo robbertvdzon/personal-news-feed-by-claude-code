@@ -14,10 +14,6 @@ class RssFetcherSsrfTest {
         override fun log(call: ExternalCall) {
             loggedCall = call
         }
-        override fun timed(
-            provider: String, action: String, username: String, unitType: String,
-            subject: String?, block: ExternalCallLogger.TimedContext.() -> Unit
-        ) {}
     })
 
     @Test

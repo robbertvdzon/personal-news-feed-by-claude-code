@@ -21,11 +21,9 @@ import java.util.UUID
  * KAN-63: thin HTTP-wrapper voor OpenAI's `/v1/chat/completions`.
  *
  * SF-114: uitgebreid van "alleen vertaling, vast model" naar een algemene
- * client. Alles loopt via [doComplete]; bovenop staan drie overloads:
+ * client. Alles loopt via [doComplete]; bovenop staan twee overloads:
  *  - [complete] zonder model → vertaal-flow met het vaste translate-model.
  *  - [complete] met model → vrije chat-completion met een geconfigureerd model.
- *  - [completeJson] → idem, maar met OpenAI Structured Outputs (`strict:true`)
- *    zodat de respons strikt aan een JSON-schema voldoet.
  *
  * Eén-shot call, geen retries — de caller vangt fouten op. Elke call wordt
  * gelogd via [ExternalCallLogger] zodat ze in het kosten-dashboard verschijnen.
@@ -63,7 +61,6 @@ class OpenAiChatHttpClient(
             user = user,
             subject = subject,
             maxOutputTokens = maxOutputTokens,
-            responseFormat = null,
             costFn = { i, o -> pricing.tokenCost(translateModel, i, o) }
         )
 
@@ -84,44 +81,8 @@ class OpenAiChatHttpClient(
             user = user,
             subject = subject,
             maxOutputTokens = maxOutputTokens,
-            responseFormat = null,
             costFn = { i, o -> pricing.tokenCost(model, i, o) }
         )
-
-    override fun completeJson(
-        model: String,
-        schemaName: String,
-        schema: String,
-        action: String,
-        username: String,
-        system: String,
-        user: String,
-        subject: String?,
-        maxOutputTokens: Int
-    ): OpenAiChatResponse {
-        // Structured Outputs: response_format = json_schema, strict:true. Het
-        // schema staat — net als de system-prompt — vooraan in de body, wat
-        // OpenAI's prompt-caching ten goede komt (statisch deel eerst).
-        val responseFormat = mapOf(
-            "type" to "json_schema",
-            "json_schema" to mapOf(
-                "name" to schemaName,
-                "strict" to true,
-                "schema" to mapper.readTree(schema)
-            )
-        )
-        return doComplete(
-            model = model,
-            action = action,
-            username = username,
-            system = system,
-            user = user,
-            subject = subject,
-            maxOutputTokens = maxOutputTokens,
-            responseFormat = responseFormat,
-            costFn = { i, o -> pricing.tokenCost(model, i, o) }
-        )
-    }
 
     private fun doComplete(
         model: String,
@@ -131,7 +92,6 @@ class OpenAiChatHttpClient(
         user: String,
         subject: String?,
         maxOutputTokens: Int,
-        responseFormat: Map<String, Any>?,
         costFn: (Long, Long) -> Double
     ): OpenAiChatResponse {
         val started = Instant.now()
@@ -153,7 +113,6 @@ class OpenAiChatHttpClient(
                 mapOf("role" to "user", "content" to user)
             )
         )
-        if (responseFormat != null) payload["response_format"] = responseFormat
         val body = mapper.writeValueAsString(payload)
         val req = HttpRequest.newBuilder()
             .uri(URI.create("$baseUrl/v1/chat/completions"))

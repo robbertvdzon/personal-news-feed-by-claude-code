@@ -6,7 +6,6 @@ package com.vdzon.newsfeedbackend.auth
 interface AuthService {
     fun register(username: String, password: String): AuthToken
     fun login(username: String, password: String): AuthToken
-    fun userExists(username: String): Boolean
     fun listUsernames(): List<String>
     /**
      * Wijzigt het wachtwoord van een ingelogde user. Verifieert eerst het
