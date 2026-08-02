@@ -38,7 +38,7 @@ De frontend is een **Flutter-app** (mobile + web) voor het lezen van een persoon
 
 ## 3. Navigatiestructuur
 
-De app heeft twee hoofdstaten: **niet ingelogd** (toont LoginScreen) en **ingelogd** (toont een shell met vijf tabs).
+De app heeft twee hoofdstaten: **niet ingelogd** (toont LoginScreen) en **ingelogd** (toont een shell met vier tabs).
 
 ```
 AuthGate
