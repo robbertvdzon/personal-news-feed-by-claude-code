@@ -108,3 +108,26 @@ technical-spec,development}.md`, `docs/factory/agents/tester.md` en
 6. ⏳ Te verifiëren na deploy (kostenscherm) — code-zijdig kunnen er geen
    `tavily_search`-event-calls, `event_discovery`- of `event_video_discovery`-rijen
    meer ontstaan; historische rijen zijn niet aangeraakt.
+
+## Review (SF-1747, reviewer)
+
+Code, API, database, frontend en tests zijn integraal nagelopen tegen de volledige
+story-diff (`git diff main...HEAD`, 63 bestanden). Bevindingen:
+
+- Geen dangling `$ref` in `specs/openapi.yaml`; tag `Events` weg, schema-set exact
+  gedekt (geen ongebruikte schema's, geen onbekende referenties).
+- Geen enkele verwijzing meer naar verwijderde symbolen (`EventPreferences`,
+  `EventDenylist*`, `eventsProvider`, `ACTION_EVENT_*`, `VideoAudioDownloader`,
+  `YouTubeTranscriptClient`) in `.kt`/`.dart`/`.yaml`/`.properties`.
+- `V16__drop_events.sql` volgt het naampatroon, raakt geen bestaande migratie aan en
+  dropt FK-veilig (`event_videos` vóór `events`) met `IF EXISTS`.
+- Behoud geverifieerd: `TavilyClient`/`app.tavily.*`/`PNF_TAVILY_API_KEY`, `ffmpeg`
+  in de Dockerfile en alle Spring-application-events.
+
+Twee doc-restanten die na deze wijziging feitelijk onjuist zijn (terug naar developer):
+
+- [bug] `runbook.md:136` — "multi-stage: Maven/JDK21 → Temurin JRE21 + ffmpeg + yt-dlp",
+  terwijl `yt-dlp`/`python3` in dezelfde diff uit de Dockerfile zijn gehaald.
+- [bug] `docs/factory/technical-spec.md:71` — de `ProcessBuilder`-codeconventie noemt als
+  enige voorbeeld "de video-URL aan `yt-dlp` in `VideoAudioDownloader`"; die klasse
+  bestaat niet meer. Conventie zelf blijft geldig, alleen het voorbeeld moet weg/vervangen.
