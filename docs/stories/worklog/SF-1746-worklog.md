@@ -131,3 +131,30 @@ Twee doc-restanten die na deze wijziging feitelijk onjuist zijn (terug naar deve
 - [bug] `docs/factory/technical-spec.md:71` — de `ProcessBuilder`-codeconventie noemt als
   enige voorbeeld "de video-URL aan `yt-dlp` in `VideoAudioDownloader`"; die klasse
   bestaat niet meer. Conventie zelf blijft geldig, alleen het voorbeeld moet weg/vervangen.
+
+## Fix-ronde review-bevindingen (SF-1747, developer)
+
+Beide doc-restanten uit de review hierboven zijn verholpen; verder is er niets
+aan code, API, database of tests gewijzigd.
+
+- `runbook.md` §4 "Container-build lokaal": de stack-omschrijving is nu
+  "Maven/JDK21 → Temurin JRE21 + ffmpeg" — `yt-dlp` is geschrapt, conform de
+  Dockerfile die alleen nog `ffmpeg` installeert (voor de podcast-
+  `AudioTranscoder`/`Mp3Concatenator`). Dit was de tweede vindplaats van de term
+  in runbook.md; de stack-regel in §1 was al eerder bijgewerkt.
+- `docs/factory/technical-spec.md` (codeconventie `ProcessBuilder`): het
+  `yt-dlp`/`VideoAudioDownloader`-voorbeeld is vervangen. De conventie zelf blijft
+  ongewijzigd geldig, maar benoemt nu de feitelijke aanroepers
+  (`media/AudioTranscoder.kt`, `podcast/infrastructure/Mp3Concatenator.kt`, beide
+  ffmpeg) die uitsluitend interne temp-paden doorgeven, en formuleert de
+  `--`-regel als eis voor het geval er ooit wél externe invoer als positioneel
+  argument meegaat.
+
+Historische story-/worklog-bestanden (o.a. `SF-579`, `SF-392`, `SF-747`) noemen
+`yt-dlp`/`VideoAudioDownloader` nog steeds; die zijn bewust ongewijzigd gelaten —
+het zijn verslagen van wat destijds is gebeurd, geen actuele documentatie.
+
+**Vangnet opnieuw gedraaid (volledig, niet afgebroken):**
+`mvn -B clean verify` in `newsfeedbackend/newsfeedbackend` → **BUILD SUCCESS**,
+52 e2e-tests, 0 failures / 0 errors (totale tijd 03:10). `flutter test` in
+`frontend/` → **20 tests groen**, exitcode 0. Geen `pubspec.lock`-drift.

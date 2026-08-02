@@ -133,7 +133,7 @@ agent) in Chrome worden afgespeeld. Volgorde: `start-scenario.md` →
 feature-scenario → `cleanup-scenario.md`.
 
 **Container-build lokaal:** `docker build` met `newsfeedbackend/newsfeedbackend/Dockerfile`
-(multi-stage: Maven/JDK21 → Temurin JRE21 + ffmpeg + yt-dlp).
+(multi-stage: Maven/JDK21 → Temurin JRE21 + ffmpeg).
 
 ---
 

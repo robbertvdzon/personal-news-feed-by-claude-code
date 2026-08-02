@@ -20,6 +20,8 @@ voor de ad-hoc nieuws-verzoeken-feature, `ffmpeg` in de Dockerfile voor de podca
 - [x] Tests: event-tests verwijderd/uitgekleed, nieuwe widgettest op de 4-tabs-navigatie
 - [x] Docs en e2e-scenario's bijgewerkt
 - [x] `mvn -B clean verify` (94 unit + 52 e2e, BUILD SUCCESS) en `flutter test` (20 groen)
+- [x] Review-bevindingen verwerkt: laatste `yt-dlp`-restanten uit `runbook.md` en
+      het `VideoAudioDownloader`-voorbeeld uit `docs/factory/technical-spec.md`
 
 Volledige uitwerking, motivatie per onderdeel en testresultaten:
 [`worklog/SF-1746-worklog.md`](./worklog/SF-1746-worklog.md).
