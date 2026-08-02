@@ -60,3 +60,20 @@ Verificatie:
 - Diff-zelfreview: 12 bestanden, 9 insertions / 192 deletions; de 9 toegevoegde regels zijn
   uitsluitend KDoc. Geen wijziging aan specs/openapi.yaml, frontend/, frontend-reader/,
   HTTP-endpoints of database-migraties.
+
+Review (SF-1755, reviewer):
+- Volledige story-diff t.o.v. main gereviewd (14 bestanden incl. 2 nieuwe docs). Alle zeven
+  punten aanwezig en niets extra's; geen implementatie buiten scope.
+- Restant-grep repo-breed op timed/TimedContext/completeJson/responseFormat/response_format/
+  userExists/findOneReadyForTranscript/countForFeed/deleteForFeed: geen enkele treffer meer in
+  code, specs/, docs/factory/, README.md of runbook.md — alleen historische story-logs
+  (SF-113/SF-114/SF-1739), die terecht ongewijzigd blijven.
+- Imports gecontroleerd: java.time.Instant en java.util.UUID in OpenAiChatHttpClient zijn nog
+  wél in gebruik (logCall) en blijven terecht staan; Mp3Concatenator, ExternalCallLogger(.Impl)
+  en de drie test-fakes houden geen ongebruikte imports over.
+- Testaantal geverifieerd op beide revisies: 147 @Test/@ParameterizedTest op main én op
+  ai/SF-1753 — geen test verwijderd of toegevoegd.
+- KDoc: geen verwijzing meer naar een verwijderd symbool in OpenAiChatClient,
+  OpenAiChatHttpClient of PodcastEpisodeRepository; findReadyForTranscript-KDoc is zelfstandig
+  leesbaar.
+- Akkoord: geen blockers, geen bugs.
