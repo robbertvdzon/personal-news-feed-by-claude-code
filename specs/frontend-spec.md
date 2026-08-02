@@ -269,6 +269,16 @@ Zolang een of meer podcasts de status `PENDING`, `DETERMINING_TOPICS`, `GENERATI
 
 ## 9. Settings-tab (Tab 3)
 
+Sectievolgorde op het scherm: Weergave → Over deze app → Account → Categorieën → RSS feeds → Achtergrond-taken → Opruimen → Debug → (alleen admins) Beheer. De subsecties hieronder staan functioneel gegroepeerd en volgen niet strikt die schermvolgorde.
+
+### Weergave (bovenste sectie, SF-1768)
+Staat als **eerste sectie bovenaan** het instellingen-scherm, boven "Over deze app", zodat de schakelaar direct zichtbaar is zonder scrollen. Tussen SF-809 en SF-1768 stond dit blok juist als laatste sectie onderaan (ná de admin-only Beheer-sectie); daarvóór stond het bovenin, direct onder Account (zie SF-987/SF-1046 voor de sectiekop-tekst). SF-1768 is puur een herschikking van de sectievolgorde — het gedrag van de switch is ongewijzigd, en de onderlinge volgorde van alle overige secties is gelijk gebleven.
+
+- Lettergrootte-instelling: "Normaal" of "Groot" (`SwitchListTile` "Grote tekst")
+- "Groot" schaalt alle tekst met factor ~1.38 (via `TextScaler` op `MediaQuery`)
+- Waarde komt uit `appearanceProvider`; aanpassen roept `setLarge` aan
+- Instelling opgeslagen in `SharedPreferences`
+
 ### Account (SF-1046)
 Sectiekop boven het account-blok heet sinds SF-1046 weer **"Account"**; tussen SF-987 en SF-1046 was dit tijdelijk "Account Settings" (letterlijk Engels overgenomen, ook al is de rest van de pagina Nederlandstalig).
 
@@ -296,7 +306,7 @@ Gedrag per rij:
 - De vaste records bestaan altijd zodra `ensureFixedRequests` heeft gedraaid; bij ontbreken (eerste login zonder server-roundtrip) zijn de knoppen disabled.
 
 ### Over deze app
-Bovenaan het instellingen-scherm staat een blok **Over deze app** met twee regels:
+Direct onder de Weergave-sectie, bovenin het instellingen-scherm, staat een blok **Over deze app** met twee regels:
 
 - **Frontend:** `<short-git-sha>` · `<build-timestamp in lokale tijd>` — beide compile-time geïnjecteerd via `--dart-define=BUILD_SHA=...` en `--dart-define=BUILD_TIME=...` en uitgelezen met `String.fromEnvironment`. Altijd beschikbaar uit de bundel zelf.
 - **Backend:** `<short-git-sha>` · `<build-timestamp in lokale tijd>` — komt uit het `versionProvider` (gevuld door `GET /api/version` of het WebSocket `serverVersion`-bericht). Bij een fout (`/api/version` offline of 5xx) toont de regel **`onbekend`** tot de volgende geslaagde check.
@@ -347,14 +357,6 @@ Onderaan het instellingen-scherm verschijnt een extra sectie **"Beheer"** die al
   - AdminCostsScreen toont kostenoverzichten per dag, per gebruiker en gedetailleerd logboek van externe API-calls.
 
 Er is geen aparte Admin-tab in de bottom navigation bar — alle admin-functionaliteit zit achter de twee Beheer-knoppen in Settings.
-
-### Weergave (onderste sectie, SF-809)
-Staat als **laatste sectie onderaan** het instellingen-scherm, ná alle andere secties (dus ook ná de admin-only Beheer-sectie; voor niet-admins staat Weergave onder Debug). Vóór SF-809 stond dit blok bovenin, direct onder Account (zie SF-987/SF-1046 voor de sectiekop-tekst). Puur een herschikking van de sectievolgorde — het gedrag van de switch is ongewijzigd.
-
-- Lettergrootte-instelling: "Normaal" of "Groot" (`SwitchListTile` "Grote tekst")
-- "Groot" schaalt alle tekst met factor ~1.38 (via `TextScaler` op `MediaQuery`)
-- Waarde komt uit `appearanceProvider`; aanpassen roept `setLarge` aan
-- Instelling opgeslagen in `SharedPreferences`
 
 ---
 
