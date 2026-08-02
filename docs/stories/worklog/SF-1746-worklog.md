@@ -191,3 +191,53 @@ Opnieuw geverifieerd in deze ronde:
   en `flutter test` 20 groen, gedraaid door de developer op deze revisie.
 
 Geen blockers, geen openstaande bevindingen.
+
+## Test-ronde (SF-1748, tester) — akkoord
+
+Getest tegen preview `https://pnf-pr-200.vdzonsoftware.nl` (namespace `pnf-pr-200`,
+backend/frontend-image `sha-b8f05d3` = branch-HEAD, pods 1/1 Running,
+`/actuator/health` UP incl. db). Inlogmodus: **wegwerp-account** `tester_sf-1746`
+— `oc get secret newsfeed-api-keys -n pnf-pr-200` gaf Forbidden voor
+`system:serviceaccount:agent-access:claude-agent`, dus `TESTER_USERNAME`/
+`TESTER_PASSWORD` waren niet resolvebaar. Account via de Flutter-UI aangemaakt en
+aan het eind opgeruimd (`DELETE /api/account/me` → 200); testverzoek verwijderd
+(`DELETE /api/requests/{id}` → 204).
+
+Bewijs per acceptatiecriterium:
+
+1. **Geen event-crons** — `grep -rn "@Scheduled" src/main/kotlin` geeft alleen nog
+   `RssScheduler` (2×) en `PodcastRecoveryScheduler`; de zondag-crons `0 0 2 * * SUN`
+   en `0 0 3 * * SUN` bestaan niet meer.
+2. **Geen domein-event-restanten** — alle resterende `event`-treffers in backend en
+   frontend zijn Spring-application-events (`AuthEvents`, `RssEvents`,
+   `RequestEvents`, `PodcastSourceEvents`) of het woord "eventueel".
+   `specs/openapi.yaml`, `e2e/scenarios/` (events-scenario weg) en de docs zijn schoon.
+3. **Ad-hoc + Tavily werkt nog** — live op preview: `POST /api/requests`
+   (subject "Kotlin 2.3 release") → 201, binnen 6 s status `DONE` met
+   `newItemCount=1`; backendlog toont `[Request] start ad-hoc …` →
+   `[OpenAI-chat] adhoc_summarize ok` → `[Request] done items=1`, en het resulterende
+   feed-item (kotlinlang.org) komt uit de Tavily-search
+   (screenshot `07-oude-events-route.png`). `PNF_TAVILY_API_KEY`/`app.tavily.*` en
+   `TavilyClient.kt` staan er nog.
+4. **Migratie draait door** — Flyway op de preview-Neon-branch (kopie van prod met
+   de events-tabellen): "Successfully validated 16 migrations", schemaversie **16**,
+   app start op zonder fouten. `V16__drop_events.sql` dropt FK-veilig met `IF EXISTS`
+   en raakt `external_calls`/`feed_items` niet.
+5. **Endpoints weg** — met geldig JWT geven `/api/events`, `/api/events/discover`,
+   `/api/events/videos/discover`, `/api/events/{id}`, `/api/events/{id}/videos`,
+   `/api/settings/event-preferences(/remove)` en `/api/settings/event-denylist(/{id})`
+   exact hetzelfde resultaat als een willekeurig niet-bestaand pad
+   (`NoResourceFoundException`) → de routes bestaan niet meer.
+   Het vangnet (`mvn clean verify` + `flutter test`) draait de harness na deze run.
+6. **Frontend** — bottom navigation heeft 4 tabs (Feed/RSS/Podcast/Instellingen),
+   geen Events; feed-bronfilter toont alleen Alles/RSS/Podcasts; het Instellingen-
+   scherm bevat van boven tot onder geen event-voorkeuren of denylist meer en de
+   Achtergrond-taken beperken zich tot RSS-refresh + dagsamenvatting. De oude
+   deeplink `/events` valt netjes terug op de Feed (geen crash, 0 console-errors).
+   Screenshots in `/work/screenshots` (01 login, 03 feed+bottomnav, 04/05 settings,
+   06/07 feed, 08 RSS-tab, 09 Podcast-tab).
+
+Non-blocker (pre-existing, buiten scope): onbekende `/api/**`-paden geven **500**
+i.p.v. 404 — `NoResourceFoundException` valt in `GlobalExceptionHandler` in de
+generieke "Unhandled exception"-tak. Geldt net zo goed voor `/api/zomaar-niet-bestaand`
+op main, dus geen regressie van deze story.
