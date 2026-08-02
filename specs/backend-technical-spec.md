@@ -315,8 +315,8 @@ opgenomen in de allowlist, zie §3).
 
 ### E2e-testsuite (`mvn verify`)
 Naast de unit-tests bestaat er een e2e-suite onder
-`src/test/kotlin/com/vdzon/newsfeedbackend/e2e/`, o.a. `RssRefreshE2eTest`,
-`SettingsE2eTest`, `AdminE2eTest`,
+`src/test/kotlin/com/vdzon/newsfeedbackend/e2e/` (10 testklassen): `RssRefreshE2eTest`,
+`RssItemsE2eTest`, `SettingsE2eTest`, `AdminE2eTest`,
 `AuthE2eTest`, `FeedE2eTest`, `PodcastGenerationE2eTest`,
 `PodcastIngestE2eTest`, `RequestsE2eTest` en `SharedFeedE2eTest`. Het gedeelde
 harnas (`E2eTestBase`/`E2eTestConfig`) start
@@ -331,6 +331,20 @@ dat: één test bewijst dat fase 2 bij `transcribeEnabled=true` puur op het
 `PodcastTranscriptRequested`-event start (zonder scheduler), een andere roept
 `PodcastRecoveryScheduler.recover()` handmatig aan om een door een restart
 gemist event alsnog opgepakt te zien worden (SF-1739).
+
+`RssItemsE2eTest` (9 tests, SF-1754) dekt de losse RSS-item-endpoints en de
+reselect-flow: `read`/`unread`, `star` togglen, `feedback`, `markAllRead` (telt
+alleen de vooraf ongelezen items en is idempotent), `cleanup` met de
+keep-vlaggen, `DELETE /api/rss/{id}`, `GET /api/rss/{id}/transcript` (404 voor
+een artikel, 200 met de tekst van een gekoppelde `PodcastEpisode`) en twee
+reselect-tests. Items worden rechtstreeks geseed via `RssService.upsert(...)` en
+podcast-afleveringen via `PodcastEpisodeRepository.upsert(...)`; alleen de
+reselect-tests draaien eerst een echte refresh tegen `FakeContentServer`. Twee
+aandachtspunten voor wie deze tests uitbreidt: geseede item-id's moeten
+UUID-vorm hebben (`FakeOpenAiChatClient.extractCandidateIds` vist kandidaten met
+een UUID-regex uit de selectie-prompt, anders doet reselect stil niets), en een
+reselect mag pas getriggerd worden nadat de refresh `DONE` is — `RssRefreshPipeline`
+gebruikt één `tryLock` per user en slaat een overlappende run stilzwijgend over.
 
 `mvn test` (surefire) draait alleen de unit-tests en `ModuleStructureTest`
 (sluit `**/e2e/**` uit, geen Docker nodig). `mvn verify` (failsafe) draait
