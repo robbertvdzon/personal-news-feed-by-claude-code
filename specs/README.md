@@ -63,8 +63,8 @@ Flutter app (frontend/)
 Spring Boot backend (newsfeedbackend/)
       │
       ├── PostgreSQL (Neon)     (alle data; Flyway-migraties; podcast-audio als BYTEA)
-      ├── OpenAI API            (AI samenvatting, selectie, podcast, events, transcriptie/TTS)
-      ├── Tavily API            (websearch + extractie: ad-hoc + events-discovery)
+      ├── OpenAI API            (AI samenvatting, selectie, podcast, transcriptie/TTS)
+      ├── Tavily API            (websearch + extractie: ad-hoc nieuws-verzoeken)
       └── ElevenLabs TTS API    (podcast audio, optioneel)
 ```
 

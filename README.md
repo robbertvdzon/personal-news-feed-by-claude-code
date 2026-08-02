@@ -9,7 +9,6 @@ Een zelf-gehoste, persoonlijke nieuwslezer met AI-curation, podcastgeneratie en 
 - Verwerkt ad-hoc zoekopdrachten: geef een onderwerp op en de AI zoekt en vat actuele artikelen samen
 - Genereert dagelijks een AI-nieuwsoverzicht
 - Genereert podcasts (script + audio) op basis van recente nieuwsartikelen, in een interview-format met twee stemmen
-- Ontdekt tech-events (Tavily + AI) en laat je events verwijderen (denylist)
 - Ondersteunt meerdere gebruikers, elk met volledig eigen data en instellingen
 
 ## Opbouw
@@ -45,7 +44,7 @@ De specificaties in de `specs/` map zijn het vertrekpunt: alle functionaliteit, 
 
 **Frontend:** Flutter · Dart · Riverpod
 
-**AI:** OpenAI (samenvatting, selectie, podcast, events, transcriptie/TTS) · Tavily (websearch) · ElevenLabs (podcast audio)
+**AI:** OpenAI (samenvatting, selectie, podcast, transcriptie/TTS) · Tavily (websearch voor ad-hoc nieuws-verzoeken) · ElevenLabs (podcast audio)
 
 ## Ontwikkelen
 

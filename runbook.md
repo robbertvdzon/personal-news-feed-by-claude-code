@@ -12,8 +12,8 @@ namen van secrets en waar ze staan. Echte waarden: `deploy/secrets-cluster.env`
 
 ## 1. Wat is dit
 
-Een zelf-gehoste, persoonlijke nieuwslezer met AI-curation, podcastgeneratie,
-events-ontdekking en multi-user support. Spec-first gebouwd met Claude Code
+Een zelf-gehoste, persoonlijke nieuwslezer met AI-curation, podcastgeneratie
+en multi-user support. Spec-first gebouwd met Claude Code
 (zie `specs/`).
 
 **Tech stack**
@@ -22,9 +22,9 @@ events-ontdekking en multi-user support. Spec-first gebouwd met Claude Code
   - `frontend/` → de volledige app (publiek op `news.vdzonsoftware.nl`)
   - `frontend-reader/` → read-only reader-variant
 - **DB:** PostgreSQL (Neon, cloud) — Flyway-migraties bij start
-- **AI:** OpenAI (samenvatting/selectie/podcast/events — de app draait volledig
+- **AI:** OpenAI (samenvatting/selectie/podcast — de app draait volledig
   op OpenAI) · Tavily (websearch) · ElevenLabs (podcast-TTS).
-- **Media:** `ffmpeg` (mp3-compressie) + `yt-dlp` (video-audio fallback) in het backend-image
+- **Media:** `ffmpeg` (mp3-compressie) in het backend-image
 
 ---
 
@@ -133,7 +133,7 @@ agent) in Chrome worden afgespeeld. Volgorde: `start-scenario.md` →
 feature-scenario → `cleanup-scenario.md`.
 
 **Container-build lokaal:** `docker build` met `newsfeedbackend/newsfeedbackend/Dockerfile`
-(multi-stage: Maven/JDK21 → Temurin JRE21 + ffmpeg + yt-dlp).
+(multi-stage: Maven/JDK21 → Temurin JRE21 + ffmpeg).
 
 ---
 
@@ -160,8 +160,8 @@ Bestanden staan lokaal (gitignored). Voor de assistent worden ze read-only besch
   Alleen de productie-overlay koppelt deze door; PR-previews zetten
   `APP_JWT_SECRET` bewust leeg en draaien op een ephemeral sleutel per pod
   (SF-1542, zie `deploy/README.md`).
-- `PNF_OPENAI_API_KEY` — OpenAI (samenvatting/selectie/podcast/events/TTS-transcribe).
-- `PNF_TAVILY_API_KEY` — Tavily websearch (ad-hoc zoeken + events-discovery).
+- `PNF_OPENAI_API_KEY` — OpenAI (samenvatting/selectie/podcast/TTS-transcribe).
+- `PNF_TAVILY_API_KEY` — Tavily websearch (ad-hoc nieuws-verzoeken).
 - `PNF_ELEVENLABS_API_KEY` — ElevenLabs TTS voor podcast-audio.
 - `TUNNEL_TOKEN` — Cloudflare-tunnel token (cloudflared-pod → publiceert `*.vdzonsoftware.nl`).
 - `GITHUB_TOKEN` — PAT voor `gh`/`git push` naar deze repo (CI + ArgoCD PR-preview-generator).
@@ -181,11 +181,10 @@ Bestanden staan lokaal (gitignored). Voor de assistent worden ze read-only besch
   prod-URL uit het base-secret zien; en zonder NEON_API_KEY valt de labeller
   terug op namespace-labeling-only — dan draaien previews wél op prod.
 - **Migraties:** Flyway, automatisch bij backend-start
-  (`src/main/resources/db/migration/`, t/m `V15`).
+  (`src/main/resources/db/migration/`, t/m `V16`).
 - **Belangrijke tabellen:** `users`, `rss_feeds`, `rss_items`, `feed_items`,
   `news_requests`, `topic_history`, `category_settings`, `external_calls`
   (AI-cost-log), `podcasts`, `podcast_feeds`, `podcast_episodes`,
-  `events`, `event_videos`, `event_preferences`, `event_denylist`,
   `shedlock` (scheduler-lock), `flyway_schema_history`.
 
 **Verbinden (read-only query vanaf de laptop / assistent):**
@@ -202,7 +201,7 @@ USER=$(echo "$JDBC" | grep -oE 'user=[^&]+'     | cut -d= -f2)
 PASS=$(echo "$JDBC" | grep -oE 'password=[^&]+' | cut -d= -f2)
 PSQL_URL="postgresql://${USER}:${PASS}@${HOST}/${DB}?sslmode=require"
 psql "$PSQL_URL" -c "\dt"                         # lijst tabellen
-psql "$PSQL_URL" -c "SELECT count(*) FROM events WHERE username='robbert';"
+psql "$PSQL_URL" -c "SELECT count(*) FROM feed_items WHERE username='robbert';"
 ```
 > Read-only discipline: gebruik alleen `SELECT`. Er is geen aparte read-only
 > rol; voorzichtig zijn met `UPDATE/DELETE` op de gedeelde prod-DB.

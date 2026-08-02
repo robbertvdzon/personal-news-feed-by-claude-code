@@ -39,10 +39,6 @@ topic_history         # onderwerp-geschiedenis per gebruiker
 podcasts              # podcast-metadata + audio (BYTEA)
 podcast_feeds         # podcast-feed URLs
 podcast_episodes      # podcast-source ingest/transcriptie
-events                # ontdekte tech-events
-event_videos          # video's per event
-event_preferences     # per-user event-zoekvoorkeuren
-event_denylist        # per-user verwijderde events
 external_calls        # audit-/kostenlog van externe API-calls
 shedlock              # scheduler-lock
 flyway_schema_history # Flyway-migratiehistorie
@@ -349,53 +345,6 @@ Voor elke bestaande gebruiker worden de vaste verzoekrecords `hourly-update-{use
 
 ---
 
-### 6.8 Event-ontdekking (KAN-65 + KAN-68, wekelijks + handmatig)
-
-De events-module ontdekt per gebruiker grote tech-events (conferenties zoals JavaOne, KotlinConf, Spring I/O, Devoxx, KubeCon, Google I/O, OpenAI DevDay).
-
-- **Trigger**: wekelijkse cron `0 0 2 * * SUN` (zondag 02:00), eigen `@SchedulerLock` (`weeklyEventDiscovery`, lockAtMostFor=4h), los van de RssScheduler. Ook handmatig via `POST /api/events/discover` (mirror van de RSS-refresh) — knop in de Events-tab én in Settings. De handmatige trigger respecteert dezelfde voorkeuren-lijst.
-- **Primaire seed (KAN-68)**: een per-user lijst event-voorkeuren in Settings (`/api/settings/event-preferences`). Per naam draait één gerichte Tavily-search (`"<naam> conference <year> <year+1> dates location"`, max-results 10), gevolgd door één OpenAI-extract die de edities + sterk overlappende zuster-edities uithaalt. Max 20 seed-queries per run om kosten te begrenzen. Sensible defaults bij eerste aanmaak van een user: JavaOne, KotlinConf, Spring I/O, Code with Claude, OpenAI DevDay, Google I/O, Devoxx, KubeCon.
-- **"Similar"-aanvulling (KAN-68)**: na de seed-pass één extra AI-call (`discoverEventsSimilar`) die op basis van de hele voorkeuren-lijst events binnen dezelfde scene/community/technologie voorstelt. Eén call per run per user — geen Tavily-grounding, valt terug op de eigen kennis van het model.
-- **Secundair: per categorie** (alleen ingeschakelde, niet-systeem categorieën, KAN-65 gedrag) draait nog steeds een Tavily-search met `days=365`. Blijft als aanvulling actief; dedup vangt overlap met de seed-pass op.
-- **Datum-recovery (KAN-68)**: events die uit de AI komen zonder valide `start_date` krijgen één extra gerichte Tavily-lookup (`"<naam> conference dates <year> <year+1>"`) + één kleine AI-call die alleen de datum extraheert. Lukt dat niet, dan wordt het event verworpen (`rejectedNoDate`-counter in de log).
-- **Denylist (KAN-68)**: bij het verwerken van AI-output worden events waarvan de genormaliseerde id op de per-user `/api/settings/event-denylist` staat overgeslagen. De denylist wordt door [Event-verwijdering](#evt-delete) gevuld; de gebruiker kan ids er via Settings weer afhalen.
-- **Dedup** op de stabiele id per gebruiker: een bestaand event wordt bijgewerkt (feedItemId + createdAt behouden), een nieuw event wordt toegevoegd. Events met een begindatum ouder dan één jaar worden overgeslagen.
-- **Aankondiging**: bij een nieuw event wordt een gewoon Nederlands feed-item aangemaakt (`mediaType=ARTICLE`, categorie van het event) met een verwijzing naar de Events-sectie.
-- **Logging/metrics**: alle AI-calls (`discoverEventsSeed`, `discoverEventsSimilar`, `discoverEventDate`, `discoverEvents`) worden gelogd als `event_discovery` in `external_calls`; Micrometer telt `newsfeed.events.discovered` en timet `newsfeed.events.discovery.duration`. Tavily logt zoals bestaand.
-
-### 6.8.1 Event-verwijdering en denylist (KAN-68) <a id="evt-delete"></a>
-
-- **`DELETE /api/events/{id}`**: verwijdert het event uit `events` (cascade ruimt `event_videos` op), én verwijdert het gekoppelde aankondigings-FeedItem (`events.feed_item_id`, géén DB-FK — explicit op service-niveau), én voegt de event-id + display-naam toe aan `event_denylist` voor deze user.
-- **Denylist-beheer**: `GET /api/settings/event-denylist` toont de lijst, `DELETE /api/settings/event-denylist/{normalizedId}` haalt 'n id eraf. Verwijderd-en-eraf-gehaald → discovery vindt 'm bij de volgende run weer.
-- **Event-voorkeuren-beheer**: `GET/PUT /api/settings/event-preferences` voor de hele lijst, `POST /api/settings/event-preferences` om er eentje bij te plaatsen, `POST /api/settings/event-preferences/remove` (body `{"name":"..."}`) om er eentje te verwijderen. Naam in de body i.p.v. als path-segment omdat defaults als "Spring I/O" en "Google I/O" een `/` bevatten en Spring/Tomcat `%2F` standaard strippen. Vrije tekst — geen autocomplete.
-
-### 6.9 Event-video-ontdekking (KAN-66, wekelijks + handmatig)
-
-Per al ontdekt event (zie 6.8) worden wekelijks de online video's (keynotes/sessies) ontdekt. Aparte job van de event-discovery — er wordt in deze story nog **geen** samenvatting gemaakt, alleen de video plus een eventuele Nederlandse beschrijving opgeslagen.
-
-- **Trigger**: tweede wekelijkse cron `0 0 3 * * SUN` (zondag 03:00, één uur na de event-job), eigen `@SchedulerLock` (`weeklyEventVideoDiscovery`, lockAtMostFor=4h). Ook handmatig via `POST /api/events/videos/discover` — aparte knop in Settings naast de event-discovery-knop.
-- **Per opgeslagen event** (begindatum maximaal één jaar terug) draait een Tavily-search met `days=365` op naam + organisatie van het event. De resultaten gaan naar de AI (`mainModel`), die er de video's uit haalt: titel, video-URL en — indien beschikbaar — een Nederlandse beschrijving.
-- **Dedup** op de canonieke video-URL per (gebruiker, event): een bestaande video wordt bijgewerkt, een nieuwe toegevoegd. Maximaal 10 video's per event per run om de Tavily/de AI-kosten te beperken.
-- **Geen aankondiging**: video's genereren geen FeedItem (alleen events doen dat).
-- **Tonen**: in het event-detailscherm verschijnt een lijst klikbare video's; een tik opent de externe URL in de systeembrowser (`GET /api/events/{id}/videos`).
-- **Logging/metrics**: de AI-call wordt gelogd als `event_video_discovery` in `external_calls`; Micrometer telt `newsfeed.event_videos.discovered` en timet `newsfeed.event_videos.discovery.duration`. Tavily logt zoals bestaand.
-
-### 6.10 Event-video-samenvatting on demand (KAN-67)
-
-Per event-video kan de gebruiker een uitgebreide Nederlandse samenvatting laten maken. Synchrone flow vanuit het event-detailscherm — de wekelijkse discovery (zie 6.9) maakt zelf nooit samenvattingen aan.
-
-- **Trigger**: knop "Maak samenvatting" in de video-kaart van het event-detailscherm. Stuurt `POST /api/events/{id}/videos/summarize` met body `{"videoUrl": "..."}`. De frontend toont een laad-indicator tot de response binnen is.
-- **Transcript-stap** (in volgorde, eerste succes wint):
-  1. YouTube `timedtext`-API met `lang=nl`.
-  2. Idem met `lang=en`.
-  3. Idem met `lang=en&kind=asr` (auto-gegenereerd).
-  4. Whisper-fallback: `yt-dlp` downloadt de audio als MP3 naar een temp-file, [`AudioTranscoder`] zorgt dat 'ie onder de 24 MiB Whisper-limit blijft, [`WhisperClient`] transcribeert (zelfde foutbeleid als de podcast-flow: 429/5xx levert mislukking op, gebruiker mag opnieuw proberen).
-- **Samenvatting**: de AI (`mainModel`) maakt op basis van het transcript een 4-7 alinea NL plain-text samenvatting met focus op tools, sprekers, voorbeelden en concrete inhoud.
-- **Persistentie**: de samenvatting wordt opgeslagen in `event_videos.summary_nl` via een aparte `UPDATE` (de discovery-upsert raakt dit veld bewust niet aan, anders zou een tweede discovery de samenvatting wissen). Het discovery-pad behoudt `summary_nl` bij `ON CONFLICT`.
-- **Idempotentie**: een tweede call met een al opgeslagen samenvatting komt direct terug zonder AI-calls. Een per-(user, event, video) `ReentrantLock` voorkomt dat twee gelijktijdige drukken op de knop twee Whisper-/AI-calls triggeren.
-- **Foutgedrag**: als zowel YouTube-transcript als Whisper niets oplevert, geeft het endpoint `502 Bad Gateway`; de UI toont "Samenvatting kon niet worden gemaakt" en de knop blijft beschikbaar.
-- **Logging/metrics**: de AI wordt gelogd als `event_video_summarize`, yt-dlp als `event_video_audio_download`, YouTube-timedtext als `event_video_transcript_fetch`, Whisper als bestaand `podcast_transcribe`. Micrometer registreert `newsfeed.event_videos.summary.duration` en `newsfeed.event_videos.summary.count` (beide met `result`-tag: `ok`, `cache_hit`, `no_transcript`, `summarize_failed`, `error`, `not_found`).
-
 ### 6.7 Onderwerp-geschiedenis
 
 De onderwerp-geschiedenis (`topic_history`-tabel) wordt bijgehouden per gebruiker en bijgewerkt na:
@@ -420,9 +369,8 @@ Structured Outputs). Transcriptie via `/v1/audio/transcriptions`.
 **Configuratie:**
 - Model per actie is configureerbaar via `PNF_AI_MODEL_*` omgevingsvariabelen
   (defaults in `application.properties`). Defaults o.a.: `gpt-5.4-mini`
-  (rss/feed-samenvatting, selectie, ad-hoc, events), `gpt-5.4` (dagelijkse
-  samenvatting, event-video-samenvatting), `gpt-5.4-nano` (event-datum), en
-  `gpt-4o-mini-transcribe` voor transcriptie.
+  (rss/feed-samenvatting, selectie, ad-hoc), `gpt-5.4` (dagelijkse
+  samenvatting) en `gpt-4o-mini-transcribe` voor transcriptie.
 - API-sleutel: omgevingsvariabele `PNF_OPENAI_API_KEY`
 
 **Betrouwbaarheid:**
@@ -459,7 +407,7 @@ Structured Outputs). Transcriptie via `/v1/audio/transcriptions`.
 | `POST /search` | Zoek artikelen op onderwerp | Zoekopdracht (Engels, 4-8 woorden, afgeleid van het `subject` veld via de AI of directe vertaling), max_results, days, optioneel domeinfilter | Lijst van {title, url, snippet, publishedDate} |
 | `POST /extract` | Haal volledige artikeltekst op | Lijst van URLs | Map van {url → volledige tekst, max 8000 tekens} |
 
-Tavily wordt gebruikt voor ad-hoc verzoeken (`POST /api/requests`) **en** voor event-discovery en event-video-discovery (zie 6.8 en 6.9), **niet** voor de reguliere uurlijkse RSS-pipeline.
+Tavily wordt gebruikt voor ad-hoc nieuws-verzoeken (`POST /api/requests`), **niet** voor de reguliere uurlijkse RSS-pipeline.
 
 ---
 
@@ -544,7 +492,7 @@ Alle configuratie via `application.properties` of omgevingsvariabelen.
 | `app.openai.api-key` | `PNF_OPENAI_API_KEY` | — | Verplicht (AI-tekst, transcriptie, TTS) |
 | `app.openai.base-url` | — | `https://api.openai.com` | — |
 | `app.ai.models.<actie>` | `PNF_AI_MODEL_*` | per actie (bijv. `gpt-5.4-mini`) | OpenAI-model per AI-actie |
-| `app.tavily.api-key` | `PNF_TAVILY_API_KEY` | — | Verplicht voor ad-hoc verzoeken + events |
+| `app.tavily.api-key` | `PNF_TAVILY_API_KEY` | — | Verplicht voor ad-hoc nieuws-verzoeken |
 | `app.elevenlabs.api-key` | `PNF_ELEVENLABS_API_KEY` | — | Optioneel (alleen bij ElevenLabs TTS) |
 | `app.elevenlabs.base-url` | — | `https://api.elevenlabs.io` | — |
 | `app.elevenlabs.voice-interviewer` | — | `Jn7U4vF8ZkmjZIZRn4Uk` | ElevenLabs stem voor interviewer |
@@ -558,8 +506,6 @@ Alle configuratie via `application.properties` of omgevingsvariabelen.
 |---|---|
 | Elk uur (`0 0 * * * *`) | RSS ophalen en verwerken voor alle gebruikers |
 | Dagelijks 06:00 (`0 0 6 * * *`) | Dagelijkse AI-samenvatting genereren voor alle gebruikers |
-| Wekelijks zondag 02:00 (`0 0 2 * * SUN`) | Tech-events ontdekken voor alle gebruikers (KAN-65) |
-| Wekelijks zondag 03:00 (`0 0 3 * * SUN`) | Event-video's ontdekken voor alle gebruikers (KAN-66) |
 | Elk uur op :05 (`app.podcast.recovery.cron`, default `0 5 * * * *`) | Podcast-recovery-job (vangnet, SF-1739): hertriggert `NEEDS_TRANSCRIPT`-afleveringen met verlopen `next_attempt_at` en doet de show-notes-timeout-promotie. De normale transcript-start is event-driven, niet gepland (zie 6.4) |
 
 ---

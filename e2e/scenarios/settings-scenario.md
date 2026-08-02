@@ -1,11 +1,11 @@
 # Scenario: settings
 
 ## Doel
-De Instellingen-tab doorlopen voor wat daadwerkelijk in de UI zit: categorieën beheren (toevoegen en bewerken), de RSS-/podcast-feeds-editor (`rss_feeds_screen.dart`) en de Achtergrond-taken-knoppen (RSS vernieuwen, dagelijkse samenvatting, event- en video-discovery). Verifieer dat wijzigingen direct in de UI doorkomen.
+De Instellingen-tab doorlopen voor wat daadwerkelijk in de UI zit: categorieën beheren (toevoegen en bewerken), de RSS-/podcast-feeds-editor (`rss_feeds_screen.dart`) en de Achtergrond-taken-knoppen (RSS vernieuwen, dagelijkse samenvatting). Verifieer dat wijzigingen direct in de UI doorkomen.
 
 ## Voorwaarden
 - `start-scenario` is succesvol gedraaid: ingelogd als `e2e_…`, één RSS-feed en de categorieën AI/Startups/Overig aanwezig.
-- De Achtergrond-taken-knoppen die echte AI/Tavily-jobs starten (RSS-refresh, daily summary, event-/video-discovery) leunen op `PNF_OPENAI_API_KEY` / Tavily; zonder die keys lopen ze wel maar zonder zinvolle output (zie "Graceful degradation").
+- De Achtergrond-taken-knoppen die echte AI-jobs starten (RSS-refresh, daily summary) leunen op `PNF_OPENAI_API_KEY`; zonder die key lopen ze wel maar zonder zinvolle output (zie "Graceful degradation").
 
 ## Stappen
 
@@ -54,17 +54,11 @@ De Instellingen-tab doorlopen voor wat daadwerkelijk in de UI zit: categorieën 
 - Ga terug naar Instellingen (terugknop).
 
 ### 4. Achtergrond-taken
-- Scroll naar **"Achtergrond-taken"**. Verwacht vier rijen, elk met een **▶ Start**-knop:
+- Scroll naar **"Achtergrond-taken"**. Verwacht twee rijen, elk met een **▶ Start**-knop:
   - **"RSS-feeds nu vernieuwen"** (`rss_feed`-icoon) — triggert `hourly-update-{username}`.
   - **"Genereer dagelijkse samenvatting nu"** (`summarize`-icoon) — triggert `daily-summary-{username}`.
-  - **"Zoek nu naar nieuwe events"** (`event`-icoon) — start de event-discovery.
-  - **"Zoek nu naar event-video's"** (`video_library`-icoon) — start de video-discovery.
 - Klik op **▶ Start** bij **"RSS-feeds nu vernieuwen"**.
   - Verwacht: de knop wordt **disabled** met label **"Bezig…"** + spinner en tooltip **"Loopt al…"**; bij voltooien een snackbar **"Klaar — N items verwerkt"** (als Instellingen open blijft).
-- Klik op **▶ Start** bij **"Zoek nu naar nieuwe events"**.
-  - Verwacht: knop kort disabled met **"Bezig…"** + spinner, daarna snackbar **"Event-zoekopdracht gestart — check straks de Events-tab"**.
-- Klik op **▶ Start** bij **"Zoek nu naar event-video's"**.
-  - Verwacht: snackbar **"Video-zoekopdracht gestart — check straks de events"**.
 
 > De "Genereer dagelijkse samenvatting nu"-knop wordt apart in `samenvatting-scenario` uitgediept; hier volstaat dat de rij + ▶ Start-knop aanwezig en enabled zijn.
 

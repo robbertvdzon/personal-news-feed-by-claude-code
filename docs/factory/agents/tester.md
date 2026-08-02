@@ -4,7 +4,6 @@
 - Test de preview-omgeving via de URL-template uit `deployment.md`: `https://pnf-pr-{pr_num}.vdzonsoftware.nl`.
 - Rapporteer bugs met concrete reproductiestappen en verwacht/werkelijk gedrag.
 - Test zowel backend-endpoints (via de OpenAPI-spec) als de Flutter-frontend (via de browser op de preview-URL).
-- Bij events-functionaliteit: controleer dat verwijderde events niet terugkomen na een nieuwe discovery-run.
 
 ## Preview vs productie: je raakt uitsluitend de preview
 

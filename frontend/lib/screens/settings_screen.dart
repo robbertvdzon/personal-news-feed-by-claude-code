@@ -82,8 +82,6 @@ class SettingsScreen extends ConsumerWidget {
         const Divider(),
         Text('Achtergrond-taken', style: Theme.of(context).textTheme.titleLarge),
         const _BackgroundJobsSection(),
-        const _EventDiscoveryTile(),
-        const _EventVideoDiscoveryTile(),
         const Divider(),
         Text('Opruimen', style: Theme.of(context).textTheme.titleLarge),
         ListTile(
@@ -402,109 +400,6 @@ class _BackgroundJobsSectionState extends ConsumerState<_BackgroundJobsSection> 
       if (test(r)) return r;
     }
     return null;
-  }
-}
-
-/// KAN-65: handmatige trigger voor de wekelijkse event-zoekjob. Mirror
-/// van de RSS-refresh: één POST zonder body, spinner zolang de call loopt
-/// en daarna een toast. De discovery zelf draait async op de backend.
-class _EventDiscoveryTile extends ConsumerStatefulWidget {
-  const _EventDiscoveryTile();
-
-  @override
-  ConsumerState<_EventDiscoveryTile> createState() => _EventDiscoveryTileState();
-}
-
-class _EventDiscoveryTileState extends ConsumerState<_EventDiscoveryTile> {
-  bool _busy = false;
-
-  Future<void> _start() async {
-    setState(() => _busy = true);
-    try {
-      await ref.read(eventsProvider.notifier).discover();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Event-zoekopdracht gestart — check straks de Events-tab')),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Kon de zoekopdracht niet starten: $e'),
-            backgroundColor: Theme.of(context).colorScheme.error,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      leading: const Icon(Icons.event),
-      title: const Text('Zoek nu naar nieuwe events'),
-      trailing: FilledButton.icon(
-        onPressed: _busy ? null : _start,
-        icon: _busy
-            ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-            : const Icon(Icons.play_arrow),
-        label: Text(_busy ? 'Bezig…' : 'Start'),
-      ),
-    );
-  }
-}
-
-/// KAN-66: handmatige trigger voor de wekelijkse video-zoekjob, apart van
-/// de event-job. Zelfde visuele patroon als [_EventDiscoveryTile].
-class _EventVideoDiscoveryTile extends ConsumerStatefulWidget {
-  const _EventVideoDiscoveryTile();
-
-  @override
-  ConsumerState<_EventVideoDiscoveryTile> createState() => _EventVideoDiscoveryTileState();
-}
-
-class _EventVideoDiscoveryTileState extends ConsumerState<_EventVideoDiscoveryTile> {
-  bool _busy = false;
-
-  Future<void> _start() async {
-    setState(() => _busy = true);
-    try {
-      await ref.read(eventsProvider.notifier).discoverVideos();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Video-zoekopdracht gestart — check straks de events')),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Kon de zoekopdracht niet starten: $e'),
-            backgroundColor: Theme.of(context).colorScheme.error,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      leading: const Icon(Icons.video_library_outlined),
-      title: const Text("Zoek nu naar event-video's"),
-      trailing: FilledButton.icon(
-        onPressed: _busy ? null : _start,
-        icon: _busy
-            ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-            : const Icon(Icons.play_arrow),
-        label: Text(_busy ? 'Bezig…' : 'Start'),
-      ),
-    );
   }
 }
 

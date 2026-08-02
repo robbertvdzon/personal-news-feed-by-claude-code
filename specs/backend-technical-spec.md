@@ -56,9 +56,8 @@ De backend gebruikt **Spring Modulith** voor het afdwingen van modulegescheiden 
 | `feed` | `com.vdzon.newsfeedbackend.feed` | Gecureerde feed-items beheren, feedback, cleanup |
 | `request` | `com.vdzon.newsfeedbackend.request` | Ad-hoc verzoeken en dagelijkse updates verwerken |
 | `podcast` | `com.vdzon.newsfeedbackend.podcast` | Podcast generatie (script + audio) |
-| `settings` | `com.vdzon.newsfeedbackend.settings` | Categorie-instellingen, RSS-feed URLs, event-voorkeuren en -denylist per gebruiker |
-| `events` | `com.vdzon.newsfeedbackend.events` | Tech-events ontdekken, video's en beheren (incl. verwijderen) |
-| `ai` | `com.vdzon.newsfeedbackend.ai` | Gedeelde OpenAI-client + prijsconfiguratie (gebruikt door rss, feed, request, podcast, events) |
+| `settings` | `com.vdzon.newsfeedbackend.settings` | Categorie-instellingen en RSS-feed URLs per gebruiker |
+| `ai` | `com.vdzon.newsfeedbackend.ai` | Gedeelde OpenAI-client + prijsconfiguratie (gebruikt door rss, feed, request, podcast) |
 | `storage` | `com.vdzon.newsfeedbackend.storage` | Gedeelde PostgreSQL/JDBC-opslag-utilities |
 | `websocket` | `com.vdzon.newsfeedbackend.websocket` | WebSocket handler voor request-statusupdates |
 | `admin` | `com.vdzon.newsfeedbackend.admin` | Gebruikersbeheer en AI-kostenoverzicht (admin-only endpoints) |
@@ -67,7 +66,7 @@ De backend gebruikt **Spring Modulith** voor het afdwingen van modulegescheiden 
 | `version` | `com.vdzon.newsfeedbackend.version` | Build-/versie-info endpoint |
 | `common` | `com.vdzon.newsfeedbackend.common` | Gedeelde helpers (security, exceptions, Jackson-config, SSRF-URL-validatie) |
 | `media` | `com.vdzon.newsfeedbackend.media` | Comprimeert podcast-audio (mono, lage bitrate MP3) zodat bestanden onder Whisper's 25 MB-limiet blijven |
-| `search` | `com.vdzon.newsfeedbackend.search` | Tavily-websearch-integratie voor ad-hoc/events-discovery |
+| `search` | `com.vdzon.newsfeedbackend.search` | Tavily-websearch-integratie voor ad-hoc nieuws-verzoeken |
 | `shared` | `com.vdzon.newsfeedbackend.shared` | Publieke, read-only gedeelde-feed-endpoints (`/api/shared/feed`, `/api/shared/categories`) voor de reader-app, zonder authenticatie |
 
 ### Moduleregels (Spring Modulith)
@@ -248,12 +247,6 @@ De daadwerkelijk geregistreerde meters (via `MeterRegistry`):
 | `newsfeed.podcast.translated` | Counter | `status` | Vertaalde RSS-podcasts |
 | `newsfeed.podcast.translate.duration` | Timer | — | Duur podcast-vertaalpipeline |
 | `newsfeed.requests.processed` | Counter | `type`, `status` | Verzoeken afgerond |
-| `newsfeed.events.discovered` | Counter | `username` | Events ontdekt |
-| `newsfeed.events.discovery.duration` | Timer | `username` | Duur event-discovery |
-| `newsfeed.event_videos.discovered` | Counter | `username` | Event-video's ontdekt |
-| `newsfeed.event_videos.discovery.duration` | Timer | `username` | Duur video-discovery |
-| `newsfeed.event_videos.summary.count` | Counter | `username`, `result` | Video-samenvattingen |
-| `newsfeed.event_videos.summary.duration` | Timer | `username`, `result` | Duur video-samenvatting |
 
 > AI-call-kosten en aantallen worden niet als aparte Micrometer-metric bijgehouden,
 > maar in de tabel `external_calls` (per-call kostenlog), opvraagbaar via de admin-costs-endpoints.
@@ -304,7 +297,6 @@ sluiten de e2e-suite uit (`**/e2e/**`). De suite in
 - `ai/AiJsonTest.kt` — JSON-hulpfuncties voor AI-responses
 - `ai/AiPricingPropertiesTest.kt` — OpenAI-prijsconfiguratie (`app.ai.pricing`)
 - `api/dto/ApiRequestDtoContractTest.kt` — contract van de request-DTO's
-- `events/infrastructure/VideoAudioDownloaderArgsTest.kt` — argumentopbouw voor `yt-dlp`
 - `podcast/domain/PodcastScriptParserTest.kt` — parser van INTERVIEWER/GAST-scripts
 - `common/SsrfUrlValidatorTest.kt` — scheme-afwijzing, elke geblokkeerde IP-range-categorie, geldige publieke URL, niet-resolvebare host (SF-1345)
 - `settings/domain/SettingsServiceImplSaveRssFeedsTest.kt` — `saveRssFeeds` wijst ongeldige/SSRF-risicovolle feed-URLs af vóór opslag (SF-1345)
@@ -324,7 +316,7 @@ opgenomen in de allowlist, zie §3).
 ### E2e-testsuite (`mvn verify`)
 Naast de unit-tests bestaat er een e2e-suite onder
 `src/test/kotlin/com/vdzon/newsfeedbackend/e2e/`, o.a. `RssRefreshE2eTest`,
-`SettingsE2eTest`, `EventsE2eTest`, `EventVideosE2eTest`, `AdminE2eTest`,
+`SettingsE2eTest`, `AdminE2eTest`,
 `AuthE2eTest`, `FeedE2eTest`, `PodcastGenerationE2eTest`,
 `PodcastIngestE2eTest`, `RequestsE2eTest` en `SharedFeedE2eTest`. Het gedeelde
 harnas (`E2eTestBase`/`E2eTestConfig`) start
