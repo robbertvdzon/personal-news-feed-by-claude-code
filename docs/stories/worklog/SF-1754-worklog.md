@@ -86,3 +86,46 @@ Niet-blokkerende observaties voor een volgende story:
 - `serveDefaultFeed()` is bewust gedupliceerd uit `RssRefreshE2eTest` (die versie is private
   en mocht niet gewijzigd worden). Bij een derde gebruiker is een gedeelde helper in
   `FakeContentServer`/`E2eTestBase` de betere plek.
+
+## Test (SF-1762)
+
+Geverifieerd op branch `ai/SF-1754` (diff t.o.v. `main` = 2 bestanden: `RssItemsE2eTest.kt`
++ deze worklog; geen productiecode).
+
+**Vangnet — `mvn -B clean verify` in `newsfeedbackend/newsfeedbackend`: exitcode 0, BUILD SUCCESS**
+(3:11 min). Surefire 94 tests, failsafe 61 tests over 10 e2e-klassen — 0 failures / 0 errors.
+`RssItemsE2eTest`: 9/9 groen, opgepikt door failsafe via `**/e2e/*E2eTest.*` (AC 13).
+Daarvóór apart gedraaid met `-Dit.test=RssItemsE2eTest`: eveneens 9/9 groen. Twee onafhankelijke
+runs, geen flakiness waargenomen.
+
+**AC-dekking nagelopen** in de testklasse: AC 1 (`read en unread markeren`), AC 2+3 (`ster togglen
+en feedback zetten`), AC 4+5 (`markAllRead ...`, verwacht `updated=2` bij 2 van 3 ongelezen — telt
+dus niet het totaal), AC 6 (`cleanup ...`, `removed=1`, de andere drie blijven), AC 7 (`item
+verwijderen ...`), AC 8+9 (`reselect promoveert ...`), AC 10 (`reselect zonder verdicts ...`),
+AC 11+12 (transcript 404 / 200). Geen afgezwakte asserties aangetroffen.
+
+**Preview-smoketest** (`https://pnf-pr-202.vdzonsoftware.nl`, wegwerp-account via de API):
+`GET /api/rss` 200 `[]`, `POST /api/rss/markAllRead` 200 `{"updated":0}`,
+`DELETE /api/rss/cleanup?olderThanDays=30&keepStarred=true&keepLiked=true&keepUnread=true`
+200 `{"removed":0}`, `POST /api/rss/reselect` 200 `{"status":"ok"}`,
+`GET /api/rss/{onbekend-uuid}/transcript` 404, `GET /api/feed` 200 `[]`,
+`GET /api/rss` zonder token 403. De lege-staat-contracten komen overeen met wat de
+acceptatiecriteria en de nieuwe tests vastleggen.
+
+**Observaties (niet blokkerend, niet in deze story te repareren):**
+- De openapi-drift rond `summary_source='show_notes'` bij `GET /api/rss/{id}/transcript` is door
+  de developer correct gemeld (AC 14) en niet weggemoffeld — bevestigd.
+- `PUT /api/rss/{onbekend-uuid}/read` geeft op preview 200 in plaats van 404. `specs/openapi.yaml`
+  documenteert bij dit endpoint alleen een 200 en geen 404, dus dit is geen spec-schending, maar
+  wél stil gedrag bij een niet-bestaand id. Buiten de scope van deze story; geen van de AC's raakt
+  dit pad.
+
+**Opruimen preview:** het wegwerp-account `tester_sf-1754` kon niet verwijderd worden. De
+`DELETE /api/account/me`-call gaf 403 (het JWT was ongeldig geworden, waarschijnlijk door een
+herstart van de backend-pod) en het wachtwoord was op dat moment al opgeruimd. Het account is leeg
+(geen feeds, items of instellingen; alleen lees-calls gedaan) en leeft in de per-PR Neon-branch
+`pr-202`, die bij PR-close automatisch wordt opgeruimd. De `TESTER_USERNAME`/`TESTER_PASSWORD`
+uit `newsfeed-api-keys` waren niet leesbaar (de `claude-agent`-SA mag geen secrets lezen in
+`pnf-pr-202`), vandaar de wegwerp-modus.
+
+**Geen browser-screenshots:** de story raakt uitsluitend backend-testcode, geen frontend.
