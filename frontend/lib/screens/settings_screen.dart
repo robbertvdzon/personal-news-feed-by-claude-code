@@ -29,6 +29,13 @@ class SettingsScreen extends ConsumerWidget {
       // Bottom-padding zodat de "Artikelen opruimen"-knop onderin niet
       // onder de Android nav-bar / iOS home-indicator verdwijnt.
       body: ListView(padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + bottomInset), children: [
+        Text('Weergave', style: Theme.of(context).textTheme.titleLarge),
+        SwitchListTile(
+          title: const Text('Grote tekst'),
+          value: appearance.largeFont,
+          onChanged: (v) => ref.read(appearanceProvider.notifier).setLarge(v),
+        ),
+        const Divider(),
         Text('Over deze app', style: Theme.of(context).textTheme.titleLarge),
         const _VersionBlock(),
         const Divider(),
@@ -120,13 +127,6 @@ class SettingsScreen extends ConsumerWidget {
             ),
           ),
         ],
-        const Divider(),
-        Text('Weergave', style: Theme.of(context).textTheme.titleLarge),
-        SwitchListTile(
-          title: const Text('Grote tekst'),
-          value: appearance.largeFont,
-          onChanged: (v) => ref.read(appearanceProvider.notifier).setLarge(v),
-        ),
       ]),
     );
   }
