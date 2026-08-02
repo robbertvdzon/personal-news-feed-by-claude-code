@@ -66,3 +66,23 @@ pikt 'm op via `**/e2e/*E2eTest.*` (AC 13).
   de scope van deze test-story valt — spec aanpassen óf het filter toevoegen is een PO-keuze.
 - Voor het overige gedroeg de app zich exact zoals de acceptatiecriteria beschrijven; geen
   enkele assertie is afgezwakt.
+
+## Review (SF-1761)
+
+Akkoord. Volledige story-diff t.o.v. `main` bestaat uit precies twee bestanden
+(`RssItemsE2eTest.kt` + deze worklog); geen productiecode, geen wijziging aan bestaande
+e2e-klassen, fakes of harnas. AC 1-12 zijn één-op-één terug te vinden in de 9 tests en de
+asserties kloppen met `RssServiceImpl.markAllRead/cleanup` en `RssRefreshPipeline.reselect`.
+Testbewijs geverifieerd in `target/failsafe-reports`: 10 e2e-klassen, 61 tests, 0 failures /
+0 errors; `RssItemsE2eTest` 9/9 groen (AC 13). De openapi-drift rond `summary_source` is
+correct gemeld en niet weggemoffeld (AC 14).
+
+Niet-blokkerende observaties voor een volgende story:
+- `awaitRefreshDone` wacht op requeststatus `DONE`, die in `RssRefreshPipeline.run()` wordt
+  weggeschreven vlak vóór `lock.unlock()` in de `finally`. Theoretisch kan een reselect die
+  in dat (sub-milliseconde) venster binnenkomt alsnog op `tryLock` afketsen en stil niets
+  doen; de test faalt dan pas op de 30s-timeout. Praktisch verwaarloosbaar t.o.v. de
+  HTTP-roundtrip, maar het is de eerste plek om te kijken bij toekomstige flakiness.
+- `serveDefaultFeed()` is bewust gedupliceerd uit `RssRefreshE2eTest` (die versie is private
+  en mocht niet gewijzigd worden). Bij een derde gebruiker is een gedeelde helper in
+  `FakeContentServer`/`E2eTestBase` de betere plek.
