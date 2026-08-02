@@ -45,3 +45,27 @@ Done / rationale:
     `flutter analyze` = 7 issues, allemaal pre-existing `info` in ws_client.dart,
     feed_screen.dart, podcast_detail_screen.dart, rss_detail_screen.dart en
     rss_screen.dart — niets in `settings_screen.dart`. Geen pubspec.lock-drift.
+- SF-1770 (story-brede test, tester, 2026-08-02): akkoord, geen bugs gevonden.
+  - Frontend-checks lokaal: `flutter test` in frontend/ = 22 tests groen (exit 0),
+    incl. de 4 settings_screen-positie/divider-tests; `flutter analyze` = dezelfde
+    7 pre-existing infos in andere bestanden, geen nieuwe warnings.
+  - Live geverifieerd op preview `https://pnf-pr-203.vdzonsoftware.nl` met Playwright
+    (420x900). Login-modus: **wegwerp-account** (`tester_sf-1768b`), omdat
+    `oc get secret newsfeed-api-keys -n pnf-pr-203` Forbidden is voor de
+    claude-agent-SA en TESTER_USERNAME/TESTER_PASSWORD niet gezet zijn. Account na
+    afloop verwijderd via `DELETE /api/account/me` (200).
+  - "Over deze app" toonde buildhash `0ef1a8d` voor frontend én backend = branch-HEAD,
+    dus de preview draaide de geteste revisie.
+  - Gemeten sectieposities in de live UI (top van scherm): Weergave y=72 →
+    Over deze app y=164 → Account y=314 → Categorieën y=454 → RSS feeds y=562 →
+    Achtergrond-taken y=670 → Opruimen y=826 → Debug y=918. Weergave is dus de
+    eerste sectie; onderlinge volgorde van de rest ongewijzigd. Na doorscrollen
+    eindigt de lijst op Debug (niet-admin), geen restant van de Weergave-sectie
+    onderaan en geen losse/dubbele divider.
+  - "Grote tekst"-schakelaar functioneel: aanzetten vergroot zichtbaar alle teksten
+    (sectie-afstanden lopen van y=164/314/454 naar y=176/365/518), uitzetten herstelt
+    de oorspronkelijke weergave. Admin-only Beheer-variant is niet live te testen met
+    een wegwerp-account en is gedekt door de widgettests.
+  - Screenshots in `/work/screenshots`: 004-settings-top, 005-grote-tekst-aan,
+    006-settings-bottom, 007-settings-top-scrolled-back, 008-grote-tekst-uit.
+  - Geen code/tests/infra gewijzigd door de tester; alleen dit worklog.
