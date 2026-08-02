@@ -77,3 +77,32 @@ Review (SF-1755, reviewer):
   OpenAiChatHttpClient of PodcastEpisodeRepository; findReadyForTranscript-KDoc is zelfstandig
   leesbaar.
 - Akkoord: geen blockers, geen bugs.
+
+Test (SF-1756, tester):
+- Statische verificatie: repo-brede grep op timed/TimedContext/completeJson/responseFormat/
+  userExists/findOneReadyForTranscript/countForFeed/deleteForFeed levert buiten .task.md en
+  docs/stories/ geen enkele treffer meer op in code, specs/, docs/ of yaml.
+- `mvn clean compile` in newsfeedbackend/newsfeedbackend: BUILD SUCCESS, exitcode 0, 0 warnings.
+- `mvn test`: BUILD SUCCESS, exitcode 0, 94 tests, 0 failures / 0 errors. De WARNING-regels in
+  het log komen uit de test-compile ('asText() is deprecated' in SharedFeedE2eTest) en zijn
+  pre-existing. De volledige `mvn verify` (e2e) draait de harness revisiegebonden na deze run.
+- Preview pnf-pr-201 (https://pnf-pr-201.vdzonsoftware.nl), /api/version = sha 993df53 (= HEAD
+  van deze branch). Backend/frontend/reader-pods Running.
+- Inlogmodus: **fallback wegwerp-account** `tester_sf-1753`. De vaste test-user-creds waren niet
+  beschikbaar: TESTER_USERNAME/TESTER_PASSWORD zijn niet gezet en
+  `oc get secret newsfeed-api-keys -n pnf-pr-201` is Forbidden voor de claude-agent-SA. Account
+  aan het eind verwijderd via DELETE /api/account/me (200, deleted=true; herlogin daarna 401).
+- Auth-gedrag (raakt AuthService, waar userExists is verwijderd): registratie via de Flutter-UI OK,
+  UI-login OK, dubbele registratie -> 409 "Username already in use", PUT /api/account/password met
+  juist wachtwoord -> 200 en daarna login oud wachtwoord 401 / nieuw wachtwoord 200,
+  DELETE /api/account/me -> 200. Geen enkele regressie door het wegvallen van userExists.
+- Podcast-/AI-pad (raakt OpenAiChatHttpClient.doComplete zonder responseFormat en
+  ExternalCallLogger.log): podcast-feed (The Vergecast) toegevoegd -> 200, ingestion draaide door,
+  6 afleveringen met echte Nederlandse AI-samenvattingen + categorie-classificatie + feed-selectie
+  in de RSS- en Feed-tab. Bewijs dat de OpenAI-chatclient na het schrappen van completeJson/
+  responseFormat normaal werkt. Feed daarna weer verwijderd -> 200.
+- RSS-instellingen: PUT/GET /api/rss-feeds OK; SSRF-validatie nog intact
+  (http://127.0.0.1/feed -> 400 met NL-melding).
+- UI-smoke met screenshots in /work/screenshots: login, Feed-, RSS-, Podcast- en
+  Instellingen-tab renderen normaal, geen foutmeldingen.
+- Geen bugs gevonden; geen code, tests of infra gewijzigd.
