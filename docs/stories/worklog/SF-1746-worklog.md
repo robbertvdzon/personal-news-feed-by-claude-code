@@ -158,3 +158,36 @@ het zijn verslagen van wat destijds is gebeurd, geen actuele documentatie.
 `mvn -B clean verify` in `newsfeedbackend/newsfeedbackend` → **BUILD SUCCESS**,
 52 e2e-tests, 0 failures / 0 errors (totale tijd 03:10). `flutter test` in
 `frontend/` → **20 tests groen**, exitcode 0. Geen `pubspec.lock`-drift.
+
+## Review-ronde 2 (SF-1747, reviewer) — akkoord
+
+Volledige story-diff (`git diff main...HEAD`, 63 bestanden, 3 commits) opnieuw
+integraal nagelopen. De twee `[bug]`-bevindingen uit ronde 1 zijn verholpen:
+`grep -rn "yt-dlp\|python3\|VideoAudioDownloader\|YouTubeTranscriptClient"` over
+`README.md`, `runbook.md`, `specs/`, `docs/factory/`,
+`docs/onboarding-senior-developer.md` en `e2e/` geeft nul actuele treffers
+(resterende `python3`-hits zitten in `deploy/preview-ns-labeller` en een
+e2e-scenario-shellscript — die staan los van de events-feature).
+
+Opnieuw geverifieerd in deze ronde:
+
+- **Compile-veiligheid**: geen enkele `.kt`/`.dart`-verwijzing meer naar
+  `ACTION_EVENT_*`, `EventPreferences`, `EventDenylist*`, `EventService`,
+  `EventRepository`, `VideoAudioDownloader` of `YouTubeTranscriptClient`.
+  Alle resterende `event`-hits zijn Spring-application-events
+  (`UserRegisteredEvent`, `RssRefreshRequested`, `PodcastTranscriptRequested`, …)
+  of het Nederlandse woord "eventueel".
+- **OpenAPI**: geen dangling `$ref` (31 gerefereerde schema's = 31 gedefinieerde
+  schema's), geen `event`-paths, geen tag `Events`, top-level structuur intact.
+- **Flyway**: `V16__drop_events.sql` volgt het naampatroon, is een nieuw bestand,
+  raakt V11–V14 niet aan, dropt FK-veilig (`event_videos` vóór `events`) met
+  `IF EXISTS` en laat `external_calls`/`feed_items` ongemoeid (AC 6).
+- **Behoud**: `search/TavilyClient.kt`, `app.tavily.*`, `PNF_TAVILY_API_KEY`,
+  `ACTION_TAVILY_SEARCH/EXTRACT` en `ffmpeg` in de Dockerfile staan er nog.
+- **Frontend**: bottom navigation is 4 tabs; nieuwe widgettest pint dat vast.
+  Geen event-restanten in `models.dart`, `data_providers.dart`,
+  `settings_screen.dart`, `main.dart`, `deep_link.dart` of `frontend-reader/`.
+- **Testbewijs**: `mvn -B clean verify` BUILD SUCCESS (52 e2e, 0 failures/errors)
+  en `flutter test` 20 groen, gedraaid door de developer op deze revisie.
+
+Geen blockers, geen openstaande bevindingen.
