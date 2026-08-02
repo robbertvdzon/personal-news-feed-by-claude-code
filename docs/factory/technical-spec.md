@@ -31,8 +31,7 @@ Elke module is een top-level package onder `com.vdzon.newsfeedbackend`. Modules 
 | `feed` | `…feed` | Gecureerde feed-items |
 | `request` | `…request` | Ad-hoc verzoeken en dagelijkse updates |
 | `podcast` | `…podcast` | Podcastgeneratie (script + audio) |
-| `settings` | `…settings` | Gebruikersinstellingen, denylist, event-voorkeuren |
-| `events` | `…events` | Tech-events ontdekken en beheren |
+| `settings` | `…settings` | Gebruikersinstellingen (categorieën, feed-lijsten) |
 | `ai` | `…ai` | Gedeelde OpenAI-client + prijsconfiguratie |
 
 > Belangrijkste modules; de volledige lijst (o.a. `admin`, `external_call`, `podcast_source`, `storage`, `websocket`, `version`, `common`) staat in `specs/backend-technical-spec.md` §3.
@@ -61,13 +60,6 @@ module/
 - PostgreSQL via Neon; lokaal verbinding via `PNF_DATABASE_URL`.
 - Flyway-migraties: `newsfeedbackend/newsfeedbackend/src/main/resources/db/migration/V*.sql`.
 - Podcast-audio staat als BYTEA in de `podcasts`-tabel (niet op filesystem).
-
-## Events & denylist (PNF-2)
-
-- `event_denylist`-tabel (V14-migratie): per-user soft-delete van events.
-- `EventDiscoveryPipeline` laadt de denylist bij elke run en slaat events op de denylist over (geen Tavily/OpenAI-calls).
-- `DELETE /api/events/{id}`: verwijdert het event + bijbehorende FeedItem, voegt event-ID toe aan `event_denylist`.
-- Frontend: prullenbak-icoon in `EventDetailScreen` — na verwijderen navigeert de app terug naar de lijst.
 
 ## Codeconventies
 

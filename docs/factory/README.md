@@ -16,7 +16,7 @@ Een zelf-gehoste persoonlijke nieuwsfeed met AI-curation, podcastgeneratie en mu
 ## Eerste leeslijst voor agents
 
 1. `docs/factory/technical-spec.md` — Spring Modulith-moduleregels, lagenstructuur, Maven-root
-2. `docs/factory/functional-spec.md` — gedrag van de app inclusief events en denylist
+2. `docs/factory/functional-spec.md` — gedrag van de app
 3. `docs/factory/development.md` — build- en testcommando's
 4. `specs/backend-technical-spec.md` — uitgebreide backend-architectuur (gezaghebbend)
 5. `specs/openapi.yaml` — API-contract (source of truth)

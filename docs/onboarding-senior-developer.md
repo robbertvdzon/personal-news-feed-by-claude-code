@@ -6,12 +6,11 @@ Aanvullende documenten: [runbook.md](../runbook.md) (operatie, deployment, secre
 
 ## 1. Wat is dit systeem
 
-Een zelf-gehoste, persoonlijke nieuwslezer met AI-curatie voor meerdere gebruikers. De backend (Kotlin, Spring Boot 4, Maven) doet vier dingen:
+Een zelf-gehoste, persoonlijke nieuwslezer met AI-curatie voor meerdere gebruikers. De backend (Kotlin, Spring Boot 4, Maven) doet drie dingen:
 
 1. **RSS-curatie** — haalt periodiek de RSS-feeds van de gebruiker op, laat AI elk artikel samenvatten en categoriseren, laat AI selecteren wat interessant genoeg is, en genereert voor geselecteerde artikelen een uitgebreid Nederlands feed-item.
 2. **Podcast-ingestion** — volgt podcast-feeds, maakt van nieuwe afleveringen eerst snel een kaartje op basis van de show-notes en verrijkt dat later asynchroon met een Whisper-transcript.
-3. **Event-discovery** — zoekt wekelijks (Tavily-websearch + AI-extractie) naar tech-conferenties die passen bij de voorkeuren van de gebruiker, inclusief video's en samenvattingen daarvan.
-4. **Adhoc-verzoeken & podcastgeneratie** — de gebruiker kan losse nieuwsverzoeken doen en er kan een eigen AI-podcast ("DevTalk") gegenereerd worden met TTS-stemmen.
+3. **Adhoc-verzoeken & podcastgeneratie** — de gebruiker kan losse nieuwsverzoeken doen en er kan een eigen AI-podcast ("DevTalk") gegenereerd worden met TTS-stemmen.
 
 Alle data is **per gebruiker** gescheiden (username is overal de partitiesleutel). Twee Flutter-frontends praten met deze backend via REST + WebSocket; het API-contract staat in `specs/openapi.yaml`.
 
@@ -26,13 +25,12 @@ De code is één deploybare Spring Boot-app, intern opgedeeld in **feature-modul
 | `feed` | de gecureerde persoonlijke feed (feed-items, gelezen/ster/cleanup) |
 | `podcast_source` | ingestion van podcast-feeds (twee-fasen: show-notes → transcript) |
 | `podcast` | generatie van de eigen AI-podcast + vertaling |
-| `events` | wekelijkse event-discovery, event-video's en samenvattingen |
 | `request` | (adhoc) nieuwsverzoeken en hun statusadministratie |
-| `settings` | gebruikersvoorkeuren: categorieën, feed-lijsten, event-voorkeuren/denylist |
+| `settings` | gebruikersvoorkeuren: categorieën en feed-lijsten |
 | `admin` | gebruikersbeheer en AI-kosten-dashboards (alleen rol `admin`) |
 | `shared` | publieke read-only feed voor de reader-app (geen auth) |
 | `ai` | OpenAI-clients (chat, Whisper), model-config, prijsberekening, `AiJson` |
-| `search` | Tavily-websearch-client |
+| `search` | Tavily-websearch-client (adhoc nieuwsverzoeken) |
 | `media` | ffmpeg-audiotranscoding |
 | `external_call` | audit-log van álle externe calls (kosten, duur, status) |
 | `websocket`, `storage`, `common`, `version` | live statusupdates, JDBC-jsonb-helpers, gedeelde exceptions/config, versie-endpoint |
@@ -50,7 +48,7 @@ De code is één deploybare Spring Boot-app, intern opgedeeld in **feature-modul
 - **Modulith i.p.v. microservices**: één persoon, één deploy, maar wél afdwingbare grenzen. Het geeft 90% van de ontwerpdiscipline zonder de operationele kosten.
 - **JDBC i.p.v. JPA**: repositories schrijven expliciete SQL (`NamedParameterJdbcTemplate`, jsonb-helpers in `storage/`). Geen lazy-loading-verrassingen, migraties via Flyway zijn de enige bron van schemawaarheid.
 - **`@Service`/`@Component` op domain-classes**: bewust pragmatisch. Puristische clean architecture houdt Spring uit het domein; hier is dat losgelaten omdat de e2e-teststrategie (hele app starten) het isolatievoordeel al levert. Niet "opschonen".
-- **DTO's in de `api/`-laag**: controllers geven DTO's terug (`feed/api/dto/FeedItemDto`, `rss/api/dto/RssItemDto`, `shared/api/dto/SharedFeedItemDto` + `toDto()`-mappers), niet de domeinmodellen zelf. Het JSON-contract leeft dus in de DTO (daar horen ook de `@JsonProperty`-annotaties); het domeinmodel kan vrij evolueren. Dit patroon is doorgevoerd voor feed/rss/shared — de contract-zware endpoints; de overige modules (settings, requests, admin, events) geven hun modellen nog direct terug en volgen dit patroon zodra ze worden aangeraakt. Kleine request-bodies (bv. `FeedbackBody`) zijn al DTO's.
+- **DTO's in de `api/`-laag**: controllers geven DTO's terug (`feed/api/dto/FeedItemDto`, `rss/api/dto/RssItemDto`, `shared/api/dto/SharedFeedItemDto` + `toDto()`-mappers), niet de domeinmodellen zelf. Het JSON-contract leeft dus in de DTO (daar horen ook de `@JsonProperty`-annotaties); het domeinmodel kan vrij evolueren. Dit patroon is doorgevoerd voor feed/rss/shared — de contract-zware endpoints; de overige modules (settings, requests, admin) geven hun modellen nog direct terug en volgen dit patroon zodra ze worden aangeraakt. Kleine request-bodies (bv. `FeedbackBody`) zijn al DTO's.
 - **Eén injecteerbare `Clock`** (`common/ClockConfig`): tijd-afhankelijke logica (cleanup-cutoffs) gebruikt `Instant.now(clock)` zodat tests tijd kunnen bevriezen. Volg dat patroon bij nieuwe tijd-logica.
 - **`external_call` logt álle externe calls** (AI, TTS, Tavily, RSS-fetches) met kosten in USD naar de `external_calls`-tabel. Nieuwe externe integraties horen óók via `ExternalCallLogger` te loggen — het admin-kostendashboard leunt erop.
 
@@ -70,10 +68,6 @@ De status is voor de gebruiker zichtbaar via de request-administratie (`hourly-u
 ### Podcast-ingestion (`podcast_source/domain/…`) — twee fasen
 
 Fase 1 (`PodcastShowNotesProcessor`, direct bij ontdekking): nieuwe afleveringen (top-7-window van de feed, GUID-dedup) krijgen binnen seconden een kaartje in de RSS-tab op basis van de show-notes (`summary_source='show_notes'`). Fase 2 (`PodcastTranscriptPipeline` → `PodcastTranscriptProcessor`, event-driven op `PodcastTranscriptRequested`, max één episode tegelijk): MP3 downloaden, zo nodig comprimeren (`media/AudioTranscoder`, Whisper-limiet 25 MiB), Whisper-transcript, rijkere hersamenvatting, daarna feed-promotie via het `PodcastPromotionRequested`-event. Whisper-rate-limits → backoff 5m/15m/45m/24h; de uurlijkse `PodcastRecoveryScheduler` is het vangnet voor gemiste events en verlopen backoffs (er is geen poll meer — dat blokkeerde Neon-scale-to-zero). Na 24h zonder transcript wordt alsnog op show-notes gepromoveerd. De statusmachine staat in `PodcastEpisodeStatus` en is leidend — respecteer haar in elke wijziging.
-
-### Event-discovery (`events/domain/…`)
-
-Wekelijkse cron (zondag). `EventDiscoveryPipeline` orkestreert: `EventExtractor` (drie strategieën: seed-namen van de gebruiker, "vergelijkbare events", per-categorie) → `EventDateEnricher` (datums valideren/bijzoeken) → `EventPersister` (dedup op genormaliseerd id, denylist-filter, upsert) → `EventFeedAnnouncer` (feed-item "nieuw event gevonden"). Een event verwijderen zet het op de per-user **denylist** zodat discovery het niet opnieuw aanbiedt.
 
 ### Wat het kost
 

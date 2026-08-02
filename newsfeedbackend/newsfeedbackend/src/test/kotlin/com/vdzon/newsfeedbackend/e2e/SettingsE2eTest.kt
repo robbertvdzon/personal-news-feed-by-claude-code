@@ -1,23 +1,15 @@
 package com.vdzon.newsfeedbackend.e2e
 
-import com.vdzon.newsfeedbackend.settings.SettingsService
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
-import org.springframework.beans.factory.annotation.Autowired
 
 /**
- * Settings-endpoints via HTTP: categorieën, RSS-feed-URL's en de
- * KAN-68 event-voorkeuren/-denylist. Alle data is per-user, dus elke
- * test registreert z'n eigen user. Voor de denylist is er geen publiek
- * "toevoegen"-endpoint (dat doet de event-module intern); daar seeden
- * we via de publieke module-API [SettingsService].
+ * Settings-endpoints via HTTP: categorieën en RSS-feed-URL's. Alle data
+ * is per-user, dus elke test registreert z'n eigen user.
  */
 class SettingsE2eTest : E2eTestBase() {
-
-    @Autowired
-    private lateinit var settingsService: SettingsService
 
     // ── categorieën ─────────────────────────────────────────────────
 
@@ -103,128 +95,11 @@ class SettingsE2eTest : E2eTestBase() {
         assertEquals(listOf("https://example.com/feed.xml", "https://example.org/rss"), feeds)
     }
 
-    // ── event-voorkeuren (KAN-68) ───────────────────────────────────
-
-    @Test
-    fun `eerste GET event-preferences initialiseert de default-lijst`() {
-        val user = registerUser("settings")
-
-        val names = getJson("/api/settings/event-preferences", user.token).path("names").values().map { it.asText() }
-        assertEquals(
-            listOf(
-                "JavaOne", "KotlinConf", "Spring I/O", "Code with Claude",
-                "OpenAI DevDay", "Google I/O", "Devoxx", "KubeCon"
-            ),
-            names
-        )
-    }
-
-    @Test
-    fun `PUT event-preferences vervangt de lijst en schoont trim, lege en duplicaat-namen op`() {
-        val user = registerUser("settings")
-
-        val saved = put(
-            "/api/settings/event-preferences", user.token,
-            """{"names": ["  MijnConf  ", "", "AndereConf", "MijnConf"]}"""
-        )
-        assertEquals(200, saved.status)
-        assertEquals(listOf("MijnConf", "AndereConf"), saved.json(mapper).path("names").values().map { it.asText() })
-
-        // Teruglezen geeft dezelfde (vervangen) lijst — geen defaults meer.
-        val names = getJson("/api/settings/event-preferences", user.token).path("names").values().map { it.asText() }
-        assertEquals(listOf("MijnConf", "AndereConf"), names)
-    }
-
-    @Test
-    fun `POST event-preference voegt idempotent toe`() {
-        val user = registerUser("settings")
-        // Eerst GET zodat de default-lijst geinitialiseerd is.
-        val defaults = getJson("/api/settings/event-preferences", user.token).path("names").values().map { it.asText() }
-
-        val added = post(
-            "/api/settings/event-preferences", user.token,
-            """{"name": "MijnConf"}"""
-        )
-        assertEquals(200, added.status)
-        assertEquals(defaults + "MijnConf", added.json(mapper).path("names").values().map { it.asText() })
-
-        // Nogmaals dezelfde naam: lijst blijft onveranderd.
-        val again = post(
-            "/api/settings/event-preferences", user.token,
-            """{"name": "MijnConf"}"""
-        )
-        assertEquals(200, again.status)
-        assertEquals(defaults + "MijnConf", again.json(mapper).path("names").values().map { it.asText() })
-    }
-
-    @Test
-    fun `POST event-preference met lege naam geeft 400`() {
-        val user = registerUser("settings")
-
-        val resp = post(
-            "/api/settings/event-preferences", user.token,
-            """{"name": "   "}"""
-        )
-        assertEquals(400, resp.status)
-        assertTrue(resp.json(mapper).path("error").asText().isNotBlank())
-    }
-
-    @Test
-    fun `POST remove verwijdert een event-voorkeur, ook namen met een slash`() {
-        val user = registerUser("settings")
-        getJson("/api/settings/event-preferences", user.token) // defaults initialiseren
-
-        // "Spring I/O" bevat een slash — dáárom is remove een POST met body.
-        val resp = post(
-            "/api/settings/event-preferences/remove", user.token,
-            """{"name": "Spring I/O"}"""
-        )
-        assertEquals(200, resp.status)
-        val names = resp.json(mapper).path("names").values().map { it.asText() }
-        assertFalse("Spring I/O" in names)
-        assertTrue("KotlinConf" in names)
-
-        // Lege naam ook hier een 400.
-        assertEquals(
-            400,
-            post("/api/settings/event-preferences/remove", user.token, """{"name": ""}""").status
-        )
-    }
-
-    // ── event-denylist (KAN-68) ─────────────────────────────────────
-
-    @Test
-    fun `event-denylist tonen en entry verwijderen via DELETE`() {
-        val user = registerUser("settings")
-
-        // Fresh user: lege denylist.
-        assertEquals(0, getJson("/api/settings/event-denylist", user.token).path("entries").size())
-
-        // Toevoegen gebeurt normaal door de event-module bij het verwijderen
-        // van een event; er is bewust geen publiek POST-endpoint. Seed via
-        // de publieke module-API.
-        assertTrue(settingsService.addEventToDenylist(user.username, "javaone-2026", "JavaOne 2026"))
-
-        val entries = getJson("/api/settings/event-denylist", user.token).path("entries")
-        assertEquals(1, entries.size())
-        assertEquals("javaone-2026", entries[0].path("normalizedId").asText())
-        assertEquals("JavaOne 2026", entries[0].path("name").asText())
-        assertTrue(entries[0].path("addedAt").asText().isNotBlank())
-
-        // DELETE haalt 'm er weer af en returnt de actuele (lege) lijst.
-        val deleted = delete("/api/settings/event-denylist/javaone-2026", user.token)
-        assertEquals(200, deleted.status)
-        assertEquals(0, deleted.json(mapper).path("entries").size())
-        assertEquals(0, getJson("/api/settings/event-denylist", user.token).path("entries").size())
-    }
-
     @Test
     fun `settings-endpoints weigeren zonder token`() {
         for (path in listOf(
             "/api/settings",
-            "/api/rss-feeds",
-            "/api/settings/event-preferences",
-            "/api/settings/event-denylist"
+            "/api/rss-feeds"
         )) {
             val resp = get(path)
             assertTrue(resp.status in listOf(401, 403), "$path: verwachtte 401/403, kreeg ${resp.status}")

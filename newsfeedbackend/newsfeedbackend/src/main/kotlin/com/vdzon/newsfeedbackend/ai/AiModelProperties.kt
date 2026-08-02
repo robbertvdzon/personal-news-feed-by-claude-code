@@ -52,9 +52,7 @@ class AiModelProperties {
          * `application.properties` (app.ai.models.*).
          */
         private val FALLBACKS = mapOf(
-            "daily_summary" to "gpt-5.4",
-            "event_video_summarize" to "gpt-5.4",
-            "event_discovery_date" to "gpt-5.4-nano"
+            "daily_summary" to "gpt-5.4"
         )
     }
 }

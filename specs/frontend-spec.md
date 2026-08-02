@@ -53,9 +53,7 @@ AuthGate
     │       └── dialog → NieuwePodcastDialog
     │       └── navigeer naar → PodcastDetailScreen
     │               └── bottom sheet → ScriptSheet
-    ├── Tab 3: EventsScreen                  (KAN-65)
-    │       └── navigeer naar → EventDetailScreen
-    └── Tab 4: SettingsScreen
+    └── Tab 3: SettingsScreen
             └── navigeer naar → CategoriesScreen        (SF-754)
             │       └── dialog → EditCategoryDialog
             │       └── dialog → AddCategoryDialog
@@ -269,20 +267,7 @@ Zolang een of meer podcasts de status `PENDING`, `DETERMINING_TOPICS`, `GENERATI
 
 ---
 
-## 8b. Events-tab (Tab 3) — KAN-65
-
-Toont de per-gebruiker AI-ontdekte tech-events uit `eventsProvider` (`GET /api/events`).
-
-- **Lijst**: gesplitst in twee secties, **"Aankomend"** (begindatum vandaag of later, oplopend gesorteerd) en **"Geweest"** (aflopend gesorteerd). Events zonder begindatum tellen als aankomend. Elke kaart toont naam, datum-range (Nederlands geformatteerd), locatie, organisatie en een categorie-chip.
-- **Toolbar**: een zoekknop (`Icons.travel_explore`) die `POST /api/events/discover` triggert (mirror van de RSS-refresh; toont een toast), en een herlaad-knop.
-- **EventDetailScreen**: naam, datum/locatie/organisatie als chips, de Nederlandse beschrijving (onderwerpen) als selecteerbare tekst, en de bronlinks als aantikbare tegels (openen extern via `url_launcher`). Een verwijder-knop verwijdert het event en keert terug naar de lijst.
-- **Video's** (KAN-66): boven de bronlinks staat een lijst kaarten met de per event ontdekte video's. Elke kaart heeft een trailing "open in browser"-icoon dat de externe video opent via `url_launcher`.
-- **Video-samenvatting** (KAN-67): elke video-kaart toont onderaan een knop "Maak samenvatting" wanneer er nog geen Nederlandse samenvatting voor die video bestaat. Indrukken stuurt `POST /api/events/{id}/videos/summarize` met de `videoUrl`; tijdens de call laat de kaart een mini-spinner zien met de tekst "Samenvatting wordt gemaakt…" en is de knop disabled. Bij succes verschijnt de samenvatting in een gehighlight tekstblok en verdwijnt de knop. Bij HTTP 502 (geen transcript verkrijgbaar) toont een snackbar de melding "Samenvatting kon niet worden gemaakt — probeer het later opnieuw."; de knop blijft staan zodat de gebruiker het opnieuw kan proberen.
-- De handmatige zoek-trigger zit óók in Settings onder *Achtergrond-taken* (zie §9).
-
----
-
-## 9. Settings-tab (Tab 4)
+## 9. Settings-tab (Tab 3)
 
 ### Account (SF-1046)
 Sectiekop boven het account-blok heet sinds SF-1046 weer **"Account"**; tussen SF-987 en SF-1046 was dit tijdelijk "Account Settings" (letterlijk Engels overgenomen, ook al is de rest van de pagina Nederlandstalig).

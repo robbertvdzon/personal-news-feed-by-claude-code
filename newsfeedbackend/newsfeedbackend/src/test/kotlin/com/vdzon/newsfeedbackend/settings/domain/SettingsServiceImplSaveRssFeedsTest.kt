@@ -3,8 +3,6 @@ package com.vdzon.newsfeedbackend.settings.domain
 import com.vdzon.newsfeedbackend.common.BadRequestException
 import com.vdzon.newsfeedbackend.settings.RssFeedsSettings
 import com.vdzon.newsfeedbackend.settings.infrastructure.CategorySettingsRepository
-import com.vdzon.newsfeedbackend.settings.infrastructure.EventDenylistRepository
-import com.vdzon.newsfeedbackend.settings.infrastructure.EventPreferencesRepository
 import com.vdzon.newsfeedbackend.settings.infrastructure.PodcastFeedsRepository
 import com.vdzon.newsfeedbackend.settings.infrastructure.RssFeedsRepository
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -29,9 +27,7 @@ class SettingsServiceImplSaveRssFeedsTest {
         service = SettingsServiceImpl(
             categoryRepo = mock(CategorySettingsRepository::class.java),
             rssFeedsRepo = rssFeedsRepo,
-            podcastFeedsRepo = mock(PodcastFeedsRepository::class.java),
-            eventPreferencesRepo = mock(EventPreferencesRepository::class.java),
-            eventDenylistRepo = mock(EventDenylistRepository::class.java)
+            podcastFeedsRepo = mock(PodcastFeedsRepository::class.java)
         )
     }
 
