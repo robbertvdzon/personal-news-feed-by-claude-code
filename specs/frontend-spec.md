@@ -569,7 +569,7 @@ De Android-app moet bruikbaar blijven als internet wegvalt of de backend (tijdel
 
 De meeste schrijfacties (PUT/POST/DELETE) cachen niet expliciet — ze updaten de in-memory state optimistisch en falen stil bij offline. Bij volgende online refresh komt de juiste server-state weer binnen.
 
-Uitzondering zijn de twee feed-bron-editors uit §9a: `rssFeedsProvider.save` en `podcastFeedsProvider.save` schrijven de nieuwe lijst na een geslaagde PUT ook zelf naar de cache (`rss-feeds` resp. `podcast-feeds`) en muteren de state **pas daarna**. Ze zijn dus niet optimistisch en falen niet stil: gaat de PUT mis, dan blijven state én cache ongewijzigd en propageert de `ApiException` naar het scherm, dat er een rode snackbar van maakt (SF-1552).
+Uitzondering zijn de drie lijst-editors: `rssFeedsProvider.save` en `podcastFeedsProvider.save` uit §9a (SF-1552) en `settingsProvider.save` uit §9b (SF-1851). Ze schrijven de nieuwe lijst na een geslaagde PUT ook zelf naar de cache (`rss-feeds`, `podcast-feeds` resp. `settings`) en muteren de state **pas daarna**. Ze zijn dus niet optimistisch en falen niet stil: gaat de PUT mis, dan blijven state én cache ongewijzigd en propageert de `ApiException` naar het scherm, dat er een rode snackbar van maakt.
 
 ### Cache-leven
 - Wordt gewist bij `AuthNotifier.logout()` via `LocalCache.clearAll()` zodat een volgende user geen residue ziet.

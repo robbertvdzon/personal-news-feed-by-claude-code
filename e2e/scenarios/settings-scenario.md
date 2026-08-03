@@ -15,8 +15,9 @@ De Instellingen-tab doorlopen voor wat daadwerkelijk in de UI zit: categorieën 
 - Verwacht (van boven naar beneden) de secties: **Over deze app** (frontend-/backend-versie), **Account** (gebruikersnaam, "Uitloggen", "Wachtwoord wijzigen"), **Weergave** ("Grote tekst"-switch), **Categorieën**, **RSS-feeds**, **Achtergrond-taken**, **Opruimen**, **Debug** (API-log), en alleen voor admins **Beheer**.
 
 ### 2. Categorieën beheren
-- Scroll naar de sectie **"Categorieën"**.
+- Scroll naar de sectie **"Categorieën"** en tik op de tegel **"Categorieën"** (subtitel "Categorieën in-/uitschakelen en beheren") → subpagina `CategoriesScreen` (AppBar **"Categorieën"**).
 - Verwacht: een aan/uit-switch per categorie (AI, Startups, Overig). De systeem-categorie **"Overig"** toont subtitel **"Systeem"** en heeft **geen** bewerk-icoon; AI en Startups hebben rechts een **potlood-icoon** (`edit`).
+- Elke mutatie (schakelaar, toevoegen, bewerken, verwijderen) gaat via PUT `/api/settings`: tijdens het opslaan zijn de schakelaars, potlood-iconen en de "Categorie toevoegen"-tegel kort **uitgeschakeld** en de lijst verandert **pas ná** een geslaagd antwoord. Weigert de server (of is de backend onbereikbaar), dan blijft de lijst ongewijzigd — het schakelaartje springt dus niet om, een verwijderde categorie blijft staan — en verschijnt een **rode snackbar** met een Nederlandse foutmelding (SF-1851, zelfde gedrag als de RSS-feeds-editor in 3a).
 
 #### 2a. Categorie toevoegen
 - Klik **"Categorie toevoegen"** (`add`-icoon, onderaan de lijst).
@@ -64,7 +65,7 @@ De Instellingen-tab doorlopen voor wat daadwerkelijk in de UI zit: categorieën 
 
 ## Verwacht resultaat
 
-- Een categorie toevoegen, bewerken (incl. extra instructies) en verwijderen werkt en is direct zichtbaar; "Overig" blijft een niet-bewerkbare systeem-categorie.
+- Een categorie toevoegen, bewerken (incl. extra instructies) en verwijderen werkt en is direct zichtbaar zodra de server de PUT accepteert; bij een serverfout blijft de lijst ongewijzigd en verschijnt een rode snackbar. "Overig" blijft een niet-bewerkbare systeem-categorie.
 - De RSS-feeds-editor voegt feed-URL's toe en verwijdert ze, en valideert URL's serverseitig (geldige → toegevoegd; ongeldige → rode snackbar met Nederlandse foutmelding, URL niet toegevoegd, invoerveld behoudt de tekst); de podcast-bronnen-editor gedraagt zich identiek.
 - De vier Achtergrond-taken-knoppen starten hun job met de juiste snackbar/spinner-feedback.
 
