@@ -11,6 +11,20 @@ class ApiException implements Exception {
   String toString() => 'ApiException($statusCode) $url: $body';
 }
 
+/// SF-1552/SF-1851: gedeelde message-extractie voor foutbodies van de backend.
+/// `GlobalExceptionHandler` (backend `common/Exceptions.kt`) serialiseert
+/// elke fout naar `{"error": "..."}` — we pakken dat veld eruit en vallen
+/// terug op de rauwe body (of [emptyFallback] bij een lege body).
+String extractDutchMessage(String body, {required String emptyFallback}) {
+  final raw = body.trim();
+  if (raw.startsWith('{')) {
+    // Heel simpele extractie — geen JSON-parser nodig.
+    final match = RegExp('"error"\\s*:\\s*"([^"]+)"').firstMatch(raw);
+    if (match != null) return match.group(1) ?? raw;
+  }
+  return raw.isEmpty ? emptyFallback : raw;
+}
+
 class ApiClient {
   static const String baseUrl = String.fromEnvironment(
     'API_BASE_URL',

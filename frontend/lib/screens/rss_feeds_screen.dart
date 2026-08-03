@@ -109,7 +109,7 @@ class _RssFeedsEditorState extends ConsumerState<_RssFeedsEditor> {
       // Backend stuurt bij een ongeldige URL HTTP 400 met een
       // Nederlandse foutmelding in de body — die tonen we direct.
       final msg = e is ApiException && e.statusCode == 400
-          ? _extractDutchMessage(e.body,
+          ? extractDutchMessage(e.body,
               emptyFallback: validateFailureMessage ?? 'Kon feed niet opslaan')
           : (validateFailureMessage ?? 'Fout bij opslaan: $e');
       ScaffoldMessenger.of(context).showSnackBar(
@@ -122,20 +122,6 @@ class _RssFeedsEditorState extends ConsumerState<_RssFeedsEditor> {
       if (mounted) setState(() => _busy = false);
     }
   }
-}
-
-/// SF-1552: gedeelde message-extractie voor beide editors op dit scherm.
-/// `GlobalExceptionHandler` (backend `common/Exceptions.kt`) serialiseert
-/// elke fout naar `{"error": "..."}` — we pakken dat veld eruit en vallen
-/// terug op de rauwe body (of [emptyFallback] bij een lege body).
-String _extractDutchMessage(String body, {required String emptyFallback}) {
-  final raw = body.trim();
-  if (raw.startsWith('{')) {
-    // Heel simpele extractie — geen JSON-parser nodig.
-    final match = RegExp('"error"\\s*:\\s*"([^"]+)"').firstMatch(raw);
-    if (match != null) return match.group(1) ?? raw;
-  }
-  return raw.isEmpty ? emptyFallback : raw;
 }
 
 /// KAN-56: tegenhanger van [_RssFeedsEditor] voor podcast-RSS-bronnen.
@@ -239,7 +225,7 @@ class _PodcastFeedsEditorState extends ConsumerState<_PodcastFeedsEditor> {
       // Backend stuurt bij een ongeldige URL HTTP 400 met een
       // Nederlandse foutmelding in de body — die tonen we direct.
       final msg = e is ApiException && e.statusCode == 400
-          ? _extractDutchMessage(e.body,
+          ? extractDutchMessage(e.body,
               emptyFallback: validateFailureMessage ?? 'Kon feed niet ophalen')
           : (validateFailureMessage ?? 'Fout bij opslaan: $e');
       ScaffoldMessenger.of(context).showSnackBar(
