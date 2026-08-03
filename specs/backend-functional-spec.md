@@ -460,10 +460,10 @@ Gewone HTTP GET-requests naar door de gebruiker geconfigureerde RSS-feed URLs.
 - Publicatiedatums worden geparsed in diverse formaten
 - Artikelen ouder dan 4 dagen worden gefilterd
 
-**SSRF-hardening (SF-1345):** elke feed-URL wordt gevalideerd voordat er een
-server-side fetch naartoe gaat — alleen `http`/`https` toegestaan, en de host
-mag niet resolven naar een loopback-, link-local-, private- (RFC1918/ULA) of
-multicast-adres. Dit gebeurt op twee plekken:
+**SSRF-hardening (SF-1345, SF-1843):** elke URL waar de server zelf naartoe
+fetcht wordt gevalideerd — alleen `http`/`https` toegestaan, en de host mag
+niet resolven naar een loopback-, link-local-, private- (RFC1918/ULA) of
+multicast-adres. Dit gebeurt in de RSS-tak op drie plekken:
 - **Bij opslaan** (`PUT /api/rss-feeds`, in `SettingsServiceImpl.saveRssFeeds`):
   bij afwijzing → HTTP 400 met een Nederlandse foutmelding, niets wordt
   opgeslagen.
@@ -472,12 +472,21 @@ multicast-adres. Dit gebeurt op twee plekken:
   was maar inmiddels naar een privé-adres resolvet). Bij afwijzing wordt er
   geen HTTP-request verstuurd; de fetch wordt behandeld als een gewone
   fetch-fout (`status="error"`, lege itemlijst, gelogd via `logFetch`).
+- **Vlak vóór elke artikel-fetch** (`ArticleFetcher.fetchPlainText()`, SF-1843):
+  de artikel-URL komt uit de feed-inhoud zelf (tweede-orde-URL) en is dus nooit
+  door de gebruiker ingetypt of bij opslaan gevalideerd. Ook hier een verse
+  DNS-resolutie op dat moment. Bij afwijzing wordt er geen HTTP-request
+  verstuurd, levert de fetch `null` op (`status="error"`, `units=0`, gelogd via
+  `logFetch` met een `errorMessage` die "geblokkeerd" bevat) en valt
+  `FeedItemGenerator` terug op `rss.snippet` — precies zoals bij een gewone
+  mislukte artikel-fetch. Er gaat geen fout richting API; de RSS-refresh
+  loopt door.
 
 `PodcastFeedFetcher` (podcast-RSS-bronnen, §6.4) is sinds SF-1387 op dezelfde
 manier gehard. Ook wordt SSRF-via-redirect (een server die pas ná validatie
 via een 3xx naar een privé-adres doorstuurt) niet tegengehouden — bekend
-restrisico, `HttpClient.Redirect.ALWAYS` is ongewijzigd (geldt voor zowel
-`RssFetcher` als `PodcastFeedFetcher`).
+restrisico, `HttpClient.Redirect.ALWAYS` is ongewijzigd (geldt voor
+`RssFetcher`, `ArticleFetcher` en `PodcastFeedFetcher`).
 
 ---
 
@@ -516,6 +525,7 @@ Alle configuratie via `application.properties` of omgevingsvariabelen.
 
 - **RSS-verwerking:** Als de AI-aanroep mislukt voor één artikel, wordt dat artikel overgeslagen; verwerking gaat door.
 - **RSS SSRF-afwijzing (SF-1345):** wijst de defense-in-depth-check in `RssFetcher.fetch()` een feed-URL af (zie §7.5), dan wordt die feed als `status="error"` gelogd en levert de fetch een lege itemlijst op — geen exception richting de caller/scheduler.
+- **Artikel-URL SSRF-afwijzing (SF-1843):** wijst de check in `ArticleFetcher.fetchPlainText()` de artikel-URL uit een feed-item af (zie §7.5), dan wordt er geen HTTP-request gedaan, wordt één externe call gelogd (`status="error"`, `units=0`, `errorMessage` bevat "geblokkeerd") en levert de fetch `null` op. `FeedItemGenerator` valt dan terug op het feed-fragment (`rss.snippet`) — identiek aan het bestaande gedrag bij een mislukte artikel-fetch; geen exception, de RSS-refresh loopt door.
 - **Podcast-feed SSRF-afwijzing (SF-1387):** wijst de defense-in-depth-check in `PodcastFeedFetcher.fetch()` een feed-URL af (zie §6.4), dan wordt de externe call als `status="error"` gelogd en levert de fetch `FetchResult(ok=false, errorMessage bevat "geblokkeerd")` op — geen HTTP-request, geen exception richting de caller.
 - **Podcast:** Bij een fout in een van de stappen wordt de podcast gemarkeerd als `FAILED`. Ook als de TTS-fase geen audio oplevert (alle segmenten faalden of het script bevatte geen INTERVIEWER/GAST-regels) wordt de podcast `FAILED`, niet `DONE`.
 - **Ad-hoc verzoek:** Bij een fatale fout wordt het verzoek gemarkeerd als `FAILED`.

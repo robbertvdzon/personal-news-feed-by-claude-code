@@ -294,6 +294,7 @@ sluiten de e2e-suite uit (`**/e2e/**`). De suite in
 
 - `rss/RssFetcherImageUrlTest.kt` — extractie van de afbeeldings-URL uit RSS
 - `rss/RssFetcherSsrfTest.kt` — SSRF-defense-in-depth-check vlak vóór `http.send(...)` in `RssFetcher.fetch()` (SF-1345)
+- `rss/ArticleFetcherSsrfTest.kt` — SSRF-check op de artikel-URL uit een feed-item vlak vóór `http.send(...)` in `ArticleFetcher.fetchPlainText()`; loopback, RFC1918, niet-http-scheme en het link-local metadata-endpoint leveren `null` op met één `ExternalCall` (`status="error"`, `units=0`) (SF-1843)
 - `ai/AiJsonTest.kt` — JSON-hulpfuncties voor AI-responses
 - `ai/AiPricingPropertiesTest.kt` — OpenAI-prijsconfiguratie (`app.ai.pricing`)
 - `api/dto/ApiRequestDtoContractTest.kt` — contract van de request-DTO's
