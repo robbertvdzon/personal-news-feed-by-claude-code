@@ -173,8 +173,13 @@ class SettingsNotifier extends AsyncNotifier<List<CategorySettings>> {
     return list.map((e) => CategorySettings.fromJson(e as Map<String, dynamic>)).toList();
   }
 
+  /// SF-1851: slaat de lijst op zonder eerst de state te muteren — faalt de
+  /// PUT (backend onbereikbaar, verlopen token, HTTP 400), dan blijven zowel
+  /// de UI-state als de lokale cache ongewijzigd en propageert de
+  /// [ApiException] naar de caller (categories_screen.CategoriesScreen), die
+  /// er een snackbar van maakt. Gelijk aan [RssFeedsNotifier.save] en
+  /// [PodcastFeedsNotifier.save].
   Future<void> save(List<CategorySettings> categories) async {
-    state = AsyncData(categories);
     final list = await _api.put('/api/settings', categories.map((c) => c.toJson()).toList()) as List<dynamic>;
     await LocalCache.saveList(_user, 'settings', list);
     state = AsyncData(list.map((e) => CategorySettings.fromJson(e as Map<String, dynamic>)).toList());

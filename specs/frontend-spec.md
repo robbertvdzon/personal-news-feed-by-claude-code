@@ -383,20 +383,22 @@ Lijst van podcast-RSS-bronnen uit `GET /api/podcast-feeds` (`podcastFeedsProvide
 
 ## 9b. Categorieën-subpagina (CategoriesScreen, SF-754)
 
-Aparte subpagina (`frontend/lib/screens/categories_screen.dart`) met een eigen `AppBar` (titel "Categorieën"), bereikbaar via de navigatie-tile in de Settings-tab (§9). Bevat de volledige categorieënlijst uit `GET /api/settings` (`settingsProvider`), met de gebruikelijke loading-spinner en error-tekst "Fout: …". De lijst, dialogen en hun gedrag zijn ongewijzigd t.o.v. de oude inline-sectie op de Settings-tab; alleen de plaatsing verandert. Puur frontend-herstructurering — geen backend-, API- of providerwijzigingen.
+Aparte subpagina (`frontend/lib/screens/categories_screen.dart`) met een eigen `AppBar` (titel "Categorieën"), bereikbaar via de navigatie-tile in de Settings-tab (§9). Bevat de volledige categorieënlijst uit `GET /api/settings` (`settingsProvider`), met de gebruikelijke loading-spinner en error-tekst "Fout: …".
+
+Alle vier de mutaties (schakelaar, toevoegen, bewerken/opslaan, verwijderen) lopen via één gedeelde opslag-route met hetzelfde faalcontract als de RSS-feeds-editor (§9a, SF-1851): de lijst muteert **pas ná een geslaagde** PUT `/api/settings`, tijdens het opslaan is de bediening (schakelaars, bewerk-icoon en de "Categorie toevoegen"-tile) uitgeschakeld, en weigert de server (of is de backend onbereikbaar), dan blijft de lijst — en de lokale cache — ongewijzigd en verschijnt een **rode snackbar** met de Nederlandse foutmelding uit het `error`-veld van de responsbody (bij een andere fout een generieke melding "Fout bij opslaan: …").
 
 **Per categorie** (`SwitchListTile`):
-- **Schakelaar (enabled/disabled):** opslaan via `settingsProvider.notifier.save(...)` (PUT `/api/settings` met bijgewerkte lijst)
+- **Schakelaar (enabled/disabled):** opslaan via `settingsProvider.notifier.save(...)` (PUT `/api/settings` met bijgewerkte lijst); het schakelaartje verspringt pas nadat de PUT geslaagd is.
 - **Bewerk-icoon (potlood):** opent EditCategoryDialog
   - Naam wijzigen
   - Extra AI-instructies wijzigen
-  - Opslaan via `settingsProvider.notifier.save(...)`
-  - Verwijderen (knop): categorie verwijderd en opgeslagen
+  - Opslaan via `settingsProvider.notifier.save(...)`; bij een fout blijven de oude naam/instructies in de lijst staan
+  - Verwijderen (knop): categorie verwijderd en opgeslagen; bij een fout blijft de categorie in de lijst staan
 - **Systeemcategorieën** (`isSystem: true`) tonen de subtitel "Systeem" en hebben geen bewerk-/verwijderoptie.
 
 **Categorie toevoegen:** `ListTile` "Categorie toevoegen" opent AddCategoryDialog
 - Naam invoeren
-- Opslaan via `settingsProvider.notifier.save(...)` met nieuwe categorie toegevoegd (ID gegenereerd op basis van naam)
+- Opslaan via `settingsProvider.notifier.save(...)` met nieuwe categorie toegevoegd (ID gegenereerd op basis van naam); bij een fout verschijnt de categorie niet in de lijst
 
 ---
 
@@ -567,7 +569,7 @@ De Android-app moet bruikbaar blijven als internet wegvalt of de backend (tijdel
 
 De meeste schrijfacties (PUT/POST/DELETE) cachen niet expliciet — ze updaten de in-memory state optimistisch en falen stil bij offline. Bij volgende online refresh komt de juiste server-state weer binnen.
 
-Uitzondering zijn de twee feed-bron-editors uit §9a: `rssFeedsProvider.save` en `podcastFeedsProvider.save` schrijven de nieuwe lijst na een geslaagde PUT ook zelf naar de cache (`rss-feeds` resp. `podcast-feeds`) en muteren de state **pas daarna**. Ze zijn dus niet optimistisch en falen niet stil: gaat de PUT mis, dan blijven state én cache ongewijzigd en propageert de `ApiException` naar het scherm, dat er een rode snackbar van maakt (SF-1552).
+Uitzondering zijn de drie lijst-editors: `rssFeedsProvider.save` en `podcastFeedsProvider.save` uit §9a (SF-1552) en `settingsProvider.save` uit §9b (SF-1851). Ze schrijven de nieuwe lijst na een geslaagde PUT ook zelf naar de cache (`rss-feeds`, `podcast-feeds` resp. `settings`) en muteren de state **pas daarna**. Ze zijn dus niet optimistisch en falen niet stil: gaat de PUT mis, dan blijven state én cache ongewijzigd en propageert de `ApiException` naar het scherm, dat er een rode snackbar van maakt.
 
 ### Cache-leven
 - Wordt gewist bij `AuthNotifier.logout()` via `LocalCache.clearAll()` zodat een volgende user geen residue ziet.
