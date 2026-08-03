@@ -64,3 +64,46 @@ Volledige story-diff t.o.v. `main` gereviewd (5 bestanden). Akkoord.
   `PodcastAudioDownloader` (enclosure-URL) ongevalideerd blijft. De zin erna scopet het naar
   de RSS-tak, dus niet blokkerend — meenemen in de vervolgstory voor
   `PodcastAudioDownloader`.
+
+## Test (SF-1845)
+
+Story-brede test uitgevoerd op branch `ai/SF-1843` + preview `pnf-pr-204`
+(`/api/version` → sha `d692827`, dus de story-code draait echt in de preview).
+
+Uitgevoerd:
+- **Unit-suite lokaal**: `mvn -B -o test` → BUILD SUCCESS, 98 tests, 0 failures /
+  0 errors. Daarin de nieuwe `ArticleFetcherSsrfTest` (4 cases: loopback,
+  RFC1918, `file://`, link-local metadata) groen.
+- **E2e-suite (failsafe) niet lokaal gedraaid**: in de tester-container is geen
+  Docker beschikbaar, dus Testcontainers-Postgres kan niet starten. De volledige
+  `mvn -B clean verify` (AC 9/12) loopt via de harness ná deze run.
+- **Preview, backend-API (throwaway-user `tester_sf-1843`, aangemaakt en aan het
+  eind via `DELETE /api/account/me` verwijderd — de vaste test-user-creds waren
+  niet leesbaar: de `claude-agent`-SA mag `secret/newsfeed-api-keys` in
+  `pnf-pr-204` niet lezen)**:
+  - `PUT /api/rss-feeds` met `http://127.0.0.1:8080/feed.xml` → 400 "resolvet naar
+    een niet-toegestaan adres (loopback: 127.0.0.1)".
+  - `PUT /api/rss-feeds` met `http://169.254.169.254/latest/meta-data/` → 400
+    (link-local). Save-time-validatie dus ongewijzigd.
+  - Publieke feed (`https://hnrss.org/frontpage`) → 200, `POST /api/rss/refresh`
+    → request `DONE` met `newItemCount=20`, `GET /api/rss` → 20 items met
+    AI-samenvattingen die duidelijk verder gaan dan de feed-`snippet` (bijv.
+    "Meshdiff … volledig client-side" vs. snippet "Article URL: … Points: 188").
+    Het happy path van `ArticleFetcher.fetchPlainText` (AC 6) werkt dus
+    onveranderd in de preview.
+- **Preview, Flutter-UI**: ingelogd via de UI (Flutter-semantics-tree), feed-scherm
+  toont de 20 items met samenvattingen; geen zichtbare wijziging t.o.v. verwachting.
+  Screenshots in `/work/screenshots`: `01-login.png`, `01-login-ingevuld.png`,
+  `02-na-login.png`.
+- **Code-check op de ACs**: validatie is het eerste statement in de `try`-tak, het
+  `HttpRequest` wordt pas in de `else`-tak opgebouwd (AC 1/2); de afwijzing komt als
+  `null`-waarde uit de expressie zodat `.also { logFetch(...) }` precies één
+  `ExternalCall` logt met `status="error"`, `units=0`, `subject=url.take(120)` en
+  `errorMessage="geblokkeerd: …"` (AC 3); WARN-log met URL + reden (AC 4).
+
+Niet getest (bewuste beperking): een feed die zélf een artikel-URL naar een intern
+adres serveert, is in de preview niet na te bootsen zonder een publiek gehoste
+kwaadaardige feed. Dat pad is gedekt door `ArticleFetcherSsrfTest` +
+code-inspectie.
+
+Geen bugs gevonden; geen code- of testwijzigingen gedaan.
