@@ -74,3 +74,27 @@ Niet gedaan (bewust buiten scope): `newsfeedbackend/`
 (`SettingsServiceImpl.saveCategories` blijft ongewijzigd), `specs/openapi.yaml`,
 `frontend-reader/`, het RSS-/podcastgedrag zelf en de overige optimistische
 notifiers in `data_providers.dart` (`setFeedback`, item-`delete`).
+
+## SF-1851 — review (2026-08-03)
+
+Akkoord. Gecontroleerd op de volledige story-diff (`git diff main...HEAD`):
+
+- Alle zes de story-punten zijn afgedekt; geen scope-creep (alleen frontend +
+  de twee docs-bestanden), `frontend/pubspec.lock` niet gedirtied.
+- `extractDutchMessage` is byte-identiek verplaatst; alle drie de callers
+  (RSS-editor, podcast-editor, categorieën) wijzen naar de nieuwe locatie en
+  er is geen `_extractDutchMessage`-restant meer in de repo.
+- `SettingsNotifier.save` heeft geen enkele andere caller dan
+  `categories_screen.dart:73`, dus het weghalen van de optimistische update
+  raakt geen ander scherm.
+- Eigen verificatie in deze review-run: `flutter test` 25 groen,
+  `flutter analyze` 7 issues — allemaal pre-existing (ws_client, feed_screen,
+  podcast_detail_screen, rss_detail_screen, rss_screen), geen enkele in een
+  gewijzigd bestand.
+
+Openstaande, niet-blokkerende observatie:
+- [suggestie] `_addCategory`/`_editCategory` roepen `_save` (en daarmee
+  `setState`) aan direct na `await showDialog(...)` zonder `mounted`-check.
+  Wordt het scherm verlaten terwijl de dialoog openstaat, dan kan `setState`
+  op een unmounted `State` vallen. Zeldzaam pad; het faalcontract zelf is
+  correct.
