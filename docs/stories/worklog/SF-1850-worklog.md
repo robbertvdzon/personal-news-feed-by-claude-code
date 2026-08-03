@@ -98,3 +98,55 @@ Openstaande, niet-blokkerende observatie:
   Wordt het scherm verlaten terwijl de dialoog openstaat, dan kan `setState`
   op een unmounted `State` vallen. Zeldzaam pad; het faalcontract zelf is
   correct.
+
+## SF-1852 — story-brede test (2026-08-03)
+
+Akkoord. Getest op preview `https://pnf-pr-205.vdzonsoftware.nl`
+(namespace `pnf-pr-205`, frontend/backend buildhash `ac4dc2c` — de
+reviewer-commit `f4c3662` raakt alleen dit worklog, dus de preview draait
+alle codewijzigingen van de story).
+
+**Inlogmodus:** wegwerp-account `tester_sf-1850` (register via
+`POST /api/auth/register` → 201, login via de Flutter-UI, opgeruimd met
+`DELETE /api/account/me` → 200). `TESTER_USERNAME`/`TESTER_PASSWORD` waren
+niet gezet en het namespace-secret is voor de agent-SA niet leesbaar.
+
+**Geautomatiseerde tests (zelf gedraaid):**
+- `flutter test` in `frontend/`: 25/25 groen, exitcode 0 (incl. de drie
+  nieuwe categorie-tests). Tweemaal gedraaid, beide keren groen.
+- `flutter analyze`: 7 info-meldingen, allemaal pre-existing in bestanden
+  buiten de diff; 0 in `categories_screen.dart`, `data_providers.dart`,
+  `api_client.dart`, `rss_feeds_screen.dart`.
+- Backend niet geraakt door de diff; het volledige `mvn clean verify`-vangnet
+  draait de harness ná deze run.
+- Geen drift in de working tree (`git status` schoon, `pubspec.lock`
+  ongewijzigd na `flutter pub get`).
+
+**Preview/E2E (Playwright, 420×900, screenshots in `/work/screenshots`):**
+- *A — happy path*: schakelaar "Kotlin" uit → PUT `/api/settings` 200, UI
+  volgt, `GET /api/settings` toont `kotlin:false`. (`012`)
+- *B — schakelaar met server-400*: PUT onderschept en beantwoord met
+  `{"error":"Categorieen konden niet worden opgeslagen (testfout)"}` →
+  rode snackbar met exact die Nederlandse tekst (géén rauwe JSON), de
+  schakelaar blijft in de oude stand staan en de backendwaarde is
+  ongewijzigd. Dit is precies het gedrag dat vóór deze story ontbrak. (`013`)
+- *E — busy-state*: PUT 6s vertraagd → tijdens het opslaan zijn alle
+  schakelaars en potlood-iconen zichtbaar uitgegrijsd/uitgeschakeld, de
+  aangeklikte schakelaar staat nog in de oude stand, en klikken op
+  "Categorie toevoegen" en op een andere schakelaar doet niets (slechts één
+  PUT in het hele venster). Na afronding zijn de knoppen weer actief en
+  springt alleen de bedoelde schakelaar om. (`052`–`055`)
+
+**Niet via de UI te bereiken (geen bevinding tegen deze story):** de
+bewerk-/verwijderdialoog gaat op de preview niet open — een klik of touch-tap
+op het potlood-icoon wordt door de `SwitchListTile` zelf opgevangen en
+toggelt de categorie (`021`, `031`, `041`; de PUT die dan afgaat, gedraagt
+zich wel volgens het nieuwe faalcontract). Dit is pre-existing gedrag van
+`secondary: IconButton` in de bestaande tegel, niet door deze story
+geïntroduceerd. De faalpaden voor verwijderen en toevoegen zijn wél gedekt
+door de nieuwe widget-tests in `frontend/test/categories_screen_test.dart`
+(400 bij verwijderen laat de categorie staan + toont de servertekst).
+
+**Cosmetische observatie (niet blokkerend):** de tegel "Categorie toevoegen"
+oogt tijdens het opslaan niet uitgegrijsd (de tekst blijft donker), terwijl
+`onTap` wél `null` is en de tegel dus niets doet. Functioneel conform de AC.
