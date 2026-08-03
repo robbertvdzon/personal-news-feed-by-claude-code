@@ -44,3 +44,23 @@ Verificatie: `mvn -B clean verify` in `newsfeedbackend/newsfeedbackend` → exit
 98 unit-tests + 61 e2e-tests, 0 failures / 0 errors (~3 min). Geen enkele compile-warning
 op `src/main`; de ~40 `asText() is deprecated`-warnings in de e2e-tests zijn pre-existing
 en niet door deze story geraakt.
+
+## Review (SF-1844)
+
+Volledige story-diff t.o.v. `main` gereviewd (5 bestanden). Akkoord.
+- AC 1-11 nagelopen tegen de code: validatie is het eerste statement in de `try`-tak, de
+  afwijzing komt als `null`-waarde uit de `if/else` zodat `.also { logFetch(...) }` blijft
+  lopen (precies één `ExternalCall`, `status="error"`, `units=0`, `subject=url.take(120)`),
+  WARN-log met URL + reden, happy path ongewijzigd. Patroon identiek aan
+  `RssFetcher.kt:29` / `PodcastFeedFetcher.kt:40`. Geen module-grensschending
+  (`common.SsrfUrlValidator` is bewust root-level en wordt al door `rss` gebruikt).
+- Gerichte eigen check: `mvn -B -o test -Dtest=ArticleFetcherSsrfTest` → BUILD SUCCESS,
+  4/4 groen, alle vier cases geblokkeerd zonder netwerkcall (loopback, RFC1918, `file://`,
+  link-local metadata). Volledige `clean verify` niet herdraaid (harness-geverifieerd).
+- Geen scope-creep: alleen de vier bedoelde bestanden + worklog, geen openapi/Flyway/
+  frontend/lockfile-wijzigingen.
+- [suggestie] `specs/backend-functional-spec.md` §7.5 opent nu met "elke URL waar de server
+  zelf naartoe fetcht wordt gevalideerd"; dat is breder dan waar is zolang
+  `PodcastAudioDownloader` (enclosure-URL) ongevalideerd blijft. De zin erna scopet het naar
+  de RSS-tak, dus niet blokkerend — meenemen in de vervolgstory voor
+  `PodcastAudioDownloader`.
