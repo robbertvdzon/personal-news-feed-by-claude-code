@@ -64,3 +64,44 @@ Onafhankelijk geverifieerd met een wegwerp-SnakeYAML-check op `specs/openapi.yam
 Alle acceptatiecriteria 1 t/m 8 gehaald. Geen blockers of bugs gevonden.
 [info] `FeedItem.url` mist nog `nullable: true` — bewust buiten scope, kandidaat voor
 een vervolgstory.
+
+## Test (SF-1886)
+
+Story-diff: 3 bestanden (`specs/openapi.yaml`, `specs/backend-functional-spec.md`, worklog);
+0 regels Kotlin/Dart → geen frontend-surface, dus geen browser-screenshots (frontend-reader
+draait bovendien niet in de preview-overlay).
+
+Statische contractcontrole (`specs/openapi.yaml` geparsed met js-yaml):
+- `SharedFeedItem`: 17 properties, exact in de volgorde van `SharedFeedItemDto.kt:19-44`;
+  geen `isRead`/`starred`/`liked`, geen `required`-lijst. (AC1)
+- Veld-voor-veld tegen `FeedItem` (description genegeerd): enige afwijking is `url`
+  met `nullable: true` — de afgesproken aanname. (AC2)
+- `GET /api/shared/feed` 200 → array van `SharedFeedItem`; in dat pad-blok komt geen
+  `FeedItem`-`$ref` meer voor. `GET /api/feed` gebruikt nog steeds `FeedItem`. (AC3, AC5)
+- `FeedItem`-schema is byte-identiek aan `main` (geparsed vergeleken); enige toegevoegde
+  schemanaam t.o.v. main is `SharedFeedItem`, enige gewijzigde path is `/api/shared/feed`. (AC5, AC7)
+- Description bevat "Geen authenticatie vereist" + de reden waarom de drie vlaggen
+  ontbreken; de ongelezen/niet-gesterd-zin is weg. (AC4)
+- Parse OK, geen dangling `$ref`, geen dubbele schemanaam. (AC6)
+
+Live gedragscontrole op preview `https://pnf-pr-207.vdzonsoftware.nl`:
+- `GET /api/shared/feed` (zonder token) → 200, 460 items. Union van alle voorkomende
+  JSON-keys = exact de 17 gedocumenteerde velden: niets extra, niets ontbrekend, en géén
+  `isRead`/`starred`/`liked`. Het gedocumenteerde contract klopt dus met de werkelijke respons.
+- Nullability live bevestigd: `url` en `imageUrl` komen als `null` voor (onderbouwt
+  `nullable: true` voor `url`); `mediaType` bevat alleen `ARTICLE`/`PODCAST` (enum klopt);
+  `isSummary` boolean, `createdAt` string.
+- `GET /api/feed` zonder token → 403, `GET /api/shared/categories` → 200: shared-endpoints
+  blijven publiek, privé-feed blijft afgeschermd.
+- `app.shared-feed.username` met default `robbert` bevestigd in `SharedFeedController.kt:28`
+  → de nieuwe rij in `backend-functional-spec.md` §8 klopt.
+- `frontend-reader/lib/models.dart` bevat geen `isRead`/`starred`/`liked` → reader-app
+  is niet afhankelijk van de weggelaten velden.
+
+Vangnet (`.factory/verification.yaml`): `mvn -B --no-transfer-progress clean verify` in
+`newsfeedbackend/newsfeedbackend` → **BUILD SUCCESS, exitcode 0**, 102 unit-tests +
+61 e2e-tests, 0 failures / 0 errors. `SharedFeedE2eTest` 4/4 groen; `AdminE2eTest` (bekende
+Testcontainers-flake) 10/10 groen. Geen flakes waargenomen.
+
+Alle acceptatiecriteria 1 t/m 8 gehaald. Geen bugs of blockers. Working tree is verder
+onaangeraakt (geen testdata aangemaakt, geen lockfile-drift).
