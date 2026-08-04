@@ -266,16 +266,25 @@ Variaties:
 
 **Validatie bij toevoegen:** `PUT /api/podcast-feeds` toetst nieuwe URLs synchroon door één feed-fetch te doen. Faalt die binnen ~10s → HTTP 400 met Nederlandse foutmelding ("Kon feed niet ophalen: ..."). Bestaande URLs (en blanco URLs) worden niet hertoetst. Sinds SF-1683 zit die validatie — samen met opslaan en het triggeren van de ingestion, in die volgorde — achter de publieke `PodcastFeedsService` van de module `podcast_source` (implementatie in `podcast_source/domain/`); `PodcastFeedsController` delegeert er alleen naartoe. Gedrag en responsvorm zijn ongewijzigd.
 
-**SSRF-hardening (SF-1387):** analoog aan de RSS-feeds (§7.5) wordt elke
-podcast-feed-URL gevalideerd via `SsrfUrlValidator` — alleen `http`/`https`
+**SSRF-hardening (SF-1387, SF-1877):** analoog aan de RSS-feeds (§7.5) wordt elke
+URL waar de server in de podcast-tak zelf naartoe fetcht gevalideerd via
+`SsrfUrlValidator` — alleen `http`/`https`
 toegestaan, en de host mag niet resolven naar een loopback-, link-local-,
-private- (RFC1918/ULA) of multicast-adres. Op twee plekken:
+private- (RFC1918/ULA) of multicast-adres. Op drie plekken:
 - **Bij opslaan** (`PUT /api/podcast-feeds`, in `SettingsServiceImpl.savePodcastFeeds`):
   bij afwijzing → HTTP 400 met een Nederlandse foutmelding, niets wordt opgeslagen.
 - **Vlak vóór elke fetch** (`PodcastFeedFetcher.fetch()`), met een verse
   DNS-resolutie op dat moment (dekt DNS-rebinding af). Bij afwijzing wordt
   er geen HTTP-request verstuurd; de fetch levert `FetchResult(ok=false)` op
   met een `errorMessage` die "geblokkeerd" bevat, gelogd als `status="error"`.
+- **Vlak vóór elke audio-/enclosure-fetch** (`PodcastAudioDownloader.download()`,
+  SF-1877): de audio-URL komt uit de feed-inhoud zelf (tweede-orde-URL) en is
+  dus nooit bij opslaan gevalideerd. Ook hier een verse DNS-resolutie op dat
+  moment. Bij afwijzing wordt er geen HTTP-request verstuurd, wordt de temp-file
+  opgeruimd en levert `download()` `null` op; er wordt één externe call gelogd
+  (`action=podcast_audio_download`, `status="error"`, `units=0`, `errorMessage`
+  bevat "geblokkeerd"). `PodcastTranscriptProcessor` volgt dan het bestaande
+  "audio-download faalde"-pad (status `SHOW_NOTES_DONE`) — geen nieuw foutpad.
 
 Hiermee is de eerdere uitzondering uit §7.5 ("Buiten scope: `PodcastFeedFetcher`
 heeft deze validatie nog niet") vervallen — beide feed-fetchers zijn nu gelijk
@@ -483,10 +492,11 @@ multicast-adres. Dit gebeurt in de RSS-tak op drie plekken:
   loopt door.
 
 `PodcastFeedFetcher` (podcast-RSS-bronnen, §6.4) is sinds SF-1387 op dezelfde
-manier gehard. Ook wordt SSRF-via-redirect (een server die pas ná validatie
+manier gehard, en `PodcastAudioDownloader` (audio-/enclosure-URL, §6.4) sinds
+SF-1877. Ook wordt SSRF-via-redirect (een server die pas ná validatie
 via een 3xx naar een privé-adres doorstuurt) niet tegengehouden — bekend
 restrisico, `HttpClient.Redirect.ALWAYS` is ongewijzigd (geldt voor
-`RssFetcher`, `ArticleFetcher` en `PodcastFeedFetcher`).
+`RssFetcher`, `ArticleFetcher`, `PodcastFeedFetcher` en `PodcastAudioDownloader`).
 
 ---
 
@@ -527,6 +537,7 @@ Alle configuratie via `application.properties` of omgevingsvariabelen.
 - **RSS SSRF-afwijzing (SF-1345):** wijst de defense-in-depth-check in `RssFetcher.fetch()` een feed-URL af (zie §7.5), dan wordt die feed als `status="error"` gelogd en levert de fetch een lege itemlijst op — geen exception richting de caller/scheduler.
 - **Artikel-URL SSRF-afwijzing (SF-1843):** wijst de check in `ArticleFetcher.fetchPlainText()` de artikel-URL uit een feed-item af (zie §7.5), dan wordt er geen HTTP-request gedaan, wordt één externe call gelogd (`status="error"`, `units=0`, `errorMessage` bevat "geblokkeerd") en levert de fetch `null` op. `FeedItemGenerator` valt dan terug op het feed-fragment (`rss.snippet`) — identiek aan het bestaande gedrag bij een mislukte artikel-fetch; geen exception, de RSS-refresh loopt door.
 - **Podcast-feed SSRF-afwijzing (SF-1387):** wijst de defense-in-depth-check in `PodcastFeedFetcher.fetch()` een feed-URL af (zie §6.4), dan wordt de externe call als `status="error"` gelogd en levert de fetch `FetchResult(ok=false, errorMessage bevat "geblokkeerd")` op — geen HTTP-request, geen exception richting de caller.
+- **Podcast-audio SSRF-afwijzing (SF-1877):** wijst de defense-in-depth-check in `PodcastAudioDownloader.download()` de audio-/enclosure-URL af (zie §6.4), dan wordt er geen HTTP-request gedaan, wordt één externe call gelogd (`action=podcast_audio_download`, `status="error"`, `units=0`, `errorMessage` bevat "geblokkeerd") en levert `download()` `null` op. `PodcastTranscriptProcessor` volgt het bestaande `audioFile == null`-pad (status `SHOW_NOTES_DONE`, `errorMessage` "Audio-download faalde") — geen nieuw foutpad.
 - **Podcast:** Bij een fout in een van de stappen wordt de podcast gemarkeerd als `FAILED`. Ook als de TTS-fase geen audio oplevert (alle segmenten faalden of het script bevatte geen INTERVIEWER/GAST-regels) wordt de podcast `FAILED`, niet `DONE`.
 - **Ad-hoc verzoek:** Bij een fatale fout wordt het verzoek gemarkeerd als `FAILED`.
 - **Annulering:** Verzoeken kunnen geannuleerd worden; de verwerking stopt bij het eerstvolgende controlepunt.

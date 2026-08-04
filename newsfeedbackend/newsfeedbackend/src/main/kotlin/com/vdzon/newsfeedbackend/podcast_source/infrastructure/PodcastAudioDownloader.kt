@@ -1,8 +1,10 @@
 package com.vdzon.newsfeedbackend.podcast_source.infrastructure
 
+import com.vdzon.newsfeedbackend.common.SsrfUrlValidator
 import com.vdzon.newsfeedbackend.external_call.ExternalCall
 import com.vdzon.newsfeedbackend.external_call.ExternalCallLogger
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
 import java.io.File
 import java.net.URI
@@ -22,7 +24,10 @@ import java.util.UUID
  */
 @Component
 class PodcastAudioDownloader(
-    private val callLogger: ExternalCallLogger
+    private val callLogger: ExternalCallLogger,
+    // Zie ArticleFetcher.ssrfAllowLoopback — zelfde e2e-only escape-hatch, hier voor de
+    // audio-/enclosure-URL die uit de podcast-feed komt (tweede-orde, niet door de gebruiker ingetypt).
+    @param:Value("\${app.security.ssrf.allow-loopback:false}") private val ssrfAllowLoopback: Boolean = false,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
     private val http: HttpClient = HttpClient.newBuilder()
@@ -37,6 +42,17 @@ class PodcastAudioDownloader(
         var size: Long = 0L
         val tempFile = File.createTempFile("podcast-", ".mp3")
         try {
+            // De audio-URL komt uit de feed-inhoud en is dus nooit gevalideerd bij opslaan;
+            // verse DNS-resolutie vlak vóór het request (dekt ook DNS-rebinding af).
+            // Deze klasse logt via finally, dus `return null` logt de ExternalCall gewoon.
+            val validation = SsrfUrlValidator.validate(audioUrl, allowLoopback = ssrfAllowLoopback)
+            if (validation is SsrfUrlValidator.ValidationResult.Invalid) {
+                log.warn("[PodcastAudio] blocked SSRF-risky URL {}: {}", audioUrl, validation.reason)
+                status = "error"
+                errorMessage = "geblokkeerd: ${validation.reason}"
+                tempFile.delete()
+                return null
+            }
             val req = HttpRequest.newBuilder().uri(URI.create(audioUrl))
                 .header("User-Agent", "PersonalNewsFeed/1.0")
                 .timeout(Duration.ofMinutes(5))
