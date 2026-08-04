@@ -975,7 +975,10 @@ paths:
       tags: [Shared]
       operationId: getSharedFeed
       summary: Publieke, read-only feed van de gedeelde gebruiker
-      description: Geen authenticatie vereist. Items zijn altijd als ongelezen/niet-gesterd gemarkeerd.
+      description: >
+        Geen authenticatie vereist. De persoonlijke vlaggen `isRead`, `starred`
+        en `liked` worden niet meegestuurd, zodat het leesgedrag van de
+        bron-gebruiker niet kan lekken naar bezoekers.
       security: []
       responses:
         '200':
@@ -985,7 +988,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/FeedItem'
+                  $ref: '#/components/schemas/SharedFeedItem'
 
   /api/shared/categories:
     get:
@@ -1566,6 +1569,86 @@ components:
             SF-146: afbeelding-URL overgenomen van het bronRssItem. Null
             als het RSS-item geen afbeelding had. Gebruikt als
             header-banner op het detail-scherm.
+
+    SharedFeedItem:
+      type: object
+      description: >
+        Feed-item zoals `GET /api/shared/feed` het teruggeeft. Identiek aan
+        `FeedItem`, maar zonder de persoonlijke vlaggen `isRead`, `starred` en
+        `liked`: die worden bewust weggelaten zodat het leesgedrag van de
+        bron-gebruiker niet kan lekken.
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+          description: Originele titel uit de RSS-feed (vaak Engels)
+        titleNl:
+          type: string
+          description: |
+            Korte Nederlandse titel (max ~70 tekens), gegenereerd door de AI
+            tegelijk met de samenvatting. Leeg voor legacy items — de reader
+            valt dan terug op `title`.
+        summary:
+          type: string
+          description: |
+            Uitgebreide AI-samenvatting van 400-600 woorden in het Nederlands.
+            Mag markdown bevatten; wordt via een Markdown-renderer getoond.
+        shortSummary:
+          type: string
+          description: |
+            2-regel Nederlandse samenvatting (~30-50 woorden, **plain text**
+            — geen markdown). Leeg voor legacy items.
+        url:
+          type: string
+          format: uri
+          nullable: true
+        category:
+          type: string
+        source:
+          type: string
+        sourceRssIds:
+          type: array
+          items:
+            type: string
+          description: IDs van gekoppelde RssItems
+        sourceUrls:
+          type: array
+          items:
+            type: string
+            format: uri
+        topics:
+          type: array
+          items:
+            type: string
+        feedReason:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        publishedDate:
+          type: string
+          nullable: true
+          example: '2025-05-07'
+        isSummary:
+          type: boolean
+          default: false
+          description: >
+            true als dit de dagelijkse AI-samenvatting is. Het summary-veld
+            bevat dan Markdown-tekst (600-1000 woorden). ID-formaat: daily-summary-feed-{datum}.
+        mediaType:
+          type: string
+          enum: [ARTICLE, PODCAST]
+          default: ARTICLE
+          description: |
+            Discriminator tussen artikelen en podcast-afleveringen. Legacy
+            feed_items vallen terug op de default 'ARTICLE'.
+        imageUrl:
+          type: string
+          nullable: true
+          description: |
+            Afbeelding-URL overgenomen van het bron-RssItem. Null als het
+            RSS-item geen afbeelding had.
 
     # Requests
 

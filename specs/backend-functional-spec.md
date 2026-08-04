@@ -516,6 +516,7 @@ Alle configuratie via `application.properties` of omgevingsvariabelen.
 | `app.openai.base-url` | — | `https://api.openai.com` | — |
 | `app.ai.models.<actie>` | `PNF_AI_MODEL_*` | per actie (bijv. `gpt-5.4-mini`) | OpenAI-model per AI-actie |
 | `app.tavily.api-key` | `PNF_TAVILY_API_KEY` | — | Verplicht voor ad-hoc nieuws-verzoeken |
+| `app.shared-feed.username` | — | `robbert` | Gebruiker wiens feed/categorieën via de publieke `/api/shared/*`-endpoints gedeeld worden |
 | `app.elevenlabs.api-key` | `PNF_ELEVENLABS_API_KEY` | — | Optioneel (alleen bij ElevenLabs TTS) |
 | `app.elevenlabs.base-url` | — | `https://api.elevenlabs.io` | — |
 | `app.elevenlabs.voice-interviewer` | — | `Jn7U4vF8ZkmjZIZRn4Uk` | ElevenLabs stem voor interviewer |
