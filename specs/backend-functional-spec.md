@@ -288,7 +288,9 @@ private- (RFC1918/ULA) of multicast-adres. Op drie plekken:
 
 Hiermee is de eerdere uitzondering uit §7.5 ("Buiten scope: `PodcastFeedFetcher`
 heeft deze validatie nog niet") vervallen — beide feed-fetchers zijn nu gelijk
-gehard.
+gehard. Sinds SF-1877 geldt hetzelfde voor de tweede-orde-URLs in beide takken:
+`ArticleFetcher` (artikel-URL, §7.5) en `PodcastAudioDownloader`
+(audio-/enclosure-URL) valideren allebei vlak vóór hun fetch.
 
 **Kosten:** ~$0.05 per aflevering (Whisper $0.006/min × ~7 min + AI-samenvatting ~$0.011). Gelogd in `external_calls` als `podcast_transcribe`, `podcast_episode_summarize`, `podcast_audio_download`, `podcast_feed_fetch`.
 
