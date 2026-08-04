@@ -44,3 +44,23 @@ Done / rationale:
 - Geen code- of testwijziging nodig (documentatie-only). Vangnet `mvn -B clean verify`
   in `newsfeedbackend/newsfeedbackend`: BUILD SUCCESS, 61 e2e + unit-tests, 0 failures,
   0 errors, ~3:08 min.
+
+## Review (SF-1885)
+
+Volledige story-diff `git diff main...HEAD` gereviewd (3 bestanden, alleen specs/ + worklog).
+Onafhankelijk geverifieerd met een wegwerp-SnakeYAML-check op `specs/openapi.yaml`:
+
+- Parse OK; 32 schema's, geen dubbele schemanaam; geen dangling `$ref`.
+- `SharedFeedItem`: exact 17 properties, in dezelfde volgorde als `SharedFeedItemDto.kt:19-44`;
+  geen `isRead`/`starred`/`liked`, geen `required`-lijst.
+- Veld-voor-veld-diff tegen `FeedItem` (description genegeerd): enige afwijking is
+  `url` met `nullable: true` — de bewust afgesproken afwijking uit de story-aannames.
+- `#/components/schemas/FeedItem` ongewijzigd en nog steeds gebruikt op regel 522
+  (`GET /api/feed`); in het `/api/shared/feed`-blok staat geen `FeedItem`-verwijzing meer.
+- Description van `GET /api/shared/feed` bevat "Geen authenticatie vereist" plus de
+  reden waarom `isRead`/`starred`/`liked` ontbreken; de ongelezen/niet-gesterd-zin is weg.
+- Config-rij `app.shared-feed.username` klopt met de default in `SharedFeedController.kt:28`.
+
+Alle acceptatiecriteria 1 t/m 8 gehaald. Geen blockers of bugs gevonden.
+[info] `FeedItem.url` mist nog `nullable: true` — bewust buiten scope, kandidaat voor
+een vervolgstory.
