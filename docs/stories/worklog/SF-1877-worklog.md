@@ -36,3 +36,24 @@ Done / rationale:
 - Vangnet: `mvn -B clean verify` in `newsfeedbackend/newsfeedbackend` → BUILD SUCCESS (exit 0),
   102 unit-tests (was 98) + 61 e2e-tests, 0 failures/0 errors, ~3:02 min. De e2e-suite zet
   `app.security.ssrf.allow-loopback=true`, dus de fake contentserver op 127.0.0.1 blijft werken.
+
+## Test (SF-1879)
+
+- Vangnet herdraaid: `mvn -B --no-transfer-progress clean verify` in `newsfeedbackend/newsfeedbackend`
+  → BUILD SUCCESS, exit 0, 102 unit-tests + 61 e2e-tests, 0 failures / 0 errors.
+- AC1-3/AC6 bewezen in de logregels van `PodcastAudioDownloaderSsrfTest` (4/4 groen): elk van de
+  vier gevallen logt `[PodcastAudio] blocked SSRF-risky URL …` met reden loopback / link-local /
+  private / "alleen http/https-URLs zijn toegestaan", met `assertNull` + precies één `ExternalCall`
+  (`status="error"`, `units=0`, `errorMessage` bevat "geblokkeerd") en `tempFile.delete()`.
+- AC5 hard bewezen in de e2e-run: `PodcastIngestE2eTest` (`transcribeEnabled true …`) logt
+  `[PodcastAudio] http://127.0.0.1:44733/audio/ep-1.mp3 -> 404` — het request gáát dus uit met
+  `app.security.ssrf.allow-loopback=true`; zonder die property zou daar de blocked-regel staan.
+  Het episode-eindresultaat blijft `SHOW_NOTES_DONE` + "Audio-download faalde" (AC7, bestaand pad).
+- AC8: geen nieuwe compile-warnings; de enige `[WARNING]`-regels zijn de pre-existing
+  `asText()`-deprecations in `src/test/.../e2e/*.kt` (bekend sinds SF-1338).
+- AC9: docs-diff bevat de drie validatiemomenten in §6.4, `PodcastAudioDownloader` in de
+  `Redirect.ALWAYS`-opsomming (§7.5) en de nieuwe testklasse in `backend-technical-spec.md`.
+- Preview `pnf-pr-206` draait image `sha-e324584` (= branch-HEAD): `/` 200, `/actuator/health` UP
+  (db UP), `/api/feed` zonder token 403. Geen frontend-diff (0 regels Dart) en de audio-download is
+  een interne scheduler-stap zonder API-oppervlak, dus geen browser-/screenshotbewijs mogelijk of
+  nodig; het gedragsbewijs zit in de unit- + e2e-run hierboven.
