@@ -1,0 +1,77 @@
+name: Frontend tests
+
+# Draait de Flutter-testsuites van beide apps: `frontend` (de hoofd-app)
+# en `frontend-reader` (de read-only reader). Beide draaien op de Dart-VM,
+# dus er is geen Android-toolchain/JDK nodig — anders dan bij de
+# APK-builds. Externe diensten worden in de widgettests gefaked; er zijn
+# dus geen secrets nodig.
+#
+# Zonder deze workflow gingen frontend-wijzigingen (ook de SF-commits van
+# de lokale factory) volledig ongetest naar main: de 27 bestaande
+# Flutter-tests werden door geen enkele pipeline gedraaid.
+
+on:
+  pull_request:
+    paths:
+      - "frontend/**"
+      - "frontend-reader/**"
+      - ".github/workflows/frontend-tests.yml"
+  push:
+    branches: [main]
+    paths:
+      - "frontend/**"
+      - "frontend-reader/**"
+      - ".github/workflows/frontend-tests.yml"
+
+permissions:
+  contents: read
+
+env:
+  # Gelijk aan build-apk.yml/build-apk-reader.yml, zodat CI-tests en de
+  # APK-builds niet uit elkaar lopen.
+  FLUTTER_VERSION: '3.35.0'
+
+jobs:
+  # Twee losse jobs (i.p.v. twee stappen in één job) zodat de uitslag van
+  # beide apps per run zichtbaar blijft, ook als er één faalt.
+  frontend:
+    name: flutter test (frontend)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: flutter pub get
+        working-directory: frontend
+        run: flutter pub get
+
+      - name: flutter test
+        working-directory: frontend
+        run: flutter test
+
+  frontend-reader:
+    name: flutter test (frontend-reader)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: flutter pub get
+        working-directory: frontend-reader
+        run: flutter pub get
+
+      - name: flutter test
+        working-directory: frontend-reader
+        run: flutter test

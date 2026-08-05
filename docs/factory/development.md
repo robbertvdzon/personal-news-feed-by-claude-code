@@ -38,6 +38,9 @@ mvn verify
 
 ### Frontend (Flutter)
 
+Er zijn twee Flutter-apps: `frontend/` (de hoofd-app) en `frontend-reader/`
+(de read-only reader-app).
+
 ```bash
 cd frontend
 
@@ -46,7 +49,20 @@ make serve-ext
 
 # Android APK
 make build-apk-ext
+
+# Tests van de hoofd-app
+flutter pub get
+flutter test
+
+# Tests van de reader-app
+cd ../frontend-reader
+flutter pub get
+flutter test
 ```
+
+> CI dwingt beide testsuites af via `.github/workflows/frontend-tests.yml`
+> (twee losse jobs, één per app) bij elke pull request en elke push naar
+> `main`. Zie ook [Tests draaien](#tests-draaien).
 
 ## Lokale backend starten
 
@@ -69,6 +85,8 @@ Of via IntelliJ (open `newsfeedbackend/newsfeedbackend/` als project).
 - **Commits**: Nederlandstalige of Engelstalige boodschappen; geen force-push naar main.
 
 ## Tests draaien
+
+### Backend
 
 ```bash
 # Snel: unit-tests + ModuleStructureTest, geen Docker nodig
@@ -93,3 +111,32 @@ De testbuild is sinds SF-1945 warning-vrij: `mvn -B clean test` produceert nul
 `[WARNING]`-regels (daarvóór 92 `asText()`-deprecations uit de e2e-tests).
 Er is geen build-gate die op warnings faalt, dus behandel elke nieuwe
 `[WARNING]` in de output als een signaal dat je zelf oppakt.
+
+### Frontend (Flutter)
+
+Beide Flutter-apps hebben een eigen testsuite; draai ze vanuit de map van
+de betreffende app:
+
+```bash
+# Hoofd-app
+cd frontend
+flutter pub get
+flutter test
+
+# Reader-app
+cd frontend-reader
+flutter pub get
+flutter test
+```
+
+Net zoals `mvn verify` het vangnet voor de backend is, dwingt
+`.github/workflows/frontend-tests.yml` deze twee suites af in CI — bij elke
+pull request en elke push naar `main` die `frontend/**` of
+`frontend-reader/**` raakt. De workflow gebruikt twee losse jobs, zodat de
+uitslag van beide apps per run zichtbaar blijft, ook als er één faalt. Er is
+geen Docker/JDK nodig: `flutter test` draait op de Dart-VM.
+
+> Let op: `flutter pub get`/`flutter test` in `frontend-reader/` kan
+> `frontend-reader/pubspec.lock` muteren zonder dat `pubspec.yaml` wijzigt.
+> Zet zo'n kale lockfile-drift terug (`git checkout -- frontend-reader/pubspec.lock`)
+> voordat je afrondt.
