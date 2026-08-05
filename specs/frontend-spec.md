@@ -544,6 +544,26 @@ flutter build apk --release \
   --dart-define=API_BASE_URL=http://217.120.100.76:19283
 ```
 
+### Tests draaien
+
+De app heeft widget-tests onder `frontend/test/` (`widget_test.dart`,
+`main_shell_test.dart`, `settings_screen_test.dart`, `rss_feeds_screen_test.dart`,
+`categories_screen_test.dart`):
+
+```bash
+cd frontend
+flutter pub get
+flutter test
+```
+
+`flutter test` draait op de Dart-VM — geen Docker, JDK of Android-toolchain nodig.
+Sinds SF-1952 dwingt CI deze suite af via `.github/workflows/frontend-tests.yml`,
+bij elke pull request en elke push naar `main` die `frontend/**` of
+`frontend-reader/**` raakt. De workflow heeft twee losse jobs (deze app en de
+reader-app), zodat de uitslag per app zichtbaar blijft ook als er één faalt; hij
+pint Flutter `3.35.0`, dezelfde versie als de APK-builds. Zie
+`docs/factory/development.md` voor de commando's van beide apps naast elkaar.
+
 ---
 
 ## 14. Offline cache
