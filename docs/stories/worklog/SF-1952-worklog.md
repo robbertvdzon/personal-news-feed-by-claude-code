@@ -52,3 +52,37 @@ Review (SF-1953, reviewer):
   (Dart 3.9.x) draait; pub herresolvet die lockfile dan. Risico is niet nieuw — build-apk.yml
   draait al 'flutter pub get' in dezelfde map op dezelfde gepinde versie. Eerste plek om te
   kijken als de workflow op 3.35.0 onverwacht rood is.
+
+Test (SF-1954, tester):
+- Scope-check op de diff (git diff main...HEAD --stat): 4 bestanden, 262 regels,
+  uitsluitend .github/workflows/frontend-tests.yml + docs/factory/development.md +
+  story-doc + worklog. Geen frontend/lib, frontend-reader/lib, */test, newsfeedbackend
+  of pubspec.lock -> AC 10 groen. Working tree schoon na de run.
+- AC 1-8 geverifieerd door de workflow te parsen met js-yaml (NODE_PATH-truc):
+  geldige YAML, name "Frontend tests"; on.pull_request.paths en on.push.paths bevatten
+  beide exact [frontend/**, frontend-reader/**, .github/workflows/frontend-tests.yml]
+  met push.branches [main] -> een wijziging in alleen docs/** of newsfeedbackend/**
+  triggert de workflow niet (AC 2/3); permissions contents: read; env FLUTTER_VERSION
+  '3.35.0', identiek aan build-apk.yml:19 en build-apk-reader.yml:19 en nergens inline
+  herhaald (AC 4); twee losse jobs met working-directory frontend resp. frontend-reader,
+  elk flutter pub get + flutter test (AC 5/6/7); kopcommentaar in backend-tests.yml-stijl
+  met de reden "gingen volledig ongetest naar main" (AC 8).
+- Gedragstest van het vangnet zelf: beide suites gedraaid op een kopie in /tmp
+  (zodat geen pubspec.lock in de PR belandt). frontend: 25/25 groen, exitcode 0;
+  frontend-reader: 2/2 groen, exitcode 0. Samen de 27 tests uit de story.
+- Beperking: Flutter 3.35.0 is lokaal niet reproduceerbaar. De runner is aarch64 en
+  Flutter publiceert geen linux_arm64-archief voor 3.35.0 (404); de x64-tarball start
+  niet ("rosetta error"). Lokaal draaide dus 3.44.7. Resolutie op 3.35.0 (Dart 3.9.x)
+  is wel plausibel: beide pubspec.yaml's hebben sdk ^3.9.0, en build-apk.yml/
+  build-apk-reader.yml draaien al `flutter pub get` in dezelfde mappen op exact 3.35.0.
+  De echte 3.35.0-uitslag wordt zichtbaar op de PR zelf: het paths-filter bevat
+  .github/workflows/frontend-tests.yml, dus deze workflow triggert op deze PR.
+- Preview pnf-pr-209 als live-sanity: / -> 200, /actuator/health -> 200, /api/feed zonder
+  token -> 403; loginscherm rendert normaal (screenshot /work/screenshots/
+  SF-1954-preview-login.png). Deze story raakt nul regels app-code, dus verdere
+  UI-scenario's zijn niet van toepassing.
+- [suggestie, niet blokkerend] development.md: in het blok onder "### Frontend (Flutter)"
+  bij "## Tests draaien" staat `cd frontend-reader` direct na `cd frontend`; als geheel
+  gekopieerd faalt dat tweede cd. Het eerdere blok gebruikt wel correct
+  `cd ../frontend-reader`. Reviewer signaleerde dit al; AC 9 (concrete commando's +
+  vermelding van frontend-tests.yml) is inhoudelijk gehaald.
