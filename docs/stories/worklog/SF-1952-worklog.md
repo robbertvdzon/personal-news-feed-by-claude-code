@@ -32,3 +32,23 @@ Done / rationale:
 - Lokale Flutter-versie was 3.44.7, CI pint 3.35.0 (bewust gelijk aan de APK-builds).
   Geen afwijking waargenomen; zou CI toch rood zijn, dan is dat een melding waard en
   geen reden de tests aan te passen.
+
+Review (SF-1953, reviewer):
+- Volledige story-diff (git diff main...HEAD) beoordeeld: 4 bestanden, 242 regels,
+  uitsluitend nieuwe workflow + docs/worklog. Geen productiecode, geen test-mappen,
+  geen pubspec.lock, geen newsfeedbackend/** — AC 10 geverifieerd op de diff zelf.
+- frontend-tests.yml onafhankelijk geparsed met SnakeYAML 2.5: geldige YAML; triggers
+  pull_request + push[main] met identiek paths-filter (frontend/**, frontend-reader/**,
+  de workflow zelf), permissions contents: read, env FLUTTER_VERSION '3.35.0' (gelijk
+  aan build-apk.yml en build-apk-reader.yml), 2 jobs x 4 stappen met working-directory
+  frontend resp. frontend-reader, geen setup-java, timeout-minutes 15. AC 1-8 groen.
+- Testaantal onafhankelijk geteld: 25 tests in frontend/test, 2 in frontend-reader/test
+  (= de 27 uit de story). Geen codegen/mocks nodig, dus 'flutter pub get + flutter test'
+  volstaat. pubspec.yaml sdk ^3.9.0 past bij Flutter 3.35.0 (Dart 3.9.x).
+- [suggestie] development.md r126-127: het 'Reader-app'-blok doet 'cd frontend-reader'
+  direct na 'cd frontend'; het eerdere blok (r58) gebruikt correct 'cd ../frontend-reader'.
+  Als geheel gekopieerd faalt het tweede blok. Niet blokkerend.
+- [info] frontend/pubspec.lock pint 'sdks: dart: ">=3.10.0-0"', terwijl CI Flutter 3.35.0
+  (Dart 3.9.x) draait; pub herresolvet die lockfile dan. Risico is niet nieuw — build-apk.yml
+  draait al 'flutter pub get' in dezelfde map op dezelfde gepinde versie. Eerste plek om te
+  kijken als de workflow op 3.35.0 onverwacht rood is.
