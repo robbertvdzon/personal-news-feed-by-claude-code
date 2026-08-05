@@ -37,3 +37,28 @@ Resultaat / verificatie (branch ai/SF-1945, 2026-08-05):
   `src/main/` is ongewijzigd.
 - Zelfreview: elke gewijzigde regel bevat alleen de rename — een diff-filter op regels
   zonder `asText()`/`asString()` levert nul treffers op.
+
+## Testronde SF-1947 (tester, 2026-08-05)
+
+Onafhankelijk nagemeten op branch `ai/SF-1945` (HEAD `cb9a60d`), niets gewijzigd behalve dit worklog.
+
+- **AC1 — nul warnings**: `mvn -B --no-transfer-progress clean verify` (exact het commando uit
+  `.factory/verification.yaml`, id `backend-maven-verify`) → **0** `[WARNING]`-regels en 0 `[ERROR]`-regels
+  in de volledige output. Was 92.
+- **AC2 — geen `asText(` meer**: `grep -r 'asText(' newsfeedbackend/newsfeedbackend/src/test | wc -l` → `0`;
+  `grep -ro 'asString(' .../src/test | wc -l` → `92`. Buiten de backend is er geen `asText`-gebruik;
+  `e2e/flutter-helpers.js:228` (`hasText(`) is terecht ongemoeid gelaten.
+- **AC3 — unit groen**: surefire `Tests run: 102, Failures: 0, Errors: 0, Skipped: 0`. Exact het
+  baseline-aantal; geen test toegevoegd, verwijderd of hernoemd.
+- **AC4 — verify groen**: failsafe/e2e over Testcontainers `Tests run: 61, Failures: 0, Errors: 0, Skipped: 0`
+  (10 e2e-klassen). `BUILD SUCCESS`, exitcode 0, looptijd 03:45. Geen flakes waargenomen — met name
+  `AdminE2eTest` (bekende socket-timeout-flake) was in één run groen (10/10).
+- **AC5 — diff-scope**: `git diff --stat main...HEAD` raakt uitsluitend de 11 e2e-testbestanden + dit worklog;
+  `src/main/` heeft 0 diff. Gedragsneutraliteit hard bewezen door de 86 `-`-regels en 86 `+`-regels
+  paarsgewijs te normaliseren (`asText()`/`asString()` → `X()`): het verschil is leeg, dus élke gewijzigde
+  regel is puur de methodenaam.
+- **Live sanity op preview** `https://pnf-pr-208.vdzonsoftware.nl`: `/` → 200, `/actuator/health` → 200
+  (status UP, db UP), `/api/feed` zonder token → 403. Geen browser/screenshot-bewijs: de story raakt geen
+  Dart-code en geen `src/main`, dus er is geen UI-gedrag om te observeren.
+
+Oordeel: **tested** — alle 5 acceptatiecriteria voldaan, vangnet exitcode 0 met 0 failures en 0 errors.
