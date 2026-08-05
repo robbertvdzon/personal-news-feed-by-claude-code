@@ -58,7 +58,7 @@ class PodcastGenerationE2eTest : E2eTestBase() {
         """{"periodDays": 7, "durationMinutes": 1, "customTopics": ["Kotlin"], "ttsProvider": "$provider"}"""
 
     private fun statusOf(user: TestUser, id: String): String =
-        getJson("/api/podcasts", user.token).first { it.path("id").asText() == id }.path("status").asText()
+        getJson("/api/podcasts", user.token).first { it.path("id").asString() == id }.path("status").asString()
 
     // Binaire GET voor het audio-endpoint (de tekst-helper van de base
     // zou de MP3-bytes door de String-decodering heen verminken).
@@ -80,21 +80,21 @@ class PodcastGenerationE2eTest : E2eTestBase() {
 
         val created = post("/api/podcasts", user.token, createBody("OPENAI"))
         assertEquals(201, created.status)
-        val id = created.json(mapper).path("id").asText()
-        assertEquals("PENDING", created.json(mapper).path("status").asText())
+        val id = created.json(mapper).path("id").asString()
+        assertEquals("PENDING", created.json(mapper).path("status").asString())
         assertEquals(1, created.json(mapper).path("podcastNumber").asInt())
 
         await { statusOf(user, id) == "DONE" }
 
         // Detail-view: titel uit de topics, script en metadata aanwezig.
         val detail = getJson("/api/podcasts/$id", user.token)
-        assertTrue(detail.path("title").asText().startsWith("DevTalk 1, "))
-        assertTrue(detail.path("title").asText().endsWith("— Kotlin 2.3, Spring Boot 4"))
-        assertEquals(listOf("Kotlin 2.3", "Spring Boot 4"), detail.path("topics").values().map { it.asText() })
-        assertEquals(script, detail.path("scriptText").asText())
+        assertTrue(detail.path("title").asString().startsWith("DevTalk 1, "))
+        assertTrue(detail.path("title").asString().endsWith("— Kotlin 2.3, Spring Boot 4"))
+        assertEquals(listOf("Kotlin 2.3", "Spring Boot 4"), detail.path("topics").values().map { it.asString() })
+        assertEquals(script, detail.path("scriptText").asString())
         assertEquals(60, detail.path("durationSeconds").asInt())
         // De lijst-view stript het (potentieel lange) script bewust.
-        val inList = getJson("/api/podcasts", user.token).first { it.path("id").asText() == id }
+        val inList = getJson("/api/podcasts", user.token).first { it.path("id").asString() == id }
         assertTrue(inList.path("scriptText").isNull)
 
         // Het custom topic zat in de script-prompt.
@@ -138,7 +138,7 @@ class PodcastGenerationE2eTest : E2eTestBase() {
         )
 
         val id = post("/api/podcasts", user.token, createBody("ELEVENLABS"))
-            .json(mapper).path("id").asText()
+            .json(mapper).path("id").asString()
         await { statusOf(user, id) == "DONE" }
 
         // Script is I/G/I/G → audio = interviewer+gast+interviewer+gast,
@@ -162,7 +162,7 @@ class PodcastGenerationE2eTest : E2eTestBase() {
         content.serveBytes("/openai/v1/audio/speech", "audio/mpeg", "X".toByteArray())
 
         val id = post("/api/podcasts", user.token, createBody("OPENAI"))
-            .json(mapper).path("id").asText()
+            .json(mapper).path("id").asString()
 
         await { statusOf(user, id) == "FAILED" }
         assertEquals(404, getBytes("/api/podcasts/$id/audio", user.token).statusCode())
@@ -176,13 +176,13 @@ class PodcastGenerationE2eTest : E2eTestBase() {
         // krijgt een 404 van de fake-server → renderAudio levert niets op.
 
         val id = post("/api/podcasts", user.token, createBody("OPENAI"))
-            .json(mapper).path("id").asText()
+            .json(mapper).path("id").asString()
 
         await { statusOf(user, id) == "FAILED" }
         assertEquals(404, getBytes("/api/podcasts/$id/audio", user.token).statusCode())
 
         assertEquals(204, delete("/api/podcasts/$id", user.token).status)
-        assertTrue(getJson("/api/podcasts", user.token).none { it.path("id").asText() == id })
+        assertTrue(getJson("/api/podcasts", user.token).none { it.path("id").asString() == id })
         assertEquals(404, get("/api/podcasts/$id", user.token).status)
         // Onbekend id op delete geeft ook een nette 404.
         assertEquals(404, delete("/api/podcasts/bestaat-niet", user.token).status)

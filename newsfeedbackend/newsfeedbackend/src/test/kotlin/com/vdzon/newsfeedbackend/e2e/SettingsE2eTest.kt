@@ -18,7 +18,7 @@ class SettingsE2eTest : E2eTestBase() {
         val user = registerUser("settings")
 
         val categories = getJson("/api/settings", user.token)
-        val ids = categories.values().map { it.path("id").asText() }
+        val ids = categories.values().map { it.path("id").asString() }
         assertEquals(
             listOf("kotlin", "flutter", "ai", "blockchain", "spring", "web_dev", "overig"),
             ids
@@ -26,9 +26,9 @@ class SettingsE2eTest : E2eTestBase() {
         assertTrue(categories.all { it.path("enabled").asBoolean() })
 
         // Alleen "overig" is een systeemcategorie.
-        val overig = categories.first { it.path("id").asText() == "overig" }
+        val overig = categories.first { it.path("id").asString() == "overig" }
         assertTrue(overig.path("isSystem").asBoolean())
-        assertTrue(categories.filterNot { it.path("id").asText() == "overig" }
+        assertTrue(categories.filterNot { it.path("id").asString() == "overig" }
             .none { it.path("isSystem").asBoolean() })
     }
 
@@ -50,10 +50,10 @@ class SettingsE2eTest : E2eTestBase() {
 
         val categories = getJson("/api/settings", user.token)
         assertEquals(3, categories.size())
-        val kotlin = categories.first { it.path("id").asText() == "kotlin" }
+        val kotlin = categories.first { it.path("id").asString() == "kotlin" }
         assertFalse(kotlin.path("enabled").asBoolean())
-        assertEquals("alleen 2.x nieuws", kotlin.path("extraInstructions").asText())
-        assertEquals("Eigen categorie", categories.first { it.path("id").asText() == "eigen" }.path("name").asText())
+        assertEquals("alleen 2.x nieuws", kotlin.path("extraInstructions").asString())
+        assertEquals("Eigen categorie", categories.first { it.path("id").asString() == "eigen" }.path("name").asString())
     }
 
     @Test
@@ -66,10 +66,10 @@ class SettingsE2eTest : E2eTestBase() {
             """[{"id": "kotlin", "name": "Kotlin", "enabled": true, "extraInstructions": "", "isSystem": false}]"""
         )
         assertEquals(200, saved.status)
-        val savedIds = saved.json(mapper).values().map { it.path("id").asText() }
+        val savedIds = saved.json(mapper).values().map { it.path("id").asString() }
         assertEquals(listOf("kotlin", "overig"), savedIds)
 
-        val overig = getJson("/api/settings", user.token).first { it.path("id").asText() == "overig" }
+        val overig = getJson("/api/settings", user.token).first { it.path("id").asString() == "overig" }
         assertTrue(overig.path("isSystem").asBoolean())
     }
 
@@ -91,7 +91,7 @@ class SettingsE2eTest : E2eTestBase() {
         )
         assertEquals(200, saved.status)
 
-        val feeds = getJson("/api/rss-feeds", user.token).path("feeds").values().map { it.asText() }
+        val feeds = getJson("/api/rss-feeds", user.token).path("feeds").values().map { it.asString() }
         assertEquals(listOf("https://example.com/feed.xml", "https://example.org/rss"), feeds)
     }
 
@@ -124,9 +124,9 @@ class SettingsE2eTest : E2eTestBase() {
         assertEquals(200, resp.status, "verwachtte 200, kreeg ${resp.status}: ${resp.body}")
 
         val saved = getJson("/api/settings", user.token)
-        val kotlinCat = saved.first { it.path("id").asText() == "kotlin" }
+        val kotlinCat = saved.first { it.path("id").asString() == "kotlin" }
         assertTrue(kotlinCat.path("enabled").asBoolean(), "enabled hoort default true te zijn")
         assertFalse(kotlinCat.path("isSystem").asBoolean(), "isSystem hoort default false te zijn")
-        assertEquals("", kotlinCat.path("extraInstructions").asText())
+        assertEquals("", kotlinCat.path("extraInstructions").asString())
     }
 }

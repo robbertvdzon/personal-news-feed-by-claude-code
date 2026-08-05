@@ -47,8 +47,8 @@ class FeedE2eTest : E2eTestBase() {
 
         val items = getJson("/api/feed", user.token)
         assertEquals(2, items.size())
-        assertEquals("Nieuw", items[0].path("title").asText())
-        assertEquals("Oud", items[1].path("title").asText())
+        assertEquals("Nieuw", items[0].path("title").asString())
+        assertEquals("Oud", items[1].path("title").asString())
     }
 
     @Test
@@ -108,7 +108,7 @@ class FeedE2eTest : E2eTestBase() {
         assertEquals(200, resp.status)
         assertEquals(1, resp.json(mapper).path("removed").asInt())
 
-        val titels = getJson("/api/feed", user.token).values().map { it.path("title").asText() }.toSet()
+        val titels = getJson("/api/feed", user.token).values().map { it.path("title").asString() }.toSet()
         assertEquals(setOf("oud-met-ster", "oud-ongelezen", "vers"), titels)
     }
 

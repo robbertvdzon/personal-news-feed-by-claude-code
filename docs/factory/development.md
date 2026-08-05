@@ -88,3 +88,8 @@ e2e-suite onder `src/test/kotlin/.../e2e/` (o.a.
 zie `specs/backend-technical-spec.md` §7. De Cucumber- en WireMock-dependencies
 staan nog in `pom.xml`, maar lijken ongebruikt (geen feature-bestanden,
 step-definitions of WireMock-stubs gevonden).
+
+De testbuild is sinds SF-1945 warning-vrij: `mvn -B clean test` produceert nul
+`[WARNING]`-regels (daarvóór 92 `asText()`-deprecations uit de e2e-tests).
+Er is geen build-gate die op warnings faalt, dus behandel elke nieuwe
+`[WARNING]` in de output als een signaal dat je zelf oppakt.

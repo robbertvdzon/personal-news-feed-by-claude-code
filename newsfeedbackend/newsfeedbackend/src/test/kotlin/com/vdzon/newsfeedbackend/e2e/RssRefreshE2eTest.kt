@@ -39,14 +39,14 @@ class RssRefreshE2eTest : E2eTestBase() {
         // RSS-items verschijnen met de (fake) AI-samenvatting en categorie.
         await { getJson("/api/rss", user.token).size() == 2 }
         val rssItems = getJson("/api/rss", user.token)
-        assertTrue(rssItems.all { it.path("summary").asText().contains("Fake samenvatting") })
-        assertTrue(rssItems.all { it.path("category").asText() == "overig" })
+        assertTrue(rssItems.all { it.path("summary").asString().contains("Fake samenvatting") })
+        assertTrue(rssItems.all { it.path("category").asString() == "overig" })
 
         // Beide items worden (door de fake selectie) gepromoveerd naar de feed.
         await { getJson("/api/feed", user.token).size() == 2 }
         val feedItems = getJson("/api/feed", user.token)
-        assertTrue(feedItems.all { it.path("titleNl").asText() == "Fake NL titel" })
-        assertTrue(feedItems.all { it.path("shortSummary").asText() == "Fake korte samenvatting." })
+        assertTrue(feedItems.all { it.path("titleNl").asString() == "Fake NL titel" })
+        assertTrue(feedItems.all { it.path("shortSummary").asString() == "Fake korte samenvatting." })
 
         // De pipeline heeft de verwachte AI-stappen doorlopen.
         assertEquals(2, openAi.callsFor(ExternalCall.ACTION_RSS_SUMMARIZE, user.username).size)
@@ -71,7 +71,7 @@ class RssRefreshE2eTest : E2eTestBase() {
         // Refresh loopt async: wacht tot de hourly-update-request weer DONE is.
         await {
             getJson("/api/requests", user.token)
-                .any { it.path("isHourlyUpdate").asBoolean() && it.path("status").asText() == "DONE" }
+                .any { it.path("isHourlyUpdate").asBoolean() && it.path("status").asString() == "DONE" }
         }
         assertEquals(2, getJson("/api/rss", user.token).size())
         assertEquals(2, getJson("/api/feed", user.token).size())
@@ -95,7 +95,7 @@ class RssRefreshE2eTest : E2eTestBase() {
         await { getJson("/api/rss", user.token).size() == 2 }
         await {
             getJson("/api/rss", user.token).all {
-                it.path("feedReason").asText().contains("Niet interessant")
+                it.path("feedReason").asString().contains("Niet interessant")
             }
         }
         assertEquals(0, getJson("/api/feed", user.token).size())
@@ -115,7 +115,7 @@ class RssRefreshE2eTest : E2eTestBase() {
         await { getJson("/api/rss", user.token).size() == 2 }
         await {
             getJson("/api/requests", user.token)
-                .any { it.path("isHourlyUpdate").asBoolean() && it.path("status").asText() == "DONE" }
+                .any { it.path("isHourlyUpdate").asBoolean() && it.path("status").asString() == "DONE" }
         }
     }
 }

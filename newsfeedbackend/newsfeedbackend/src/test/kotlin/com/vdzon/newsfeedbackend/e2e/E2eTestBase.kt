@@ -118,7 +118,7 @@ abstract class E2eTestBase {
         val password = "geheim123"
         val resp = post("/api/auth/register", body = """{"username": "$username", "password": "$password"}""")
         check(resp.status == 201) { "register faalde: ${resp.status} ${resp.body}" }
-        val token = resp.json(mapper).path("token").asText()
+        val token = resp.json(mapper).path("token").asString()
         check(token.isNotBlank()) { "register gaf geen token: ${resp.body}" }
         return TestUser(username, password, token)
     }
