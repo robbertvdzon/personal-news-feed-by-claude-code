@@ -43,7 +43,7 @@ class AuthE2eTest : E2eTestBase() {
             body = """{"username": "${user.username}", "password": "${user.password}"}"""
         )
         assertEquals(200, ok.status)
-        assertTrue(ok.json(mapper).path("token").asText().isNotBlank())
+        assertTrue(ok.json(mapper).path("token").asString().isNotBlank())
 
         val fout = post(
             "/api/auth/login",

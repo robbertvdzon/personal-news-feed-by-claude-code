@@ -55,7 +55,7 @@ class RequestsE2eTest : E2eTestBase() {
     }
 
     private fun statusOf(user: TestUser, id: String): String =
-        getJson("/api/requests", user.token).first { it.path("id").asText() == id }.path("status").asText()
+        getJson("/api/requests", user.token).first { it.path("id").asString() == id }.path("status").asString()
 
     @Test
     fun `na registratie staan de vaste hourly en daily requests in de lijst en zijn ze niet verwijderbaar`() {
@@ -68,10 +68,10 @@ class RequestsE2eTest : E2eTestBase() {
         val requests = getJson("/api/requests", user.token)
         val hourly = requests.first { it.path("isHourlyUpdate").asBoolean() }
         val daily = requests.first { it.path("isDailySummary").asBoolean() }
-        assertEquals("hourly-update-${user.username}", hourly.path("id").asText())
-        assertEquals("daily-summary-${user.username}", daily.path("id").asText())
-        assertEquals("DONE", hourly.path("status").asText())
-        assertEquals("DONE", daily.path("status").asText())
+        assertEquals("hourly-update-${user.username}", hourly.path("id").asString())
+        assertEquals("daily-summary-${user.username}", daily.path("id").asString())
+        assertEquals("DONE", hourly.path("status").asString())
+        assertEquals("DONE", daily.path("status").asString())
 
         // Vaste requests mogen niet verwijderd worden: service returnt false → 404.
         assertEquals(404, delete("/api/requests/hourly-update-${user.username}", user.token).status)
@@ -87,23 +87,23 @@ class RequestsE2eTest : E2eTestBase() {
 
         val created = post("/api/requests", user.token, createBody("Kotlin nieuws", maxCount = 2))
         assertEquals(201, created.status)
-        val id = created.json(mapper).path("id").asText()
-        assertEquals("PENDING", created.json(mapper).path("status").asText())
+        val id = created.json(mapper).path("id").asString()
+        assertEquals("PENDING", created.json(mapper).path("status").asString())
 
         await { statusOf(user, id) == "DONE" }
-        val done = getJson("/api/requests", user.token).first { it.path("id").asText() == id }
+        val done = getJson("/api/requests", user.token).first { it.path("id").asString() == id }
         assertEquals(2, done.path("newItemCount").asInt())
 
         // Per zoekresultaat één feed-item met de AI-samenvatting.
         val feed = getJson("/api/feed", user.token)
         assertEquals(2, feed.size())
-        assertTrue(feed.all { it.path("summary").asText() == "Fake adhoc samenvatting voor de e2e-test." })
-        assertTrue(feed.all { it.path("feedReason").asText() == "Geselecteerd voor verzoek 'Kotlin nieuws'" })
-        assertTrue(feed.all { it.path("source").asText() == "nieuws.example" })
-        val titels = feed.values().map { it.path("title").asText() }.toSet()
+        assertTrue(feed.all { it.path("summary").asString() == "Fake adhoc samenvatting voor de e2e-test." })
+        assertTrue(feed.all { it.path("feedReason").asString() == "Geselecteerd voor verzoek 'Kotlin nieuws'" })
+        assertTrue(feed.all { it.path("source").asString() == "nieuws.example" })
+        val titels = feed.values().map { it.path("title").asString() }.toSet()
         assertEquals(setOf("Artikel 1", "Artikel 2"), titels)
         // published_date uit Tavily wordt afgekapt tot YYYY-MM-DD.
-        assertTrue(feed.any { it.path("publishedDate").asText() == "2026-07-01" })
+        assertTrue(feed.any { it.path("publishedDate").asString() == "2026-07-01" })
 
         // De volledige (extract-)tekst zat in de AI-prompt, niet alleen de snippet.
         val calls = openAi.callsFor(ExternalCall.ACTION_ADHOC_SUMMARIZE, user.username)
@@ -118,17 +118,17 @@ class RequestsE2eTest : E2eTestBase() {
         // en de TavilyClient vertaalt dat naar een lege resultatenlijst.
 
         val created = post("/api/requests", user.token, createBody("Onvindbaar onderwerp"))
-        val id = created.json(mapper).path("id").asText()
+        val id = created.json(mapper).path("id").asString()
 
         await { statusOf(user, id) == "DONE" }
-        val done = getJson("/api/requests", user.token).first { it.path("id").asText() == id }
+        val done = getJson("/api/requests", user.token).first { it.path("id").asString() == id }
         assertEquals(0, done.path("newItemCount").asInt())
         assertEquals(0, getJson("/api/feed", user.token).size())
         assertEquals(0, openAi.callsFor(ExternalCall.ACTION_ADHOC_SUMMARIZE, user.username).size)
 
         // Een niet-vaste request mag wél verwijderd worden.
         assertEquals(204, delete("/api/requests/$id", user.token).status)
-        assertTrue(getJson("/api/requests", user.token).none { it.path("id").asText() == id })
+        assertTrue(getJson("/api/requests", user.token).none { it.path("id").asString() == id })
     }
 
     @Test
@@ -145,7 +145,7 @@ class RequestsE2eTest : E2eTestBase() {
         }
 
         val id = post("/api/requests", user.token, createBody("Traag onderwerp", maxCount = 2))
-            .json(mapper).path("id").asText()
+            .json(mapper).path("id").asString()
 
         // Wacht tot de orchestrator in de eerste AI-call hangt.
         await { openAi.callsFor(ExternalCall.ACTION_ADHOC_SUMMARIZE, user.username).isNotEmpty() }
@@ -169,18 +169,18 @@ class RequestsE2eTest : E2eTestBase() {
         openAi.onAction(ExternalCall.ACTION_ADHOC_SUMMARIZE) { "Samenvatting run." }
 
         val id = post("/api/requests", user.token, createBody("Herhaalbaar onderwerp", maxCount = 1))
-            .json(mapper).path("id").asText()
+            .json(mapper).path("id").asString()
         await { statusOf(user, id) == "DONE" }
         assertEquals(1, getJson("/api/feed", user.token).size())
 
         val rerun = post("/api/requests/$id/rerun", user.token)
         assertEquals(200, rerun.status)
         // De rerun-response is de gereset-te request (teller terug naar 0).
-        assertEquals("PENDING", rerun.json(mapper).path("status").asText())
+        assertEquals("PENDING", rerun.json(mapper).path("status").asString())
         assertEquals(0, rerun.json(mapper).path("newItemCount").asInt())
 
         await { statusOf(user, id) == "DONE" }
-        val done = getJson("/api/requests", user.token).first { it.path("id").asText() == id }
+        val done = getJson("/api/requests", user.token).first { it.path("id").asString() == id }
         assertEquals(1, done.path("newItemCount").asInt())
         // De pipeline liep echt opnieuw: nogmaals een AI-call en een tweede feed-item.
         assertEquals(2, openAi.callsFor(ExternalCall.ACTION_ADHOC_SUMMARIZE, user.username).size)

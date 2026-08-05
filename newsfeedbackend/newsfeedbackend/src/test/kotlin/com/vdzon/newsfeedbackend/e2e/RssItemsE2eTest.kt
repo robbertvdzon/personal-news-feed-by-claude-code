@@ -59,7 +59,7 @@ class RssItemsE2eTest : E2eTestBase() {
     private fun rssItems(user: TestUser) = getJson("/api/rss", user.token)
 
     private fun rssItem(user: TestUser, id: String) =
-        rssItems(user).values().first { it.path("id").asText() == id }
+        rssItems(user).values().first { it.path("id").asString() == id }
 
     // ---- item-acties ---------------------------------------------------
 
@@ -130,7 +130,7 @@ class RssItemsE2eTest : E2eTestBase() {
         assertEquals(200, resp.status)
         assertEquals(1, resp.json(mapper).path("removed").asInt())
 
-        val titels = rssItems(user).values().map { it.path("title").asText() }.toSet()
+        val titels = rssItems(user).values().map { it.path("title").asString() }.toSet()
         assertEquals(setOf("oud-met-ster", "oud-ongelezen", "vers"), titels)
     }
 
@@ -144,7 +144,7 @@ class RssItemsE2eTest : E2eTestBase() {
 
         val overgebleven = rssItems(user)
         assertEquals(1, overgebleven.size())
-        assertEquals(blijft.id, overgebleven[0].path("id").asText())
+        assertEquals(blijft.id, overgebleven[0].path("id").asString())
     }
 
     // ---- reselect ------------------------------------------------------
@@ -176,7 +176,7 @@ class RssItemsE2eTest : E2eTestBase() {
     private fun awaitRefreshDone(user: TestUser) {
         await {
             getJson("/api/requests", user.token)
-                .any { it.path("isHourlyUpdate").asBoolean() && it.path("status").asText() == "DONE" }
+                .any { it.path("isHourlyUpdate").asBoolean() && it.path("status").asString() == "DONE" }
         }
     }
 
@@ -192,7 +192,7 @@ class RssItemsE2eTest : E2eTestBase() {
         await { rssItems(user).size() == 2 }
         awaitRefreshDone(user)
         assertTrue(rssItems(user).none { it.path("inFeed").asBoolean() })
-        assertTrue(rssItems(user).all { it.path("feedReason").asText().contains("Eerste ronde afgewezen") })
+        assertTrue(rssItems(user).all { it.path("feedReason").asString().contains("Eerste ronde afgewezen") })
         assertEquals(0, getJson("/api/feed", user.token).size())
         assertTrue(openAi.callsFor(ExternalCall.ACTION_FEED_SUMMARIZE, user.username).isEmpty())
 
@@ -200,13 +200,13 @@ class RssItemsE2eTest : E2eTestBase() {
         scoreAll(inFeed = true, reason = "Tweede ronde geselecteerd")
         val resp = post("/api/rss/reselect", user.token)
         assertEquals(200, resp.status)
-        assertEquals("ok", resp.json(mapper).path("status").asText())
+        assertEquals("ok", resp.json(mapper).path("status").asString())
 
         await {
             rssItems(user).let { items ->
                 items.size() == 2 && items.all {
                     it.path("inFeed").asBoolean() &&
-                        it.path("feedReason").asText().contains("Tweede ronde geselecteerd")
+                        it.path("feedReason").asString().contains("Tweede ronde geselecteerd")
                 }
             }
         }
@@ -229,7 +229,7 @@ class RssItemsE2eTest : E2eTestBase() {
         awaitRefreshDone(user)
 
         val voor = rssItems(user).values()
-            .associate { it.path("id").asText() to (it.path("inFeed").asBoolean() to it.path("feedReason").asText()) }
+            .associate { it.path("id").asString() to (it.path("inFeed").asBoolean() to it.path("feedReason").asString()) }
         val scoreCallsVoor = openAi.callsFor(ExternalCall.ACTION_FEED_SCORE, user.username).size
         val summarizeCallsVoor = openAi.callsFor(ExternalCall.ACTION_FEED_SUMMARIZE, user.username).size
 
@@ -242,7 +242,7 @@ class RssItemsE2eTest : E2eTestBase() {
         await { openAi.callsFor(ExternalCall.ACTION_FEED_SCORE, user.username).size == scoreCallsVoor + 1 }
 
         val na = rssItems(user).values()
-            .associate { it.path("id").asText() to (it.path("inFeed").asBoolean() to it.path("feedReason").asText()) }
+            .associate { it.path("id").asString() to (it.path("inFeed").asBoolean() to it.path("feedReason").asString()) }
         assertEquals(voor, na, "zonder verdicts hoort inFeed/feedReason exact gelijk te blijven")
         assertEquals(
             summarizeCallsVoor,
@@ -279,7 +279,7 @@ class RssItemsE2eTest : E2eTestBase() {
         assertEquals(200, resp.status)
         assertEquals(
             "Dit is het volledige transcript van de aflevering.",
-            resp.json(mapper).path("transcript").asText()
+            resp.json(mapper).path("transcript").asString()
         )
     }
 }

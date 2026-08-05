@@ -74,7 +74,7 @@ class SharedFeedE2eTest : E2eTestBase() {
         seed(sharedUsername, newItem(eigenTitel))
         seed(ander.username, newItem(andermansTitel))
 
-        val titels = getJson("/api/shared/feed").values().map { it.path("title").asText() }
+        val titels = getJson("/api/shared/feed").values().map { it.path("title").asString() }
         assertTrue(eigenTitel in titels)
         assertFalse(andermansTitel in titels)
     }
@@ -85,14 +85,14 @@ class SharedFeedE2eTest : E2eTestBase() {
         val titel = "Gelezen met ster ${UUID.randomUUID().toString().take(8)}"
         seed(sharedUsername, newItem(titel, isRead = true, starred = true, liked = true))
 
-        val item = getJson("/api/shared/feed").first { it.path("title").asText() == titel }
+        val item = getJson("/api/shared/feed").first { it.path("title").asString() == titel }
         // Het leesgedrag van de bron-gebruiker mag niet lekken: de reader
         // begint met een schone lei.
         assertFalse(item.path("isRead").asBoolean())
         assertFalse(item.path("starred").asBoolean())
         assertTrue(item.path("liked").isNull || item.path("liked").isMissingNode)
         // De inhoud zelf is wel gewoon aanwezig.
-        assertEquals("samenvatting van $titel", item.path("summary").asText())
+        assertEquals("samenvatting van $titel", item.path("summary").asString())
     }
 
     @Test
@@ -107,7 +107,7 @@ class SharedFeedE2eTest : E2eTestBase() {
             )
         )
 
-        val ids = getJson("/api/shared/categories").values().map { it.path("id").asText() }
+        val ids = getJson("/api/shared/categories").values().map { it.path("id").asString() }
         assertTrue("kotlin" in ids)
         assertTrue("overig" in ids)
         assertFalse("flutter" in ids)

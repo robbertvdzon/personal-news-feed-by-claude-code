@@ -55,12 +55,12 @@ class PodcastIngestE2eTest : E2eTestBase() {
         // Show-notes-cards verschijnen als PODCAST-items in de RSS-tab.
         await { getJson("/api/rss", user.token).size() == 2 }
         val rssItems = getJson("/api/rss", user.token)
-        assertTrue(rssItems.all { it.path("mediaType").asText() == "PODCAST" })
-        assertTrue(rssItems.all { it.path("summary").asText() == "Fake podcast-samenvatting." })
+        assertTrue(rssItems.all { it.path("mediaType").asString() == "PODCAST" })
+        assertTrue(rssItems.all { it.path("summary").asString() == "Fake podcast-samenvatting." })
 
         // transcribeEnabled=false → direct feed-promotie (geen 24h wachten).
         await { getJson("/api/feed", user.token).size() == 2 }
-        assertTrue(getJson("/api/feed", user.token).all { it.path("mediaType").asText() == "PODCAST" })
+        assertTrue(getJson("/api/feed", user.token).all { it.path("mediaType").asString() == "PODCAST" })
 
         // De show-notes zaten in de AI-prompt (geen Whisper nodig).
         val prompts = openAi.callsFor(ExternalCall.ACTION_PODCAST_EPISODE_SUMMARIZE, user.username)
@@ -83,7 +83,7 @@ class PodcastIngestE2eTest : E2eTestBase() {
         post("/api/rss/refresh", user.token)
         await {
             getJson("/api/requests", user.token)
-                .any { it.path("isHourlyUpdate").asBoolean() && it.path("status").asText() == "DONE" }
+                .any { it.path("isHourlyUpdate").asBoolean() && it.path("status").asString() == "DONE" }
         }
 
         assertEquals(2, getJson("/api/rss", user.token).size())
@@ -173,6 +173,6 @@ class PodcastIngestE2eTest : E2eTestBase() {
             """{"feeds": [{"url": "${content.url("/bestaat-niet.xml")}", "transcribeEnabled": false}]}"""
         )
         assertEquals(400, resp.status)
-        assertTrue(resp.json(mapper).path("error").asText().contains("Kon feed niet ophalen"))
+        assertTrue(resp.json(mapper).path("error").asString().contains("Kon feed niet ophalen"))
     }
 }
