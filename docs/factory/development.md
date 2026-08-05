@@ -123,8 +123,8 @@ cd frontend
 flutter pub get
 flutter test
 
-# Reader-app
-cd frontend-reader
+# Reader-app (relatief t.o.v. frontend/ hierboven)
+cd ../frontend-reader
 flutter pub get
 flutter test
 ```

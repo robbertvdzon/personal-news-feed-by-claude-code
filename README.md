@@ -52,4 +52,6 @@ De specificaties in de `specs/` map zijn het vertrekpunt: alle functionaliteit, 
 
 Backend-tests: `mvn test` (snel, unit) en `mvn verify` (volledige e2e-suite tegen een echte Postgres via Testcontainers; Docker vereist).
 
+Frontend-tests: `flutter test` in `frontend/` en in `frontend-reader/` (widget-tests, geen Docker of Android-toolchain nodig). Beide suites draaien sinds SF-1952 ook in CI via `.github/workflows/frontend-tests.yml` — één job per app, bij elke pull request en elke push naar `main` die een van beide app-mappen raakt.
+
 Een gecontaineriseerde dev-omgeving met de complete toolchain (JDK 21, Maven, Flutter, Android SDK, Node, Claude Code) is voorbereid voor wie z'n laptop schoon wil houden of z'n setup tussen machines wil delen. Zie [`.devcontainer/README.md`](./.devcontainer/README.md) voor de bouw-, start- en gebruiks-instructies.

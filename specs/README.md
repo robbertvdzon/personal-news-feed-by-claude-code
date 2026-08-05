@@ -78,3 +78,4 @@ Spring Boot backend (newsfeedbackend/)
 |----------|-------------|
 | `make serve-ext` / `make run` | Start web-app op poort **3000**, backend op `http://localhost:8080` |
 | `make build-apk-ext` | Bouwt release-APK met backend `http://217.120.100.76:19283` |
+| `flutter pub get && flutter test` | Draait de widget-tests; ook in `frontend-reader/`. CI dwingt beide suites af via `.github/workflows/frontend-tests.yml` |

@@ -288,8 +288,13 @@ zetten — leg de meting waarop dat besluit rust hier vast.
     en pusht naar `ghcr.io/robbertvdzon/personal-news-feed-{backend,frontend,reader}:sha-<short>`
     (+ `:main` op main). Op een push naar `main` committet de job daarna de
     nieuwe SHA in `deploy/base/kustomization.yaml` (`.github/scripts/bump-images.sh`).
-  - Andere workflows: APK-builds (`build-apk`, `build-apk-reader`) en de
-    preview-labeller-image (`labeller-image.yml`).
+  - Testworkflows op elke PR + push naar `main`: `backend-tests.yml`
+    (`mvn verify`, paths-filter op `newsfeedbackend/**`) en
+    `frontend-tests.yml` (twee jobs: `flutter test` in `frontend/` en in
+    `frontend-reader/`, paths-filter op beide app-mappen).
+  - Andere workflows: APK-builds (`build-apk`, `build-apk-reader`), de
+    preview-labeller-image (`labeller-image.yml`) en `validate-pr.yml`
+    (branch-/commit-conventie).
   - Auth: `GITHUB_TOKEN` uit de secrets-file → `GH_TOKEN="$GITHUB_TOKEN" gh ...`.
 - **OpenShift** — SNO-lab, `oc login` met `OPENSHIFT_API_TOKEN` (zie §8).
 - **ArgoCD** — GitOps; Application `personal-news-feed`
