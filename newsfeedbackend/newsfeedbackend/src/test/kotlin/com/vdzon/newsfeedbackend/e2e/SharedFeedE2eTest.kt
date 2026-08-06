@@ -98,18 +98,31 @@ class SharedFeedE2eTest : E2eTestBase() {
     @Test
     fun `alleen enabled categorieen van de shared-user komen terug`() {
         ensureSharedUser()
+        val privateInstructies = "Alleen artikelen over coroutines, geen tutorials"
         settingsService.saveCategories(
             sharedUsername,
             listOf(
-                CategorySettings("kotlin", "Kotlin", enabled = true),
+                CategorySettings("kotlin", "Kotlin", enabled = true, extraInstructions = privateInstructies),
                 CategorySettings("flutter", "Flutter", enabled = false),
                 CategorySettings("overig", "Overig", enabled = true, isSystem = true)
             )
         )
 
-        val ids = getJson("/api/shared/categories").values().map { it.path("id").asString() }
+        val response = getJson("/api/shared/categories")
+        val ids = response.values().map { it.path("id").asString() }
         assertTrue("kotlin" in ids)
         assertTrue("overig" in ids)
         assertFalse("flutter" in ids)
+
+        // De privé bijstuur-tekst mag niet mee naar buiten: dit endpoint is
+        // publiek (permitAll) en wordt doorgeproxyd naar de reader-app.
+        val kotlinCategorie = response.values().first { it.path("id").asString() == "kotlin" }
+        assertTrue(kotlinCategorie.path("extraInstructions").isMissingNode)
+        assertTrue(kotlinCategorie.path("isSystem").isMissingNode)
+        assertFalse(response.toString().contains("extraInstructions"))
+        assertFalse(response.toString().contains(privateInstructies))
+        // De drie velden die de reader-app wél parseert zijn er nog.
+        assertEquals("Kotlin", kotlinCategorie.path("name").asString())
+        assertTrue(kotlinCategorie.path("enabled").asBoolean())
     }
 }

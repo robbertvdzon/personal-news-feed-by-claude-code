@@ -1005,7 +1005,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/CategorySettings'
+                  $ref: '#/components/schemas/SharedCategory'
 
   # ── Admin (ROLE_ADMIN) ──────────────────────────────────────────────────────
 
@@ -1649,6 +1649,30 @@ components:
           description: |
             Afbeelding-URL overgenomen van het bron-RssItem. Null als het
             RSS-item geen afbeelding had.
+
+    SharedCategory:
+      type: object
+      description: >
+        Categorie zoals `GET /api/shared/categories` die teruggeeft. Een
+        uitgeklede vorm van `CategorySettings`: `extraInstructions` en
+        `isSystem` worden bewust weggelaten. De extra instructies zijn privé
+        (de bron-gebruiker stuurt daarmee het taalmodel bij) en dit endpoint
+        is publiek; de reader-app leest alleen `id`, `name` en `enabled`.
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          example: kotlin
+        name:
+          type: string
+          example: Kotlin
+        enabled:
+          type: boolean
+          default: true
+          description: >
+            In deze response altijd `true` — het endpoint filtert op
+            ingeschakelde categorieën. Blijft in het contract omdat de
+            reader-app het veld parseert.
 
     # Requests
 
