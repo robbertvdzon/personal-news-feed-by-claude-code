@@ -43,3 +43,25 @@ Verificatie:
   BUILD SUCCESS, exit 0, 61 e2e-tests groen, 0 failures/errors, ~3:03 min.
 - `mvn -B --no-transfer-progress clean test`: exit 0, 106 unit-tests (was 102) groen,
   `ModuleStructureTest` groen, **0** `[WARNING]`-regels in de output.
+
+Review (SF-1993, reviewer):
+- Volledige story-diff (`git diff main...HEAD`) gereviewd: 7 bestanden, geen scope-creep,
+  `frontend-reader`, `CategorySettings` en de `permitAll`/nginx-config zijn ongemoeid.
+- AC 1-6 geverifieerd op de code: `categories()` retourneert `List<SharedCategoryDto>` en
+  mapt ná het `enabled`-filter; de DTO heeft exact `id`/`name`/`enabled`; `openapi.yaml`
+  verwijst bij `/api/shared/categories` naar `SharedCategory` terwijl `CategorySettings`
+  (:1296) inclusief `extraInstructions`/`isSystem` in gebruik blijft bij de drie
+  `/api/settings/categories`-endpoints; `backend-functional-spec.md` r128 aangevuld;
+  de e2e-case asserteert veldnaam én waarde als afwezig. `frontend-reader/lib/models.dart`
+  (`CategorySettings.fromJson`) parseert inderdaad precies deze drie velden — geen
+  contractbreuk voor de reader-app.
+- Modulith: `shared.api.dto` importeert `settings.CategorySettings` uit de module-root
+  (publieke API van `settings`), zelfde relatie als vóór deze story — geen nieuwe schending.
+- Gerichte eigen check: `mvn -B -o test -Dtest=SharedCategoryDtoTest` → 4/4 groen,
+  BUILD SUCCESS, geen `[WARNING]`-regels. Het volledige vangnet is niet herdraaid
+  (revisiegebonden developer-bewijs staat hierboven).
+- Openstaande suggestie (niet blokkerend): in `openapi.yaml` staat `SharedCategory` op
+  `required: [id, name]` met `default: true` op `enabled` — overgenomen uit het
+  request-georiënteerde `CategorySettings`. Voor dit response-only schema serialiseert
+  Kotlin `enabled` altijd, dus `required: [id, name, enabled]` zonder `default` beschrijft
+  het contract preciezer. Kan mee in een volgende spec-aanraking.
