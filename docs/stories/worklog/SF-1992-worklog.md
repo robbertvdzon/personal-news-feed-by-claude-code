@@ -65,3 +65,40 @@ Review (SF-1993, reviewer):
   request-georiënteerde `CategorySettings`. Voor dit response-only schema serialiseert
   Kotlin `enabled` altijd, dus `required: [id, name, enabled]` zonder `default` beschrijft
   het contract preciezer. Kan mee in een volgende spec-aanraking.
+
+Test (SF-1994, tester):
+- Volledig vangnet: `mvn -B --no-transfer-progress clean verify` in
+  `newsfeedbackend/newsfeedbackend` → **BUILD SUCCESS, exit 0**, 106 unit + 61 e2e,
+  0 failures / 0 errors / 0 skipped, **0 `[WARNING]`-regels** (AC 7). `ModuleStructureTest`
+  en `SharedCategoryDtoTest` (4/4) groen, `SharedFeedE2eTest` 4/4 groen.
+- Preview `https://pnf-pr-210.vdzonsoftware.nl` (namespace `pnf-pr-210`): bij aanvang draaide
+  nog `sha-e7fdfbb`; halverwege de run rolde ArgoCD `70c77f2` (= HEAD) uit. Alle live-bewijs
+  hieronder is daarna herhaald op build `70c77f2` (bevestigd via `/api/version` én het
+  scherm "Over deze app": frontend + backend 70c77f2).
+- AC 1 live: `curl` zonder token op `GET /api/shared/categories` → HTTP 200, 5 categorieën;
+  de union van alle JSON-keys over de hele respons is exact `enabled,id,name` —
+  géén `extraInstructions`, géén `isSystem`.
+- AC 2 live: endpoint blijft zonder authenticatie bereikbaar (200) en geeft alleen
+  `enabled = true` terug; `GET /api/shared/feed` blijft eveneens 200 (geen regressie).
+- AC 4 live: `GET /api/settings` mét token geeft nog steeds het volledige `CategorySettings`
+  inclusief `extraInstructions` en `isSystem` → het geauthenticeerde contract is ongemoeid.
+- AC 4 statisch: `specs/openapi.yaml` geparsed met js-yaml en veld-voor-veld vergeleken met
+  `git show main:specs/openapi.yaml`: `CategorySettings` byte-identiek (id/name/enabled/
+  extraInstructions/isSystem), enig nieuw schema `SharedCategory` (id/name/enabled), geen
+  verwijderde schema's/paths, geen dangling `$ref`s. Na het wegdenken van precies die twee
+  bedoelde wijzigingen is de rest van de spec identiek aan main.
+- Reader-contract: `frontend-reader/lib/models.dart` `CategorySettings.fromJson` leest exact
+  `id`/`name`/`enabled` (met defaults) → geen contractbreuk voor de reader-app.
+- UI-smoke (Playwright 420x900, screenshots in `/work/screenshots`): login via de Flutter-UI,
+  feed- en Instellingen-scherm renderen normaal, `GET /api/settings` 200. De story raakt geen
+  frontend-code; dit is puur een regressie-smoke.
+- Inlog-modus: **wegwerp-account** `tester_sf-1992` (fallback), omdat `TESTER_USERNAME`/
+  `TESTER_PASSWORD` niet gezet waren. Opgeruimd met `DELETE /api/account/me` → HTTP 200,
+  daarna geeft opnieuw inloggen 401. Geen DB-mutaties buiten dit account.
+- Niet-blokkerende observatie voor SF-1996 (documentatie): de nieuwe zin in
+  `specs/backend-functional-spec.md` r128 spreekt over "de geauthenticeerde
+  `/api/settings/categories`-endpoints", maar dat pad bestaat niet — live geeft
+  `/api/settings/categories` een 500 ("No static resource"); de echte endpoints zijn
+  `GET`/`PUT /api/settings`. Dezelfde foutieve padnaam staat in de refined story zelf.
+  Inhoudelijk klopt de bewering (alleen de geauthenticeerde settings-endpoints gebruiken nog
+  `CategorySettings`); alleen de padnaam moet `/api/settings` worden.
