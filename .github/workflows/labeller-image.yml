@@ -6,6 +6,10 @@ on:
     paths:
       - 'deploy/preview-ns-labeller/**'
       - '.github/workflows/labeller-image.yml'
+  pull_request:
+    paths:
+      - 'deploy/preview-ns-labeller/**'
+      - '.github/workflows/labeller-image.yml'
   workflow_dispatch:
 
 permissions:
@@ -25,7 +29,11 @@ jobs:
         id: sha
         run: echo "tag=sha-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
+      - name: Validate lifecycle script
+        run: bash -n deploy/preview-ns-labeller/labeller.sh
+
       - uses: docker/login-action@v3
+        if: github.event_name != 'pull_request'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -36,7 +44,7 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: deploy/preview-ns-labeller
-          push: true
+          push: ${{ github.event_name != 'pull_request' }}
           tags: |
             ${{ env.IMAGE }}:${{ steps.sha.outputs.tag }}
             ${{ env.IMAGE }}:main

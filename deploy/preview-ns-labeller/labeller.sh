@@ -35,10 +35,14 @@ NEON_API="${NEON_API:-https://console.neon.tech/api/v2}"
 NEON_BRANCH_PREFIX="${NEON_BRANCH_PREFIX:-pr-}"
 NEON_DATABASE="${NEON_DATABASE:-neondb}"
 NEON_ROLE="${NEON_ROLE:-neondb_owner}"
+GITHUB_API="${GITHUB_API:-https://api.github.com}"
+GITHUB_OWNER="${GITHUB_OWNER:-robbertvdzon}"
+GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-personal-news-feed-by-claude-code}"
 
 # Verwacht via env (uit newsfeed-api-keys secret):
 #   NEON_API_KEY      — token voor Neon REST API
 #   NEON_PROJECT_ID   — bv. square-wave-12014142
+#   GITHUB_TOKEN      — read-only toegang om de actuele PR-status fail-closed te controleren
 
 # Neon-credentials zijn optioneel. Zonder valt de labeller terug op de
 # oude NS-labeling-rol (geen branches, geen secret-patching) en logt
@@ -60,6 +64,33 @@ if (( NEON_ENABLED )); then
 else
   log "start — argocd-ns=$ARGOCD_NS prefix=$NS_PREFIX interval=${INTERVAL}s — NEON DISABLED (set NEON_API_KEY + NEON_PROJECT_ID to enable per-PR branches)"
 fi
+
+# Returncodes: 0=open, 1=gesloten, 2=status onbekend. Onbekend is altijd
+# fail-closed: geen branch aanmaken of verwijderen.
+github_pr_is_open() {
+  local pr_num="$1" raw http_status body state
+  if [[ -z "${GITHUB_TOKEN:-}" ]]; then
+    log "GitHub-token ontbreekt — PR-status voor #$pr_num blijft onbekend"
+    return 2
+  fi
+  raw=$(curl -sS -m 20 \
+    -H "Authorization: Bearer $GITHUB_TOKEN" \
+    -H "Accept: application/vnd.github+json" \
+    -H "X-GitHub-Api-Version: 2022-11-28" \
+    -w '\n%{http_code}' \
+    "${GITHUB_API}/repos/${GITHUB_OWNER}/${GITHUB_REPOSITORY}/pulls/${pr_num}" \
+    2>/dev/null) || return 2
+  http_status="${raw##*$'\n'}"
+  body="${raw%$'\n'*}"
+  if [[ "$http_status" != "200" ]]; then
+    log "GitHub PR-check #$pr_num gaf HTTP $http_status — geen mutatie"
+    return 2
+  fi
+  state=$(echo "$body" | jq -r '.state // "unknown"')
+  [[ "$state" == "open" ]] && return 0
+  [[ "$state" == "closed" ]] && return 1
+  return 2
+}
 
 # ─── Neon REST API helpers ───────────────────────────────────────────────
 
@@ -266,6 +297,20 @@ while true; do
     fi
     branch_name="${NEON_BRANCH_PREFIX}${pr_num}"
 
+    # Een Application kan nog kort bestaan nadat de PR is gesloten. Maak in
+    # die race nooit opnieuw een externe databasebranch aan.
+    if github_pr_is_open "$pr_num"; then
+      :
+    else
+      github_result=$?
+      if [[ "$github_result" == "1" ]]; then
+        log "  $ns: PR #$pr_num is gesloten — geen Neon-branch aanmaken"
+      else
+        log "  $ns: PR-status #$pr_num onbekend — geen Neon-branch aanmaken"
+      fi
+      continue
+    fi
+
     # Branch bestaat?
     branch_id=$(neon_find_branch_id_by_name "$branch_name" || true)
     if [[ -z "$branch_id" ]]; then
@@ -326,7 +371,10 @@ while true; do
     fi
   done
 
-  # 4. Cleanup: orphan Neon-branches verwijderen (geen matching ArgoCD-Application meer).
+  # 4. Cleanup: een orphan Neon-branch pas verwijderen nadat de generieke
+  # preview-reconciler de namespace na grace + twee checks heeft verwijderd,
+  # én GitHub onmiddellijk bevestigt dat de PR gesloten is. Alleen een
+  # ontbrekende ArgoCD-Application is vanwege provisioning-races onvoldoende.
   # Skip als Neon-mode uit staat — dan zijn er sowieso geen branches om op te ruimen.
   if ! (( NEON_ENABLED )); then
     sleep "$INTERVAL"
@@ -343,10 +391,25 @@ while true; do
   while IFS=$'\t' read -r b_id b_name; do
     [[ -z "$b_id" ]] && continue
     pr_num="${b_name#${NEON_BRANCH_PREFIX}}"
-    if [[ "$pr_num" =~ ^[0-9]+$ ]] && [[ -z "${active_prs[$pr_num]:-}" ]]; then
-      log "  cleanup: branch '$b_name' (id=$b_id) heeft geen actieve Application meer → delete"
-      neon_delete_branch "$b_id" || log "  cleanup: delete faalde voor $b_name"
+    if ! [[ "$pr_num" =~ ^[0-9]+$ ]]; then
+      continue
     fi
+    preview_namespace="${NS_PREFIX}${pr_num}"
+    if [[ -n "${active_prs[$pr_num]:-}" ]] || ns_exists "$preview_namespace"; then
+      continue
+    fi
+    if github_pr_is_open "$pr_num"; then
+      log "  cleanup: branch '$b_name' behouden — PR #$pr_num is nog open"
+      continue
+    else
+      github_result=$?
+      if [[ "$github_result" != "1" ]]; then
+        log "  cleanup: branch '$b_name' behouden — PR-status onbekend"
+        continue
+      fi
+    fi
+    log "  cleanup: branch '$b_name' (id=$b_id) hoort bij gesloten PR en verwijderde namespace → delete"
+    neon_delete_branch "$b_id" || log "  cleanup: delete faalde voor $b_name"
   done < <(
     echo "$all_branches_json" \
       | jq -r --arg pre "$NEON_BRANCH_PREFIX" \

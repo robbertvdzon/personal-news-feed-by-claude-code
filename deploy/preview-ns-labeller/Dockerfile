@@ -5,11 +5,11 @@
 #
 #   1. De namespace bestaat met label `argocd.argoproj.io/managed-by=argocd`
 #      (oude verantwoordelijkheid).
-#   2. Een eigen Neon database-branch met naam `pr-N`, en de PNF_DATABASE_URL
+#   2. Na een actuele GitHub PR-check een eigen Neon database-branch met naam `pr-N`, en de PNF_DATABASE_URL
 #      in de gereflecteerde Secret van die namespace wijst naar die branch
 #      (KAN-55 — isolatie van DB-schema/data per PR).
 #
-# Naast kubectl hebben we curl + jq nodig voor de Neon REST API.
+# Naast kubectl hebben we curl + jq nodig voor de Neon- en GitHub-API's.
 
 FROM bitnami/kubectl:latest
 
