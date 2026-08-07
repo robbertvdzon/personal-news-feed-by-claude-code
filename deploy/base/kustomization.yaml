@@ -26,8 +26,6 @@ resources:
 - reader-service.yaml
 - reader-route.yaml
 - cloudflared-deployment.yaml
-- preview-router-config.yaml
-- preview-router-deployment.yaml
 - sealed-secret-api-keys.yaml
 
 commonLabels:

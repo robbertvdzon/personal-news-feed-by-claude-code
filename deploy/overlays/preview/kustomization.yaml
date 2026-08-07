@@ -80,34 +80,6 @@ patches:
       kind: Deployment
       metadata:
         name: cloudflared
-  - target:
-      kind: Deployment
-      name: preview-router
-    patch: |-
-      $patch: delete
-      apiVersion: apps/v1
-      kind: Deployment
-      metadata:
-        name: preview-router
-  - target:
-      kind: Service
-      name: preview-router
-    patch: |-
-      $patch: delete
-      apiVersion: v1
-      kind: Service
-      metadata:
-        name: preview-router
-  - target:
-      kind: ConfigMap
-      name: preview-router-config
-    patch: |-
-      $patch: delete
-      apiVersion: v1
-      kind: ConfigMap
-      metadata:
-        name: preview-router-config
-
   # Backend: vervang PVC-mount door emptyDir (audio is throwaway in previews)
   - target:
       kind: Deployment
