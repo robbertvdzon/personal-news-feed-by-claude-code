@@ -279,15 +279,6 @@ while true; do
   # 3. Per preview-namespace: ns ensure + (optioneel) branch ensure + secret patch.
   for ns in "${app_namespaces[@]}"; do
     [[ -z "$ns" ]] && continue
-    ensure_ns_with_label "$ns"
-
-    # Vanaf hier alleen Neon-werk; bij disabled-mode skippen we.
-    if ! (( NEON_ENABLED )); then
-      continue
-    fi
-    if [[ -z "$default_branch_id" ]]; then
-      continue
-    fi
 
     # PR-num uit ns-naam halen.
     pr_num="${ns#${NS_PREFIX}}"
@@ -295,10 +286,9 @@ while true; do
       log "  $ns: kan PR-num niet bepalen (suffix=$pr_num), skip Neon-branch"
       continue
     fi
-    branch_name="${NEON_BRANCH_PREFIX}${pr_num}"
-
-    # Een Application kan nog kort bestaan nadat de PR is gesloten. Maak in
-    # die race nooit opnieuw een externe databasebranch aan.
+    # Een Application kan nog kort bestaan nadat de PR is gesloten. Controleer
+    # daarom vóór iedere creatiehandeling: niet alleen vóór de Neon-branch,
+    # maar ook vóór het eventueel opnieuw aanmaken van de namespace.
     if github_pr_is_open "$pr_num"; then
       :
     else
@@ -310,6 +300,17 @@ while true; do
       fi
       continue
     fi
+
+    ensure_ns_with_label "$ns"
+
+    # Vanaf hier alleen Neon-werk; bij disabled-mode skippen we.
+    if ! (( NEON_ENABLED )); then
+      continue
+    fi
+    if [[ -z "$default_branch_id" ]]; then
+      continue
+    fi
+    branch_name="${NEON_BRANCH_PREFIX}${pr_num}"
 
     # Branch bestaat?
     branch_id=$(neon_find_branch_id_by_name "$branch_name" || true)
