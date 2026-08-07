@@ -3,12 +3,12 @@
 # de placeholders in (namespace, image-tag) per open PR.
 #
 # Verschillen met de productie-overlay:
-#   * Geen Routes (preview-router handelt ingress af via Cloudflare tunnel)
+#   * Eén eigen frontend-Route; OpenShift handelt host-based routing af
 #   * Geen PVC voor audio (emptyDir; previews zijn throwaway)
 #   * Geen cloudflared (shared via main tunnel + wildcard hostname)
 #   * Geen SealedSecret (reflector mirror't 'm automatisch vanuit
 #     personal-news-feed naar pnf-*)
-#   * Geen preview-router (loopt al in personal-news-feed)
+#   * Geen preview-router
 #   * Geen productie-JWT-sleutel: APP_JWT_SECRET wordt leeggezet, waardoor
 #     de backend bij het opstarten zelf een ephemeral sleutel per pod
 #     genereert (tokens gelden alleen binnen die preview)
@@ -41,11 +41,9 @@ patches:
       kind: Route
       name: frontend
     patch: |-
-      $patch: delete
-      apiVersion: route.openshift.io/v1
-      kind: Route
-      metadata:
-        name: frontend
+      - op: replace
+        path: /spec/host
+        value: preview-host-must-be-set.invalid
   - target:
       kind: Route
       name: backend-debug
@@ -55,6 +53,15 @@ patches:
       kind: Route
       metadata:
         name: backend-debug
+  - target:
+      kind: Route
+      name: reader
+    patch: |-
+      $patch: delete
+      apiVersion: route.openshift.io/v1
+      kind: Route
+      metadata:
+        name: reader
   - target:
       kind: PersistentVolumeClaim
       name: backend-data
