@@ -128,3 +128,56 @@ geverifieerd.
 - AC11 zelf herdraaid via `git worktree add /tmp/base main`:
   `kubectl kustomize` vóór/ná → `diff` leeg (277 regels, byte-identiek). Diff van
   het overlay-bestand bevat na filtering op comment-regels nul non-comment-regels.
+
+## SF-2017 — tester (story-brede test)
+
+Docs-only story: geen code, tests of manifest-gedrag gewijzigd. Onafhankelijk
+alle 11 acceptatiecriteria nagelopen op de branch `ai/SF-2015`.
+
+| AC | Check | Resultaat |
+|----|-------|-----------|
+| 1 | `grep -rn "preview-router" deploy/ docs/factory/ runbook.md` | 0 treffers ✅ |
+| 2 | 3 diagrammen noemen alleen backend/frontend/reader/cloudflared/Secret | ✅ |
+| 3 | `base/`-lijst README = `ls deploy/base/` (13 bestanden) | 13 = 13, 1-op-1 ✅ |
+| 4 | README stap 5 + `runbook.md` §7 beschrijven ingressrouter op Host-header | ✅ |
+| 5 | `insecureEdgeTerminationPolicy: Allow` + reden, consistent met manifests | ✅ |
+| 6 | Overlay-beschrijving klopt met de patches | ✅ |
+| 7 | `GITHUB_TOKEN` als derde sleutel + fail-closed gedrag | ✅ |
+| 8 | Wiring begint met PR-statuscheck; opruimen = ns weg **én** PR gesloten | ✅ |
+| 9 | README:224-232 en `runbook.md`:180-186 gelijkgetrokken | ✅ |
+| 10 | Geen verwijzing meer naar `deploy/applicationset.yaml` | ✅ |
+| 11 | Diff-scope + byte-identieke kustomize-render | ✅ (zie hieronder) |
+
+Verificatiedetails:
+
+- **AC11 (render-identiteit).** Zelfstandig herdraaid via een schone worktree op
+  `main` (`git worktree add /tmp/mainwt main`): `kubectl kustomize` op beide
+  revisies gaf identieke md5 `bb7ae3f2b1fb0afa72d203126662825e` (6701 bytes),
+  `cmp` leeg. Er is dus aantoonbaar géén gedragsverandering in de gerenderde
+  manifests. Alle gewijzigde regels in `deploy/overlays/preview/kustomization.yaml`
+  beginnen met `#`.
+- **AC7/AC8 (fail-closed) tegen `labeller.sh` gecontroleerd, niet alleen tegen de
+  tekst.** `github_pr_is_open` geeft returncode 2 bij ontbrekend token, gefaalde
+  curl of non-200 (regels 72-89), en de aanroep in de main-loop doet `continue`
+  vóór `ensure_ns_with_label` — dus inderdaad géén namespace-label, geen
+  Neon-branch, geen secret-patch. De cleanup-lus (regels 375-415) verwijdert een
+  branch alleen als de namespace weg is (`ns_exists` false) én GitHub returncode 1
+  (gesloten) geeft; bij status onbekend blijft de branch staan. De docs beschrijven
+  dit correct.
+- **AC5** getoetst aan de manifests zelf: `frontend-route.yaml:21` en
+  `reader-route.yaml:21` staan op `Allow`, `backend-route.yaml:22` op `Redirect` —
+  precies zoals de docs nu stellen.
+- **Diff-scope.** `git diff --name-status main...HEAD` raakt `deploy/README.md`,
+  `deploy/overlays/preview/kustomization.yaml`, `docs/factory/deployment.md`,
+  `runbook.md` en (nieuw) `docs/stories/worklog/SF-2015-worklog.md`. Bestaande
+  bestanden onder `docs/stories/**` zijn ongemoeid — alleen het worklog is
+  toegevoegd, wat factory-bookkeeping is en geen historisch storyverslag wijzigt.
+- **Resterende `preview-router`-treffers** in de repo zitten uitsluitend in
+  `docs/stories/**` (SF-1542, SF-1690 en hun worklogs) en in `.task.md` zelf —
+  expliciet buiten scope als historische momentopname.
+- **Geen preview/E2E-test uitgevoerd.** `gh` heeft in deze container geen auth
+  (`gh auth login`/`GH_TOKEN` ontbreekt), dus er was geen PR-nummer en dus geen
+  preview-URL op te halen. Dat is hier niet blokkerend: de story wijzigt geen
+  code, geen tests en geen gerenderde manifests (byte-identiek bewezen), zodat er
+  geen waarneembaar applicatiegedrag kan zijn veranderd.
+- **Geen flakes waargenomen.** Het volledige vangnet draait de harness na deze run.
