@@ -17,7 +17,6 @@ import java.time.Duration
 import java.time.Instant
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
-import java.util.UUID
 
 /**
  * Haalt één podcast-RSS-feed op en parsed naar [PodcastFeedEpisode]s.
@@ -114,7 +113,12 @@ class PodcastFeedFetcher(
             errorMessage = e.message ?: e.javaClass.simpleName
             return FetchResult(ok = false, podcastName = "", episodes = emptyList(), errorMessage = errorMessage)
         } finally {
-            logFetch(username, feedUrl, started, itemCount, status, errorMessage)
+            callLogger.logCall(
+                ExternalCall.PROVIDER_RSS, ExternalCall.ACTION_PODCAST_FEED_FETCH, username, started,
+                ExternalCall.UNIT_ITEMS, status,
+                units = itemCount.toLong(), costUsd = 0.0, errorMessage = errorMessage,
+                subject = feedUrl.take(120)
+            )
         }
     }
 
@@ -143,38 +147,6 @@ class PodcastFeedFetcher(
             }
         } catch (_: NumberFormatException) {
             null
-        }
-    }
-
-    private fun logFetch(
-        username: String,
-        feedUrl: String,
-        started: Instant,
-        itemCount: Int,
-        status: String,
-        errorMessage: String?
-    ) {
-        val end = Instant.now()
-        try {
-            callLogger.log(
-                ExternalCall(
-                    id = UUID.randomUUID().toString(),
-                    provider = ExternalCall.PROVIDER_RSS,
-                    action = ExternalCall.ACTION_PODCAST_FEED_FETCH,
-                    username = username,
-                    startTime = started,
-                    endTime = end,
-                    durationMs = end.toEpochMilli() - started.toEpochMilli(),
-                    units = itemCount.toLong(),
-                    unitType = ExternalCall.UNIT_ITEMS,
-                    costUsd = 0.0,
-                    status = status,
-                    errorMessage = errorMessage,
-                    subject = feedUrl.take(120)
-                )
-            )
-        } catch (e: Exception) {
-            log.warn("[PodcastFeed] could not log external_call: {}", e.message)
         }
     }
 

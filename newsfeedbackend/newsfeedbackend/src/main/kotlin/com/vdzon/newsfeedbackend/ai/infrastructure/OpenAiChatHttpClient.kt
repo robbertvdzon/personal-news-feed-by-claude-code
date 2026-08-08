@@ -15,7 +15,6 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
 import java.time.Instant
-import java.util.UUID
 
 /**
  * KAN-63: thin HTTP-wrapper voor OpenAI's `/v1/chat/completions`.
@@ -95,10 +94,15 @@ class OpenAiChatHttpClient(
         costFn: (Long, Long) -> Double
     ): OpenAiChatResponse {
         val started = Instant.now()
+        val logSubject = (subject ?: "model=$model").take(120)
         if (apiKey.isBlank()) {
             log.warn("[OpenAI-chat] no API key configured — returning empty response for action '{}'", action)
-            logCall(action, username, model, started, 0, 0, 0.0, subject,
-                status = "error", errorMessage = "no API key configured")
+            callLogger.logCall(
+                ExternalCall.PROVIDER_OPENAI, action, username, started,
+                ExternalCall.UNIT_TOKENS, "error",
+                units = 0, costUsd = 0.0, errorMessage = "no API key configured",
+                subject = logSubject, tokensIn = 0, tokensOut = 0
+            )
             return OpenAiChatResponse("", 0, 0, 0.0, model, "error", "no API key configured")
         }
         val payload = linkedMapOf<String, Any>(
@@ -131,8 +135,12 @@ class OpenAiChatHttpClient(
             if (code >= 400) {
                 val errBody = resp.body().take(400)
                 log.warn("[OpenAI-chat] {} -> {} body={}", action, code, errBody)
-                logCall(action, username, model, started, 0, 0, 0.0, subject,
-                    status = "error", errorMessage = "http $code: ${errBody.take(120)}")
+                callLogger.logCall(
+                    ExternalCall.PROVIDER_OPENAI, action, username, started,
+                    ExternalCall.UNIT_TOKENS, "error",
+                    units = 0, costUsd = 0.0, errorMessage = "http $code: ${errBody.take(120)}",
+                    subject = logSubject, tokensIn = 0, tokensOut = 0
+                )
                 return OpenAiChatResponse("", 0, 0, 0.0, model, "error", "HTTP $code: ${errBody.take(160)}")
             }
             val tree = mapper.readTree(resp.body())
@@ -141,55 +149,25 @@ class OpenAiChatHttpClient(
             val inputTokens = usage.path("prompt_tokens").asInt(0)
             val outputTokens = usage.path("completion_tokens").asInt(0)
             val cost = costFn(inputTokens.toLong(), outputTokens.toLong())
-            logCall(action, username, model, started,
-                inputTokens.toLong(), outputTokens.toLong(), cost, subject,
-                status = "ok", errorMessage = null)
+            callLogger.logCall(
+                ExternalCall.PROVIDER_OPENAI, action, username, started,
+                ExternalCall.UNIT_TOKENS, "ok",
+                units = inputTokens.toLong() + outputTokens.toLong(), costUsd = cost,
+                errorMessage = null, subject = logSubject,
+                tokensIn = inputTokens.toLong(), tokensOut = outputTokens.toLong()
+            )
             log.info("[OpenAI-chat] {} ok model={} in={} out={} cost=${'$'}{}",
                 action, model, inputTokens, outputTokens, "%.4f".format(cost))
             OpenAiChatResponse(text, inputTokens, outputTokens, cost, model, "ok", null)
         } catch (e: Exception) {
             log.warn("[OpenAI-chat] {} failed: {}", action, e.message)
-            logCall(action, username, model, started, 0, 0, 0.0, subject,
-                status = "error", errorMessage = e.message ?: e.javaClass.simpleName)
-            OpenAiChatResponse("", 0, 0, 0.0, model, "error", e.message ?: e.javaClass.simpleName)
-        }
-    }
-
-    private fun logCall(
-        action: String,
-        username: String,
-        model: String,
-        started: Instant,
-        tokensIn: Long,
-        tokensOut: Long,
-        cost: Double,
-        subject: String?,
-        status: String,
-        errorMessage: String?
-    ) {
-        val end = Instant.now()
-        try {
-            callLogger.log(
-                ExternalCall(
-                    id = UUID.randomUUID().toString(),
-                    provider = ExternalCall.PROVIDER_OPENAI,
-                    action = action,
-                    username = username,
-                    startTime = started,
-                    endTime = end,
-                    durationMs = end.toEpochMilli() - started.toEpochMilli(),
-                    tokensIn = tokensIn,
-                    tokensOut = tokensOut,
-                    units = tokensIn + tokensOut,
-                    unitType = ExternalCall.UNIT_TOKENS,
-                    costUsd = cost,
-                    status = status,
-                    errorMessage = errorMessage,
-                    subject = (subject ?: "model=$model").take(120)
-                )
+            callLogger.logCall(
+                ExternalCall.PROVIDER_OPENAI, action, username, started,
+                ExternalCall.UNIT_TOKENS, "error",
+                units = 0, costUsd = 0.0, errorMessage = e.message ?: e.javaClass.simpleName,
+                subject = logSubject, tokensIn = 0, tokensOut = 0
             )
-        } catch (e: Exception) {
-            log.warn("[OpenAI-chat] could not log external_call: {}", e.message)
+            OpenAiChatResponse("", 0, 0, 0.0, model, "error", e.message ?: e.javaClass.simpleName)
         }
     }
 }

@@ -3,8 +3,8 @@ package com.vdzon.newsfeedbackend.external_call
 import java.time.Instant
 
 /**
- * Eén log-regel voor een call naar een externe partij. Wordt geappend aan
- * `data/external_calls.jsonl` (één JSON-object per regel).
+ * Eén log-regel voor een call naar een externe partij. Wordt als rij
+ * opgeslagen in de Postgres-tabel `external_calls`.
  *
  * Het idee: "elke keer als we een externe API aanroepen schrijven we een
  * regel met provider, actie, kosten, duur, units, gebruiker en status".

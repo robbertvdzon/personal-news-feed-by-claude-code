@@ -13,7 +13,6 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
 import java.time.Instant
-import java.util.UUID
 
 /**
  * Downloads een podcast-MP3 naar een temp-file. De file wordt gestreamed
@@ -74,40 +73,12 @@ class PodcastAudioDownloader(
             tempFile.delete()
             return null
         } finally {
-            log(username, episodeGuid, audioUrl, started, size, status, errorMessage)
-        }
-    }
-
-    private fun log(
-        username: String,
-        episodeGuid: String,
-        audioUrl: String,
-        started: Instant,
-        size: Long,
-        status: String,
-        errorMessage: String?
-    ) {
-        val end = Instant.now()
-        try {
-            callLogger.log(
-                ExternalCall(
-                    id = UUID.randomUUID().toString(),
-                    provider = ExternalCall.PROVIDER_WEB,
-                    action = ExternalCall.ACTION_PODCAST_AUDIO_DOWNLOAD,
-                    username = username,
-                    startTime = started,
-                    endTime = end,
-                    durationMs = end.toEpochMilli() - started.toEpochMilli(),
-                    units = size,
-                    unitType = ExternalCall.UNIT_BYTES,
-                    costUsd = 0.0,
-                    status = status,
-                    errorMessage = errorMessage,
-                    subject = "guid=${episodeGuid.take(60)} url=${audioUrl.take(60)}"
-                )
+            callLogger.logCall(
+                ExternalCall.PROVIDER_WEB, ExternalCall.ACTION_PODCAST_AUDIO_DOWNLOAD, username, started,
+                ExternalCall.UNIT_BYTES, status,
+                units = size, costUsd = 0.0, errorMessage = errorMessage,
+                subject = "guid=${episodeGuid.take(60)} url=${audioUrl.take(60)}"
             )
-        } catch (e: Exception) {
-            log.warn("[PodcastAudio] could not log external_call: {}", e.message)
         }
     }
 }

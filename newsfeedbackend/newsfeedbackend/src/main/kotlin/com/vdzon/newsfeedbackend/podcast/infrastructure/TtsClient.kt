@@ -15,7 +15,6 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
 import java.time.Instant
-import java.util.UUID
 
 @Component
 class TtsClient(
@@ -105,8 +104,13 @@ class TtsClient(
     ): ByteArray? {
         val started = Instant.now()
         val chars = text.length.toLong()
+        val subj = subject.take(120)
         if (openaiKey.isBlank()) {
-            logTts(ExternalCall.PROVIDER_OPENAI, action, username, started, chars, 0.0, "error", "no API key", subject)
+            callLogger.logCall(
+                ExternalCall.PROVIDER_OPENAI, action, username, started,
+                ExternalCall.UNIT_CHARACTERS, "error",
+                units = chars, costUsd = 0.0, errorMessage = "no API key", subject = subj
+            )
             return null
         }
         val body = mapper.writeValueAsString(
@@ -128,17 +132,29 @@ class TtsClient(
             val resp = http.send(req, HttpResponse.BodyHandlers.ofByteArray())
             if (resp.statusCode() >= 400) {
                 log.warn("[TTS] OpenAI -> {} action={} voice={}", resp.statusCode(), action, voice)
-                logTts(ExternalCall.PROVIDER_OPENAI, action, username, started, chars, 0.0,
-                    "error", "http ${resp.statusCode()}", subject)
+                callLogger.logCall(
+                    ExternalCall.PROVIDER_OPENAI, action, username, started,
+                    ExternalCall.UNIT_CHARACTERS, "error",
+                    units = chars, costUsd = 0.0,
+                    errorMessage = "http ${resp.statusCode()}", subject = subj
+                )
                 null
             } else {
-                logTts(ExternalCall.PROVIDER_OPENAI, action, username, started, chars,
-                    pricing.characterCost(ttsModel, chars), "ok", null, subject)
+                callLogger.logCall(
+                    ExternalCall.PROVIDER_OPENAI, action, username, started,
+                    ExternalCall.UNIT_CHARACTERS, "ok",
+                    units = chars, costUsd = pricing.characterCost(ttsModel, chars),
+                    errorMessage = null, subject = subj
+                )
                 resp.body()
             }
         } catch (e: Exception) {
             log.warn("[TTS] OpenAI failed action={}: {}", action, e.message)
-            logTts(ExternalCall.PROVIDER_OPENAI, action, username, started, chars, 0.0, "error", e.message, subject)
+            callLogger.logCall(
+                ExternalCall.PROVIDER_OPENAI, action, username, started,
+                ExternalCall.UNIT_CHARACTERS, "error",
+                units = chars, costUsd = 0.0, errorMessage = e.message, subject = subj
+            )
             null
         }
     }
@@ -146,9 +162,13 @@ class TtsClient(
     private fun eleven(username: String, podcastId: String, role: SpeakerRole, text: String): ByteArray? {
         val started = Instant.now()
         val chars = text.length.toLong()
-        val subj = "Podcast id=$podcastId role=${role.name}"
+        val subj = "Podcast id=$podcastId role=${role.name}".take(120)
         if (elevenKey.isBlank()) {
-            logTts(ExternalCall.PROVIDER_ELEVENLABS, ExternalCall.ACTION_PODCAST_TTS, username, started, chars, 0.0, "error", "no API key", subj)
+            callLogger.logCall(
+                ExternalCall.PROVIDER_ELEVENLABS, ExternalCall.ACTION_PODCAST_TTS, username, started,
+                ExternalCall.UNIT_CHARACTERS, "error",
+                units = chars, costUsd = 0.0, errorMessage = "no API key", subject = subj
+            )
             return null
         }
         val voiceId = if (role == SpeakerRole.INTERVIEWER) voiceInterviewer else voiceGuest
@@ -171,53 +191,30 @@ class TtsClient(
             val resp = http.send(req, HttpResponse.BodyHandlers.ofByteArray())
             if (resp.statusCode() >= 400) {
                 log.warn("[TTS] ElevenLabs -> {}", resp.statusCode())
-                logTts(ExternalCall.PROVIDER_ELEVENLABS, ExternalCall.ACTION_PODCAST_TTS, username, started, chars, 0.0,
-                    "error", "http ${resp.statusCode()}", subj)
+                callLogger.logCall(
+                    ExternalCall.PROVIDER_ELEVENLABS, ExternalCall.ACTION_PODCAST_TTS, username, started,
+                    ExternalCall.UNIT_CHARACTERS, "error",
+                    units = chars, costUsd = 0.0,
+                    errorMessage = "http ${resp.statusCode()}", subject = subj
+                )
                 null
             } else {
-                logTts(ExternalCall.PROVIDER_ELEVENLABS, ExternalCall.ACTION_PODCAST_TTS, username, started, chars,
-                    Pricing.elevenlabsTtsCost(chars), "ok", null, subj)
+                callLogger.logCall(
+                    ExternalCall.PROVIDER_ELEVENLABS, ExternalCall.ACTION_PODCAST_TTS, username, started,
+                    ExternalCall.UNIT_CHARACTERS, "ok",
+                    units = chars, costUsd = Pricing.elevenlabsTtsCost(chars),
+                    errorMessage = null, subject = subj
+                )
                 stripId3(resp.body())
             }
         } catch (e: Exception) {
             log.warn("[TTS] ElevenLabs failed: {}", e.message)
-            logTts(ExternalCall.PROVIDER_ELEVENLABS, ExternalCall.ACTION_PODCAST_TTS, username, started, chars, 0.0, "error", e.message, subj)
-            null
-        }
-    }
-
-    private fun logTts(
-        provider: String,
-        action: String,
-        username: String,
-        started: Instant,
-        chars: Long,
-        cost: Double,
-        status: String,
-        errorMessage: String?,
-        subject: String
-    ) {
-        val end = Instant.now()
-        try {
-            callLogger.log(
-                ExternalCall(
-                    id = UUID.randomUUID().toString(),
-                    provider = provider,
-                    action = action,
-                    username = username,
-                    startTime = started,
-                    endTime = end,
-                    durationMs = end.toEpochMilli() - started.toEpochMilli(),
-                    units = chars,
-                    unitType = ExternalCall.UNIT_CHARACTERS,
-                    costUsd = cost,
-                    status = status,
-                    errorMessage = errorMessage,
-                    subject = subject.take(120)
-                )
+            callLogger.logCall(
+                ExternalCall.PROVIDER_ELEVENLABS, ExternalCall.ACTION_PODCAST_TTS, username, started,
+                ExternalCall.UNIT_CHARACTERS, "error",
+                units = chars, costUsd = 0.0, errorMessage = e.message, subject = subj
             )
-        } catch (e: Exception) {
-            log.warn("[TTS] could not log external_call: {}", e.message)
+            null
         }
     }
 
