@@ -12,7 +12,6 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
 import java.time.Instant
-import java.util.UUID
 
 /**
  * Fetches full article HTML and produces a plain-text body that AI can
@@ -46,7 +45,7 @@ class ArticleFetcher(
             // De artikel-URL komt uit de feed-inhoud en is dus nooit gevalideerd bij opslaan;
             // verse DNS-resolutie vlak vóór het request (dekt ook DNS-rebinding af).
             // Let op: geen `return` hier — de afwijzing moet als waarde uit deze expressie
-            // komen, anders slaat het `.also { logFetch(...) }` hieronder over.
+            // komen, anders slaat het `.also { callLogger.logCall(...) }` hieronder over.
             val validation = SsrfUrlValidator.validate(url, allowLoopback = ssrfAllowLoopback)
             if (validation is SsrfUrlValidator.ValidationResult.Invalid) {
                 log.warn("[ArticleFetcher] blocked SSRF-risky URL {}: {}", url, validation.reason)
@@ -78,39 +77,12 @@ class ArticleFetcher(
             errorMessage = e.message ?: e.javaClass.simpleName
             null
         }.also {
-            logFetch(username, url, started, charsKept, status, errorMessage)
-        }
-    }
-
-    private fun logFetch(
-        username: String,
-        url: String,
-        started: Instant,
-        charsKept: Long,
-        status: String,
-        errorMessage: String?
-    ) {
-        val end = Instant.now()
-        try {
-            callLogger.log(
-                ExternalCall(
-                    id = UUID.randomUUID().toString(),
-                    provider = ExternalCall.PROVIDER_WEB,
-                    action = ExternalCall.ACTION_ARTICLE_FETCH,
-                    username = username,
-                    startTime = started,
-                    endTime = end,
-                    durationMs = end.toEpochMilli() - started.toEpochMilli(),
-                    units = charsKept,
-                    unitType = ExternalCall.UNIT_CHARACTERS,
-                    costUsd = 0.0,
-                    status = status,
-                    errorMessage = errorMessage,
-                    subject = url.take(120)
-                )
+            callLogger.logCall(
+                ExternalCall.PROVIDER_WEB, ExternalCall.ACTION_ARTICLE_FETCH, username, started,
+                ExternalCall.UNIT_CHARACTERS, status,
+                units = charsKept, costUsd = 0.0, errorMessage = errorMessage,
+                subject = url.take(120)
             )
-        } catch (e: Exception) {
-            log.warn("[ArticleFetcher] could not log external_call: {}", e.message)
         }
     }
 

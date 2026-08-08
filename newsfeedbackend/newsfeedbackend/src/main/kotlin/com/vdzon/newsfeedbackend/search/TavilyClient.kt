@@ -13,7 +13,6 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
 import java.time.Instant
-import java.util.UUID
 
 data class TavilyResult(val title: String, val url: String, val snippet: String, val publishedDate: String? = null)
 
@@ -28,9 +27,14 @@ class TavilyClient(
     private val http: HttpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(30)).build()
 
     fun search(username: String, query: String, days: Int = 3, maxResults: Int = 12): List<TavilyResult> {
+        val subj = query.take(120)
         if (apiKey.isBlank()) {
             log.warn("[Tavily] no API key configured")
-            logCall(ExternalCall.ACTION_TAVILY_SEARCH, username, query, Instant.now(), 0.0, "error", "no API key")
+            callLogger.logCall(
+                ExternalCall.PROVIDER_TAVILY, ExternalCall.ACTION_TAVILY_SEARCH, username, Instant.now(),
+                ExternalCall.UNIT_QUERIES, "error",
+                units = 1, costUsd = 0.0, errorMessage = "no API key", subject = subj
+            )
             return emptyList()
         }
         val started = Instant.now()
@@ -54,8 +58,11 @@ class TavilyClient(
             val resp = http.send(req, HttpResponse.BodyHandlers.ofString())
             if (resp.statusCode() >= 400) {
                 log.warn("[Tavily] {} -> {}", query, resp.statusCode())
-                logCall(ExternalCall.ACTION_TAVILY_SEARCH, username, query, started, 0.0, "error",
-                    "http ${resp.statusCode()}")
+                callLogger.logCall(
+                    ExternalCall.PROVIDER_TAVILY, ExternalCall.ACTION_TAVILY_SEARCH, username, started,
+                    ExternalCall.UNIT_QUERIES, "error",
+                    units = 1, costUsd = 0.0, errorMessage = "http ${resp.statusCode()}", subject = subj
+                )
                 return emptyList()
             }
             val tree = mapper.readTree(resp.body())
@@ -68,12 +75,19 @@ class TavilyClient(
                     publishedDate = node.path("published_date").asString(null)
                 )
             }
-            logCall(ExternalCall.ACTION_TAVILY_SEARCH, username, query, started,
-                Pricing.tavilySearchCost(), "ok", null)
+            callLogger.logCall(
+                ExternalCall.PROVIDER_TAVILY, ExternalCall.ACTION_TAVILY_SEARCH, username, started,
+                ExternalCall.UNIT_QUERIES, "ok",
+                units = 1, costUsd = Pricing.tavilySearchCost(), errorMessage = null, subject = subj
+            )
             results
         } catch (e: Exception) {
             log.warn("[Tavily] search failed: {}", e.message)
-            logCall(ExternalCall.ACTION_TAVILY_SEARCH, username, query, started, 0.0, "error", e.message)
+            callLogger.logCall(
+                ExternalCall.PROVIDER_TAVILY, ExternalCall.ACTION_TAVILY_SEARCH, username, started,
+                ExternalCall.UNIT_QUERIES, "error",
+                units = 1, costUsd = 0.0, errorMessage = e.message, subject = subj
+            )
             emptyList()
         }
     }
@@ -81,7 +95,7 @@ class TavilyClient(
     fun extract(username: String, urls: List<String>): Map<String, String> {
         if (apiKey.isBlank() || urls.isEmpty()) return emptyMap()
         val started = Instant.now()
-        val subj = "extract ${urls.size} urls"
+        val subj = "extract ${urls.size} urls".take(120)
         return try {
             val body = mapper.writeValueAsString(
                 mapOf("api_key" to apiKey, "urls" to urls)
@@ -95,8 +109,11 @@ class TavilyClient(
             val resp = http.send(req, HttpResponse.BodyHandlers.ofString())
             if (resp.statusCode() >= 400) {
                 log.warn("[Tavily] extract -> {}", resp.statusCode())
-                logCall(ExternalCall.ACTION_TAVILY_EXTRACT, username, subj, started, 0.0, "error",
-                    "http ${resp.statusCode()}")
+                callLogger.logCall(
+                    ExternalCall.PROVIDER_TAVILY, ExternalCall.ACTION_TAVILY_EXTRACT, username, started,
+                    ExternalCall.UNIT_QUERIES, "error",
+                    units = 1, costUsd = 0.0, errorMessage = "http ${resp.statusCode()}", subject = subj
+                )
                 return emptyMap()
             }
             val tree = mapper.readTree(resp.body())
@@ -105,46 +122,20 @@ class TavilyClient(
                 val text = node.path("raw_content").asString("").take(8000)
                 url to text
             }
-            logCall(ExternalCall.ACTION_TAVILY_EXTRACT, username, subj, started,
-                Pricing.tavilyExtractCost(), "ok", null)
+            callLogger.logCall(
+                ExternalCall.PROVIDER_TAVILY, ExternalCall.ACTION_TAVILY_EXTRACT, username, started,
+                ExternalCall.UNIT_QUERIES, "ok",
+                units = 1, costUsd = Pricing.tavilyExtractCost(), errorMessage = null, subject = subj
+            )
             out
         } catch (e: Exception) {
             log.warn("[Tavily] extract failed: {}", e.message)
-            logCall(ExternalCall.ACTION_TAVILY_EXTRACT, username, subj, started, 0.0, "error", e.message)
-            emptyMap()
-        }
-    }
-
-    private fun logCall(
-        action: String,
-        username: String,
-        subject: String,
-        started: Instant,
-        cost: Double,
-        status: String,
-        errorMessage: String?
-    ) {
-        val end = Instant.now()
-        try {
-            callLogger.log(
-                ExternalCall(
-                    id = UUID.randomUUID().toString(),
-                    provider = ExternalCall.PROVIDER_TAVILY,
-                    action = action,
-                    username = username,
-                    startTime = started,
-                    endTime = end,
-                    durationMs = end.toEpochMilli() - started.toEpochMilli(),
-                    units = 1,
-                    unitType = ExternalCall.UNIT_QUERIES,
-                    costUsd = cost,
-                    status = status,
-                    errorMessage = errorMessage,
-                    subject = subject.take(120)
-                )
+            callLogger.logCall(
+                ExternalCall.PROVIDER_TAVILY, ExternalCall.ACTION_TAVILY_EXTRACT, username, started,
+                ExternalCall.UNIT_QUERIES, "error",
+                units = 1, costUsd = 0.0, errorMessage = e.message, subject = subj
             )
-        } catch (e: Exception) {
-            log.warn("[Tavily] could not log external_call: {}", e.message)
+            emptyMap()
         }
     }
 }

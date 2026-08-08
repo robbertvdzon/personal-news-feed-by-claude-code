@@ -87,7 +87,12 @@ class WhisperClient(
         val subject = "Podcast episode guid=${episodeGuid.take(60)}"
         if (openaiKey.isBlank()) {
             log.warn("[Whisper] no OPENAI_API_KEY configured — skipping transcription")
-            logCall(username, started, audioDurationSec, 0.0, "error", "no API key", subject)
+            callLogger.logCall(
+                ExternalCall.PROVIDER_OPENAI, ExternalCall.ACTION_PODCAST_TRANSCRIBE, username, started,
+                ExternalCall.UNIT_SECONDS, "error",
+                units = audioDurationSec, costUsd = 0.0,
+                errorMessage = "no API key", subject = subject.take(120)
+            )
             return TranscribeOutcome.NoApiKey
         }
         return try {
@@ -104,8 +109,12 @@ class WhisperClient(
             if (code >= 400) {
                 val bodyHead = resp.body().take(400)
                 log.warn("[Whisper] {} -> {} body={}", subject, code, bodyHead)
-                logCall(username, started, audioDurationSec, 0.0,
-                    "error", "http $code", subject)
+                callLogger.logCall(
+                    ExternalCall.PROVIDER_OPENAI, ExternalCall.ACTION_PODCAST_TRANSCRIBE, username, started,
+                    ExternalCall.UNIT_SECONDS, "error",
+                    units = audioDurationSec, costUsd = 0.0,
+                    errorMessage = "http $code", subject = subject.take(120)
+                )
                 // 429 (rate limit) of 5xx (transient server-fout) → retry-pad.
                 // 4xx anders dan 429 (bv. 400/413 te grote file) → fataal.
                 return if (code == 429 || code in 500..599) {
@@ -117,14 +126,23 @@ class WhisperClient(
             val tree = mapper.readTree(resp.body())
             val text = tree.path("text").asString("")
             val cost = pricing.transcriptionCost(whisperModel, audioDurationSec)
-            logCall(username, started, audioDurationSec, cost, "ok", null, subject)
+            callLogger.logCall(
+                ExternalCall.PROVIDER_OPENAI, ExternalCall.ACTION_PODCAST_TRANSCRIBE, username, started,
+                ExternalCall.UNIT_SECONDS, "ok",
+                units = audioDurationSec, costUsd = cost,
+                errorMessage = null, subject = subject.take(120)
+            )
             log.info("[Whisper] transcribed guid={} chars={} durationSec={} cost=${'$'}{}",
                 episodeGuid, text.length, audioDurationSec, "%.4f".format(cost))
             TranscribeOutcome.Success(text = text, durationSeconds = audioDurationSec)
         } catch (e: Exception) {
             log.warn("[Whisper] transcribe failed: {}", e.message)
-            logCall(username, started, audioDurationSec, 0.0,
-                "error", e.message ?: e.javaClass.simpleName, subject)
+            callLogger.logCall(
+                ExternalCall.PROVIDER_OPENAI, ExternalCall.ACTION_PODCAST_TRANSCRIBE, username, started,
+                ExternalCall.UNIT_SECONDS, "error",
+                units = audioDurationSec, costUsd = 0.0,
+                errorMessage = e.message ?: e.javaClass.simpleName, subject = subject.take(120)
+            )
             TranscribeOutcome.FatalError(e.message ?: e.javaClass.simpleName)
         }
     }
@@ -177,38 +195,5 @@ class WhisperClient(
         }
 
         return HttpRequest.BodyPublishers.ofInputStream { pipe }
-    }
-
-    private fun logCall(
-        username: String,
-        started: Instant,
-        durationSec: Long,
-        cost: Double,
-        status: String,
-        errorMessage: String?,
-        subject: String
-    ) {
-        val end = Instant.now()
-        try {
-            callLogger.log(
-                ExternalCall(
-                    id = UUID.randomUUID().toString(),
-                    provider = ExternalCall.PROVIDER_OPENAI,
-                    action = ExternalCall.ACTION_PODCAST_TRANSCRIBE,
-                    username = username,
-                    startTime = started,
-                    endTime = end,
-                    durationMs = end.toEpochMilli() - started.toEpochMilli(),
-                    units = durationSec,
-                    unitType = ExternalCall.UNIT_SECONDS,
-                    costUsd = cost,
-                    status = status,
-                    errorMessage = errorMessage,
-                    subject = subject.take(120)
-                )
-            )
-        } catch (e: Exception) {
-            log.warn("[Whisper] could not log external_call: {}", e.message)
-        }
     }
 }

@@ -37,7 +37,7 @@ class RssFetcher(
 
     /**
      * Haalt één RSS-feed op en parsed naar [RssItem]s. Logt elke fetch
-     * (ook fouten) als `rss_fetch` in `external_calls.jsonl` met
+     * (ook fouten) als `rss_fetch` in de tabel `external_calls` met
      * `units = #items` — `costUsd` blijft 0 omdat RSS gratis is, maar de
      * regel is wel handig voor "is mijn feed wel echt opgehaald?"-debug.
      *
@@ -97,39 +97,12 @@ class RssFetcher(
             errorMessage = e.message ?: e.javaClass.simpleName
             return emptyList()
         } finally {
-            logFetch(username, feedUrl, started, itemCount, status, errorMessage)
-        }
-    }
-
-    private fun logFetch(
-        username: String,
-        feedUrl: String,
-        started: Instant,
-        itemCount: Int,
-        status: String,
-        errorMessage: String?
-    ) {
-        val end = Instant.now()
-        try {
-            callLogger.log(
-                ExternalCall(
-                    id = UUID.randomUUID().toString(),
-                    provider = ExternalCall.PROVIDER_RSS,
-                    action = ExternalCall.ACTION_RSS_FETCH,
-                    username = username,
-                    startTime = started,
-                    endTime = end,
-                    durationMs = end.toEpochMilli() - started.toEpochMilli(),
-                    units = itemCount.toLong(),
-                    unitType = ExternalCall.UNIT_ITEMS,
-                    costUsd = 0.0,
-                    status = status,
-                    errorMessage = errorMessage,
-                    subject = feedUrl.take(120)
-                )
+            callLogger.logCall(
+                ExternalCall.PROVIDER_RSS, ExternalCall.ACTION_RSS_FETCH, username, started,
+                ExternalCall.UNIT_ITEMS, status,
+                units = itemCount.toLong(), costUsd = 0.0, errorMessage = errorMessage,
+                subject = feedUrl.take(120)
             )
-        } catch (e: Exception) {
-            log.warn("[RSS] could not log external_call: {}", e.message)
         }
     }
 
