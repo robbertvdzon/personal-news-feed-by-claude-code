@@ -99,3 +99,32 @@ Uitgevoerd, uitsluitend docs + comments; geen code-, manifest- of gedragswijzigi
 Bewust niet gewijzigd: `docs/stories/**` (historische momentopnames noemen de
 preview-router nog), `deploy/base/backend-route.yaml` (houdt `Redirect`), en
 `labeller.sh`/manifests (geen gedragswijziging in scope).
+
+## Review SF-2016 — 2026-08-08
+
+Volledige story-diff (`git diff main...HEAD`) gereviewd: 4 doc/comment-bestanden
++ deze worklog. Geen bevindingen; alle 11 acceptatiecriteria zelfstandig
+geverifieerd.
+
+- `grep -rn "preview-router" deploy/ docs/factory/ runbook.md` → 0 treffers (AC1);
+  de drie diagrammen noemen alleen backend/frontend/reader/cloudflared/Secret (AC2).
+- `base/`-lijst in `deploy/README.md` = 13 entries, 1-op-1 met `ls deploy/base/` (AC3).
+- Routeringstekst (README stap 5, `runbook.md` §7) klopt met de manifests:
+  `frontend-route.yaml` host `news.` + `insecureEdgeTerminationPolicy: Allow`,
+  `reader-route.yaml` host `reader.` + `Allow`, `backend-route.yaml` `Redirect`
+  (AC4, AC5). Enige resterende `nginx`-treffers zijn de expliciete "geen
+  nginx-tussenlaag"-zinnen en de frontend-proxy in `backend-route.yaml`.
+- Overlay-beschrijving klopt met de patches: frontend-Route `replace` naar
+  `preview-host-must-be-set.invalid`; `$patch: delete` op backend-debug-Route,
+  reader-Route, PVC, cloudflared en SealedSecret (AC6).
+- Fail-closed tekst nagelopen tegen `labeller.sh`: `github_pr_is_open` geeft 2 bij
+  ontbrekend token / gefaalde curl / non-200 en staat vóór `ensure_ns_with_label`,
+  en de cleanup-lus slaat over bij status ≠ gesloten of bestaande namespace — de
+  docs beschrijven dat correct, ook de "namespace weg **én** PR gesloten"-conditie
+  (AC7, AC8, AC9). `GITHUB_TOKEN` staat inderdaad in
+  `deploy/base/sealed-secret-api-keys.yaml`.
+- `grep -rn "applicationset.yaml" deploy/` → alleen het robberts-infrastructure-pad;
+  overlay-comment noemt namespace, image-tag én Route-host (AC10).
+- AC11 zelf herdraaid via `git worktree add /tmp/base main`:
+  `kubectl kustomize` vóór/ná → `diff` leeg (277 regels, byte-identiek). Diff van
+  het overlay-bestand bevat na filtering op comment-regels nul non-comment-regels.
