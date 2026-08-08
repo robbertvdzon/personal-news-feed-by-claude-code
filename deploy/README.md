@@ -174,7 +174,10 @@ PR-nummer is). Bij merge/close wordt de preview opgeruimd.
    `robberts-infrastructure/manifests/root-app/apps/preview-ns-labeller-deployment.yaml`)
    zorgt dat de bijbehorende namespace `pnf-pr-<N>` bestaat met de
    `argocd.argoproj.io/managed-by`-label (anders blokkeert de
-   argocd-operator).
+   argocd-operator). Vóór élke creatiehandeling — dus ook vóór het
+   (opnieuw) aanmaken en labelen van die namespace — checkt de labeller
+   eerst bij GitHub of PR `<N>` echt open is; die check is fail-closed
+   (zie "Beperkingen" hieronder).
 4. **Reflector** mirror't de `newsfeed-api-keys` Secret automatisch
    naar elke nieuwe `pnf-*`-namespace.
 5. **Routering via de OpenShift-ingressrouter.** Cloudflare stuurt de

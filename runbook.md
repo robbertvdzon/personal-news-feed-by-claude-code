@@ -164,6 +164,8 @@ Bestanden staan lokaal (gitignored). Voor de assistent worden ze read-only besch
 - `PNF_ELEVENLABS_API_KEY` — ElevenLabs TTS voor podcast-audio.
 - `TUNNEL_TOKEN` — Cloudflare-tunnel token (cloudflared-pod → publiceert `*.vdzonsoftware.nl`).
 - `GITHUB_TOKEN` — PAT voor `gh`/`git push` naar deze repo (CI + ArgoCD PR-preview-generator).
+  De `preview-ns-labeller` gebruikt 'm ook voor zijn fail-closed PR-statuscheck: zonder
+  (werkend) token doet die voor een preview géén enkele mutatie — zie §6.
 - `NEON_API_KEY` / `NEON_PROJECT_ID` — Neon API (DB-branches/beheer, o.a. preview-branches en `deploy/neon-endpoint-config.sh`, zie §6.1).
 - `OPENSHIFT_API_TOKEN` — `oc login`-token voor het SNO-lab.
 
@@ -369,6 +371,13 @@ oc rollout restart -n personal-news-feed deploy/frontend
 GitHub voor nieuwe/gewijzigde PR's (zie `deploy/README.md`
 §"Preview-deploys per PR (S-06)") — even wachten lost dit meestal op. Orphan-namespace
 opruimen: `oc delete ns pnf-pr-<N>`.
+
+Blijft de namespace ook daarna weg (of komt er geen branch-DB), check dan de
+labeller-logs op regels als "PR-status … onbekend": zijn PR-statuscheck is
+fail-closed, dus bij een ontbrekend/ongeldig `GITHUB_TOKEN` of een GitHub-call
+zonder HTTP 200 slaat hij álle mutaties over (geen namespace-label, geen
+Neon-branch, geen secret-patch, geen cleanup). Het labeller-Deployment staat in
+`robberts-infrastructure` (zie `deploy/README.md` §"Preview-deploys per PR (S-06)").
 
 ---
 
