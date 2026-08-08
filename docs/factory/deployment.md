@@ -34,7 +34,6 @@ ArgoCD ◄── synct main ── namespace: personal-news-feed (OpenShift)
         ├── frontend  Pod + Service + Route ← gebruikers (news.vdzonsoftware.nl)
         ├── reader    Pod + Service + Route ← reader.vdzonsoftware.nl
         ├── cloudflared    (tunnel: *.vdzonsoftware.nl → in-cluster services)
-        ├── preview-router (nginx, host-based routing voor PR-previews)
         └── Secret (via SealedSecret in git)
 ```
 
@@ -84,21 +83,37 @@ van de productie-branch. Dat betekent:
 - De branch levert de geïsoleerde testdata waarmee de tester de feature
   realistisch ziet. De tester muteert die branch niet meer: inloggen gaat
   via een vaste test-user uit het secret (zie "Tester-login" hieronder).
-- Bij PR-close ruimt de `preview-ns-labeller` de branch (incl. testdata) op.
+- Bij PR-close ruimt de `preview-ns-labeller` de branch (incl. testdata) op —
+  maar pas nadat de preview-namespace daadwerkelijk verdwenen is **én** GitHub
+  bevestigt dat de PR gesloten is. Zolang één van beide niet vaststaat blijft
+  de branch staan.
 
 Wiring (door `deploy/preview-ns-labeller/labeller.sh`):
 
-1. Maakt de Neon-branch `pr-<N>` aan (parent = productie-branch).
-2. Patcht `PNF_DATABASE_URL` in het `newsfeed-api-keys`-secret van
+1. Vraagt eerst bij GitHub de actuele PR-status op (`GET /repos/…/pulls/<N>`).
+   Alleen bij een bevestigd open PR volgen de creatiestappen; deze check staat
+   vóór élke creatiehandeling, dus ook vóór het (opnieuw) aanmaken en labelen
+   van de namespace `pnf-pr-<N>`.
+2. Maakt de Neon-branch `pr-<N>` aan (parent = productie-branch).
+3. Patcht `PNF_DATABASE_URL` in het `newsfeed-api-keys`-secret van
    `pnf-pr-<N>` naar de branch-URL, en zet de marker `PREVIEW_DB_BRANCH=pr-<N>`.
-3. Maakt per `pnf-pr-*` namespace een Role/RoleBinding zodat de
+4. Maakt per `pnf-pr-*` namespace een Role/RoleBinding zodat de
    `claude-tester`-SA dat secret kan lezen (read-only, alleen daar).
 
-Vereist dat de labeller-credentials aanwezig zijn (`NEON_API_KEY` +
-`NEON_PROJECT_ID` in het secret). Ontbreken die, dan valt de labeller terug
-op alleen namespace-labeling (geen branch, geen marker); de preview deelt dan
-geen geïsoleerde branch-DB. De tester-login zelf raakt de DB niet en blijft
-ongewijzigd werken via de test-user-creds (zie "Tester-login" hieronder).
+Vereist dat drie sleutels in het secret aanwezig zijn: `NEON_API_KEY`,
+`NEON_PROJECT_ID` **en** `GITHUB_TOKEN`. De eerste twee zetten de Neon-mode
+aan; ontbreken die, dan valt de labeller terug op alleen namespace-labeling
+(geen branch, geen marker) en deelt de preview geen geïsoleerde branch-DB.
+
+`GITHUB_TOKEN` is strenger, want de PR-statuscheck is **fail-closed**:
+ontbreekt het token, faalt de curl of komt er geen HTTP 200 terug, dan is de
+PR-status "onbekend" en voert de labeller voor die preview **géén enkele
+mutatie** uit — geen namespace-label, geen Neon-branch, geen secret-patch en
+geen cleanup. De preview blijft dan hangen op wat er al stond (in het ergste
+geval dus zonder namespace en zonder branch-DB).
+
+De tester-login zelf raakt de DB niet en blijft ongewijzigd werken via de
+test-user-creds (zie "Tester-login" hieronder).
 
 **Tester-login (vaste test-user, sinds SF-282).** De tester krijgt een
 bruikbare preview-URL (`https://pnf-pr-<N>.vdzonsoftware.nl`) en logt daarop

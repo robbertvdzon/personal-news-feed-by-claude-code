@@ -39,7 +39,6 @@ ArgoCD (watcht main) ── sync ──► OpenShift ns: personal-news-feed
         ├── frontend  Pod + Service + Route   ← gebruikers (news.vdzonsoftware.nl)
         ├── reader    Pod + Service + Route   ← reader.vdzonsoftware.nl
         ├── cloudflared    (tunnel: *.vdzonsoftware.nl → in-cluster services)
-        ├── preview-router (nginx, host-based routing voor PR-previews)
         └── Secret newsfeed-api-keys (uit SealedSecret in git)
 
 Data:  Postgres (Neon, extern) — audio-bytes sinds V5 óók in Postgres.
@@ -165,6 +164,8 @@ Bestanden staan lokaal (gitignored). Voor de assistent worden ze read-only besch
 - `PNF_ELEVENLABS_API_KEY` — ElevenLabs TTS voor podcast-audio.
 - `TUNNEL_TOKEN` — Cloudflare-tunnel token (cloudflared-pod → publiceert `*.vdzonsoftware.nl`).
 - `GITHUB_TOKEN` — PAT voor `gh`/`git push` naar deze repo (CI + ArgoCD PR-preview-generator).
+  De `preview-ns-labeller` gebruikt 'm ook voor zijn fail-closed PR-statuscheck: zonder
+  (werkend) token doet die voor een preview géén enkele mutatie — zie §6.
 - `NEON_API_KEY` / `NEON_PROJECT_ID` — Neon API (DB-branches/beheer, o.a. preview-branches en `deploy/neon-endpoint-config.sh`, zie §6.1).
 - `OPENSHIFT_API_TOKEN` — `oc login`-token voor het SNO-lab.
 
@@ -178,8 +179,13 @@ Bestanden staan lokaal (gitignored). Voor de assistent worden ze read-only besch
   `deploy/preview-ns-labeller/`). Previews kunnen dus vrij migreren/testen
   zonder prod-data te raken. Kanttekening: de allereerste boot van een verse
   preview kan (max ~30s, tot de labeller het secret gepatcht heeft) nog de
-  prod-URL uit het base-secret zien; en zonder NEON_API_KEY valt de labeller
-  terug op namespace-labeling-only — dan draaien previews wél op prod.
+  prod-URL uit het base-secret zien; zonder `NEON_API_KEY`/`NEON_PROJECT_ID`
+  valt de labeller terug op namespace-labeling-only — dan draaien previews
+  wél op prod; en de labeller heeft daarnaast `GITHUB_TOKEN` nodig voor zijn
+  fail-closed PR-statuscheck — ontbreekt dat token, faalt de GitHub-call of
+  komt er geen HTTP 200, dan is de PR-status "onbekend" en doet de labeller
+  voor die preview géén enkele mutatie: geen namespace-label, geen
+  Neon-branch, geen secret-patch en geen cleanup.
 - **Migraties:** Flyway, automatisch bij backend-start
   (`src/main/resources/db/migration/`, t/m `V16`).
 - **Belangrijke tabellen:** `users`, `rss_feeds`, `rss_items`, `feed_items`,
@@ -301,8 +307,17 @@ zetten — leg de meting waarop dat besluit rust hier vast.
   (`robberts-infrastructure/manifests/root-app/apps/`, zie `deploy/README.md`)
   in ns `argocd`/`openshift-gitops`. `prune: true`, `selfHeal: true`.
 - **Cloudflare Tunnel** — `cloudflared`-pod in de cluster, token `TUNNEL_TOKEN`.
-  Public hostnames in het Cloudflare Zero-Trust dashboard → in-cluster services
-  (`news`/`reader`/`pnf-pr-*` → `frontend`/`reader`/`preview-router` op `:8080`).
+  Public hostnames in het Cloudflare Zero-Trust dashboard: de wildcard
+  `*.vdzonsoftware.nl` gaat naar de OpenShift-ingressrouter, die op de
+  Host-header de juiste Route kiest (geen nginx-tussenlaag). Productiehosts
+  staan declaratief in de manifests: `deploy/base/frontend-route.yaml`
+  (`news.vdzonsoftware.nl`) en `deploy/base/reader-route.yaml`
+  (`reader.vdzonsoftware.nl`); voor previews zet de `preview`-overlay op de
+  frontend-Route een placeholder-host die de ApplicationSet per PR invult
+  (`pnf-pr-<N>.vdzonsoftware.nl`). Op beide productie-Routes staat
+  `insecureEdgeTerminationPolicy: Allow` (niet `Redirect`), omdat de
+  Cloudflare-connector de router cluster-intern via HTTP bereikt;
+  `deploy/base/backend-route.yaml` (debug) houdt bewust `Redirect`.
 - **AI/SaaS:** OpenAI, Tavily, ElevenLabs, Neon, YouTrack (story-tracking).
 
 ---
@@ -356,6 +371,13 @@ oc rollout restart -n personal-news-feed deploy/frontend
 GitHub voor nieuwe/gewijzigde PR's (zie `deploy/README.md`
 §"Preview-deploys per PR (S-06)") — even wachten lost dit meestal op. Orphan-namespace
 opruimen: `oc delete ns pnf-pr-<N>`.
+
+Blijft de namespace ook daarna weg (of komt er geen branch-DB), check dan de
+labeller-logs op regels als "PR-status … onbekend": zijn PR-statuscheck is
+fail-closed, dus bij een ontbrekend/ongeldig `GITHUB_TOKEN` of een GitHub-call
+zonder HTTP 200 slaat hij álle mutaties over (geen namespace-label, geen
+Neon-branch, geen secret-patch, geen cleanup). Het labeller-Deployment staat in
+`robberts-infrastructure` (zie `deploy/README.md` §"Preview-deploys per PR (S-06)").
 
 ---
 
