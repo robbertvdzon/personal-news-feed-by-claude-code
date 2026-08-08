@@ -85,3 +85,31 @@ Stappenplan:
   (nulmeting was 8); binnen `external_call/` alleen de data-class zelf, de helper en de
   row-mapper in `ExternalCallRepository`.
 - `grep -rn "external_calls.jsonl" src/main` geeft nul treffers.
+
+## Review (SF-2023, reviewer)
+
+Volledige story-diff `main...HEAD` beoordeeld (12 bestanden, +405/−322). Akkoord.
+
+- Alle acht call-sites veld-voor-veld vergeleken met de oude privé-logfuncties:
+  provider, action, unitType, units, costUsd, status, errorMessage,
+  tokensIn/tokensOut (alleen OpenAI) en subject zijn identiek. De `.take(120)` staat
+  nog bij de zeven aanroepers (deels als lokale `subj`/`logSubject`, zelfde waarde) en
+  `PodcastAudioDownloader` blijft ongekapt. `units = tokensIn + tokensOut` bij OpenAI
+  en `units = 1` bij Tavily zijn behouden.
+- AC 3 nageteld: `ExternalCall(` komt in `src/main` alleen nog voor in
+  `external_call/` (data-class, helper, row-mapper) — nul treffers daarbuiten.
+- Imports: `java.util.UUID` alleen verwijderd waar echt ongebruikt; bewust behouden in
+  `RssFetcher.kt` en `WhisperClient.kt` (beide gebruiken `UUID.` nog). `ExternalCall`
+  blijft overal geïmporteerd voor de constanten. Geen ongebruikte `log`-velden.
+- Geen mock-gebaseerde tests op `ExternalCallLogger`; alle vijf fakes zijn anonieme
+  `object : ExternalCallLogger` en blijven ongewijzigd — de default-implementatie is
+  daarmee de juiste keuze. Geen Spring Modulith-schending (alleen imports uit de
+  module-rootpackage `external_call`). Geen endpoint-, schema- of migratiewijziging,
+  dus `specs/openapi.yaml` en Flyway zijn terecht ongemoeid.
+- Eigen gerichte check (naast het door de harness geverifieerde vangnet):
+  `mvn -B -o test -Dtest=ExternalCallLoggerTest,RssFetcherSsrfTest,RssFetcherImageUrlTest,ArticleFetcherSsrfTest,PodcastFeedFetcherSsrfTest,PodcastAudioDownloaderSsrfTest`
+  → BUILD SUCCESS, 24 tests, 0 failures/errors; `mvn -o clean test-compile` → 0
+  `[WARNING]`-regels.
+- [info] De prefix-uniformering naar `[ExternalCallLog]` en de niet-meegenomen
+  docs-drift in `specs/backend-functional-spec.md:55/:514` staan expliciet in deze
+  worklog (AC 8).
