@@ -22,7 +22,6 @@ OpenShift cluster (personal-news-feed)
   ├── frontend Pod + Service + Route ← gebruikers (news.vdzonsoftware.nl)
   ├── reader Pod + Service + Route   ← reader.vdzonsoftware.nl
   ├── cloudflared    (tunnel: *.vdzonsoftware.nl → in-cluster services)
-  ├── preview-router (nginx, host-based routing voor PR-previews)
   └── Secret (uit SealedSecret in git, ge-decrypt door cluster)
 ```
 
@@ -178,9 +177,22 @@ PR-nummer is). Bij merge/close wordt de preview opgeruimd.
    argocd-operator).
 4. **Reflector** mirror't de `newsfeed-api-keys` Secret automatisch
    naar elke nieuwe `pnf-*`-namespace.
-5. **Preview-router** (nginx in personal-news-feed) ontvangt
-   `*.vdzonsoftware.nl` traffic via Cloudflare en route't host-based
-   naar de juiste preview-namespace.
+5. **Routering via de OpenShift-ingressrouter.** Cloudflare stuurt de
+   wildcard `*.vdzonsoftware.nl` naar de ingressrouter van het cluster;
+   die kiest op de oorspronkelijke Host-header de bijbehorende Route.
+   Er zit dus géén extra nginx-tussenlaag meer in het pad. De
+   productiehosts staan declaratief in de manifests:
+   `deploy/base/frontend-route.yaml` (`news.vdzonsoftware.nl`) en
+   `deploy/base/reader-route.yaml` (`reader.vdzonsoftware.nl`). Voor
+   previews zet de `preview`-overlay op de frontend-Route de
+   placeholder-host `preview-host-must-be-set.invalid`, die de
+   ApplicationSet per PR vervangt door `pnf-pr-<N>.vdzonsoftware.nl`.
+   Op de frontend- en reader-Route staat
+   `insecureEdgeTerminationPolicy` op `Allow` (niet `Redirect`), omdat de
+   Cloudflare-connector de router cluster-intern via HTTP bereikt — een
+   redirect naar HTTPS zou dat verkeer laten stuiteren.
+   `deploy/base/backend-route.yaml` (debug, niet via de gedeelde
+   wildcard) houdt bewust `Redirect`.
 
 **Geen productie-JWT-sleutel in previews (SF-1542).** De
 `preview`-overlay overschrijft `APP_JWT_SECRET` op de backend-Deployment
@@ -212,8 +224,13 @@ JWT-sleutel aan de preview-Deployment is verbroken.
   dus op een eigen kopie, niet op prod. Restrisico's: (a) de eerste
   boot van een verse preview kan kort de prod-URL uit het base-secret
   zien totdat de labeller (30s-poll) gepatcht en de pod herstart
-  heeft; (b) zonder NEON_API_KEY degradeert de labeller naar
-  labeling-only en draaien previews wél op prod.
+  heeft; (b) zonder `NEON_API_KEY`/`NEON_PROJECT_ID` degradeert de
+  labeller naar labeling-only en draaien previews wél op prod; (c) de
+  labeller heeft daarnaast `GITHUB_TOKEN` nodig voor de fail-closed
+  PR-statuscheck — ontbreekt dat token, faalt de GitHub-call of komt er
+  geen HTTP 200, dan is de PR-status "onbekend" en doet de labeller voor
+  die preview helemaal niets: geen namespace-label, geen Neon-branch,
+  geen secret-patch en geen cleanup.
 
 - **Geen automatic preview cleanup van orphan namespaces.** Bij merge/close
   ruimt ArgoCD de gegenereerde Application + resources netjes op
@@ -252,14 +269,14 @@ deploy/
 │   ├── reader-service.yaml
 │   ├── reader-route.yaml        ← reader.vdzonsoftware.nl
 │   ├── cloudflared-deployment.yaml   ← tunnel *.vdzonsoftware.nl
-│   ├── preview-router-deployment.yaml  ← nginx, host-based routing previews
-│   ├── preview-router-config.yaml      ← nginx-config van de preview-router
 │   └── sealed-secret-api-keys.yaml  ← na seal-secrets.sh
 └── overlays/
     ├── openshift/
     │   └── kustomization.yaml  ← cluster-specifieke patches (productie)
     └── preview/
-        └── kustomization.yaml  ← per-PR preview: geen Routes/PVC/cloudflared,
+        └── kustomization.yaml  ← per-PR preview: frontend-Route blijft (met
+                                   per-PR host), backend-debug- en reader-Route,
+                                   PVC, cloudflared en SealedSecret vervallen;
                                    emptyDir i.p.v. PVC en een ephemeral
                                    JWT-sleutel (SF-1542)
 ```

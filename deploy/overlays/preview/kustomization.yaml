@@ -1,19 +1,21 @@
 # Preview-overlay: deploy't een feature-branch in een eigen namespace
-# `pnf-<id>`. De ArgoCD ApplicationSet (deploy/applicationset.yaml) vult
-# de placeholders in (namespace, image-tag) per open PR.
+# `pnf-<id>`. De ArgoCD ApplicationSet
+# (robberts-infrastructure/manifests/root-app/apps/) vult de placeholders
+# in (namespace, image-tag, Route-host) per open PR.
 #
 # Verschillen met de productie-overlay:
-#   * Eén eigen frontend-Route; OpenShift handelt host-based routing af
+#   * Eén eigen frontend-Route met een per-PR host; de OpenShift-
+#     ingressrouter kiest 'm op de Host-header
 #   * Geen PVC voor audio (emptyDir; previews zijn throwaway)
 #   * Geen cloudflared (shared via main tunnel + wildcard hostname)
 #   * Geen SealedSecret (reflector mirror't 'm automatisch vanuit
 #     personal-news-feed naar pnf-*)
-#   * Geen preview-router
 #   * Geen productie-JWT-sleutel: APP_JWT_SECRET wordt leeggezet, waardoor
 #     de backend bij het opstarten zelf een ephemeral sleutel per pod
 #     genereert (tokens gelden alleen binnen die preview)
 #
-# De ApplicationSet patcht namespace + image-tag in.
+# De ApplicationSet patcht namespace, image-tag én de Route-host in (de
+# placeholder-host hieronder wordt per PR vervangen).
 
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
