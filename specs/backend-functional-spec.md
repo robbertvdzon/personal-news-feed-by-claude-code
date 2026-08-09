@@ -222,7 +222,7 @@ Wordt asynchroon gestart bij `POST /api/requests`.
 5. Vraag de AI voor elk artikel een Nederlandse samenvatting te genereren.
 6. Sla elk artikel direct op als FeedItem zodra het beschikbaar is (streaming aanpak).
 7. Werk de status bij na elk item; stuur WebSocket updates.
-8. Verzoek ondersteunt annulering: als het verzoek geannuleerd wordt, stopt de verwerking bij het eerstvolgende veilige moment.
+8. Verzoek ondersteunt annulering: als het verzoek geannuleerd wordt, stopt de verwerking bij het eerstvolgende veilige moment. Annuleren raakt alleen je eigen verzoek: de eigenaarscheck gaat vooraf aan het zetten van de annuleervlag, en een onbekend of andermans id geeft `404` zonder enig effect op de verwerking van de eigenaar (SF-2051).
 
 ---
 
@@ -545,7 +545,7 @@ Alle configuratie via `application.properties` of omgevingsvariabelen.
 - **Podcast-audio SSRF-afwijzing (SF-1877):** wijst de defense-in-depth-check in `PodcastAudioDownloader.download()` de audio-/enclosure-URL af (zie §6.4), dan wordt er geen HTTP-request gedaan, wordt één externe call gelogd (`action=podcast_audio_download`, `status="error"`, `units=0`, `errorMessage` bevat "geblokkeerd") en levert `download()` `null` op. `PodcastTranscriptProcessor` volgt het bestaande `audioFile == null`-pad (status `SHOW_NOTES_DONE`, `errorMessage` "Audio-download faalde") — geen nieuw foutpad.
 - **Podcast:** Bij een fout in een van de stappen wordt de podcast gemarkeerd als `FAILED`. Ook als de TTS-fase geen audio oplevert (alle segmenten faalden of het script bevatte geen INTERVIEWER/GAST-regels) wordt de podcast `FAILED`, niet `DONE`.
 - **Ad-hoc verzoek:** Bij een fatale fout wordt het verzoek gemarkeerd als `FAILED`.
-- **Annulering:** Verzoeken kunnen geannuleerd worden; de verwerking stopt bij het eerstvolgende controlepunt.
+- **Annulering:** Verzoeken kunnen geannuleerd worden; de verwerking stopt bij het eerstvolgende controlepunt. Alleen de eigenaar kan annuleren (SF-2051): `POST /api/requests/{id}/cancel` controleert eerst of het verzoek van de ingelogde gebruiker is en geeft anders `404` — bewust geen `403`, zodat het antwoord niet verraadt of een id van een andere gebruiker bestaat. Bij een `404` wordt er geen annuleervlag gezet.
 - **Restart-herstel:** Bij serverherstart worden openstaande PENDING/PROCESSING verzoeken gereset naar FAILED.
 - **OpenAI rate limiting:** Bij HTTP 429 wordt automatisch gewacht en opnieuw geprobeerd (exponentieel backoff, max 4 pogingen).
 

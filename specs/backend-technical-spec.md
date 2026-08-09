@@ -309,6 +309,7 @@ sluiten de e2e-suite uit (`**/e2e/**`). De suite in
 - `podcast_source/domain/PodcastTranscriptPipelineTest.kt` — de event-driven transcript-fase: een `PodcastTranscriptRequested`-event start de verwerking, rate-limit schrijft `retry_count++` + `next_attempt_at` volgens de backoff-tabel (5m/15m/45m/24h), een aflevering in de backoff-wachtkamer wordt niet opgepakt, dubbele events leiden niet tot dubbele verwerking, een verdwenen aflevering en een exception uit de processor laten de pipeline niet omvallen, en er wordt nooit meer dan één aflevering tegelijk verwerkt (SF-1739)
 - `shared/api/dto/SharedCategoryDtoTest.kt` — `CategorySettings.toSharedDto()` neemt uitsluitend `id`, `name` en `enabled` over, en de Jackson-serialisatie van `SharedCategoryDto` bevat precies die drie velden: de privé `extraInstructions` (bijstuurtekst voor het taalmodel) en het interne `isSystem` van de bron-gebruiker komen niet in het publieke `GET /api/shared/categories` terecht (SF-1992)
 - `external_call/ExternalCallLoggerTest.kt` — de gedeelde `ExternalCallLogger.logCall(...)`-default-implementatie: `id` (UUID), `endTime` en `durationMs` worden zelf ingevuld, de optionele parameters blijven leeg als ze niet worden meegegeven, `subject` wordt níet afgekapt (dat blijft bij de aanroeper), en een `log(call)` die een exception gooit wordt ingeslikt zodat de business-flow doorloopt (SF-2022)
+- `request/domain/RequestServiceImplCancelTest.kt` — de eigenaarscheck in `RequestServiceImpl.cancel`: annuleren van een eigen lopend verzoek zet `CANCELLED` plus de annuleervlag, een andere gebruiker of een onbekend id levert `false` op zonder sleutel in de `cancellation`-map en zonder `upsert` (de vlag van de eigenaar blijft dus uit), hetzelfde request-id bij twee gebruikers raakt elkaar niet, een al afgerond eigen verzoek wordt niet overschreven maar geeft wel `true`, en `rerun` ruimt de vlag van dezelfde gebruiker op; gemockte `RequestRepository`/`AuthService`/`RequestWebSocketHandler`/`ApplicationEventPublisher` (SF-2051)
 - `podcast_source/domain/PodcastRecoverySchedulerTest.kt` — het uurlijkse vangnet: afleveringen met verlopen `next_attempt_at` worden hertriggerd, zonder achterstand publiceert de job niets, hoogstens `MAX_EPISODES_PER_RUN` per run, show-notes-timeout zet de `feed_promotion_attempted_at`-marker vóór het promotie-event (en een mislukte marker blokkeert het event — anti-loop), afleveringen zonder `rss_item_id` worden niet gepromoot, de promotie-timeout komt uit de property, en een fout in de transcript-stap blokkeert de promotie-stap niet (SF-1739)
 
 Daarnaast draait bij elke `mvn test` ook `ModuleStructureTest.kt` —
@@ -369,6 +370,18 @@ aangemaakt, dus daar moet eerst op gewacht worden; `newItemCount` wordt door
 samenvattings-item van een eerdere run valt zelf binnen het 24-uursvenster van
 een volgende run, daarom staat de vensterassertie in een eigen test met precies
 één run.
+
+`RequestsE2eTest` dekt sinds SF-2051 ook de eigenaarsgrens rond annuleren: een
+tweede gebruiker die het id van een lopend verzoek kent krijgt `404`, het
+verzoek van de eigenaar blijft `PROCESSING` en loopt gewoon door naar `DONE`, en
+`POST /api/requests/{onbekend-id}/cancel` geeft `404` in plaats van de vroegere
+`204`. Aandachtspunten voor wie die tests uitbreidt: de assertie "er blijft geen
+annuleervlag achter" injecteert `RequestServiceImpl` concreet met `@Autowired`
+(de `cancellation`-map staat niet op de `RequestService`-interface) en leunt op
+de huidige sleutelvorm `"$username/$id"` — verandert die vorm, dan wordt die
+assertie stil triviaal-waar; en de aanvalspoging moet plaatsvinden terwijl de
+eigenaar écht nog verwerkt, waarvoor de test de eerste `adhoc_summarize` van
+`FakeOpenAiChatClient` met een `CountDownLatch` vasthoudt.
 
 `mvn test` (surefire) draait alleen de unit-tests en `ModuleStructureTest`
 (sluit `**/e2e/**` uit, geen Docker nodig). `mvn verify` (failsafe) draait

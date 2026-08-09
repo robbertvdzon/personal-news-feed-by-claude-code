@@ -58,7 +58,7 @@ class AdhocOrchestrator(
             var newItems = 0
 
             for (r in results.take(current.maxCount)) {
-                if (service.isCancelled(requestId)) {
+                if (service.isCancelled(username, requestId)) {
                     service.upsert(username, current.copy(status = RequestStatus.CANCELLED, completedAt = Instant.now()))
                     log.info("[Request] cancelled id={}", requestId)
                     return
