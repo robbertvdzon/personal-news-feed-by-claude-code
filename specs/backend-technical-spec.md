@@ -319,9 +319,9 @@ opgenomen in de allowlist, zie §3).
 
 ### E2e-testsuite (`mvn verify`)
 Naast de unit-tests bestaat er een e2e-suite onder
-`src/test/kotlin/com/vdzon/newsfeedbackend/e2e/` (10 testklassen): `RssRefreshE2eTest`,
+`src/test/kotlin/com/vdzon/newsfeedbackend/e2e/` (11 testklassen): `RssRefreshE2eTest`,
 `RssItemsE2eTest`, `SettingsE2eTest`, `AdminE2eTest`,
-`AuthE2eTest`, `FeedE2eTest`, `PodcastGenerationE2eTest`,
+`AuthE2eTest`, `FeedE2eTest`, `FixedRequestsE2eTest`, `PodcastGenerationE2eTest`,
 `PodcastIngestE2eTest`, `RequestsE2eTest` en `SharedFeedE2eTest`. Het gedeelde
 harnas (`E2eTestBase`/`E2eTestConfig`) start
 de volledige Spring-app tegen een echte PostgreSQL via Testcontainers (met
@@ -349,6 +349,26 @@ UUID-vorm hebben (`FakeOpenAiChatClient.extractCandidateIds` vist kandidaten met
 een UUID-regex uit de selectie-prompt, anders doet reselect stil niets), en een
 reselect mag pas getriggerd worden nadat de refresh `DONE` is — `RssRefreshPipeline`
 gebruikt één `tryLock` per user en slaat een overlappende run stilzwijgend over.
+
+`FixedRequestsE2eTest` (4 tests, SF-2044) dekt de twee vaste verzoeken die
+`UserRegisteredListener` bij registratie aanmaakt (`hourly-update-<user>` en
+`daily-summary-<user>`) en wat een handmatige `POST /api/requests/{id}/rerun`
+daarmee doet: (1) de dagelijkse samenvatting levert precies één feed-item
+`daily-summary-feed-<vandaag>` met `isSummary = true` op en zet het verzoek
+terug op `DONE` met `newItemCount = 1`; (2) de twee tijdvensters uit
+`RssScheduler` (feed-items van 24 uur, rss-items van 7 dagen) — oudere items
+komen niet in de prompt; (3) twee reruns op dezelfde dag houden één feed-item
+over, met de inhoud van de laatste run; (4) de routering in
+`FixedRequestRerunListener` is exclusief — het uurlijkse verzoek start alleen
+de RSS-refresh, het dagelijkse alleen de samenvatting — en de guard in
+`AdhocOrchestrator` houdt (nul `tavily_search`- en `adhoc_summarize`-rijen via
+`ExternalCallQuery`). Aandachtspunten voor wie deze tests uitbreidt: een rerun
+geeft 404 zolang `UserRegisteredListener` de vaste verzoeken nog niet heeft
+aangemaakt, dus daar moet eerst op gewacht worden; `newItemCount` wordt door
+`rerun` eerst op 0 gezet en is daarmee het natuurlijke `await`-anker; en het
+samenvattings-item van een eerdere run valt zelf binnen het 24-uursvenster van
+een volgende run, daarom staat de vensterassertie in een eigen test met precies
+één run.
 
 `mvn test` (surefire) draait alleen de unit-tests en `ModuleStructureTest`
 (sluit `**/e2e/**` uit, geen Docker nodig). `mvn verify` (failsafe) draait
