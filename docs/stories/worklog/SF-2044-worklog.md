@@ -93,3 +93,39 @@ Bevindingen:
   andere twee daily-tests al doen.
 - [info] `registerRssFeed(...)` geeft de feed-URL terug, maar geen van beide
   aanroepers gebruikt de returnwaarde.
+
+## Test (SF-2046)
+
+Akkoord — `tested`.
+
+Vangnet (revisie 99a3650, `newsfeedbackend/newsfeedbackend`):
+`mvn -B --no-transfer-progress clean verify` → BUILD SUCCESS, exit 0,
+**110 unit + 65 e2e**, 0 failures, 0 errors, 0 skipped, 0 `[WARNING]`-regels.
+`FixedRequestsE2eTest`: 4/4 groen (12,35 s). Geen flakes waargenomen.
+
+Gedragsverificatie op de preview (`https://pnf-pr-217.vdzonsoftware.nl`,
+wegwerp-account via de API, daarna `DELETE /api/account/me` → 200 en
+herinloggen → 401; modus: wegwerp omdat `TESTER_USERNAME`/`TESTER_PASSWORD`
+niet gezet zijn en de SA het namespace-secret niet mag lezen). Deze story
+raakt de frontend niet, dus geen browser-screenshots. Live bevestigd:
+
+- Direct na registratie staan er precies twee vaste verzoeken:
+  `daily-summary-<user>` en `hourly-update-<user>`, beide `DONE`,
+  `newItemCount = 0` (criterium 1, precondition).
+- `POST /api/requests/daily-summary-<user>/rerun` → 200; het verzoek gaat
+  `PENDING` → `DONE` met `newItemCount = 1`, en `GET /api/feed` bevat exact
+  één item `daily-summary-feed-2026-08-09` met `isSummary = true`,
+  `title = "Dagelijkse samenvatting 2026-08-09"` en
+  `publishedDate = "2026-08-09"` (criterium 1).
+- `hourly-update-<user>` bleef daarbij op `newItemCount = 0` en
+  `GET /api/rss` bleef leeg: de daily-rerun start de RSS-tak niet
+  (criterium 4, tegenhanger).
+- Tweede rerun op dezelfde dag: `GET /api/feed` houdt exact één item met
+  hetzelfde id, met een andere (nieuw gegenereerde) `summary` — 1417 → 2422
+  tekens (criterium 3).
+
+De live-waarnemingen komen één-op-één overeen met wat `FixedRequestsE2eTest`
+asserteert; geen bugs gevonden. De twee reviewer-punten (theoretische race op
+de laatste `newItemCount`-assertie in de idempotentie-test en de ongebruikte
+returnwaarde van `registerRssFeed`) zijn nette suggesties, geen blockers, en
+zijn in beide volledige runs niet zichtbaar geworden.
