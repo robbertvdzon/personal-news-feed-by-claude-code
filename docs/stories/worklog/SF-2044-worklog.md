@@ -56,3 +56,40 @@ Bevindingen (criterium 7):
     sowieso volledig. Het weghalen van die regel zou de nieuwe idempotentie-test
     niet rood maken. Kandidaat voor een **aparte opruim-story**; bewust niet in
     deze story gewijzigd (deze story wijzigt geen productiecode).
+
+## Review (SF-2045)
+
+Akkoord. Scope klopt: 3 nieuwe bestanden (test + story-log + worklog), geen
+productiecode, geen bestaande test en geen e2e-harnas gewijzigd
+(`git diff main...HEAD --stat`). Geen endpoint- of Flyway-wijzigingen, dus
+`specs/openapi.yaml` hoeft niet mee. Imports komen uit de module-roots
+(`feed`, `rss`, `external_call`) — geen Modulith-schending.
+
+Testbewijs geverifieerd op deze revisie: `target/failsafe-reports/*.txt` telt
+65 e2e-tests over 11 klassen, waaronder
+`FixedRequestsE2eTest` (4 tests, 0 failures/errors); dat komt overeen met
+`grep -h @Test .../e2e/*E2eTest.kt | wc -l` = 65. `mvn -o test-compile`:
+BUILD SUCCESS, 0 `[WARNING]`-regels.
+
+Acceptatiecriteria 1 t/m 5 zijn alle vier de tests langsgelopen tegen de
+productiecode (`RssScheduler.generateDailySummary`, `FixedRequestRerunListener`,
+`RssRefreshPipeline`, `AdhocOrchestrator.process`, `RequestServiceImpl.rerun`,
+`SettingsServiceImpl.saveRssFeeds`). Bevestigd dat de nul-asserties betekenis
+hebben: `PUT /api/rss-feeds` start zelf geen refresh, en de `DONE`-status wordt
+in `RssRefreshPipeline` pas ná de `feed_score`-stap gezet, dus de counts na het
+await-anker zijn stabiel.
+
+Bevindingen:
+
+- [suggestie] `FixedRequestsE2eTest` (idempotentie-test, laatste assertie):
+  `assertEquals(1, requestById(user, dailyId(user)).newItemCount)` staat ná het
+  await-anker op de feed-`summary` van run 2. In `generateDailySummary` komt
+  `feed.save` vóór `requests.upsert`, en er is geen omsluitende transactie
+  (geen `@Transactional` in `feed/`, `request/` of `rss/`), dus theoretisch is
+  de feed-rij al zichtbaar terwijl `newItemCount` nog op 0 staat van de rerun.
+  In de praktijk gedekt door de 250 ms poll-interval van `await` plus drie
+  tussenliggende HTTP-calls, en twee volledige runs waren groen — daarom geen
+  blocker. Robuuster is de assertie in het await-anker mee te nemen, zoals de
+  andere twee daily-tests al doen.
+- [info] `registerRssFeed(...)` geeft de feed-URL terug, maar geen van beide
+  aanroepers gebruikt de returnwaarde.
