@@ -1,9 +1,11 @@
 package com.vdzon.newsfeedbackend.e2e
 
 import com.vdzon.newsfeedbackend.external_call.ExternalCall
+import com.vdzon.newsfeedbackend.request.domain.RequestServiceImpl
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
 import java.util.concurrent.CountDownLatch
@@ -17,6 +19,10 @@ import java.util.concurrent.TimeUnit
  * + status DONE. Plus annuleren, rerun en 404-gedrag.
  */
 class RequestsE2eTest : E2eTestBase() {
+
+    /** Concreet nodig voor de assertie dat er geen cancel-vlag achterblijft. */
+    @Autowired
+    private lateinit var requestService: RequestServiceImpl
 
     companion object {
         /**
@@ -193,9 +199,40 @@ class RequestsE2eTest : E2eTestBase() {
 
         assertEquals(404, delete("/api/requests/bestaat-niet", user.token).status)
         assertEquals(404, post("/api/requests/bestaat-niet/rerun", user.token).status)
-        // NB: cancel op een onbekend id geeft géén 404 — de controller
-        // negeert de boolean van service.cancel() en antwoordt altijd 204.
-        // Vastgelegd als huidig gedrag (inconsistent met delete/rerun).
-        assertEquals(204, post("/api/requests/bestaat-niet/cancel", user.token).status)
+        // Cancel volgt sinds SF-2051 hetzelfde patroon als delete/rerun:
+        // een onbekend (of andermans) id geeft 404 en laat geen cancel-vlag
+        // achter.
+        assertEquals(404, post("/api/requests/bestaat-niet/cancel", user.token).status)
+        assertTrue(requestService.cancellation.keys.none { it.endsWith("/bestaat-niet") })
+    }
+
+    @Test
+    fun `een andere gebruiker kan een lopend verzoek niet annuleren`() {
+        val owner = registerUser("req")
+        val attacker = registerUser("req")
+        serveTavily(count = 2)
+
+        // Blokkeer de eerste AI-samenvatting zodat het verzoek van de
+        // eigenaar echt nog onderweg is tijdens de annuleerpoging.
+        val latch = CountDownLatch(1)
+        openAi.onAction(ExternalCall.ACTION_ADHOC_SUMMARIZE) {
+            latch.await(20, TimeUnit.SECONDS)
+            "Vertraagde samenvatting."
+        }
+
+        val id = post("/api/requests", owner.token, createBody("Traag onderwerp", maxCount = 2))
+            .json(mapper).path("id").asString()
+        await { openAi.callsFor(ExternalCall.ACTION_ADHOC_SUMMARIZE, owner.username).isNotEmpty() }
+
+        // De aanvaller kent het id (het lekt via /ws/requests) maar mag er niets mee.
+        assertEquals(404, post("/api/requests/$id/cancel", attacker.token).status)
+        // Geen sleutel die de verwerking van de eigenaar kan raken.
+        assertTrue(requestService.cancellation.keys.none { it.endsWith("/$id") })
+        assertEquals("PROCESSING", statusOf(owner, id))
+
+        // De verwerking van de eigenaar loopt gewoon door naar DONE.
+        latch.countDown()
+        await { statusOf(owner, id) == "DONE" }
+        assertEquals(2, getJson("/api/feed", owner.token).size())
     }
 }

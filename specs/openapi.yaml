@@ -731,12 +731,15 @@ paths:
       summary: Annuleer een actief verzoek
       description: |
         Als het verzoek PROCESSING is wordt de achtergrondtaak onderbroken
-        zodra dit veilig mogelijk is.
+        zodra dit veilig mogelijk is. Annuleren werkt alleen op je eigen
+        verzoeken.
       parameters:
         - $ref: '#/components/parameters/ItemId'
       responses:
         '204':
           description: Geannuleerd
+        '404':
+          description: Verzoek niet gevonden (onbekend id, of het verzoek is van een andere gebruiker)
 
   # ── Podcasts ──────────────────────────────────────────────────────────────────
 
