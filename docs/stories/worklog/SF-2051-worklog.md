@@ -76,3 +76,27 @@ Review (SF-2052, reviewer):
 - [info] Annuleren van een eigen, al afgerond verzoek zet nog steeds een vlag in de map
   (returnt `true`/`204`). Dat restje is aan de eigenaar gebonden en het opruimen in
   `delete` is expliciet buiten scope gelaten — geen aanvalspad meer.
+
+Test (SF-2053, tester):
+- Vangnet: `mvn -B --no-transfer-progress clean verify` in `newsfeedbackend/newsfeedbackend`
+  → BUILD SUCCESS, exitcode 0. Surefire 116 tests, failsafe 66 e2e, beide 0 failures /
+  0 errors / 0 skipped.
+- Live op preview `https://pnf-pr-218.vdzonsoftware.nl` (image `sha-fa84d4a` = de
+  developer-commit; de reviewer-commit `646e453` raakt alleen dit worklog, dus de preview
+  bevat alle codewijzigingen). Modus: wegwerp-accounts — `TESTER_USERNAME`/`TESTER_PASSWORD`
+  waren niet gezet en het namespace-secret is voor de agent-SA niet leesbaar.
+  - Gebruiker B annuleert A's ad-hoc verzoek → `404 {"error":"request <id>"}`; A's verzoek
+    blijft ongewijzigd (`DONE`, niet `CANCELLED`) en staat niet in B's lijst.
+  - B annuleert A's vaste `daily-summary-tester_sf2051_a` → `404`.
+  - Onbekend id door de eigenaar → `404 {"error":"request bestaat-niet-sf2051"}`.
+  - Eigen verzoek annuleren → `204`, status wordt `CANCELLED`.
+  - `rerun` op dat geannuleerde verzoek → `200`, gaat `PROCESSING` → `DONE`: bewijst live
+    dat de per-gebruiker cancel-vlag correct wordt opgeruimd (bij een verkeerde sleutel zou
+    het verzoek meteen opnieuw afbreken).
+  - Ongeauthenticeerde cancel → `403` (ongewijzigd).
+  - Beide wegwerp-accounts opgeruimd via `DELETE /api/account/me` (200; login daarna 401).
+- Frontend: geen wijziging nodig én geen regressierisico — `RequestNotifier.cancel`
+  (`frontend/lib/providers/data_providers.dart:322`) heeft géén enkele aanroeper in de UI;
+  annuleren is niet vanuit de app bereikbaar. UI-smoke (login) gedaan als bewijs dat de app
+  op de preview normaal werkt; screenshots in `/work/screenshots`.
+- Oordeel: goedgekeurd, geen bugs gevonden.
