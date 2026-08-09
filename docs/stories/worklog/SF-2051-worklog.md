@@ -58,3 +58,21 @@ Done / rationale:
 - Vangnet: `mvn -B clean verify` in `newsfeedbackend/newsfeedbackend` → BUILD SUCCESS
   (116 unit, was 110; 66 e2e, was 65; 0 failures/errors, ~3:28). `mvn -B clean test`
   eveneens groen met 0 `[WARNING]`-regels.
+
+Review (SF-2052, reviewer):
+- Volledige story-diff `main...HEAD` (8 bestanden) gereviewd: akkoord, geen blockers.
+  Alle 7 story-punten uit de subtaak-beschrijving zijn aantoonbaar geïmplementeerd,
+  inclusief de verplichte omzetting van de `204`-assertie én het commentaar in
+  `RequestsE2eTest`, en de docs/contract-bijwerking.
+- Testbewijs geverifieerd uit de bestaande reports (vangnet niet herdraaid):
+  surefire 116 tests / 0 failures / 0 errors, failsafe 66 e2e over 11 klassen
+  (som komt exact overeen met `grep -c @Test` op `e2e/*E2eTest.kt` = 66), reports
+  (06:59-07:02) zijn jonger dan de gewijzigde bronnen (06:53).
+- [info] `isCancelled` blijft buiten de `RequestService`-interface met exact één caller
+  (`AdhocOrchestrator.kt:61`); geen modulith-schending, `ModuleStructureTest` groen.
+- [suggestie] De e2e-asserties gebruiken `keys.none { it.endsWith("/$id") }` en leunen
+  daarmee op de interne sleutelvorm, die de story juist vrij laat. Bij een latere
+  overstap naar een geneste map wordt die assertie stil triviaal-waar.
+- [info] Annuleren van een eigen, al afgerond verzoek zet nog steeds een vlag in de map
+  (returnt `true`/`204`). Dat restje is aan de eigenaar gebonden en het opruimen in
+  `delete` is expliciet buiten scope gelaten — geen aanvalspad meer.
