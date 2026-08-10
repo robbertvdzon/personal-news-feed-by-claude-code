@@ -24,3 +24,17 @@ Done / rationale:
   `frontend/pubspec.lock` ongewijzigd.
 - Uitvoerige toelichting staat in
   `docs/stories/SF-2066-gedeelde-podcast-in-progress-statussen.md`.
+
+Review (SF-2067, reviewer):
+- Volledige story-diff `git diff main...HEAD` gereviewd: 4 frontend-bestanden +
+  story-log + worklog, geen backend/openapi/deploy-wijzigingen. Alle 8
+  acceptatiecriteria geverifieerd (AC2 gecheckt met grep: `DETERMINING_TOPICS`
+  komt in `frontend/lib/screens/` alleen nog voor in de twee
+  `_statusLabel`-switches).
+- `Podcast.translationInProgress` (models.dart:517-518) staat nog op de eigen
+  smallere lijst — conform scope.
+- Eigen gerichte checks: `flutter analyze` = 7 issues, alle pre-existing infos
+  (ws_client:20, feed_screen:189, podcast_detail_screen:278, rss_detail_screen:64,
+  rss_screen:67/78/228), geen nieuwe; `flutter test` = 27 groen; working tree
+  daarna schoon, dus geen `pubspec.lock`-drift.
+- Geen blockers of bugs. Besluit: reviewed.
