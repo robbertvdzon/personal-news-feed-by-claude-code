@@ -218,7 +218,7 @@ Vanuit de RSS-item-detailpagina kan de gebruiker met **Meer hierover** een ad-ho
 Toont gegenereerde podcasts: `GET /api/podcasts`.
 
 ### PodcastCard (in de lijst)
-Toont: podcastnummer, titel, datum, duur, status, kosten, TTS-provider.
+Toont: podcastnummer, titel, datum, duur, status, TTS-provider.
 
 **Visuele progress-indicatie:** zolang de podcast een bezig-status heeft (de gedeelde `kPodcastInProgressStatuses`, zie [Podcast-polling](#podcast-polling)), vervangt een `CircularProgressIndicator` het podcasts-icoon, en wordt het Nederlandse statuslabel ("In wachtrij…", "Onderwerpen bepalen…", "Script schrijven…", "Audio genereren…", "Vertalen…") in primaire kleur en bold getoond. Bij `FAILED` toont een rood error-icon en label "Mislukt".
 
@@ -238,7 +238,7 @@ Toont: podcastnummer, titel, datum, duur, status, kosten, TTS-provider.
 - Indienen: POST `/api/podcasts`
 
 ### PodcastDetailScreen
-Toont: titel, periode, duur, kosten, TTS-provider, onderwerp-chips, volledig audiospeler-paneel.
+Toont: titel, periode, duur, TTS-provider, onderwerp-chips, volledig audiospeler-paneel.
 
 **KAN-63 — vertaling-modus:** wanneer `podcast.isTranslation` (d.w.z. `translatedFromEpisodeGuid != null`) staat er onder de status-chips een chip "Vertaald van \<feed-naam\>" met tap-actie die terugnavigeert naar de bron `RssPodcastDetailScreen` (lookup via rssProvider op `translatedFromRssItemId`). Bij status `FAILED` toont het scherm bovenaan een rode foutbox met `errorMessage`. De detail-pagina pollt elke 4 seconden zolang de status in de gedeelde `kPodcastInProgressStatuses` staat (dus ook `TRANSLATING` / `TTS_GENERATING`; zie [Podcast-polling](#podcast-polling)) en switcht automatisch naar de audiospeler zodra `DONE`.
 

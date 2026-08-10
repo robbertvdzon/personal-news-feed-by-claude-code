@@ -108,7 +108,7 @@ Dit harnas is gemodelleerd naar de succesvolle opzet in de `softwarefactory`-rep
 - [ ] AI-antwoorden geparsed via `AiJson.extract` + expliciete fallbacks (een LLM-antwoord is nooit gegarandeerd geldig JSON).
 - [ ] Foutafhandeling: geen nieuwe `!!` op waardes die extern of concurrent kunnen wijzigen; geen lege catch-blokken (minimaal een debug-log); verwachte fouten via de `@ResponseStatus`-exceptions uit `common/Exceptions.kt`.
 - [ ] Tijd via de geïnjecteerde `Clock` als het gedrag tijd-afhankelijk is.
-- [ ] API-wijziging? Het contract leeft in de DTO's (`api/dto/`) — pas die aan, werk `specs/openapi.yaml` bij en bedenk wat oude Flutter-clients doen (velden weglaten is veiliger dan hernoemen). Nieuwe endpoints geven DTO's terug, geen domeinmodellen.
+- [ ] API-wijziging? Het contract leeft in de DTO's (`api/dto/`) — pas die aan, werk `specs/openapi.yaml` bij en bedenk wat oude Flutter-clients doen (velden weglaten is veiliger dan hernoemen). Nieuwe endpoints geven DTO's terug, geen domeinmodellen. Vergelijk het schema veld-vóór-veld met de data class: er is geen generator en geen contract-test, dus drift merkt niemand (SF-2073). Let op berekende properties in de class-body (`val isTranslation get() = …`) — die staan niet in de constructor maar gaan wél mee in de JSON.
 - [ ] Nederlandse gebruikersteksten (foutmeldingen, AI-output), Engelse identifiers.
 
 ## 6. Valkuilen die je een middag kunnen kosten

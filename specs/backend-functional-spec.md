@@ -148,12 +148,11 @@ Daarin staan alle endpoints met paden, methoden, request/response bodies, query 
   "isHourlyUpdate": true,
   "isDailySummary": false,
   "newItemCount": 7,
-  "costUsd": 0.012,
   "durationSeconds": 43,
   "createdAt": "2025-05-08T06:00:00Z",
   "completedAt": "2025-05-08T06:00:43Z",
   "categoryResults": [
-    { "categoryId": "kotlin", "categoryName": "Kotlin", "articleCount": 3, "costUsd": 0.004, "searchResultCount": 12, "filteredCount": 3 }
+    { "categoryId": "kotlin", "categoryName": "Kotlin", "articleCount": 3, "searchResultCount": 12, "filteredCount": 3 }
   ]
 }
 ```
@@ -206,7 +205,7 @@ Wordt elke dag om 06:00 automatisch uitgevoerd voor elke gebruiker. **Daarnaast 
 1. Verzamel alle FeedItems van de afgelopen 24 uur + alle RssItems van de afgelopen 7 dagen.
 2. Stuur dit naar de AI voor een uitgebreid Nederlandstalig dagelijks nieuwsoverzicht in Markdown-formaat (600-1000 woorden).
 3. Sla op als FeedItem met `isSummary: true` en ID `daily-summary-feed-{datum}`. Een eventueel bestaand item met hetzelfde ID wordt eerst verwijderd.
-4. Zet het `daily-summary-{username}` request op `DONE` met de geactualiseerde `costUsd` en `newItemCount`.
+4. Zet het `daily-summary-{username}` request op `DONE` met de geactualiseerde `newItemCount`.
 
 ---
 

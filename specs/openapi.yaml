@@ -1681,6 +1681,10 @@ components:
 
     NewsRequest:
       type: object
+      description: |
+        AI-kosten worden niet per verzoek bijgehouden, maar per externe aanroep
+        in de tabel `external_calls` (per-call kostenlog), opvraagbaar via de
+        admin-costs-endpoints (`/api/admin/costs/**`).
       properties:
         id:
           type: string
@@ -1715,10 +1719,6 @@ components:
         newItemCount:
           type: integer
           description: Aantal nieuw gevonden en opgeslagen items
-        costUsd:
-          type: number
-          format: double
-          description: Geschatte AI-kosten in USD
         isHourlyUpdate:
           type: boolean
           description: Automatische uurlijkse RSS-update (id-prefix 'hourly-update-')
@@ -1755,9 +1755,6 @@ components:
           type: string
         articleCount:
           type: integer
-        costUsd:
-          type: number
-          format: double
         searchResultCount:
           type: integer
         filteredCount:
@@ -1795,6 +1792,10 @@ components:
 
     Podcast:
       type: object
+      description: |
+        AI-kosten worden niet per podcast bijgehouden, maar per externe aanroep
+        in de tabel `external_calls` (per-call kostenlog), opvraagbaar via de
+        admin-costs-endpoints (`/api/admin/costs/**`).
       properties:
         id:
           type: string
@@ -1824,9 +1825,6 @@ components:
         durationSeconds:
           type: integer
           nullable: true
-        costUsd:
-          type: number
-          format: double
         customTopics:
           type: array
           items:
@@ -1862,6 +1860,12 @@ components:
           type: string
           nullable: true
           description: rss_items.id van de bron-aflevering — voor de tap-actie op de badge.
+        isTranslation:
+          type: boolean
+          description: |
+            Berekende property, alleen aanwezig in responses: true wanneer
+            `translatedFromEpisodeGuid` gevuld is. Wordt niet meegestuurd bij
+            het aanmaken van een podcast.
         errorMessage:
           type: string
           nullable: true
@@ -1938,7 +1942,8 @@ components:
         podcastId:
           type: string
         status:
-          $ref: '#/components/schemas/PodcastStatus'
+          type: string
+          description: PodcastStatus-naam van de (nieuwe of hergebruikte) vertaling.
         created:
           type: boolean
           description: |

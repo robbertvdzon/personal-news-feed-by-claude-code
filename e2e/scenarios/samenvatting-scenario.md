@@ -29,7 +29,7 @@ In de backend log:
 
 ### 3. Wacht op DONE
 - Na 10-30 seconden is de knop weer enabled en — als Settings open blijft — verschijnt een snackbar **"Klaar — 1 items verwerkt"**.
-- Onderliggend request: status `DONE`, `newItemCount = 1` (één FeedItem toegevoegd), `costUsd` toont de Anthropic-kosten van de aanroep.
+- Onderliggend request: status `DONE`, `newItemCount = 1` (één FeedItem toegevoegd).
 
 ### 4. Open Feed-tab
 - Klik op **Feed**.

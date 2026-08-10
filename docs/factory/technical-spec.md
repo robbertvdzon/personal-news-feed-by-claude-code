@@ -55,6 +55,8 @@ module/
 
 `specs/openapi.yaml` is het handmatig onderhouden contract en de **source of truth** voor de API. Er is geen code-generatiestap: de controllers zijn met de hand geschreven Spring `@RestController`-klassen (`@RequestMapping`/`@GetMapping`/…) die consistent met `openapi.yaml` worden gehouden. `pom.xml` bevat geen OpenAPI Generator-plugin.
 
+Zonder generatiestap én zonder contract-test faalt er niets als schema en Kotlin-model uit elkaar lopen; vergelijk een gewijzigd schema dus met de hand veld-vóór-veld met de data class, in beide richtingen (SF-2073 vond zo drie fantoom-`costUsd`-velden, één ontbrekend veld en één te streng type). Twee huisregels die daaruit volgen: een berekende property in de class-body (`val isTranslation: Boolean get() = …`) wordt wél geserialiseerd en hoort dus in het schema, met een `description` "berekende property, alleen in responses" en **niet** met `readOnly: true` (nul voorkomens in `openapi.yaml`); en een `$ref` naar een enum-schema mag alleen als het veld in Kotlin ook dat enum-type is — een veld dat als `String` met `enum.name` gevuld wordt, is `type: string` met een `description` over de herkomst. Zie `specs/backend-technical-spec.md` §8 voor de uitwerking.
+
 ## Database
 
 - PostgreSQL via Neon; lokaal verbinding via `PNF_DATABASE_URL`.
