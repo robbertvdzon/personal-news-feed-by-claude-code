@@ -24,17 +24,9 @@ class _PodcastDetailScreenState extends ConsumerState<PodcastDetailScreen> {
   Timer? _saveTimer;
   /// KAN-63: pollt status zolang de podcast nog niet DONE/FAILED is.
   /// De translate-flow heeft eigen statussen (TRANSLATING / TTS_GENERATING)
-  /// die op deze detail-pagina ook moeten kunnen updaten.
+  /// die op deze detail-pagina ook moeten kunnen updaten; welke statussen dat
+  /// zijn staat in de gedeelde [kPodcastInProgressStatuses].
   Timer? _statusPollTimer;
-
-  static const _inProgressStatuses = {
-    'PENDING',
-    'DETERMINING_TOPICS',
-    'GENERATING_SCRIPT',
-    'GENERATING_AUDIO',
-    'TRANSLATING',
-    'TTS_GENERATING',
-  };
 
   @override
   void initState() {
@@ -49,7 +41,7 @@ class _PodcastDetailScreenState extends ConsumerState<PodcastDetailScreen> {
       _statusPollTimer?.cancel();
       _statusPollTimer = null;
       await _initAudio(p);
-    } else if (_inProgressStatuses.contains(p.status)) {
+    } else if (kPodcastInProgressStatuses.contains(p.status)) {
       _statusPollTimer ??= Timer.periodic(const Duration(seconds: 4), (_) => _poll());
     }
   }

@@ -220,7 +220,7 @@ Toont gegenereerde podcasts: `GET /api/podcasts`.
 ### PodcastCard (in de lijst)
 Toont: podcastnummer, titel, datum, duur, status, kosten, TTS-provider.
 
-**Visuele progress-indicatie:** zolang de podcast nog niet `DONE` of `FAILED` is, vervangt een `CircularProgressIndicator` het podcasts-icoon, en wordt het Nederlandse statuslabel ("In wachtrij…", "Onderwerpen bepalen…", "Script schrijven…", "Audio genereren…", "Vertalen…") in primaire kleur en bold getoond. Bij `FAILED` toont een rood error-icon en label "Mislukt".
+**Visuele progress-indicatie:** zolang de podcast een bezig-status heeft (de gedeelde `kPodcastInProgressStatuses`, zie [Podcast-polling](#podcast-polling)), vervangt een `CircularProgressIndicator` het podcasts-icoon, en wordt het Nederlandse statuslabel ("In wachtrij…", "Onderwerpen bepalen…", "Script schrijven…", "Audio genereren…", "Vertalen…") in primaire kleur en bold getoond. Bij `FAILED` toont een rood error-icon en label "Mislukt".
 
 **KAN-63 — vertaal-badge:** voor podcasts met `translatedFromEpisodeGuid != null` toont de subtitle in plaats van "Duur: Xmin · TTS: Y" de chip-tekst *"Vertaald van \<feed-naam\>"* (een `Icons.translate` + 1-regel waarde uit `translatedFromFeedName`). Op de detail-pagina komt deze info terug als een aparte `Chip` die navigeert naar het bron-RSS-podcast-detail-scherm (lookup op `translatedFromRssItemId` in de rssProvider; niet-tappable als de bron-aflevering inmiddels uit de RSS-tab is opgeruimd).
 
@@ -240,7 +240,7 @@ Toont: podcastnummer, titel, datum, duur, status, kosten, TTS-provider.
 ### PodcastDetailScreen
 Toont: titel, periode, duur, kosten, TTS-provider, onderwerp-chips, volledig audiospeler-paneel.
 
-**KAN-63 — vertaling-modus:** wanneer `podcast.isTranslation` (d.w.z. `translatedFromEpisodeGuid != null`) staat er onder de status-chips een chip "Vertaald van \<feed-naam\>" met tap-actie die terugnavigeert naar de bron `RssPodcastDetailScreen` (lookup via rssProvider op `translatedFromRssItemId`). Bij status `FAILED` toont het scherm bovenaan een rode foutbox met `errorMessage`. De detail-pagina pollt elke 4 seconden zolang de status nog `PENDING` / `TRANSLATING` / `TTS_GENERATING` is en switcht automatisch naar de audiospeler zodra `DONE`.
+**KAN-63 — vertaling-modus:** wanneer `podcast.isTranslation` (d.w.z. `translatedFromEpisodeGuid != null`) staat er onder de status-chips een chip "Vertaald van \<feed-naam\>" met tap-actie die terugnavigeert naar de bron `RssPodcastDetailScreen` (lookup via rssProvider op `translatedFromRssItemId`). Bij status `FAILED` toont het scherm bovenaan een rode foutbox met `errorMessage`. De detail-pagina pollt elke 4 seconden zolang de status in de gedeelde `kPodcastInProgressStatuses` staat (dus ook `TRANSLATING` / `TTS_GENERATING`; zie [Podcast-polling](#podcast-polling)) en switcht automatisch naar de audiospeler zodra `DONE`.
 
 **Audiospeler:**
 - Play/pause-knop
@@ -261,7 +261,24 @@ Zolang audio actief is (ook na navigeren naar andere schermen binnen de Podcast-
 - `v`: cache-buster (gebruik `durationSeconds` van de podcast)
 
 ### Podcast-polling
-Zolang een of meer podcasts de status `PENDING`, `DETERMINING_TOPICS`, `GENERATING_SCRIPT` of `GENERATING_AUDIO` hebben, wordt elke 4 seconden GET `/api/podcasts` opnieuw aangeroepen totdat alle podcasts `DONE` of `FAILED` zijn.
+Zolang een of meer podcasts een "bezig"-status hebben, wordt elke 4 seconden GET
+`/api/podcasts` opnieuw aangeroepen; zodra geen enkele podcast meer bezig is
+(alles `DONE`/`FAILED`) wordt de timer gestopt.
+
+De bezig-statussen staan op één plek: de top-level constante
+`kPodcastInProgressStatuses` in `frontend/lib/models/models.dart` met
+`PENDING`, `DETERMINING_TOPICS`, `GENERATING_SCRIPT`, `GENERATING_AUDIO`,
+`TRANSLATING` en `TTS_GENERATING`. Zowel de spinner/het statuslabel in de lijst
+als de poll-timer van het overzicht én het detailscherm lezen die set (SF-2066).
+Daarvóór had `_maybePoll` een eigen, kortere lijst zonder de vertaalstatussen,
+waardoor een podcast in `TRANSLATING` wél een draaiend rondje "Vertalen…" kreeg
+maar het scherm zichzelf niet meer ververste — het rondje bleef eindeloos
+draaien tot je handmatig verversde.
+
+> `Podcast.translationInProgress` (`PENDING` / `TRANSLATING` / `TTS_GENERATING`)
+> is bewust een smallere, eigen lijst voor uitsluitend de vertaalflow — een
+> vertaling doorloopt nooit de generatie-statussen — en hoort níet vervangen te
+> worden door de gedeelde set.
 
 > **Belangrijk:** poll-fetches mogen de provider níet via `invalidate()` resetten — dat zou de `AsyncData` voor 1-2 frames terugzetten naar `loading` en de progress-indicator op de kaart laten flikkeren. Implementatie: een aparte `poll()` notifier-methode die de lijst stilletjes ophaalt en de state vervangt zonder eerst `AsyncLoading` te zetten.
 
@@ -546,9 +563,12 @@ flutter build apk --release \
 
 ### Tests draaien
 
-De app heeft widget-tests onder `frontend/test/` (`widget_test.dart`,
+De app heeft tests onder `frontend/test/`: widget-tests (`widget_test.dart`,
 `main_shell_test.dart`, `settings_screen_test.dart`, `rss_feeds_screen_test.dart`,
-`categories_screen_test.dart`):
+`categories_screen_test.dart`) en één unittest
+(`podcast_in_progress_statuses_test.dart`, SF-2066: legt vast welke zes
+statussen de gedeelde `kPodcastInProgressStatuses` bevat, zodat spinner en
+poll-timer niet opnieuw uit elkaar kunnen lopen):
 
 ```bash
 cd frontend

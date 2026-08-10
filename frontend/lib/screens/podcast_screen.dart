@@ -13,13 +13,7 @@ class PodcastScreen extends ConsumerStatefulWidget {
   ConsumerState<PodcastScreen> createState() => _PodcastScreenState();
 }
 
-bool _isInProgress(String status) =>
-    status == 'PENDING' ||
-    status == 'DETERMINING_TOPICS' ||
-    status == 'GENERATING_SCRIPT' ||
-    status == 'GENERATING_AUDIO' ||
-    status == 'TRANSLATING' ||
-    status == 'TTS_GENERATING';
+bool _isInProgress(String status) => kPodcastInProgressStatuses.contains(status);
 
 String _statusLabel(String status) {
   switch (status) {
@@ -54,11 +48,7 @@ class _PodcastScreenState extends ConsumerState<PodcastScreen> {
   }
 
   void _maybePoll(List<Podcast> podcasts) {
-    final pending = podcasts.any((p) =>
-        p.status == 'PENDING' ||
-        p.status == 'DETERMINING_TOPICS' ||
-        p.status == 'GENERATING_SCRIPT' ||
-        p.status == 'GENERATING_AUDIO');
+    final pending = podcasts.any((p) => kPodcastInProgressStatuses.contains(p.status));
     if (pending) {
       _pollTimer ??= Timer.periodic(const Duration(seconds: 4),
           (_) => ref.read(podcastProvider.notifier).poll());

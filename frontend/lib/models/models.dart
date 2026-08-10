@@ -359,6 +359,25 @@ class NewsRequest {
       );
 }
 
+/// De statussen waarin een podcast nog "bezig" is.
+///
+/// Dit is de ENIGE plek waar deze lijst mag staan: de spinner/het statuslabel
+/// in het overzicht en de poll-timer (overzicht én detailscherm) moeten het per
+/// definitie met elkaar eens zijn. Liepen ze uiteen, dan bleef het rondje
+/// draaien zonder dat er nog ververst werd (zoals bij `TRANSLATING`).
+///
+/// Let op: `Podcast.translationInProgress` gebruikt bewust een smallere lijst —
+/// een vertaling doorloopt nooit de generatie-statussen — en hoort hier dus
+/// niet bij.
+const kPodcastInProgressStatuses = <String>{
+  'PENDING',
+  'DETERMINING_TOPICS',
+  'GENERATING_SCRIPT',
+  'GENERATING_AUDIO',
+  'TRANSLATING',
+  'TTS_GENERATING',
+};
+
 class Podcast {
   final String id;
   final String title;
