@@ -40,3 +40,30 @@ Done / rationale:
   acceptatiecriterium noemt 20 en telt daarbij één constructor-veld te weinig).
 - Vangnet mvn -B --no-transfer-progress clean verify: BUILD SUCCESS, exit 0,
   116 unit + 66 e2e, 0 failures/errors, 0 [WARNING]-regels.
+
+Review (SF-2074, reviewer):
+- Scope geverifieerd op de volledige story-diff (git diff main...HEAD): alleen
+  specs/openapi.yaml, specs/frontend-spec.md, specs/backend-functional-spec.md,
+  e2e/scenarios/samenvatting-scenario.md + story-log/worklog. Geen .kt/.dart/.sql/
+  .yml/pom.xml. AC 9 gehaald.
+- openapi.yaml zelf geparsed met SnakeYAML: geldig, 35 $refs, 0 dangling, top-level
+  keys ongewijzigd (AC 10). NewsRequest 17 props, CategoryResult 5, Podcast 21,
+  TranslationStart 3 — veld-voor-veld 1-op-1 met request/RequestService.kt:27-61 en
+  podcast/PodcastService.kt:33-66 (AC 2, 3, 4).
+- AC 4 noemt 20 velden voor Podcast; data class Podcast heeft 20 constructor-velden
+  plus de berekende isTranslation = 21. De AC-telling klopt niet, de implementatie
+  wel. Bevestigd door zelf te tellen; geen aanpassing nodig.
+- TranslationStart.status = type: string met description; PodcastStatus-schema
+  ongewijzigd en houdt zijn resterende $ref-gebruiker (Podcast.status, :1813) (AC 5).
+- grep -rn costUsd specs/ e2e/ geeft alleen nog specs/openapi.yaml:2142
+  (ExternalCall/admin-costs) en e2e/runner.js:284 (code, expliciet buiten scope)
+  (AC 1, 8).
+- Feitencheck frontend-spec: frontend/lib/widgets/podcast_card.dart en
+  screens/podcast_detail_screen.dart tonen nergens kosten; models.dart heeft geen
+  costUsd op Podcast — de geschrapte claims waren inderdaad onjuist (AC 7).
+- Testbewijs hergebruikt uit de checkout: target/surefire-reports 116, 11×
+  target/failsafe-reports samen 66, geen FAIL/ERROR — komt exact overeen met de
+  developer-claim. Vangnet niet herdraaid (doc-only wijziging).
+- Geen blockers. [info] e2e/runner.js:284 logt nog `costUsd=${done.costUsd ?? 'n/a'}`
+  en zal dus altijd "n/a" printen; expliciet buiten scope van deze story, kandidaat
+  voor een losse opruimstory.
