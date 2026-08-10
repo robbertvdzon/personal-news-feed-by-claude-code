@@ -38,3 +38,28 @@ Review (SF-2067, reviewer):
   rss_screen:67/78/228), geen nieuwe; `flutter test` = 27 groen; working tree
   daarna schoon, dus geen `pubspec.lock`-drift.
 - Geen blockers of bugs. Besluit: reviewed.
+
+Test (SF-2068, tester):
+- Statische AC-checks: AC1 (constante + comment), AC2 (`grep -n DETERMINING_TOPICS
+  frontend/lib/screens/` geeft nog uitsluitend 2 treffers, beide in een
+  `_statusLabel`-switch), AC3/AC4/AC5 (beide schermen lezen
+  `kPodcastInProgressStatuses`), AC6 (nieuw testbestand), AC8 (diff raakt alleen
+  de 4 frontend-bestanden + story-log/worklog).
+- AC7: `flutter analyze` in een /tmp-kopie geeft 7 issues, exact dezelfde set als
+  op `main` (alleen podcast_detail_screen 286 -> 278 door regelverschuiving) =
+  geen nieuwe waarschuwingen. `flutter test` = 27/27 groen, exitcode 0.
+  `pubspec.lock` niet aangeraakt (test in /tmp-kopie gedraaid).
+- Live preview-bewijs (https://pnf-pr-219.vdzonsoftware.nl, image sha-4ce1b85 =
+  de developer-commit met de volledige frontend-wijziging; de reviewer-commit is
+  docs-only). Wegwerp-account `tester_sf-2068` via de UI (TESTER_USERNAME/
+  TESTER_PASSWORD niet gezet), na afloop `DELETE /api/account/me` = 200.
+  Met Playwright `page.route` is `GET /api/podcasts` gemockt op status
+  `TRANSLATING`: het overzicht toont spinner + "Vertalen..." en pollt door op
+  t=8.5/12.5/16.5/20.5/24.5/28.5s (3 polls in een venster van 14s, interval 4s).
+  Daarna de mock op `DONE` gezet: nog 1 poll haalt DONE op, kaart wordt vanzelf
+  "Klaar" zonder handmatige refresh, en daarna 0 polls in 14s = timer gestopt.
+  Dat dekt AC4 in beide richtingen en bewijst dat de oorspronkelijke bug
+  (eeuwig draaiend rondje bij vertalen) weg is.
+- Screenshots: /work/screenshots/01..06 (04 = TRANSLATING met spinner,
+  06 = automatisch bijgewerkt naar "Klaar").
+- Geen bugs gevonden. Besluit: tested.
