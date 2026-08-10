@@ -67,3 +67,34 @@ Review (SF-2074, reviewer):
 - Geen blockers. [info] e2e/runner.js:284 logt nog `costUsd=${done.costUsd ?? 'n/a'}`
   en zal dus altijd "n/a" printen; expliciet buiten scope van deze story, kandidaat
   voor een losse opruimstory.
+
+## SF-2075 — tester
+
+- Statische contractchecks (js-yaml over specs/openapi.yaml): geldige YAML, 35 $ref's,
+  0 dangling. NewsRequest 17 props, CategoryResult 5, Podcast 21 (incl. isTranslation,
+  geplaatst bij de translatedFrom*-velden), TranslationStart 3 — veld-voor-veld en in
+  dezelfde volgorde als request/RequestService.kt:27-61 en podcast/PodcastService.kt:33-66
+  (AC 2, 3, 4, 10).
+- TranslationStart.status = `type: string` + description "PodcastStatus-naam van de
+  (nieuwe of hergebruikte) vertaling."; PodcastStatus-schema ongewijzigd en behoudt zijn
+  $ref-gebruiker Podcast.status (:1813) (AC 5).
+- Schema-descriptions bij NewsRequest en Podcast verwijzen naar `external_calls` en
+  `/api/admin/costs/**`, conform backend-technical-spec.md:251-252 (AC 6).
+- grep -rn costUsd specs/ e2e/ → uitsluitend specs/openapi.yaml:2142 (admin-costs) en
+  e2e/runner.js:284 (code, buiten scope) (AC 1, 8).
+- JSON-voorbeeld backend-functional-spec.md:145-160 parseert als geldige JSON (geen
+  dangling komma na het verwijderen van de costUsd-regels).
+- git diff --name-only main...HEAD: alleen de vier doc-doelen plus de factory-artefacten
+  docs/stories/SF-2073-*.md en docs/stories/worklog/SF-2073-worklog.md. Geen .kt, .dart,
+  .sql, .yml of pom.xml (AC 9).
+- **Live contractbewijs op preview pnf-pr-220** (wegwerp-account via API, `DELETE
+  /api/account/me` → 200; TESTER_USERNAME/TESTER_PASSWORD waren niet gezet):
+  `GET /api/requests` levert exact de 17 gedocumenteerde NewsRequest-keys op, géén
+  costUsd, geen ongedocumenteerd veld. Verse user → 0 podcasts en 0 categoryResults, dus
+  die twee shapes zijn tegen de Kotlin-DTO's geverifieerd i.p.v. live (podcastgeneratie
+  is een dure AI-flow en de story wijzigt geen code).
+- Geen browser-screenshots: doc-only story, geen frontend-code in de diff; de
+  frontend-spec-correcties zijn feitelijk getoetst tegen podcast_screen.dart /
+  podcast_detail_screen.dart / models.dart (nergens kosten) (AC 7).
+- Vangnet niet zelf herdraaid: 0 gecompileerde bronbestanden in de diff; de harness draait
+  het revisiegebonden vangnet ná deze run.
