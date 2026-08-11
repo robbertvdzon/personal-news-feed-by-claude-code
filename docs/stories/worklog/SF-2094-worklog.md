@@ -68,3 +68,35 @@ Review (SF-2095, reviewer):
   via de UI onbereikbaar (translate-knop verschijnt pas na een geslaagde lookup). Bovendien
   gaf het oude gedrag op dit pad de feitelijk onjuiste melding "Transcript is nog niet klaar",
   dus geen functionele regressie.
+
+Test (SF-2096, tester):
+- Akkoord. Vangnet zelf herdraaid op deze revisie: `mvn -B --no-transfer-progress clean verify`
+  in newsfeedbackend/newsfeedbackend -> BUILD SUCCESS, exitcode 0, surefire 116 + failsafe 66,
+  0 failures / 0 errors.
+- Contract-check met js-yaml over specs/openapi.yaml (parseert schoon, OpenAPI 3.1.0, 46 paths):
+  exact 12 operaties met een '404', waaronder de zes nieuwe (deleteRequest, rerunRequest,
+  deletePodcast, resetUserPassword, setUserRole, deleteUser). AC 1-3 en 6 bevestigd; de drie
+  resource-endpoints noemen "van een andere gebruiker", deleteRequest noemt het vaste verzoek.
+- AC 7 inhoudelijk 1-op-1 nagelopen: 14 throw-sites + klassedeclaratie (het getal 13 in de AC
+  is fout, zie reviewer-correctie). Alle throw-sites gedekt; alle 12 '404'-responses hebben een
+  bron (11x NotFoundException + RssController.kt:91 ResponseEntity.notFound()).
+- Live geverifieerd op preview https://pnf-pr-221.vdzonsoftware.nl (backend-image sha-1c81a77 =
+  de developer-commit; de reviewer-commit raakt alleen dit worklog, dus de preview draait de
+  story-code):
+  - POST /api/podcast-source/does-not-exist-guid-2094/translate -> **404** (was 409 op main)
+    met body {"error":"Aflevering niet gevonden: ..."} — kernwijziging AC 4 live bewezen.
+  - DELETE /api/requests/unknown-id-2094 -> 404; POST .../rerun -> 404;
+    DELETE /api/podcasts/unknown-podcast-2094 -> 404.
+  - AC 3: DELETE /api/requests/daily-summary-<user> en hourly-update-<user> -> beide 404.
+  - AC 2 (privacy): tweede user deletet/reruns het verzoek van user A -> 404, geen 403.
+  - Admin-endpoints als niet-admin -> 403 (403-responses ongewijzigd). De admin-404's zijn niet
+    live te bewijzen (geen admin-account op de preview); gedekt door AdminE2eTest (10 groen).
+- De 409-tak van translate (status != DONE / leeg transcript) is live niet te forceren zonder
+  een echte podcast-aflevering; gedekt door de twee ongewijzigde unit-tests in
+  PodcastTranslationServiceImplTest.
+- Geen frontend-wijziging in deze story -> geen browser-screenshots.
+- Testdata: twee wegwerp-accounts (tester_sf-2094 / tester_sf-2094b) via de API aangemaakt en
+  aan het eind met DELETE /api/account/me opgeruimd (login geeft daarna 401). Fallback-modus
+  gebruikt omdat TESTER_USERNAME/TESTER_PASSWORD niet gezet zijn en de claude-agent-SA het
+  secret newsfeed-api-keys in pnf-pr-221 niet mag lezen (Forbidden).
+- Geen code-, test- of infra-wijzigingen door de tester; working tree bevat alleen dit worklog.
