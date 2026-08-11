@@ -41,3 +41,30 @@ Done / rationale:
   in newsfeedbackend/newsfeedbackend is groen (exitcode 0, 116 unit + 66 e2e, 0 failures/errors).
 
 Details: docs/stories/SF-2094-404-contract-gelijktrekken.md
+
+Review (SF-2095, reviewer):
+- Akkoord. Volledige story-diff (`git diff main...HEAD`) t.o.v. main gereviewd: 6 bestanden,
+  scope strak binnen de story, geen frontend-/lockfile-/infra-drift.
+- AC 1-3, 6 geverifieerd door openapi.yaml met SnakeYAML te parsen en per operationId de
+  response-keyset te dumpen: exact 12 operaties met een '404', waaronder de zes nieuwe
+  (deleteRequest, rerunRequest, deletePodcast, resetUserPassword, setUserRole, deleteUser).
+  Document parseert zonder fouten.
+- AC 4-5 geverifieerd in de code: alleen de not-found-guard werd ConflictException ->
+  NotFoundException; de twee state-conflicten (status != DONE, leeg transcript) staan nog op
+  ConflictException. `openapi.yaml` translate-operatie (404 + 409) ongewijzigd en klopt nu.
+- AC 8 / testbewijs: surefire 116 + failsafe 66, 0 failures / 0 errors, uit de developer-run.
+  De surefire-XML van PodcastTranslationServiceImplTest bevat de NIEUWE testnaam
+  (`startTranslation throws NotFoundException when episode is not found`), dus het groene
+  bewijs hoort bij deze revisie. Vangnet niet herdraaid.
+- CORRECTIE op AC 7 en op de regel hierboven: `grep -rn "NotFoundException(" src/main` levert
+  15 treffers (14 throw-sites + de klassedeclaratie in common/Exceptions.kt:12), niet 13.
+  Ook op main waren het er al 14. Het getal in de AC was dus vanaf het begin fout; de
+  inhoudelijke eis klopt wel: alle 14 throw-sites zijn afgedekt door een '404' op de
+  bijbehorende operatie, en alle 12 '404'-responses hebben een 404-bron in de code
+  (11x NotFoundException + RssController.kt:91 ResponseEntity.notFound() voor openapi.yaml:501).
+  Handmatig 1-op-1 nagelopen; geen ongedekte '404' en geen onafgedekte throw-site.
+- [info] frontend/lib/screens/rss_podcast_detail_screen.dart:284 matcht alleen op 409; een 404
+  valt nu in de generieke melding "Vertaling kon niet starten". Conform story buiten scope en
+  via de UI onbereikbaar (translate-knop verschijnt pas na een geslaagde lookup). Bovendien
+  gaf het oude gedrag op dit pad de feitelijk onjuiste melding "Transcript is nog niet klaar",
+  dus geen functionele regressie.
