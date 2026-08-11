@@ -329,7 +329,7 @@ Naast de zelf-gegenereerde DevTalk-podcasts kan een gebruiker een Engelse RSS-po
 
 **Statusverloop (translate-flow):** `PENDING` → `TRANSLATING` → `TTS_GENERATING` → `DONE` / `FAILED`. Twee extra waarden op de bestaande `PodcastStatus`-enum; geen DDL-constraint omdat het status-veld een `TEXT`-kolom is.
 
-**Trigger:** `POST /api/podcast-source/{episodeGuid}/translate`. Pre-condities: de bron-aflevering bestaat voor deze user én staat op `PodcastEpisodeStatus.DONE` (transcript klaar). Bij conflict → HTTP 409 met Nederlandse foutmelding.
+**Trigger:** `POST /api/podcast-source/{episodeGuid}/translate`. Pre-condities: de bron-aflevering bestaat voor deze user én staat op `PodcastEpisodeStatus.DONE` (transcript klaar). Bestaat de aflevering niet voor deze user → HTTP 404; is de aflevering er wel maar is de status nog niet `DONE` of ontbreekt het transcript → HTTP 409. Beide met een Nederlandse foutmelding.
 
 **Idempotency:** als er al een vertaling bestaat voor deze (`username`, `translated_from_episode_guid`) met status `PENDING`/`TRANSLATING`/`TTS_GENERATING`/`DONE`, returnt de API HTTP 200 met de bestaande `podcastId`. Alleen na een eerdere `FAILED` start de API opnieuw (HTTP 202).
 
@@ -545,6 +545,7 @@ Alle configuratie via `application.properties` of omgevingsvariabelen.
 - **Podcast:** Bij een fout in een van de stappen wordt de podcast gemarkeerd als `FAILED`. Ook als de TTS-fase geen audio oplevert (alle segmenten faalden of het script bevatte geen INTERVIEWER/GAST-regels) wordt de podcast `FAILED`, niet `DONE`.
 - **Ad-hoc verzoek:** Bij een fatale fout wordt het verzoek gemarkeerd als `FAILED`.
 - **Annulering:** Verzoeken kunnen geannuleerd worden; de verwerking stopt bij het eerstvolgende controlepunt. Alleen de eigenaar kan annuleren (SF-2051): `POST /api/requests/{id}/cancel` controleert eerst of het verzoek van de ingelogde gebruiker is en geeft anders `404` — bewust geen `403`, zodat het antwoord niet verraadt of een id van een andere gebruiker bestaat. Bij een `404` wordt er geen annuleervlag gezet.
+- **Podcast-aflevering vertalen (SF-2094):** `POST /api/podcast-source/{episodeGuid}/translate` onderscheidt twee foutsoorten. Bestaat de aflevering niet voor deze gebruiker, dan volgt `404` (`NotFoundException`) — hetzelfde antwoord als de lookup ernaast, en net als bij de andere resource-endpoints verraadt het niet of de guid van iemand anders is. Bestaat de aflevering wél maar is de status nog niet `DONE` of is het transcript leeg, dan volgt `409` (`ConflictException`). Tot SF-2094 gaf ook het niet-gevonden-pad een `409`, wat afweek van het contract en van alle andere 404-plekken.
 - **Restart-herstel:** Bij serverherstart worden openstaande PENDING/PROCESSING verzoeken gereset naar FAILED.
 - **OpenAI rate limiting:** Bij HTTP 429 wordt automatisch gewacht en opnieuw geprobeerd (exponentieel backoff, max 4 pogingen).
 

@@ -701,12 +701,17 @@ paths:
       summary: Verwijder een verzoek
       description: |
         Verzoeken met ID-prefix 'hourly-update-' of 'daily-summary-' kunnen niet
-        verwijderd worden.
+        verwijderd worden; zo'n vast verzoek geeft eveneens een 404 (een
+        beleidsweigering, niet 'bestaat niet').
       parameters:
         - $ref: '#/components/parameters/ItemId'
       responses:
         '204':
           description: Verwijderd
+        '404':
+          description: |
+            Verzoek niet gevonden (onbekend id, of het verzoek is van een andere gebruiker).
+            Ook een vast verzoek ('hourly-update-' / 'daily-summary-') geeft 404.
 
   /api/requests/{id}/rerun:
     post:
@@ -723,6 +728,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/NewsRequest'
+        '404':
+          description: Verzoek niet gevonden (onbekend id, of het verzoek is van een andere gebruiker)
 
   /api/requests/{id}/cancel:
     post:
@@ -806,6 +813,8 @@ paths:
       responses:
         '204':
           description: Verwijderd
+        '404':
+          description: Podcast niet gevonden (onbekend id, of de podcast is van een andere gebruiker)
 
   /api/podcasts/{id}/audio:
     get:
@@ -1051,6 +1060,8 @@ paths:
                 $ref: '#/components/schemas/StatusOk'
         '403':
           description: Geen ROLE_ADMIN
+        '404':
+          description: Gebruiker niet gevonden
 
   /api/admin/users/{username}/role:
     put:
@@ -1074,6 +1085,8 @@ paths:
                 $ref: '#/components/schemas/StatusOk'
         '403':
           description: Geen ROLE_ADMIN
+        '404':
+          description: Gebruiker niet gevonden
 
   /api/admin/users/{username}:
     delete:
@@ -1091,6 +1104,8 @@ paths:
                 $ref: '#/components/schemas/StatusOk'
         '403':
           description: Geen ROLE_ADMIN
+        '404':
+          description: Gebruiker niet gevonden
 
   # ── Admin Costs (ROLE_ADMIN) ────────────────────────────────────────────────
 

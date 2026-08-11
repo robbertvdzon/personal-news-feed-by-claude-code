@@ -1,6 +1,7 @@
 package com.vdzon.newsfeedbackend.podcast.domain
 
 import com.vdzon.newsfeedbackend.common.ConflictException
+import com.vdzon.newsfeedbackend.common.NotFoundException
 import com.vdzon.newsfeedbackend.podcast.EpisodeLookup
 import com.vdzon.newsfeedbackend.podcast.Podcast
 import com.vdzon.newsfeedbackend.podcast.PodcastStatus
@@ -55,7 +56,7 @@ class PodcastTranslationServiceImpl(
 
     override fun startTranslation(username: String, episodeGuid: String): TranslationStart {
         val episode = episodeRepo.get(username, episodeGuid)
-            ?: throw ConflictException("Aflevering niet gevonden: $episodeGuid")
+            ?: throw NotFoundException("Aflevering niet gevonden: $episodeGuid")
         if (episode.status != PodcastEpisodeStatus.DONE) {
             // AC: alleen actief wanneer Engels transcript klaar is.
             throw ConflictException(
