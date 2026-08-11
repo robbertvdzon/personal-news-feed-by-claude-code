@@ -329,7 +329,7 @@ Naast de zelf-gegenereerde DevTalk-podcasts kan een gebruiker een Engelse RSS-po
 
 **Statusverloop (translate-flow):** `PENDING` → `TRANSLATING` → `TTS_GENERATING` → `DONE` / `FAILED`. Twee extra waarden op de bestaande `PodcastStatus`-enum; geen DDL-constraint omdat het status-veld een `TEXT`-kolom is.
 
-**Trigger:** `POST /api/podcast-source/{episodeGuid}/translate`. Pre-condities: de bron-aflevering bestaat voor deze user én staat op `PodcastEpisodeStatus.DONE` (transcript klaar). Bij conflict → HTTP 409 met Nederlandse foutmelding.
+**Trigger:** `POST /api/podcast-source/{episodeGuid}/translate`. Pre-condities: de bron-aflevering bestaat voor deze user én staat op `PodcastEpisodeStatus.DONE` (transcript klaar). Bestaat de aflevering niet voor deze user → HTTP 404; is de aflevering er wel maar is de status nog niet `DONE` of ontbreekt het transcript → HTTP 409. Beide met een Nederlandse foutmelding.
 
 **Idempotency:** als er al een vertaling bestaat voor deze (`username`, `translated_from_episode_guid`) met status `PENDING`/`TRANSLATING`/`TTS_GENERATING`/`DONE`, returnt de API HTTP 200 met de bestaande `podcastId`. Alleen na een eerdere `FAILED` start de API opnieuw (HTTP 202).
 

@@ -1,6 +1,7 @@
 package com.vdzon.newsfeedbackend.podcast.domain
 
 import com.vdzon.newsfeedbackend.common.ConflictException
+import com.vdzon.newsfeedbackend.common.NotFoundException
 import com.vdzon.newsfeedbackend.podcast.Podcast
 import com.vdzon.newsfeedbackend.podcast.PodcastStatus
 import com.vdzon.newsfeedbackend.podcast.TtsProvider
@@ -116,10 +117,10 @@ class PodcastTranslationServiceImplTest {
     // ===================== startTranslation =====================
 
     @Test
-    fun `startTranslation throws ConflictException when episode is not found`() {
+    fun `startTranslation throws NotFoundException when episode is not found`() {
         whenever(episodeRepo.get("alice", "missing-guid")).thenReturn(null)
 
-        assertThrows(ConflictException::class.java) {
+        assertThrows(NotFoundException::class.java) {
             service.startTranslation("alice", "missing-guid")
         }
 
