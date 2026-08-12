@@ -320,10 +320,12 @@ opgenomen in de allowlist, zie §3).
 
 ### E2e-testsuite (`mvn verify`)
 Naast de unit-tests bestaat er een e2e-suite onder
-`src/test/kotlin/com/vdzon/newsfeedbackend/e2e/` (11 testklassen): `RssRefreshE2eTest`,
+`src/test/kotlin/com/vdzon/newsfeedbackend/e2e/` (12 testklassen): `RssRefreshE2eTest`,
 `RssItemsE2eTest`, `SettingsE2eTest`, `AdminE2eTest`,
 `AuthE2eTest`, `FeedE2eTest`, `FixedRequestsE2eTest`, `PodcastGenerationE2eTest`,
-`PodcastIngestE2eTest`, `RequestsE2eTest` en `SharedFeedE2eTest`. Het gedeelde
+`PodcastIngestE2eTest`, `RequestsE2eTest`, `RequestWebSocketE2eTest` en
+`SharedFeedE2eTest`. Naast de testklassen staat in dezelfde map de hulpklasse
+`WsTestClient` (zie hieronder). Het gedeelde
 harnas (`E2eTestBase`/`E2eTestConfig`) start
 de volledige Spring-app tegen een echte PostgreSQL via Testcontainers (met
 echte Flyway-migraties); alleen de externe diensten zijn gefaked
@@ -382,6 +384,39 @@ de huidige sleutelvorm `"$username/$id"` — verandert die vorm, dan wordt die
 assertie stil triviaal-waar; en de aanvalspoging moet plaatsvinden terwijl de
 eigenaar écht nog verwerkt, waarvoor de test de eerste `adhoc_summarize` van
 `FakeOpenAiChatClient` met een `CountDownLatch` vasthoudt.
+
+`RequestWebSocketE2eTest` (5 tests, SF-2109) dekt het WebSocket-endpoint
+`/ws/requests` zoals §5 van `backend-functional-spec.md` en de sectie
+*WebSocket-integratie* van `frontend-spec.md` het beschrijven — de REST-kant van
+`NewsRequest` was al via `RequestsE2eTest` gedekt, deze kant niet: (1) na connect
+komt precies één `serverVersion`-bericht met `sha`/`buildTime` allebei `"unknown"`
+(`BUILD_SHA`/`BUILD_TIME` worden alleen in de Docker-image gezet, dus in tests
+geldt de gedocumenteerde fallback); (2) een tweede verbinding levert bij de
+eerste géén tweede `serverVersion` — het is bewust geen broadcast; (3) bij een
+ad-hoc verzoek komen de statuswijzigingen binnen als volledige `NewsRequest`-
+objecten zonder `type`-veld, met de reeks `PENDING → PROCESSING → DONE` en de
+velden `id`/`status`/`subject`/`newItemCount` erin (er is geen DTO-laag, dus deze
+serialisatie wordt nergens anders afgedekt); (4) beide verbonden clients krijgen
+dezelfde statusberichten, want de server filtert niet per gebruiker; (5) na een
+nette close van de ene verbinding blijft de andere berichten ontvangen.
+Aandachtspunten voor wie deze tests uitbreidt: de verbinding loopt via de
+JDK-`HttpClient.newWebSocketBuilder()` (geen extra dependency, `/ws/**` is
+`permitAll` dus er is geen token nodig), verpakt in de test-only hulpklasse
+`WsTestClient` die twee valkuilen van de JDK-listener afvangt — `onText` moet
+zelf `webSocket.request(1)` aanroepen (anders komt na het eerste bericht niets
+meer binnen) en levert fragmenten, dus er wordt pas geparsed bij `last == true`.
+Verbind altijd vóór het uitlokken van een statuswijziging en consumeer eerst het
+`serverVersion`-bericht als anker dat de sessie server-side geregistreerd is; er
+staat nergens een vaste `sleep`, wachten gebeurt via `poll(timeout)` en de enige
+korte time-out (2 s) zit in de twee negatieve asserties. Asserteer per `id`: de
+hardcoded `RssScheduler`-cron (`0 0 * * * *`) is niet uit te schakelen, dus een
+run precies over het hele uur kan er een `hourly-update-*`-broadcast tussen
+zetten. De klasse zet net als `RequestsE2eTest` via een eigen
+`@DynamicPropertySource` een dummy `app.tavily.api-key`, anders doet
+`TavilyClient` geen HTTP-call naar `FakeContentServer`. Test 5 bewijst alleen het
+waarneembare gedrag: bij een nette close haalt Spring de sessie al weg in
+`afterConnectionClosed`, dus de dode-sessie-tak in
+`RequestWebSocketHandler.broadcast` wordt er niet gegarandeerd door geraakt.
 
 `mvn test` (surefire) draait alleen de unit-tests en `ModuleStructureTest`
 (sluit `**/e2e/**` uit, geen Docker nodig). `mvn verify` (failsafe) draait
