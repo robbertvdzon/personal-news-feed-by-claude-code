@@ -67,3 +67,25 @@ Eigen review over de diff:
   `assertNull`-checks zijn bewuste negatieve asserties met een korte time-out en een boodschap.
 - Geen vaste sleeps, geen afgezwakte time-outs: wachten gebeurt via `poll(timeout)`; het uitblijven
   van een verwacht bericht laat de test falen met de tot dan toe ontvangen berichten in de melding.
+
+## Review (SF-2110)
+
+Akkoord — geen blockers.
+
+- Scope: `git diff main...HEAD --stat` = 3 bestanden (worklog + `e2e/RequestWebSocketE2eTest.kt` +
+  `e2e/WsTestClient.kt`). Geen productiecode, geen `pom.xml`, geen specs, geen lockfiles (AC7 ✓).
+- Testbewijs is revisiegebonden: `target/failsafe-reports/TEST-...RequestWebSocketE2eTest.xml` bevat
+  exact de 5 nieuwe testnamen uit de diff; alle `*-reports/*.txt` melden `Failures: 0, Errors: 0`.
+  Totalen kloppen met de claim: 116 unit + 71 e2e over 12 klassen (baseline 66, +5). AC8 ✓.
+- AC1-AC6 een voor een tegen de code gelegd: `serverVersion` komt uit
+  `RequestWebSocketHandler.afterConnectionEstablished` (alleen naar de verbindende sessie, fallback
+  `"unknown"` want `BUILD_SHA`/`BUILD_TIME` staan alleen in de Dockerfile); de statusbroadcasts uit
+  `RequestServiceImpl.create`/`upsert`. Asserties zijn concreet en per `id` gefilterd; de enige twee
+  korte time-outs (2 s) zijn negatieve asserties. Spec-verwijzing bij AC5 klopt met
+  `specs/frontend-spec.md` § WebSocket-integratie ("server filtert niet per user").
+- `/ws/**` is inderdaad `permitAll` (`SecurityConfig.kt:35`), dus geen token nodig — geen nieuwe
+  dependency, JDK-`WebSocket` volstaat.
+- [info] `RssScheduler`-cron `0 0 * * * *` is niet uitschakelbaar; een run precies over het hele uur
+  kan in theorie de twee stilte-polls raken. Bewust zo gelaten en in de story als aanname vastgelegd.
+- [suggestie] `WsTestClient.connect` zet `socket` nog een keer na `buildAsync`, terwijl `onOpen` dat
+  al doet — overbodig maar onschadelijk.
