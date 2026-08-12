@@ -86,6 +86,7 @@ Het harnas (`e2e/E2eTestBase` + `E2eTestConfig`):
 - **`FakeContentServer`** is een embedded HTTP-server voor alles wat de app zelf fetcht: RSS-/podcast-feeds, artikel-HTML, Tavily-API-antwoorden, TTS-audio-bytes. Feed-URL's zijn user-config, dus een test registreert gewoon een `localhost`-URL; de base-URL's van OpenAI/Tavily/ElevenLabs wijzen in tests óók naar deze server, zodat een gemiste seam nooit het echte internet raakt.
 - **Isolatie door unieke usernames**, niet door table-truncates: alle data is per-user, dus tests zien elkaar niet en kunnen binnen één klasse parallel aan dezelfde context hangen.
 - **Async flows**: gebruik altijd de `await { … }`-helper (Awaitility), nooit kale sleeps.
+- **WebSocket-kant**: naast HTTP is er sinds SF-2109 de test-only hulpklasse `e2e/WsTestClient` bovenop de JDK-`WebSocket` (`WsTestClient.connect(port, mapper)`), met een `poll(timeout)` die `null` geeft bij time-out. `RequestWebSocketE2eTest` gebruikt hem voor `/ws/requests`: verbind altijd vóór je een statuswijziging uitlokt en consumeer eerst het `serverVersion`-bericht als anker.
 
 **Een nieuwe feature testen** = een nieuwe `XxxE2eTest : E2eTestBase()` die het gedrag via HTTP uitoefent, plus eventueel een unit test als er een puur stukje logica in zit. Kijk `RssRefreshE2eTest` af als voorbeeld van een volledige pipeline-test.
 
