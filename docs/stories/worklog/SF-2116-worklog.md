@@ -49,3 +49,39 @@ Review (SF-2117, reviewer):
   runtime uit `SpringBootVersion.getVersion()` (VersionController.kt:23), dus functioneel klopt alles;
   alleen het voorbeeld in de spec is nu verouderd. Buiten de scope van deze development-subtaak —
   meenemen in de documentatie-subtaak SF-2120.
+
+Test (SF-2118, tester):
+- Vangnet zelf gedraaid vanuit `newsfeedbackend/newsfeedbackend`:
+  `mvn -B --no-transfer-progress clean verify` -> BUILD SUCCESS, exitcode 0, 03:41 min.
+  Surefire `Tests run: 116, Failures: 0, Errors: 0, Skipped: 0` (AC2), failsafe/e2e
+  `Tests run: 71, Failures: 0, Errors: 0, Skipped: 0` (AC3). 0 `^[WARNING]`-regels.
+  De `docker`-CLI ontbreekt in de tester-container (`docker info` -> exit 127), maar
+  `/var/run/docker.sock` is aanwezig, dus Testcontainers draait rechtstreeks tegen de
+  daemon; AC3 is dus lokaal aangetoond en hoefde niet aan de pipeline te worden gelaten.
+- AC4 herhaald met een verse `mvn dependency:tree`: alle elf artefacten exact zoals in de
+  story-tabel (tomcat-embed-core 11.0.22, spring-core/-web/-webmvc/-websocket/-expression
+  7.0.8, logback-core 1.5.34, micrometer-core 1.16.6, postgresql 42.7.11,
+  tools.jackson jackson-databind 3.1.4, fasterxml jackson-databind 2.21.4).
+- AC1/AC5: `git diff main...HEAD` = 3 bestanden, exact één inhoudelijke regel (`pom.xml:10`).
+  Het aantal `<version>`-elementen in de POM is 20 op zowel main als HEAD -> geen nieuwe pin.
+  Werkboom na afloop schoon (`git status --porcelain` leeg).
+- Gedragsverificatie op de preview (`https://pnf-pr-223.vdzonsoftware.nl`, pods draaien
+  `sha-79c8932` = de developer-commit; de latere reviewer-commit raakt alleen docs):
+  - `GET /api/version` -> `springVersion: "4.0.7"`: de bump is runtime zichtbaar.
+  - `GET /api/shared/feed` -> 200, 543 items, 17-key-union, mediaTypes ARTICLE/PODCAST:
+    pgjdbc 42.7.11 + jackson 3.1.4 serialiseren ongewijzigd.
+  - `GET /actuator/prometheus` -> 200, 184 metricregels incl. correct getemplatede
+    `http_server_requests_seconds_count{uri="/api/shared/feed"}` en hikaricp-metrics:
+    de HTTP-instrumentatie van micrometer 1.16.6 (CVE-2026-40984) werkt normaal.
+  - `wss://.../ws/requests` -> verbinding open + `serverVersion`-frame met sha 79c8932:
+    spring-websocket 7.0.8 (CVE-2026-41838) functioneert ongewijzigd.
+  - Geauthenticeerde lees- en schrijfpaden met een wegwerp-user: `/api/requests`,
+    `/api/settings`, `/api/rss-feeds`, `/api/podcasts`, `/api/rss` alle 200;
+    `PUT /api/rss-feeds` -> 200 en de waarde komt terug uit een verse GET.
+  - Flutter-UI via Playwright: registratie/login door de UI heen, feedscherm rendert met
+    tabs en navigatie, 0 console-errors en 0 HTTP>=400. Screenshots in `/work/screenshots`
+    (`01-login.png`, `02-credentials.png`, `03-after-login.png`).
+- Inlogmodus: **fallback wegwerp-account**, want `TESTER_USERNAME`/`TESTER_PASSWORD` waren
+  niet gezet en `oc get secret newsfeed-api-keys -n pnf-pr-223` geeft Forbidden voor de
+  `claude-agent`-SA. Testdata opgeruimd: `DELETE /api/account/me` -> 200, herlogin -> 401.
+- Geen flakes waargenomen; geen enkele test hoefde herdraaid te worden.
