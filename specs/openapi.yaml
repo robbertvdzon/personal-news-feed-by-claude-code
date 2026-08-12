@@ -1280,7 +1280,7 @@ components:
         springVersion:
           type: string
           description: Spring Boot-versie waarmee de backend draait
-          example: 4.0.6
+          example: 4.0.7
         environment:
           type: string
           description: Naam van de omgeving waarin de backend draait (uit env-var `APP_ENVIRONMENT`, fallback `"prod"`)

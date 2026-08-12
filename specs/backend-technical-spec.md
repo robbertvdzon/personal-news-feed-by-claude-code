@@ -23,6 +23,10 @@
 | `io.micrometer:micrometer-registry-prometheus` | Prometheus metrics export |
 | `org.springframework.modulith:spring-modulith-starter-core` | Modulaire monolith structuur en verificatie |
 
+**Versiebeheer:** de meeste versies komen uit het dependency-management van `spring-boot-starter-parent` (`pom.xml` regel 8–11) — Tomcat, Spring Framework, Logback, Micrometer, de PostgreSQL-driver en Jackson staan dus nergens expliciet gepind. Alleen componenten buiten die BOM hebben een eigen `<version>` (jjwt, rome, ShedLock, kotlinx-coroutines, en de testafhankelijkheden Cucumber/WireMock/Testcontainers/Awaitility) plus de `spring-modulith-bom` in `<dependencyManagement>`.
+
+Een security-bump van een door de parent gemanagede component is daarom **één regelwijziging**: verhoog de parent-versie en voeg géén nieuwe expliciete `<version>`-pin toe (SF-2116 bracht zo 4.0.6 → 4.0.7 en daarmee o.a. `tomcat-embed-core` 11.0.21 → 11.0.22, `spring-websocket` 7.0.7 → 7.0.8 en `micrometer-core` 1.16.5 → 1.16.6). Verifieer de opbrengst met `mvn dependency:tree` (of `unzip -l target/newsfeedbackend-1.0.0.jar` op `BOOT-INF/lib`) in plaats van met de verwachte versietabel uit de story. Er draait geen geautomatiseerde dependency-scan (geen Dependabot/Renovate/OSV in CI); zulke bumps komen uit een handmatige audit.
+
 ---
 
 ## 2. Projectstructuur & IntelliJ Setup
