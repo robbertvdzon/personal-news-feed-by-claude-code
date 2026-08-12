@@ -32,3 +32,20 @@ Done / rationale:
   De `docker`-CLI ontbreekt in deze container, maar `/var/run/docker.sock` is aanwezig, dus Testcontainers
   draait gewoon; AC3 hoefde niet aan de factory-pipeline te worden overgelaten.
 - `git diff` bevat buiten de POM-regel alleen de story-/worklog-bestanden (AC1).
+
+Review (SF-2117, reviewer):
+- Volledige story-diff (`git diff main...HEAD`) beoordeeld: 3 bestanden, exact één inhoudelijke
+  regel (`pom.xml:10`, 4.0.6 -> 4.0.7), verder alleen story-log + worklog. AC1 en AC5 bevestigd:
+  geen andere POM-regel geraakt, alle overige `<version>`-elementen in de POM zijn pre-existing.
+- Testbewijs onafhankelijk nagerekend in `newsfeedbackend/newsfeedbackend/target/`: surefire 116,
+  failsafe 71 over 12 klassen (kruischeck `grep -h @Test .../e2e/*E2eTest.kt` = 71), en
+  `grep -hL "Failures: 0, Errors: 0" target/*-reports/*.txt` is leeg -> alles groen (AC2, AC3).
+- AC4 hard bevestigd zonder `dependency:tree` te herdraaien: `unzip -l target/newsfeedbackend-1.0.0.jar`
+  toont in BOOT-INF/lib exact tomcat-embed-core 11.0.22, spring-core/-web/-webmvc/-websocket/-expression
+  7.0.8, logback-core 1.5.34, micrometer-core 1.16.6, postgresql 42.7.11, jackson-databind 3.1.4 en
+  2.21.4. Dit bewijst tevens dat het groene vangnet bij DEZE revisie hoort (die versies resolven
+  alleen onder parent 4.0.7).
+- [suggestie] `specs/openapi.yaml:1283` heeft `example: 4.0.6` bij `springVersion`. De waarde zelf komt
+  runtime uit `SpringBootVersion.getVersion()` (VersionController.kt:23), dus functioneel klopt alles;
+  alleen het voorbeeld in de spec is nu verouderd. Buiten de scope van deze development-subtaak —
+  meenemen in de documentatie-subtaak SF-2120.
