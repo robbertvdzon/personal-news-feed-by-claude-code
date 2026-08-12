@@ -89,3 +89,49 @@ Akkoord — geen blockers.
   kan in theorie de twee stilte-polls raken. Bewust zo gelaten en in de story als aanname vastgelegd.
 - [suggestie] `WsTestClient.connect` zet `socket` nog een keer na `buildAsync`, terwijl `onOpen` dat
   al doet — overbodig maar onschadelijk.
+
+## Test (SF-2111)
+
+Goedgekeurd — geen blockers.
+
+**Vangnet (revisie f3ba77e, `newsfeedbackend/newsfeedbackend`)** — `mvn -B --no-transfer-progress
+clean verify` zelf tweemaal achter elkaar gedraaid, beide volledig uitgelopen:
+- Run 1: BUILD SUCCESS, exitcode 0 — 116 unit + 71 e2e (12 klassen), 0 failures / 0 errors, 03:41 min.
+- Run 2: BUILD SUCCESS, exitcode 0 — 116 unit + 71 e2e, 0 failures / 0 errors, 03:32 min.
+- `RequestWebSocketE2eTest`: 5/5 groen in beide runs (14,15 s resp. 14,13 s). Geen enkele flake, geen
+  hertest nodig. AC8 ✓. `grep -c '^\[WARNING\]'` = 0 in beide logs; de 52 `WARNING:`-regels zijn
+  pre-existing JVM-byte-buddy-agentmeldingen (Mockito), geen Maven-warnings.
+
+**Onafhankelijke live-verificatie op de preview** (`https://pnf-pr-222.vdzonsoftware.nl`, pod-image
+sha `310beb4`) — alle zes gedragscriteria los van de nieuwe testklasse nagemeten via een eigen
+WebSocket-client (`wss://.../ws/requests`, Node 22 global `WebSocket`) plus REST:
+- AC1: eerste bericht = `{"type":"serverVersion","sha":"310beb4","buildTime":"2026-08-12T06:35:59Z"}`;
+  2 s stilte-poll daarna → `null` (precies één). In de preview zijn `BUILD_SHA`/`BUILD_TIME` wél
+  gezet — dat bevestigt tegelijk dat `"unknown"` puur de testomgevings-fallback is, zoals de test aanneemt.
+- AC2: bij het openen van verbinding B kreeg A géén tweede `serverVersion` (poll → `null`).
+- AC3: `POST /api/requests/daily-summary-<user>/rerun` → beide verbindingen kregen de statusberichten,
+  eindigend op `DONE`; geen enkel bericht ná `serverVersion` had een `type`-veld.
+- AC4: het volledige object gaat over de lijn — 17 keys (`categoryResults, completedAt, createdAt,
+  durationSeconds, extraInstructions, id, isDailySummary, isHourlyUpdate, maxAgeDays, maxCount,
+  newItemCount, preferredCount, processingStartedAt, sourceItemId, sourceItemTitle, status, subject`),
+  inclusief `id`/`status`/`subject`/`newItemCount`.
+- AC5: identieke statusreeks op beide verbindingen → server filtert inderdaad niet per gebruiker.
+- AC6: na een nette close van A ontving B een daarna uitgelokte statuswijziging nog volledig (→ `DONE`).
+- AC7: `git diff main...HEAD --name-status` = 3 toegevoegde bestanden, uitsluitend `src/test/kotlin/
+  .../e2e/` + dit worklog. Geen productiecode, geen `pom.xml`/specs/lockfiles.
+
+**Notities bij de assertiesterkte:**
+- De extra assertie `distinct == [PENDING, PROCESSING, DONE]` (strenger dan AC3's "eindigt op DONE")
+  is op het ad-hoc-pad deterministisch: `create` broadcast PENDING, `AdhocOrchestrator.kt:52`
+  broadcast PROCESSING via `service.upsert`, daarna DONE. Geen race, dus geen flake-risico.
+- Live op het `rerun`-pad van `daily-summary-*` zag ik alleen PENDING → DONE (de PROCESSING-write daar
+  loopt niet via `service.upsert`). Puur een verschil tussen codepaden, raakt deze story niet — de
+  test asserteert bewust op het ad-hoc-pad.
+
+**Login-modus:** wegwerp-account via de API. `TESTER_USERNAME`/`TESTER_PASSWORD` waren niet gezet en
+`oc get secret newsfeed-api-keys -n pnf-pr-222` geeft Forbidden voor de `claude-agent`-SA. Het
+wegwerp-account is opgeruimd met `DELETE /api/account/me` (200) en de cleanup is geverifieerd met een
+herlogin (401). Geen DB-mutaties, geen productie geraakt.
+
+**Screenshots:** geen. Deze story raakt uitsluitend backend-testcode (`src/test/`) en heeft geen
+frontend-oppervlak; het WebSocket-gedrag is hierboven live met een echte WS-client bewezen.
