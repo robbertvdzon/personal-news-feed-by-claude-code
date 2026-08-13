@@ -4,7 +4,7 @@ info:
   version: 1.0.0
   description: |
     REST API voor de Personal News Feed backend.
-    Alle endpoints (behalve /api/auth/**, /api/version en /ws/**) vereisen een JWT Bearer token.
+    Alle endpoints (behalve /api/auth/**, /api/version, /api/shared/**, /ws/** en /actuator/**) vereisen een JWT Bearer token.
 
     ## WebSocket
     Naast de REST API is er een WebSocket endpoint:
@@ -1308,6 +1308,10 @@ components:
           description: JWT token, geldig 30 dagen
         username:
           type: string
+        role:
+          type: string
+          enum: [user, admin]
+          description: Rol van de gebruiker; de client leidt hier het admin-onderscheid uit af (bepaalt of de Beheer-sectie zichtbaar is)
 
     # Settings
 
@@ -2044,7 +2048,8 @@ components:
           type: string
         role:
           type: string
-          example: ROLE_USER
+          enum: [user, admin]
+          example: user
 
     ResetPasswordRequest:
       type: object
@@ -2059,7 +2064,8 @@ components:
       properties:
         role:
           type: string
-          example: ROLE_ADMIN
+          enum: [user, admin]
+          example: admin
 
     # Admin Costs
 
