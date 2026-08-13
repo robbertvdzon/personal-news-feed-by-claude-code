@@ -71,3 +71,36 @@ Review (SF-2124, eerste ronde) — akkoord, geen blockers:
   7 issues, exact de bekende pre-existing infos. Working tree schoon, geen `pubspec.lock`-drift.
 - [info] `podcast_detail_screen.dart:26` noemt de vertaalstatussen nog in proza; dat bestand
   valt buiten AC9-scope en is dus terecht niet aangeraakt — eventueel iets voor een latere story.
+
+Test (SF-2125, tester) — akkoord:
+- Statisch/AC-check op HEAD (`4255c28`): AC1 `grep -rn "Podcast\.translationInProgress"` over
+  `frontend/ specs/ docs/factory/` → nul treffers; AC2/AC3 comments aanwezig bij beide
+  constantes; AC4 `EpisodeLookup.translationInProgress` gebruikt
+  `kPodcastTranslationInProgressStatuses`, geen kaal literal meer; AC5 `_phaseLabel`-diff is
+  uitsluitend een doc-comment (4 toegevoegde regels, geen enkele gewijzigde/verwijderde
+  coderegel) — cases, labels en `default: 'bezig…'` ongewijzigd; AC9 diff raakt exact de vijf
+  toegestane bestanden (+ worklog), AC8 `git diff main...HEAD` op `newsfeedbackend/`,
+  `specs/openapi.yaml` en `frontend-reader/` is leeg.
+- AC6/AC7 (kopie in /tmp, dus geen `pubspec.lock`-drift): `flutter test` → **29/29 groen**
+  (baseline 27 + 2 nieuwe: exacte inhoud en `containsAll`-deelverzameling).
+  `flutter analyze` op HEAD én op een schone `main`-worktree: beide 7 info-lints, na
+  normalisatie van regelnummers **identiek** → geen nieuwe waarschuwingen.
+- Gedragsbewijs op de preview (`https://pnf-pr-224.vdzonsoftware.nl`, pods draaien
+  `sha-f255630` = de developer-commit; de reviewer-commit raakt alleen deze worklog).
+  `/api/rss` en `/api/podcast-source/by-rss-item/*` gemockt met Playwright-routes, zodat elke
+  `translatedPodcastStatus` op het RSS-podcast-detailscherm gerenderd kon worden:
+  - `PENDING` → "🇳🇱 Bekijk vertaling — in wachtrij…" (met spinner)
+  - `TRANSLATING` → "🇳🇱 Bekijk vertaling — vertalen…"
+  - `TTS_GENERATING` → "🇳🇱 Bekijk vertaling — audio genereren…"
+  - `DONE` → "🇳🇱 Bekijk vertaling" (geen fase-label)
+  - `GENERATING_AUDIO` en `FAILED` → "🇳🇱 Vertaal & genereer Nederlandse podcast"
+  Die laatste twee zijn de discriminator: `GENERATING_AUDIO` zit wél in
+  `kPodcastInProgressStatuses` maar niet in de vertaalset, en valt dus terecht níet in de
+  in-progress-tak. Labels 1-op-1 gelijk aan de `_phaseLabel`-switch → geen gedragswijziging.
+  Screenshots: `/work/screenshots/001..009`.
+- Inlogmodus: **fallback wegwerp-account** `tester_sf-2123` (UI-registratie + UI-login). De
+  vaste test-user-creds waren niet leesbaar: `TESTER_USERNAME`/`TESTER_PASSWORD` zijn leeg en
+  `oc get secret newsfeed-api-keys -n pnf-pr-224` geeft `Forbidden` voor de SA
+  `system:serviceaccount:agent-access:claude-agent`. Opgeruimd: `DELETE /api/account/me` → 200,
+  herlogin → 401. Geen DB-mutaties buiten dat account (alle testdata was client-side mock).
+- Working tree schoon; geen code/test/infra gewijzigd, alleen deze worklog.
