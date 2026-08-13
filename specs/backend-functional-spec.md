@@ -64,7 +64,9 @@ cleanup-paden — niet als primaire dataopslag.
 
 ## 3. Authenticatie
 
-**Mechanisme:** JWT Bearer token (HS256), geldig 30 dagen. Alle endpoints vereisen een geldig token in de `Authorization: Bearer {token}` header, behalve `/api/auth/**`, `/api/version` en `/ws/**`.
+**Mechanisme:** JWT Bearer token (HS256), geldig 30 dagen. Alle endpoints vereisen een geldig token in de `Authorization: Bearer {token}` header, behalve de vijf publieke paden die `SecurityConfig` op `permitAll` zet: `/api/auth/**`, `/api/version`, `/api/shared/**`, `/ws/**` en `/actuator/**`. Diezelfde vijf staan sinds SF-2130 ook in de inleidende `description` van `openapi.yaml` — die noemde er drie.
+
+**Rollen:** een gebruiker heeft precies één rol met als waarde `user` of `admin` (`User.ROLE_USER` / `User.ROLE_ADMIN`; let op: dat zijn de namen van de Kotlin-constanten, de wáárdes zijn de kleine-letter-strings). De rol wordt gezet bij registratie — de eerste gebruiker die zich registreert terwijl er nog geen admin bestaat wordt automatisch admin, daarna is elke registratie `user` — of later via `PUT /api/admin/users/{username}/role`, dat elke andere waarde dan `user`/`admin` weigert met een `400`. `/api/admin/**` is admin-only via `hasRole("ADMIN")`; dat is de Spring-Security-autoriteitsnaam (`ROLE_` + rol in hoofdletters) en niet de waarde die de API in- of uitgaat. Zowel `POST /api/auth/register` als `POST /api/auth/login` geven de rol mee in de response (`AuthResponse.role`, sinds SF-2130 ook in het contract), zodat de client het admin-onderscheid kan maken zonder het JWT te parsen; de rol zit óók in het token, dus na een rolwijziging werkt een oud token door tot de gebruiker opnieuw inlogt.
 
 **Uitzondering — audio endpoint:** `GET /api/podcasts/{id}/audio` accepteert het JWT token ook als query-parameter `?token=...`. Dit is nodig omdat browser mediaplayers en Flutter's `AudioPlayer` geen `Authorization` header kunnen meesturen bij het streamen van audio. De JWT-filter moet deze query-parameter herkennen en als geldig authenticatiemiddel beschouwen.
 

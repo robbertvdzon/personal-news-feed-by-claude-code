@@ -370,6 +370,8 @@ Sectie **"Debug"** met één `ListTile` "API-log" (subtitle "Laatste calls + sta
 
 Onderaan het instellingen-scherm verschijnt een extra sectie **"Beheer"** die alleen zichtbaar is voor gebruikers met de rol `admin`.
 
+De rol komt uit het `role`-veld van de register-/login-response (`AuthResponse`, waarden `user` of `admin`; sinds SF-2130 ook zo in `openapi.yaml` gedocumenteerd). `AuthNotifier` bewaart hem in `SharedPreferences` naast token en username, en `AuthState.isAdmin` (`role == 'admin'`) gate't deze sectie. Ontbreekt het veld in de response — een oudere backend — dan valt de client bewust terug op `'user'`: de Beheer-sectie blijft dan verborgen in plaats van dat de UI crasht. Daarom is `role` in het contract ook géén `required`-veld.
+
 - **Beheer gebruikers-knop:** navigeert via `Navigator.push` naar AdminScreen.
   - AdminScreen toont alle gebruikers met hun rollen.
   - Per gebruiker: wachtwoord resetten, promoveren naar admin, degraderen naar user, verwijderen.
