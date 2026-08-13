@@ -275,10 +275,14 @@ waardoor een podcast in `TRANSLATING` wél een draaiend rondje "Vertalen…" kre
 maar het scherm zichzelf niet meer ververste — het rondje bleef eindeloos
 draaien tot je handmatig verversde.
 
-> `Podcast.translationInProgress` (`PENDING` / `TRANSLATING` / `TTS_GENERATING`)
-> is bewust een smallere, eigen lijst voor uitsluitend de vertaalflow — een
-> vertaling doorloopt nooit de generatie-statussen — en hoort níet vervangen te
-> worden door de gedeelde set.
+> `EpisodeLookup.translationInProgress` (`PENDING` / `TRANSLATING` /
+> `TTS_GENERATING`, gelezen van `translatedPodcastStatus`) is bewust een
+> smallere, eigen lijst voor uitsluitend de vertaalflow van één RSS-aflevering
+> — een vertaling doorloopt nooit de generatie-statussen — en hoort níet
+> vervangen te worden door de gedeelde set. Sinds SF-2123 staat die lijst als
+> tweede top-level constante `kPodcastTranslationInProgressStatuses` naast
+> `kPodcastInProgressStatuses`, met een test die vastlegt dat hij een
+> deelverzameling van de gedeelde set blijft.
 
 > **Belangrijk:** poll-fetches mogen de provider níet via `invalidate()` resetten — dat zou de `AsyncData` voor 1-2 frames terugzetten naar `loading` en de progress-indicator op de kaart laten flikkeren. Implementatie: een aparte `poll()` notifier-methode die de lijst stilletjes ophaalt en de state vervangt zonder eerst `AsyncLoading` te zetten.
 

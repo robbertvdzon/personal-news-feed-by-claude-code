@@ -366,14 +366,32 @@ class NewsRequest {
 /// definitie met elkaar eens zijn. Liepen ze uiteen, dan bleef het rondje
 /// draaien zonder dat er nog ververst werd (zoals bij `TRANSLATING`).
 ///
-/// Let op: `Podcast.translationInProgress` gebruikt bewust een smallere lijst —
-/// een vertaling doorloopt nooit de generatie-statussen — en hoort hier dus
-/// niet bij.
+/// Let op: `EpisodeLookup.translationInProgress` gebruikt bewust een smallere
+/// lijst — de statussen van de vertaalflow van één RSS-aflevering
+/// (`translatedPodcastStatus`), niet van de podcast zelf, want een vertaling
+/// doorloopt nooit de generatie-statussen. Die lijst staat als
+/// [kPodcastTranslationInProgressStatuses] hieronder en hoort hier dus niet bij.
 const kPodcastInProgressStatuses = <String>{
   'PENDING',
   'DETERMINING_TOPICS',
   'GENERATING_SCRIPT',
   'GENERATING_AUDIO',
+  'TRANSLATING',
+  'TTS_GENERATING',
+};
+
+/// De statussen waarin de vertaalflow van één RSS-podcast-aflevering nog loopt.
+///
+/// Dit is bewust een deelverzameling van [kPodcastInProgressStatuses]: een
+/// vertaling doorloopt nooit de generatie-statussen (`DETERMINING_TOPICS`,
+/// `GENERATING_SCRIPT`, `GENERATING_AUDIO`), dus die horen hier niet bij. Het
+/// is dus géén kopie van de gedeelde set maar een echte, kleinere subset —
+/// vastgelegd in `frontend/test/podcast_in_progress_statuses_test.dart`.
+///
+/// Gebruikt door `EpisodeLookup.translationInProgress`; het bijbehorende
+/// fase-label staat in `_phaseLabel` in `rss_podcast_detail_screen.dart`.
+const kPodcastTranslationInProgressStatuses = <String>{
+  'PENDING',
   'TRANSLATING',
   'TTS_GENERATING',
 };
@@ -515,5 +533,5 @@ class EpisodeLookup {
 
   /// True wanneer de vertaling op de achtergrond loopt.
   bool get translationInProgress => translatedPodcastStatus != null &&
-      const ['PENDING', 'TRANSLATING', 'TTS_GENERATING'].contains(translatedPodcastStatus);
+      kPodcastTranslationInProgressStatuses.contains(translatedPodcastStatus);
 }
