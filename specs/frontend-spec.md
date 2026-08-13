@@ -174,7 +174,7 @@ Onderaan staat een **"🇳🇱 Vertaal & genereer Nederlandse podcast"**-knop (K
 **Translate-knop (KAN-63):** bij openen van het scherm fetcht de body `GET /api/podcast-source/by-rss-item/{rssItemId}` om de bron-aflevering-guid, transcript-lengte en (eventueel) een bestaande vertaling op te halen. De knop heeft drie staten:
 - **"🇳🇱 Vertaal & genereer Nederlandse podcast"** (default) — actief zodra het Engelse transcript klaar is (`episodeStatus='DONE'`). Tik opent een dialog met de geschatte kosten (vertaling + TTS in $, 2 decimalen) op basis van de transcript-lengte. Bij "Starten": `POST /api/podcast-source/{episodeGuid}/translate`. HTTP 202 → nieuwe podcast verschijnt bovenaan de Podcast-tab; HTTP 409 → snackbar "Transcript is nog niet klaar voor vertaling".
 - **"🇳🇱 Bekijk vertaling"** — zodra er een DONE-vertaling bestaat. Tik navigeert naar `PodcastDetailScreen` van die podcast.
-- **"🇳🇱 Bekijk vertaling — vertalen… / audio genereren…"** — wanneer de vertaling op de achtergrond loopt (status `PENDING` / `TRANSLATING` / `TTS_GENERATING`). De detail-pagina pollt zelf elke 4 seconden tot de status `DONE`/`FAILED` is.
+- **"🇳🇱 Bekijk vertaling — in wachtrij… / vertalen… / audio genereren…"** — wanneer de vertaling op de achtergrond loopt. Welke statussen dat zijn staat sinds SF-2123 op één plek: de top-level constante `kPodcastTranslationInProgressStatuses` in `frontend/lib/models/models.dart` (`PENDING` / `TRANSLATING` / `TTS_GENERATING`), gelezen via `EpisodeLookup.translationInProgress` op `translatedPodcastStatus`. Het fase-woord achter het streepje komt uit de `_phaseLabel`-`switch` in `rss_podcast_detail_screen.dart`, die één op één bij die constante hoort (onbekende status → `bezig…`). De detail-pagina pollt zelf elke 4 seconden tot de status `DONE`/`FAILED` is.
 
 **Client-side cost-schatting** (geen apart API-endpoint, refiner-keuze): `tokens ≈ transcriptChars / 4`; `translateCost = (tokens/1000) × (0.0005 + 0.002)`; `ttsCost = transcriptChars / 1_000_000 × 15`. Dit is een vuistregel — de echte kosten worden achteraf via `external_calls` per call gelogd.
 
@@ -275,10 +275,14 @@ waardoor een podcast in `TRANSLATING` wél een draaiend rondje "Vertalen…" kre
 maar het scherm zichzelf niet meer ververste — het rondje bleef eindeloos
 draaien tot je handmatig verversde.
 
-> `Podcast.translationInProgress` (`PENDING` / `TRANSLATING` / `TTS_GENERATING`)
-> is bewust een smallere, eigen lijst voor uitsluitend de vertaalflow — een
-> vertaling doorloopt nooit de generatie-statussen — en hoort níet vervangen te
-> worden door de gedeelde set.
+> `EpisodeLookup.translationInProgress` (`PENDING` / `TRANSLATING` /
+> `TTS_GENERATING`, gelezen van `translatedPodcastStatus`) is bewust een
+> smallere, eigen lijst voor uitsluitend de vertaalflow van één RSS-aflevering
+> — een vertaling doorloopt nooit de generatie-statussen — en hoort níet
+> vervangen te worden door de gedeelde set. Sinds SF-2123 staat die lijst als
+> tweede top-level constante `kPodcastTranslationInProgressStatuses` naast
+> `kPodcastInProgressStatuses`, met een test die vastlegt dat hij een
+> deelverzameling van de gedeelde set blijft.
 
 > **Belangrijk:** poll-fetches mogen de provider níet via `invalidate()` resetten — dat zou de `AsyncData` voor 1-2 frames terugzetten naar `loading` en de progress-indicator op de kaart laten flikkeren. Implementatie: een aparte `poll()` notifier-methode die de lijst stilletjes ophaalt en de state vervangt zonder eerst `AsyncLoading` te zetten.
 
@@ -568,7 +572,10 @@ De app heeft tests onder `frontend/test/`: widget-tests (`widget_test.dart`,
 `categories_screen_test.dart`) en één unittest
 (`podcast_in_progress_statuses_test.dart`, SF-2066: legt vast welke zes
 statussen de gedeelde `kPodcastInProgressStatuses` bevat, zodat spinner en
-poll-timer niet opnieuw uit elkaar kunnen lopen):
+poll-timer niet opnieuw uit elkaar kunnen lopen; sinds SF-2123 legt hij ook
+vast dat `kPodcastTranslationInProgressStatuses` exact de drie vertaalstatussen
+bevat én een *echte* deelverzameling van de gedeelde set blijft — die laatste
+assertie is de vangrail die omvalt zodra de twee lijsten uiteenlopen):
 
 ```bash
 cd frontend
