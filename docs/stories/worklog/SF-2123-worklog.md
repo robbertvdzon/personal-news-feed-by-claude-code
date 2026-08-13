@@ -54,3 +54,20 @@ Verificatie (deze run):
 - backend: `mvn -B --no-transfer-progress clean verify` → BUILD SUCCESS, 71 e2e-tests,
   0 failures/errors (~4:12).
 - `grep -rn "Podcast.translationInProgress" frontend specs docs/factory` → nul treffers.
+
+Review (SF-2124, eerste ronde) — akkoord, geen blockers:
+- Volledige story-diff `main...HEAD` beoordeeld (6 bestanden, binnen de scope van AC9;
+  alleen `frontend/lib/models/models.dart`, `rss_podcast_detail_screen.dart`,
+  `podcast_in_progress_statuses_test.dart`, `docs/factory/technical-spec.md`,
+  `specs/frontend-spec.md` + deze worklog).
+- AC1 zelf nagelopen: `grep -rn "Podcast\.translationInProgress" frontend specs docs/factory`
+  → nul treffers; de drie levende plekken noemen nu `EpisodeLookup.translationInProgress`.
+- AC4/AC8: het kale literal is weg; `const List.contains` → `Set.contains` op dezelfde drie
+  waarden, dus identiek gedrag. AC5: `_phaseLabel` is byte-identiek (zelfde cases, labels en
+  `default: 'bezig…'`), alleen een doc-comment toegevoegd; geen nieuwe import.
+- Testbewijs: harness-blok `[FACTORY VERIFICATION EVIDENCE]` groen, `testedTreeSha`
+  `3d291a6…` = tree van commit `f255630` (HEAD). Frontend valt niet onder dat vangnet en is
+  daarom in de review gericht herdraaid: `flutter test` → 29/29 groen, `flutter analyze` →
+  7 issues, exact de bekende pre-existing infos. Working tree schoon, geen `pubspec.lock`-drift.
+- [info] `podcast_detail_screen.dart:26` noemt de vertaalstatussen nog in proza; dat bestand
+  valt buiten AC9-scope en is dus terecht niet aangeraakt — eventueel iets voor een latere story.
