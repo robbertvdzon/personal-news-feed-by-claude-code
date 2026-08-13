@@ -41,3 +41,31 @@ Verificatie:
 - Geen eigen unittests toegevoegd: de wijziging is doc-only zonder runtime-gedrag; er wordt in
   dit repo geen client uit `openapi.yaml` gegenereerd en geen CI-stap valideert het bestand.
 - `git status` toont uitsluitend `specs/openapi.yaml` en dit worklog.
+
+## Test (SF-2132, tester)
+
+Contract-story: getoetst of het gecorrigeerde contract klopt met het werkelijke live gedrag op
+preview `https://pnf-pr-225.vdzonsoftware.nl` (pod-sha `49e961a` = de developer-commit, bevestigd
+via `GET /api/version` en het serverVersion-WS-frame).
+
+- AC1/AC3 live bewezen: `POST /api/auth/register` én `POST /api/auth/login` geven exact de keys
+  `[token, username, role]` met `role="user"` — 1-op-1 met het schema (property-volgorde incl.).
+- AC3 backend-zijde: `AuthServiceImpl.setRole` weigert alles buiten `User.ROLE_USER`/`ROLE_ADMIN`
+  ("user"/"admin") met 400 (`AdminE2eTest` r153); `GET /api/admin/users` levert "user"/"admin"
+  (r135/147). De oude `example: ROLE_ADMIN` zou dus 400 geven — correctie is inhoudelijk juist.
+  Admin-endpoints zijn op preview niet live te bewijzen (geen admin-account; 403).
+- AC4 live bewezen: alle vijf paden uit `SecurityConfig.kt:35` zijn zonder JWT bereikbaar —
+  `/api/version` 200, `/api/shared/feed` 200, `/actuator/health` 200, `wss://.../ws/requests`
+  open + serverVersion-frame, `/api/auth/*` 200; controle-endpoint `/api/settings` geeft 403.
+- Description-claim getoetst aan de bron: `auth_provider.dart` leest `role` (fallback `'user'`,
+  dus terecht niet `required`), `isAdmin == role == 'admin'` en `settings_screen.dart:110` gate't
+  daarmee de Beheer-sectie.
+- AC2/AC5: `grep -c 'example: ROLE_'` → 0; `ROLE_USER` 1→0 en `ROLE_ADMIN` 21→20; de diff raakt
+  uitsluitend die twee `example:`-regels, alle proza-voorkomens staan ongewijzigd.
+- AC7: parse met js-yaml → geldige YAML (openapi 3.1.0), `AuthResponse` zonder `required`; diff is
+  9 toegevoegde + 3 gewijzigde regels, geen herformattering.
+- Testdata opgeruimd: wegwerp-user `tester_sf-2130` geregistreerd (modus: fallback, want
+  `TESTER_USERNAME`/`TESTER_PASSWORD` zijn leeg in de SF-`agent:local`-harness) en na afloop
+  `DELETE /api/account/me` → 200, herlogin → 401. Geen DB-mutatie op productie.
+- Geen browser-screenshots: de story wijzigt geen frontend-code of UI-gedrag (doc-only); het
+  admin-pad is op preview sowieso niet te tonen zonder admin-account.
