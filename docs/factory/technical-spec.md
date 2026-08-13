@@ -64,6 +64,12 @@ Diezelfde stille drift geldt voor de **foutcodes**, niet alleen voor de schema's
 
 Een 404-`description` legt ook de *reden* vast, niet alleen de status: bij een eigenaarscheck (zie de codeconventie hieronder) hoort de formulering "onbekend id, of de resource is van een andere gebruiker", en bij een beleidsweigering (een vast verzoek dat niet verwijderd mág worden) hoort dat er expliciet bij. Anders staat de keuze alleen in een code-comment en leest een client-bouwer een 404 als "bestaat niet". `openapi.yaml` kent geen gedeelde `components/responses`; een `'404'` is er een kaal blok met alleen een `description`, en dat patroon blijft zo.
 
+De derde driftlaag zit in de delen die niemand parseert: `example:`-waarden, ontbrekende `enum`'s en opsommingen in prozateksten (SF-2130 vond ze alle drie tegelijk in het rolmodel). Drie huisregels:
+
+- **Een `example:` is een waarde, geen constantnaam.** `AdminUserView.role` en `SetRoleRequest.role` hadden `example: ROLE_USER`/`ROLE_ADMIN` — de námen van de Kotlin-constanten in `auth/domain/User.kt`, terwijl de waarden `"user"` en `"admin"` zijn. Een client die het voorbeeld overnam kreeg een `400`. Neem een `example:` dus letterlijk over uit de code (of uit een e2e-assertie), nooit uit een constant-identifier.
+- **Een gesloten waardenverzameling krijgt een inline `enum`.** Dwingt de code de waarden expliciet af (bijv. `setRole` weigert alles buiten `user`/`admin` met een `BadRequestException`), dan hoort dat in het schema als `enum: [user, admin]`. Dat spreekt de `$ref`-regel hierboven niet tegen: die verbiedt een `$ref` naar een enum-schéma voor een veld dat in Kotlin geen enum is; een inline `enum` op zo'n `String`-veld beschrijft juist wél precies wat er gebeurt.
+- **Prozateksten met een opsomming zijn een tweede kopie van de code.** De `info.description` noemde drie publieke paden waar `SecurityConfig` er vijf op `permitAll` zet (`/api/auth/**`, `/api/version`, `/api/shared/**`, `/ws/**`, `/actuator/**`). Wijzigt zo'n lijst in de code, dan hoort de `description` in dezelfde diff. Let bij zulke correcties op de omgekeerde valkuil: `ROLE_ADMIN` in een tag, `summary` of `403`-`description` is de Spring-autoriteitsnaam uit `hasRole("ADMIN")` en daar correct — een brede zoek-en-vervang op `ROLE_` maakt het contract juist stuk.
+
 ## Database
 
 - PostgreSQL via Neon; lokaal verbinding via `PNF_DATABASE_URL`.
