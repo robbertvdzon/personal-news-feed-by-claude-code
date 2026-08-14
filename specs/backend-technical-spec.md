@@ -428,6 +428,39 @@ daarnaast de e2e-suite — dit vereist Docker (Testcontainers) en start elke
 e2e-testklasse in een eigen JVM-fork om state-accumulatie tussen klassen te
 voorkomen.
 
+### Startconfiguratie van de test-JVM (`<argLine>`, SF-2151)
+Zowel `maven-surefire-plugin` als `maven-failsafe-plugin` zet in `pom.xml`:
+
+```xml
+<argLine>@{argLine} -javaagent:${org.mockito:mockito-core:jar} -Xshare:off</argLine>
+```
+
+Dit raakt geen applicatiegedrag — alleen de manier waarop de test-JVM start —
+maar de drie onderdelen hangen aan elkaar en zijn geen van alle optioneel:
+
+- **`-javaagent:…mockito-core…`** geeft Mockito expliciet als Java-agent mee.
+  Zonder dit doet Mockito dynamic self-attach en waarschuwt JDK 21 daarover
+  (in een latere JDK wordt het een fout). `-Xshare:off` onderdrukt de
+  `Sharing is only supported for boot loader classes`-CDS-regel die het
+  toevoegen van een javaagent oproept. Samen brengen ze de zes ruisregels van
+  `mvn -B clean test` op nul (`grep -icE 'warning|deprecat|self-attach'` → 0).
+- **`@{argLine}`** is de late-evaluatie-referentie naar de property die
+  `jacoco:prepare-agent` (bij failsafe: `prepare-agent-integration`) zet. Laat
+  je die prefix weg, dan wordt de JaCoCo-agent **stil** overschreven: de build
+  blijft groen en er komt geen enkele melding, maar `target/jacoco.exec`
+  (~335 KB) en `target/jacoco-it.exec` (~8,5 MB) worden niet meer geschreven en
+  het coveragerapport (`target/site/jacoco-it/index.html`) is leeg. Controleer
+  na elke wijziging aan een `<argLine>` dus dat die bestanden er nog zijn.
+- **`maven-dependency-plugin`, goal `properties`** (zonder expliciete `<phase>`
+  → default `initialize`, dus vóór `jacoco:prepare-agent`; zonder `<version>` →
+  komt uit `spring-boot-starter-parent`, resolvet naar `dependency:3.9.0`) vult
+  de placeholder `${org.mockito:mockito-core:jar}` met het jar-pad. Surefire
+  vult zo'n placeholder namelijk alleen zelf in voor *directe* dependencies, en
+  `mockito-core` komt hier transitief via `spring-boot-starter-test` binnen.
+  Ontbreekt de stap, dan gaat de letterlijke placeholder naar de JVM en crasht
+  de fork met `Error opening zip file or JAR manifest missing` /
+  `The forked VM terminated without properly saying goodbye`.
+
 ### Ongebruikte testtooling (bevinding)
 De `pom.xml` bevat nog test-dependencies voor Cucumber (`cucumber-spring`,
 `cucumber-junit-platform-engine`) en WireMock (`wiremock-standalone`). Er zijn
