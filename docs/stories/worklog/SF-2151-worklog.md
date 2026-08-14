@@ -58,3 +58,22 @@ Geen productie-, test- of documentatiewijzigingen: dit is buildconfiguratie zond
 gedragswijziging, de 116 bestaande unittests (+71 e2e) zijn de dekking. Er is
 bewust géén `docs/stories/SF-2152-*.md` aangemaakt omdat AC4 exact één gewijzigd
 bestand naast het worklog eist; dit worklog is de story-log.
+
+Review (SF-2152, 2026-08-14):
+- Harnessbewijs `[FACTORY VERIFICATION EVIDENCE]`: `backend-maven-verify` passed
+  (exit 0, 213s); `testedTreeSha` 9ef0f6c… komt exact overeen met
+  `git rev-parse HEAD^{tree}` van de developercommit, dus het groene vangnet hoort
+  bij deze revisie.
+- Zelf nagedraaid (gerichte check, zonder `clean` om het bestaande bewijs te
+  bewaren): `mvn -B --no-transfer-progress -o test` → exit 0, BUILD SUCCESS,
+  `Tests run: 116, Failures: 0, Errors: 0, Skipped: 0`,
+  `grep -icE 'warning|deprecat|self-attach'` op de log → **0** (AC1/AC2 bevestigd).
+- Fasevolgorde bevestigd in de log: `dependency:3.9.0:properties (properties)`
+  draait vóór `jacoco:0.8.13:prepare-agent`, en die zet `argLine` daarna nog steeds
+  (`argLine set to -javaagent:…org.jacoco.agent…=destfile=…/target/jacoco.exec`);
+  `target/jacoco.exec` wordt geschreven → valkuil 2 (`@{argLine}`) afgedekt (AC3).
+- Scope: `git diff main...HEAD --stat` toont alleen `pom.xml` (+30) en dit worklog
+  (AC4). Geen endpoint-, Flyway- of Spring Modulith-impact.
+- AC5: failsafe-`<argLine>` aanwezig met dezelfde `@{argLine}`-prefix;
+  `target/jacoco-it.exec` (8,5 MB) uit de verify-run bevestigt dat.
+- Geen blockers of bugs gevonden.
