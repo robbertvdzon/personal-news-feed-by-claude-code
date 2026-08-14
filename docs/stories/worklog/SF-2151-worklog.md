@@ -77,3 +77,40 @@ Review (SF-2152, 2026-08-14):
 - AC5: failsafe-`<argLine>` aanwezig met dezelfde `@{argLine}`-prefix;
   `target/jacoco-it.exec` (8,5 MB) uit de verify-run bevestigt dat.
 - Geen blockers of bugs gevonden.
+
+Test (SF-2153, story-brede test, 2026-08-14):
+- AC1 — `mvn -B --no-transfer-progress clean test` in
+  `newsfeedbackend/newsfeedbackend` (log: /tmp/mvntest.log): exit 0, `BUILD SUCCESS`,
+  `Tests run: 116, Failures: 0, Errors: 0, Skipped: 0`. Totale tijd 23,5 s.
+- AC2 — `grep -icE 'warning|deprecat|self-attach'` op diezelfde log: **0**
+  (nul treffers, geen enkele regel). Kern van de story aantoonbaar gehaald.
+- AC3 — `target/jacoco.exec` bestaat na de testrun: **334990 B** (~335 KB),
+  tegenover baseline 336387 B en verwachte 335057 B. Valkuil 2 (`@{argLine}`)
+  is dus niet ingetreden: de JaCoCo-agent draait nog steeds mee.
+- AC4 — `git status --porcelain` is leeg en `git diff main...HEAD --stat` toont
+  exact twee bestanden: `newsfeedbackend/newsfeedbackend/pom.xml` (+30) en
+  `docs/stories/worklog/SF-2151-worklog.md`. Geen productie-/testcode geraakt.
+- AC5 — failsafe lokaal wél gedraaid (in deze container is `/var/run/docker.sock`
+  gemount, dus Testcontainers werkt): `mvn -B --no-transfer-progress clean verify`
+  → exit 0, `BUILD SUCCESS` in 03:35, surefire 116/0/0/0 én failsafe **71/0/0/0**
+  (e2e). Zowel `target/jacoco.exec` (334990 B) als `target/jacoco-it.exec`
+  (8532704 B) worden geschreven → de `@{argLine}`-prefix pakt bij failsafe de
+  property van `jacoco:prepare-agent-integration` correct op. Daarmee is AC5
+  niet alleen statisch maar ook draaiend bewezen; CI hoeft dit niet meer te
+  ontdekken.
+- Valkuil 1 (`dependency:properties`) is impliciet bewezen: geen enkele
+  `Error opening zip file or JAR manifest missing` of `forked VM terminated`
+  in beide logs; de forks starten normaal.
+- Kanttekening bij de verify-log (niet in scope van AC2, dat geldt voor
+  `clean test`): daar staat 1 treffer op `warning`, en dat is een
+  applicatie-logregel uit `PodcastGenerationE2eTest`
+  (`[Podcast] no audio produced … alle 4 TTS-calls faalden`) — bewust negatief
+  testpad met gemockte TTS, geen buildruis en geen regressie.
+- Preview `https://pnf-pr-227.vdzonsoftware.nl` (namespace `pnf-pr-227`):
+  `/api/version` 200 met `sha` `61bcc42` = HEAD van deze branch (dus de preview
+  draait de reviewer-commit), `/actuator/health` 200, `/api/shared/feed` 200 met
+  gevulde feed. Alleen als rooksignaal dat de build-wijziging de app niet raakt.
+- Geen browser-/screenshotbewijs: deze story raakt uitsluitend
+  `newsfeedbackend/newsfeedbackend/pom.xml` (buildconfiguratie), geen frontend
+  en geen runtimegedrag. Er is dus geen UI-pad om te fotograferen.
+- Geen flakes waargenomen; geen bugs gevonden. Oordeel: **tested**.
