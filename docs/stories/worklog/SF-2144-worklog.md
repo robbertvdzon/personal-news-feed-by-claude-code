@@ -146,3 +146,32 @@ Done / rationale:
   Vangnet: docs-only diff zonder code-impact; `backend-maven-verify` stond op
   exit 0 voor de developer-tree en de harness draait het revisiegebonden opnieuw
   na deze run. Geen bevindingen — akkoord.
+
+- **[DOCUMENTER] SF-2148 — documentatie bijgewerkt.** De vijf story-punten zijn
+  door SF-2145 al volledig gedekt (geverifieerd: nul treffers op
+  `svc.cluster.local`, `in-cluster services`, `OpenShift-frontend` en
+  `preview-router` in alle `.md` buiten `docs/stories/**`; de drie diagramregels
+  noemen alle `ingressrouter → Route`). Resterende drift zat in de twee plekken
+  van `runbook.md` die de routering niet beschrijven maar er wél op leunen:
+
+  1. §6-blockquote "Over de Cloudflare-tunnel + DB": zei dat `TUNNEL_TOKEN` de
+     cluster-**frontends** publiek maakt — dat is de pre-ingressrouter-formulering.
+     Nu: de tunnel maakt de **Routes** publiek (wildcard → ingressrouter, zie §7).
+  2. §8 troubleshooting: nieuwe ingang voor HTTP 503 "Application is not
+     available". Dat is precies het gedrag dat de tester in deze story live
+     aantoonde op `pnf-pr-999999.vdzonsoftware.nl` en het is de operationele
+     consequentie van Host-based routering: elke host onder de wildcard bereikt
+     de router, dus een 503 betekent "geen `Route` voor deze host", niet "app
+     ligt eruit". Met `oc get route -n personal-news-feed` / `-n pnf-pr-<N>` en
+     de placeholder-check (`preview-host-must-be-set.invalid`,
+     `deploy/overlays/preview/kustomization.yaml:48`). Tevens de labeller-alinea
+     in §8 gelijkgetrokken met `deploy/README.md`: RBAC **én** Deployment in
+     `robberts-infrastructure`.
+
+  Niet geraakt: root `README.md` en `docs/onboarding-senior-developer.md`
+  (beschrijven de deploy-topologie niet), `specs/**` (geen endpoint-/UI-wijziging),
+  `docs/factory/deployment.md` frontmatter (`preview_db_secret_recipe`,
+  `claude-tester`-SA — expliciet buiten scope, uitspraak over de clusterstaat),
+  `docs/factory/agents/tester.md` (preview-URL-template ongewijzigd correct),
+  `docs/stories/**` (historisch archief). `git status` toont uitsluitend
+  `runbook.md` + dit worklog; geen commit/push gedaan.
