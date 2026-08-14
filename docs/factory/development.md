@@ -109,8 +109,46 @@ step-definitions of WireMock-stubs gevonden).
 
 De testbuild is sinds SF-1945 warning-vrij: `mvn -B clean test` produceert nul
 `[WARNING]`-regels (daarvóór 92 `asText()`-deprecations uit de e2e-tests).
-Er is geen build-gate die op warnings faalt, dus behandel elke nieuwe
-`[WARNING]` in de output als een signaal dat je zelf oppakt.
+Sinds SF-2151 is óók de JVM-ruis weg: de uitvoer bevat nul regels die matchen op
+`grep -icE 'warning|deprecat|self-attach'` (baseline 6 regels — Mockito's
+dynamic-self-attach-waarschuwing van de JDK plus de bijbehorende
+`Sharing is only supported for boot loader classes`-CDS-regels). Er is geen
+build-gate die op warnings faalt, dus behandel elke nieuwe `[WARNING]`- of
+JVM-waarschuwingsregel in de output als een signaal dat je zelf oppakt.
+Controleer met de log in een bestand:
+
+```bash
+cd newsfeedbackend/newsfeedbackend
+mvn -B --no-transfer-progress clean test | tee /tmp/mvntest.log
+grep -icE 'warning|deprecat|self-attach' /tmp/mvntest.log   # hoort 0 te zijn
+```
+
+Grep nooit op `WARN`: de SSRF-unittests loggen legitieme logback-`WARN`-regels
+die niet op `warning` matchen.
+
+Die nul komt uit drie samenhangende stukjes `<build><plugins>`-config in
+`pom.xml` — raak ze alleen samen aan:
+
+- `maven-surefire-plugin` en `maven-failsafe-plugin` hebben allebei
+  `<argLine>@{argLine} -javaagent:${org.mockito:mockito-core:jar} -Xshare:off</argLine>`.
+  De `-javaagent` geeft Mockito expliciet als Java-agent mee (JDK 21
+  waarschuwt over dynamic self-attach, een latere JDK maakt er een fout van);
+  `-Xshare:off` haalt de CDS-waarschuwing weg die het toevoegen van een
+  javaagent oproept.
+- De `@{argLine}`-prefix is **verplicht**: `jacoco:prepare-agent` (resp.
+  `prepare-agent-integration`) zet zelf de property `argLine`. Een
+  hardgecodeerde `<argLine>` zonder die prefix overschrijft de JaCoCo-agent
+  stil — build groen, alle tests groen, geen melding, maar
+  `target/jacoco.exec` / `target/jacoco-it.exec` wordt niet meer geschreven.
+  Controleer na een wijziging aan een `<argLine>` dus altijd dat die bestanden
+  bestaan (~335 KB resp. ~8,5 MB).
+- `maven-dependency-plugin` draait het goal `properties` (default-phase
+  `initialize`, dus vóór `jacoco:prepare-agent`). Zonder die stap blijft de
+  placeholder `${org.mockito:mockito-core:jar}` ongevuld — surefire vult hem
+  alleen zelf in voor *directe* dependencies, en `mockito-core` komt hier
+  transitief via `spring-boot-starter-test` binnen. De fork crasht dan met
+  `Error opening zip file or JAR manifest missing` /
+  `The forked VM terminated without properly saying goodbye`.
 
 ### Frontend (Flutter)
 

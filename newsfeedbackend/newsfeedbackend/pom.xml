@@ -279,6 +279,24 @@
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
 
+            <!-- Zet per dependency een property met het pad naar de jar
+                 (bv. ${org.mockito:mockito-core:jar}). Nodig omdat surefire
+                 die placeholder alleen zelf invult voor DIRECTE dependencies;
+                 mockito-core komt hier transitief via spring-boot-starter-test
+                 binnen. Zonder deze stap gaat de placeholder letterlijk naar
+                 de JVM en crasht de fork. Draait in de default-phase
+                 `initialize`, dus vóór jacoco:prepare-agent. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>properties</id>
+                        <goals><goal>properties</goal></goals>
+                    </execution>
+                </executions>
+            </plugin>
+
             <!-- Testsplit (zelfde patroon als de softwarefactory-repo):
                  `mvn test` (surefire) draait alleen de snelle unit tests;
                  `mvn verify` (failsafe) draait daarnaast de e2e-suite die
@@ -290,6 +308,15 @@
                     <excludes>
                         <exclude>**/e2e/**</exclude>
                     </excludes>
+                    <!-- Mockito expliciet als java-agent meegeven: sinds JDK 21
+                         waarschuwt de JVM over dynamic self-attach (in een
+                         latere JDK wordt het een fout). @{argLine} is verplicht
+                         — dat is de property die jacoco:prepare-agent zet;
+                         zonder die prefix wordt de JaCoCo-agent stil
+                         overschreven en verschijnt target/jacoco.exec niet meer.
+                         -Xshare:off onderdrukt de CDS-waarschuwing die het
+                         toevoegen van een javaagent oproept. -->
+                    <argLine>@{argLine} -javaagent:${org.mockito:mockito-core:jar} -Xshare:off</argLine>
                 </configuration>
             </plugin>
             <plugin>
@@ -303,6 +330,9 @@
                     <includes>
                         <include>**/e2e/*E2eTest.*</include>
                     </includes>
+                    <!-- Zelfde reden als bij surefire; @{argLine} pakt hier de
+                         property van jacoco:prepare-agent-integration op. -->
+                    <argLine>@{argLine} -javaagent:${org.mockito:mockito-core:jar} -Xshare:off</argLine>
                 </configuration>
                 <executions>
                     <execution>

@@ -122,7 +122,14 @@ mvn verify    # unit + volledige e2e-suite: start de hele app per testklasse
   RSS-feeds) zijn gefaked. Geen secrets of netwerk nodig.
 - `ModuleStructureTest` bewaakt de Spring Modulith module-grenzen; de
   allowlist is leeg en hoort leeg te blijven.
-- Coverage-rapport na `mvn verify`: `target/site/jacoco-it/index.html`.
+- Coverage-rapport na `mvn verify`: `target/site/jacoco-it/index.html`. Dat
+  rapport hangt aan de `@{argLine}`-prefix in de surefire-/failsafe-`<argLine>`
+  in `pom.xml`; verdwijnt `target/jacoco.exec` of `target/jacoco-it.exec` na een
+  build-config-wijziging, kijk daar eerst (zie `specs/backend-technical-spec.md`
+  §7, "Startconfiguratie van de test-JVM").
+- De backend-build is ruisvrij: `mvn -B --no-transfer-progress clean test`
+  geeft nul treffers op `grep -icE 'warning|deprecat|self-attach'`. Een nieuwe
+  waarschuwingsregel is dus een signaal — er is geen build-gate die erop faalt.
 - Zie `docs/onboarding-senior-developer.md` voor de teststrategie en hoe je
   een nieuwe e2e-test schrijft.
 
