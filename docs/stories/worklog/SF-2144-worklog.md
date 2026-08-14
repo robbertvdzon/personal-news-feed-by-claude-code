@@ -61,3 +61,24 @@ Done / rationale:
   bestaande, correcte `runbook.md` §7. Vangnet `mvn -B --no-transfer-progress
   clean verify` gedraaid als regressiecheck (docs-only wijziging, geen
   code-impact).
+
+- **[REVIEWER] SF-2145 — akkoord.** Volledige story-diff (`git diff main...HEAD`)
+  beoordeeld: 3 doc-bestanden + story-log + worklog, uitsluitend `.md` (AC8;
+  `git diff main...HEAD -- deploy/base deploy/overlays
+  deploy/preview-ns-labeller/labeller.sh` is leeg). AC1/5 nagemeten: nul treffers
+  op `svc.cluster.local`, `in-cluster services` en `OpenShift-frontend` in
+  `deploy/`, `docs/factory/`, `runbook.md`, `README.md`; alle drie de
+  diagramregels noemen `ingressrouter → Route`. AC4 tegen `labeller.sh`
+  geverifieerd: de gedocumenteerde volgorde (fail-closed `github_pr_is_open` →
+  `ensure_ns_with_label` (`create ns`/`label ns` :219-224) → Neon-branch →
+  `patch secret` :237/:256 → `delete pod -l app=backend` :245) komt overeen met
+  de hoofdloop (:280-372); nul voorkomens van `Role`/`RoleBinding` in het script.
+  AC3/6 tegen de manifests gecheckt: `frontend-route.yaml:21` en
+  `reader-route.yaml:21` staan op `Allow`, `backend-route.yaml:22` op `Redirect`,
+  `overlays/preview/kustomization.yaml:48` zet
+  `preview-host-must-be-set.invalid`; `deploy/preview-ns-labeller/rbac.yaml` is
+  inderdaad een pointer-bestand. AC7: `deploy/README.md` punt 5,
+  `docs/factory/deployment.md` en `runbook.md` §7 vertellen hetzelfde verhaal
+  zonder tegenspraak. Testbewijs: `[FACTORY VERIFICATION EVIDENCE]`
+  `backend-maven-verify` passed/exit 0, `testedTreeSha`
+  `d12655d…` = tree van developercommit `f266363` — hoort dus bij deze revisie.
