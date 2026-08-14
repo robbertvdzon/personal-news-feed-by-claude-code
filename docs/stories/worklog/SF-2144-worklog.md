@@ -82,3 +82,67 @@ Done / rationale:
   zonder tegenspraak. Testbewijs: `[FACTORY VERIFICATION EVIDENCE]`
   `backend-maven-verify` passed/exit 0, `testedTreeSha`
   `d12655d…` = tree van developercommit `f266363` — hoort dus bij deze revisie.
+
+- **[TESTER] SF-2146 — story-brede test: akkoord.** Docs-only story; alle acht
+  AC's onafhankelijk nagemeten, plus een live routeringscheck op de preview.
+
+  - AC1: `grep -rn 'svc.cluster.local' deploy/README.md docs/factory/deployment.md
+    runbook.md README.md` → 0 treffers (exit 1). Ook `OpenShift-frontend` → 0
+    treffers in `deploy/`, `docs/factory/`, `runbook.md`, `README.md`.
+  - AC2: `deploy/README.md:142-155` beschrijft één public hostname
+    `Subdomain: *` / `Domain: vdzonsoftware.nl` naar de ingressrouter, met
+    expliciete opsomming van `news.`, `reader.` én `pnf-pr-<N>.` en verwijzing
+    naar "Preview-deploys per PR" punt 5 + `runbook.md` §7. Geen concrete
+    router-DNS-naam genoemd (conform de aanname in de story). Stap 5 (`:166-170`)
+    noemt nu alle drie de hostgroepen. Geen tegenspraak meer met `:199-212`.
+  - AC3: nieuwe sectie `docs/factory/deployment.md:53-73` bevat de wildcard, de
+    Host-header-gebaseerde Route-keuze, "geen nginx-tussenlaag",
+    `deploy/base/frontend-route.yaml`, `deploy/base/reader-route.yaml` en
+    `insecureEdgeTerminationPolicy: Allow` mét reden. Tegen de manifests
+    gecontroleerd: `frontend-route.yaml:11/:21` = `news.vdzonsoftware.nl` +
+    `Allow`, `reader-route.yaml:11/:21` = `reader.vdzonsoftware.nl` + `Allow`,
+    `backend-route.yaml:22` = `Redirect`, `overlays/preview/kustomization.yaml:48`
+    = placeholder `preview-host-must-be-set.invalid`. Alle vijf claims kloppen.
+  - AC4: `grep -nE 'Role|RoleBinding' deploy/preview-ns-labeller/labeller.sh` → 0
+    treffers (de twee schijnbare hits van een ruimere regex zijn `NEON_ROLE`
+    op `:37`/`:170`). De gedocumenteerde volgorde in `deployment.md:116-137`
+    komt exact overeen met de hoofdloop `:288-372`: `github_pr_is_open` (fail-closed,
+    `continue` vóór `ensure_ns_with_label`) → `create ns`/`label ns` (`:219-224`) →
+    Neon-branch → `patch secret` (`:237`, `:256`) → `delete pod -l app=backend`
+    (`:245`). Overige kubectl-aanroepen zijn read-only (`get ns`, `get secret`,
+    `get app`) — zoals de doc nu zegt. RBAC staat er als "via GitOps beheerd in
+    `robberts-infrastructure`".
+  - AC5: `deploy/README.md:24`, `docs/factory/deployment.md:36` en `runbook.md:41`
+    luiden alle drie `(tunnel: *.vdzonsoftware.nl → ingressrouter → Route)`;
+    `in-cluster services` komt buiten `docs/stories/**` nergens meer voor.
+  - AC6: `deploy/README.md:188-192` verwijst voor RBAC én Deployment naar
+    `robberts-infrastructure` en benoemt `rbac.yaml` als pointer-bestand — komt
+    overeen met de daadwerkelijke inhoud van `deploy/preview-ns-labeller/rbac.yaml`
+    en de mapinhoud (alleen `Dockerfile`, `labeller.sh`, `rbac.yaml`).
+  - AC7: de vier documenten nagelezen in samenhang; identiek routeringsverhaal,
+    geen tegenspraak. Geen `preview-router`-resten meer buiten `docs/stories/**`.
+  - AC8: `git diff --stat main...HEAD` toont uitsluitend `.md`
+    (`git diff --name-only main...HEAD | grep -v '\.md$'` is leeg) en
+    `git diff main...HEAD -- deploy/base deploy/overlays
+    deploy/preview-ns-labeller/labeller.sh` is leeg. De buiten-scope frontmatter
+    (`preview_db_secret_recipe`, `claude-tester`-SA) is ongewijzigd.
+
+  **Live gedragsbewijs voor het gedocumenteerde routeringsverhaal** (preview
+  `pnf-pr-226`): `news.`, `reader.` en `pnf-pr-226.vdzonsoftware.nl` resolven alle
+  drie naar dezelfde Cloudflare-IP's (`104.21.90.25`, `172.67.151.135`) en geven
+  alle drie HTTP 200 — dus één wildcard-record/tunnel voor alle hosts, precies zoals
+  stap 3 nu beschrijft. Doorslaggevend: een onbestaande host onder dezelfde wildcard
+  (`https://pnf-pr-999999.vdzonsoftware.nl/`) geeft **HTTP 503 met de
+  OpenShift-router-foutpagina** ("Application is not available", "Route and path
+  matches"). Kwam de tunnel rechtstreeks bij de frontend-Service uit — zoals de oude
+  stap 3 beschreef — dan had die host gewoon 200 + de Flutter-app gegeven. Het 503-
+  antwoord bewijst dus dat de eindbestemming de OpenShift-ingressrouter is die op de
+  Host-header een Route zoekt. De herschreven documentatie beschrijft het werkelijke
+  productiegedrag.
+
+  Geen browser-screenshots: de story raakt geen frontend-code (0 gewijzigde
+  `.dart`-bestanden), dus visueel bewijs is niet van toepassing; Playwright is in
+  deze container niet geïnstalleerd. Geen login/DB-mutatie nodig of gedaan.
+  Vangnet: docs-only diff zonder code-impact; `backend-maven-verify` stond op
+  exit 0 voor de developer-tree en de harness draait het revisiegebonden opnieuw
+  na deze run. Geen bevindingen — akkoord.
