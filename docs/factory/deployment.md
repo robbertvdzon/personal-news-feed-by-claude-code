@@ -33,7 +33,7 @@ ArgoCD ◄── synct main ── namespace: personal-news-feed (OpenShift)
         │              + PVC (runtime-state, 5 Gi)
         ├── frontend  Pod + Service + Route ← gebruikers (news.vdzonsoftware.nl)
         ├── reader    Pod + Service + Route ← reader.vdzonsoftware.nl
-        ├── cloudflared    (tunnel: *.vdzonsoftware.nl → in-cluster services)
+        ├── cloudflared    (tunnel: *.vdzonsoftware.nl → ingressrouter → Route)
         └── Secret (via SealedSecret in git)
 ```
 
@@ -48,7 +48,29 @@ read-only verifiëren (`--verify`), cold-startgedrag en terugdraaien.
 
 ## Productie-URL
 
-`https://news.vdzonsoftware.nl` (via Cloudflare Tunnel → OpenShift-frontend)
+`https://news.vdzonsoftware.nl` (via Cloudflare Tunnel → OpenShift-ingressrouter
+→ frontend-Route)
+
+## Routering — Host-based via de ingressrouter
+
+Cloudflare stuurt de wildcard `*.vdzonsoftware.nl` via de tunnel naar de
+OpenShift-ingressrouter van het cluster; die kiest op de (ongewijzigd
+doorgegeven) `Host`-header de bijbehorende `Route`. Er zit géén
+nginx-tussenlaag meer in het pad.
+
+- De productiehosts staan declaratief in de manifests:
+  `deploy/base/frontend-route.yaml` (`news.vdzonsoftware.nl`) en
+  `deploy/base/reader-route.yaml` (`reader.vdzonsoftware.nl`).
+- Op beide staat `insecureEdgeTerminationPolicy: Allow` (niet `Redirect`),
+  omdat de Cloudflare-connector de router cluster-intern via HTTP bereikt — een
+  redirect naar HTTPS zou dat verkeer laten stuiteren.
+  `deploy/base/backend-route.yaml` (debug) houdt bewust `Redirect`.
+- Voor previews zet de `preview`-overlay op de frontend-Route een
+  placeholder-host, die de ApplicationSet per PR invult naar
+  `pnf-pr-<N>.vdzonsoftware.nl`.
+
+Details: `deploy/README.md` (sectie "Preview-deploys per PR", punt 5) en
+`runbook.md` §7.
 
 ## Preview-deploys per PR
 
@@ -94,11 +116,22 @@ Wiring (door `deploy/preview-ns-labeller/labeller.sh`):
    Alleen bij een bevestigd open PR volgen de creatiestappen; deze check staat
    vóór élke creatiehandeling, dus ook vóór het (opnieuw) aanmaken en labelen
    van de namespace `pnf-pr-<N>`.
-2. Maakt de Neon-branch `pr-<N>` aan (parent = productie-branch).
-3. Patcht `PNF_DATABASE_URL` in het `newsfeed-api-keys`-secret van
-   `pnf-pr-<N>` naar de branch-URL, en zet de marker `PREVIEW_DB_BRANCH=pr-<N>`.
-4. Maakt per `pnf-pr-*` namespace een Role/RoleBinding zodat de
-   `claude-tester`-SA dat secret kan lezen (read-only, alleen daar).
+2. Maakt de namespace `pnf-pr-<N>` aan als die nog niet bestaat en (her)zet het
+   label `argocd.argoproj.io/managed-by=argocd` (`kubectl create ns` /
+   `kubectl label ns`), anders blokkeert de argocd-operator de preview.
+3. Maakt de Neon-branch `pr-<N>` aan (parent = productie-branch).
+4. Patcht `PNF_DATABASE_URL` in het `newsfeed-api-keys`-secret van
+   `pnf-pr-<N>` naar de branch-URL, en zet de marker `PREVIEW_DB_BRANCH=pr-<N>`
+   (`kubectl patch secret`).
+5. Herstart de backend-pod (`kubectl delete pod -l app=backend`) zodat die de
+   gepatchte `PNF_DATABASE_URL` oppikt; het Deployment respawnt 'm.
+
+Het script maakt zélf **geen** RBAC aan: de Role/RoleBinding waarmee de
+`claude-tester`-SA het secret in een `pnf-pr-*`-namespace mag lezen wordt via
+GitOps beheerd in de repo `robberts-infrastructure`
+(`manifests/root-app/apps/preview-ns-labeller-rbac.yaml`). De overige
+kubectl-aanroepen in `labeller.sh` zijn read-only (`get ns`, `get secret`,
+`get app`).
 
 Vereist dat drie sleutels in het secret aanwezig zijn: `NEON_API_KEY`,
 `NEON_PROJECT_ID` **en** `GITHUB_TOKEN`. De eerste twee zetten de Neon-mode

@@ -38,7 +38,7 @@ ArgoCD (watcht main) ── sync ──► OpenShift ns: personal-news-feed
         ├── backend   Pod + Service + Route + PVC (audio/state, RWO)
         ├── frontend  Pod + Service + Route   ← gebruikers (news.vdzonsoftware.nl)
         ├── reader    Pod + Service + Route   ← reader.vdzonsoftware.nl
-        ├── cloudflared    (tunnel: *.vdzonsoftware.nl → in-cluster services)
+        ├── cloudflared    (tunnel: *.vdzonsoftware.nl → ingressrouter → Route)
         └── Secret newsfeed-api-keys (uit SealedSecret in git)
 
 Data:  Postgres (Neon, extern) — audio-bytes sinds V5 óók in Postgres.
@@ -279,8 +279,9 @@ Rol daarnaast de `minimum-idle`/`idle-timeout`-regels in
 Blijkt 1 CU in de praktijk te krap, dan mag de operator `AUTOSCALING_MAX_CU=2`
 zetten — leg de meting waarop dat besluit rust hier vast.
 
-> **Over de Cloudflare-tunnel + DB:** `TUNNEL_TOKEN` dient om de cluster-**frontends**
-> publiek te maken (`*.vdzonsoftware.nl`), **niet** om de DB te bereiken — de
+> **Over de Cloudflare-tunnel + DB:** `TUNNEL_TOKEN` dient om de **Routes** in de
+> cluster publiek te maken (de wildcard `*.vdzonsoftware.nl` gaat via de tunnel
+> naar de ingressrouter, zie §7), **niet** om de DB te bereiken — de
 > prod-DB (Neon) staat al publiek op internet en wordt direct benaderd zoals
 > hierboven. TODO: bevestigen of er daarnaast een aparte DB-tunnel bestaat;
 > in deze repo is die niet gevonden.
@@ -376,8 +377,25 @@ Blijft de namespace ook daarna weg (of komt er geen branch-DB), check dan de
 labeller-logs op regels als "PR-status … onbekend": zijn PR-statuscheck is
 fail-closed, dus bij een ontbrekend/ongeldig `GITHUB_TOKEN` of een GitHub-call
 zonder HTTP 200 slaat hij álle mutaties over (geen namespace-label, geen
-Neon-branch, geen secret-patch, geen cleanup). Het labeller-Deployment staat in
-`robberts-infrastructure` (zie `deploy/README.md` §"Preview-deploys per PR (S-06)").
+Neon-branch, geen secret-patch, geen cleanup). Het labeller-Deployment én zijn
+RBAC staan in `robberts-infrastructure` (zie `deploy/README.md`
+§"Preview-deploys per PR (S-06)"); in `deploy/preview-ns-labeller/` staan alleen
+`labeller.sh` en het `Dockerfile` nog echt.
+
+**HTTP 503 "Application is not available" op een `*.vdzonsoftware.nl`-host:**
+dat is de foutpagina van de OpenShift-ingressrouter, niet van de app. Omdat de
+tunnel één wildcard is (§7) bereikt élke host onder `*.vdzonsoftware.nl` de
+router; die zoekt vervolgens op de `Host`-header een `Route`. Een 503 met
+"Route and path matches" betekent dus: **geen Route voor deze host**, niet "de
+app ligt eruit". Bij een preview: bestaat de namespace `pnf-pr-<N>` en heeft de
+frontend-Route daar de host `pnf-pr-<N>.vdzonsoftware.nl` (i.p.v. de
+placeholder `preview-host-must-be-set.invalid`)?
+```bash
+oc get route -n personal-news-feed          # prod: news. / reader. / backend-debug
+oc get route -n pnf-pr-<N>                  # preview: host moet pnf-pr-<N>.… zijn
+```
+Krijg je in plaats daarvan een app-foutmelding of een 5xx uit de backend, dan
+matchte de Route wél en zit het probleem in de pod (zie `oc logs` hierboven).
 
 ---
 

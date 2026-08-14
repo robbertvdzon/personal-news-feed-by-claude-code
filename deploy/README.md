@@ -21,7 +21,7 @@ OpenShift cluster (personal-news-feed)
   ├── backend Pod + Service + Route (debug) + PVC (runtime-state, 5 Gi)
   ├── frontend Pod + Service + Route ← gebruikers (news.vdzonsoftware.nl)
   ├── reader Pod + Service + Route   ← reader.vdzonsoftware.nl
-  ├── cloudflared    (tunnel: *.vdzonsoftware.nl → in-cluster services)
+  ├── cloudflared    (tunnel: *.vdzonsoftware.nl → ingressrouter → Route)
   └── Secret (uit SealedSecret in git, ge-decrypt door cluster)
 ```
 
@@ -139,10 +139,22 @@ Wat je nog moet doen:
 2. **Zero Trust → Networks → Tunnels → Create a tunnel** (Cloudflared type).
    - Geef 'm een naam, b.v. `personal-news-feed`.
    - Kopieer de **TUNNEL_TOKEN** uit het install-commando.
-3. **Public hostname** in de tunnel-config:
-   - Subdomain: `news`
-   - Domain: `vdzonsoftware.nl`
-   - Service: `HTTP` → `frontend.personal-news-feed.svc.cluster.local:8080`
+3. **Eén public hostname** in de tunnel-config — een wildcard die naar de
+   ingressrouter van het cluster wijst:
+   - Subdomain: `*`
+   - Domain: `vdzonsoftware.nl` (dus `*.vdzonsoftware.nl`)
+   - Service: `HTTP` → de OpenShift-ingressrouter van je cluster (dus
+     **niet** rechtstreeks een app-Service). De concrete DNS-naam en poort van
+     die router staan bewust niet in deze repo — die zijn cluster-specifiek;
+     zoek ze op in je eigen cluster (ingress-controller in
+     `openshift-ingress`).
+
+   De tunnel geeft de oorspronkelijke `Host`-header ongewijzigd door, en de
+   ingressrouter kiest daarop de bijbehorende `Route`. Deze ene regel bedient
+   dus `news.vdzonsoftware.nl`, `reader.vdzonsoftware.nl` én alle
+   `pnf-pr-<N>.vdzonsoftware.nl`-previews; er zijn geen losse public hostnames
+   per app of per PR nodig. Zie "Preview-deploys per PR", punt 5 hieronder en
+   `runbook.md` §7 voor het volledige routeringsverhaal.
 4. **Token in de SealedSecret** zetten:
    ```bash
    # Edit deploy/secrets-cluster.env, voeg TUNNEL_TOKEN=eyJ... toe
@@ -151,7 +163,11 @@ Wat je nog moet doen:
    git commit -m "deploy: add cloudflare tunnel token"
    git push
    ```
-5. ArgoCD synct, `cloudflared`-pod start, tunnel opent → `https://news.vdzonsoftware.nl` werkt vanaf elke browser, met geldig Cloudflare-cert.
+5. ArgoCD synct, `cloudflared`-pod start, tunnel opent → alle hosts onder
+   `*.vdzonsoftware.nl` waarvoor een `Route` bestaat werken vanaf elke browser,
+   met geldig Cloudflare-cert: `https://news.vdzonsoftware.nl`,
+   `https://reader.vdzonsoftware.nl` en elke actieve
+   `https://pnf-pr-<N>.vdzonsoftware.nl`-preview.
 
 Geen port-forwarding op je router nodig — alleen uitgaande connectie van het cluster naar Cloudflare.
 
@@ -169,9 +185,11 @@ PR-nummer is). Bij merge/close wordt de preview opgeruimd.
    `robberts-infrastructure/manifests/root-app/apps/personal-news-feed-applicationset.yaml`)
    pollt elke 3 min GitHub voor open PR's matching `^ai/.+$` en spawnt per
    PR een ArgoCD Application.
-3. **Preview-ns-labeller** (RBAC hier in `deploy/preview-ns-labeller/`,
-   Deployment sinds 2026-07-08 in
-   `robberts-infrastructure/manifests/root-app/apps/preview-ns-labeller-deployment.yaml`)
+3. **Preview-ns-labeller** (RBAC én Deployment sinds 2026-07-08 in
+   `robberts-infrastructure/manifests/root-app/apps/preview-ns-labeller-rbac.yaml`
+   respectievelijk `…/preview-ns-labeller-deployment.yaml`; in
+   `deploy/preview-ns-labeller/` staan alleen `labeller.sh` en `Dockerfile`
+   nog echt — `rbac.yaml` is daar een leeggehaald pointer-bestand)
    zorgt dat de bijbehorende namespace `pnf-pr-<N>` bestaat met de
    `argocd.argoproj.io/managed-by`-label (anders blokkeert de
    argocd-operator). Vóór élke creatiehandeling — dus ook vóór het
