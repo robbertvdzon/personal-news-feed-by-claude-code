@@ -38,7 +38,7 @@ ArgoCD (watcht main) ── sync ──► OpenShift ns: personal-news-feed
         ├── backend   Pod + Service + Route + PVC (audio/state, RWO)
         ├── frontend  Pod + Service + Route   ← gebruikers (news.vdzonsoftware.nl)
         ├── reader    Pod + Service + Route   ← reader.vdzonsoftware.nl
-        ├── cloudflared    (tunnel: *.vdzonsoftware.nl → in-cluster services)
+        ├── cloudflared    (tunnel: *.vdzonsoftware.nl → ingressrouter → Route)
         └── Secret newsfeed-api-keys (uit SealedSecret in git)
 
 Data:  Postgres (Neon, extern) — audio-bytes sinds V5 óók in Postgres.
