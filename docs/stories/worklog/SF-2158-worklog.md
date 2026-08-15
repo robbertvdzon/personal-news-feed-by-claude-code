@@ -62,3 +62,33 @@ lokaal gedraaid):
   story veroorzaakte `[Podcast] … (zie [TTS]-warnings)`-logregel uit `PodcastGenerationE2eTest`.
 - `target/jacoco.exec` (334.990 B) en `target/jacoco-it.exec` (9.238.282 B) zijn beide geschreven — de
   `@{argLine}`-vangrail uit SF-2151 staat nog overeind.
+
+## Tweede ronde: diagnose van de afgewezen factory-verificatie
+
+De harness wees `backend-maven-verify` af (exitCode 1, 260 s). Bij het opnieuw draaien in deze ronde
+kwam dezelfde storing één keer terug en is de oorzaak vastgesteld — **geen assertie en geen testcode**:
+
+- Run A (`clean verify`): BUILD FAILURE, 116 unit groen, 76 e2e met 5 errors. Alle vijf errors zitten in
+  `FeedE2eTest` (een bestaande klasse, niet aangeraakt door deze story) en zijn geen assertiefouten maar
+  `IllegalState: Failed to load ApplicationContext` / `ApplicationContext failure threshold (1) exceeded`.
+  De onderliggende oorzaak staat in de log van die fork:
+  `RyukResourceReaper: Can not connect to Ryuk at host.docker.internal:63342` gevolgd door tientallen
+  `java.net.SocketException: Broken pipe`. Testcontainers kreeg zijn resource-reaper niet verbonden en de
+  Postgres-container van die fork kwam daardoor niet op. `RequestRecoveryE2eTest` was in diezelfde run
+  gewoon groen (5/5, 12,1 s).
+- Run B (`clean verify`): BUILD SUCCESS, exit 0, 116 unit + 76 e2e, 0 failures / 0 errors, 04:08 min.
+- Run C (`clean verify`, direct erna): BUILD SUCCESS, exit 0, 116 unit + 76 e2e, 0 failures / 0 errors,
+  04:26 min. `target/jacoco.exec` (334.990 B) en `target/jacoco-it.exec` (9.238.323 B) beide aanwezig;
+  `grep -icE 'warning|deprecat|self-attach'` geeft 1 hit (de bekende `[Podcast]`-logregel).
+
+Daarmee is aan AC9 voldaan met runs B en C: twee opeenvolgende `mvn -B --no-transfer-progress clean verify`
+met exitcode 0 en 0 failures / 0 errors.
+
+Conclusie en restrisico (bewust niet gerepareerd, valt buiten deze story): de e2e-suite start per testklasse
+een eigen JVM-fork (`reuseForks=false`, `forkCount=1`) en dus per klasse een eigen Ryuk- én Postgres-container.
+Op deze Docker-Desktop-via-socket-omgeving mislukt die Ryuk-handshake af en toe, en dan valt een willekeurige
+e2e-klasse in zijn geheel om. Dat is infrastructuur, niet code: er zijn geen achtergebleven containers
+(`GET /containers/json` toont er nul van de suite) en de storing trof een klasse die deze story niet raakt.
+Een structurele oplossing (bijv. `reuseForks=true` of gedeelde container) vraagt een `pom.xml`-wijziging en
+botst met AC8 van deze story; dat is stof voor een aparte story. Blijft de factory-verificatie hierop hangen,
+dan is een herstart van de verificatie de eerste stap.
