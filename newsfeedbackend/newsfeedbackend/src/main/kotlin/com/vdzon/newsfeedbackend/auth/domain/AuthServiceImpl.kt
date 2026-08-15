@@ -66,6 +66,8 @@ class AuthServiceImpl(
         return deleted
     }
 
+    override fun validateToken(token: String): Pair<String, String>? = jwt.validate(token)
+
     override fun listAccounts(): List<UserAccount> =
         users.all().map { UserAccount(it.id, it.username, it.role) }
 

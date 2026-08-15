@@ -3,8 +3,10 @@ package com.vdzon.newsfeedbackend.e2e
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.ObjectMapper
 import java.net.URI
+import java.net.URLEncoder
 import java.net.http.HttpClient
 import java.net.http.WebSocket
+import java.nio.charset.StandardCharsets
 import java.time.Duration
 import java.util.concurrent.CompletionStage
 import java.util.concurrent.LinkedBlockingQueue
@@ -57,12 +59,21 @@ class WsTestClient private constructor(private val mapper: ObjectMapper) : WebSo
     companion object {
         private val HTTP: HttpClient = HttpClient.newHttpClient()
 
-        /** Verbindt met `/ws/requests` op [port] en wacht tot de handshake rond is. */
-        fun connect(port: Int, mapper: ObjectMapper): WsTestClient {
+        /**
+         * Verbindt met `/ws/requests` op [port] en wacht tot de handshake rond is.
+         *
+         * Het [token] gaat als queryparameter mee: de handshake wordt door
+         * `JwtHandshakeInterceptor` geauthenticeerd. Bij een ontbrekend of
+         * ongeldig token weigert de server met 401 en faalt de future met een
+         * `WebSocketHandshakeException` — er komt dan geen sessie tot stand.
+         * [token] is `null` om die weigering te kunnen testen.
+         */
+        fun connect(port: Int, mapper: ObjectMapper, token: String?): WsTestClient {
             val client = WsTestClient(mapper)
+            val query = token?.let { "?token=" + URLEncoder.encode(it, StandardCharsets.UTF_8) } ?: ""
             val ws = HTTP.newWebSocketBuilder()
                 .connectTimeout(Duration.ofSeconds(15))
-                .buildAsync(URI.create("ws://localhost:$port/ws/requests"), client)
+                .buildAsync(URI.create("ws://localhost:$port/ws/requests$query"), client)
                 .get(20, TimeUnit.SECONDS)
             client.socket = ws
             return client

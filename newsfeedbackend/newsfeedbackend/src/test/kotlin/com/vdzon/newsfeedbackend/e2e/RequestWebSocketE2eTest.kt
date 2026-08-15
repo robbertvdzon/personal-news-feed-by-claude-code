@@ -6,19 +6,23 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.fail
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
+import java.net.http.WebSocketHandshakeException
 import java.time.Duration
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.ExecutionException
 
 /**
- * Het WebSocket-endpoint `/ws/requests` door de echte app heen:
- * `serverVersion` bij connect (alleen naar de verbindende client) en de
- * broadcast van het volledige [com.vdzon.newsfeedbackend.request.NewsRequest]
- * -object bij elke statuswijziging.
+ * Het WebSocket-endpoint `/ws/requests` door de echte app heen: de
+ * geauthenticeerde handshake (`?token=<jwt>`), `serverVersion` bij connect
+ * (alleen naar de verbindende client) en de levering van het volledige
+ * [com.vdzon.newsfeedbackend.request.NewsRequest]-object bij elke
+ * statuswijziging — uitsluitend aan de eigenaar van het verzoek.
  *
  * Legt vast wat `specs/backend-functional-spec.md` (§5, WebSocket) en
  * `specs/frontend-spec.md` (§ WebSocket-integratie) beloven — de REST-kant
@@ -55,12 +59,12 @@ class RequestWebSocketE2eTest : E2eTestBase() {
         clients.clear()
     }
 
-    private fun connect(): WsTestClient =
-        WsTestClient.connect(port, mapper).also { clients.add(it) }
+    private fun connect(user: TestUser): WsTestClient =
+        WsTestClient.connect(port, mapper, user.token).also { clients.add(it) }
 
     /** Verbindt en consumeert het `serverVersion`-bericht als connect-anker. */
-    private fun connectAndAwaitServerVersion(): WsTestClient {
-        val client = connect()
+    private fun connectAndAwaitServerVersion(user: TestUser): WsTestClient {
+        val client = connect(user)
         val version = client.poll(messageTimeout) ?: fail("geen serverVersion-bericht na connect")
         assertEquals("serverVersion", version.path("type").asString())
         return client
@@ -113,7 +117,8 @@ class RequestWebSocketE2eTest : E2eTestBase() {
 
     @Test
     fun `direct na connect komt precies een serverVersion-bericht`() {
-        val client = connect()
+        val user = registerUser("ws")
+        val client = connect(user)
 
         val version = client.poll(messageTimeout) ?: fail("geen serverVersion-bericht na connect")
         assertEquals("serverVersion", version.path("type").asString())
@@ -128,9 +133,10 @@ class RequestWebSocketE2eTest : E2eTestBase() {
 
     @Test
     fun `serverVersion gaat alleen naar de verbindende client en wordt niet gebroadcast`() {
-        val first = connectAndAwaitServerVersion()
+        val user = registerUser("ws")
+        val first = connectAndAwaitServerVersion(user)
 
-        val second = connect()
+        val second = connect(user)
         assertEquals("serverVersion", (second.poll(messageTimeout) ?: fail("B kreeg geen serverVersion")).path("type").asString())
 
         // Spec: "alleen naar de verbindende client, geen broadcast" — A hoort
@@ -141,7 +147,7 @@ class RequestWebSocketE2eTest : E2eTestBase() {
     @Test
     fun `statuswijzigingen van een verzoek komen als volledige NewsRequest-objecten binnen`() {
         val user = registerUser("ws")
-        val client = connectAndAwaitServerVersion()
+        val client = connectAndAwaitServerVersion(user)
 
         val id = createAdhocRequest(user, "Kotlin nieuws")
         val messages = collectUntilDone(client, id)
@@ -171,32 +177,61 @@ class RequestWebSocketE2eTest : E2eTestBase() {
     }
 
     @Test
-    fun `elke verbonden client ontvangt de statusberichten van elk verzoek`() {
-        val user = registerUser("ws")
-        val first = connectAndAwaitServerVersion()
-        val second = connectAndAwaitServerVersion()
+    fun `statusberichten gaan alleen naar de eigenaar en niet naar een andere gebruiker`() {
+        val alice = registerUser("wsa")
+        val bob = registerUser("wsb")
+        val aliceClient = connectAndAwaitServerVersion(alice)
+        val bobClient = connectAndAwaitServerVersion(bob)
 
-        val id = createAdhocRequest(user, "Nieuws voor iedereen")
+        val id = createAdhocRequest(alice, "Nieuws alleen voor A")
 
-        // Bewust gedrag: de server filtert niet per gebruiker, elke verbonden
-        // client krijgt elk statusbericht. De frontend filtert zelf op basis
-        // van de eigen (JWT-gescopede) lijst — zie specs/frontend-spec.md:199-206.
-        // Wordt hier ooit wél server-side gefilterd, dan moet deze test
-        // expliciet mee wijzigen in plaats van dat het gedrag stil verschuift.
-        val firstMessages = collectUntilDone(first, id)
-        val secondMessages = collectUntilDone(second, id)
-
+        // A is de eigenaar en ziet de volledige reeks.
+        val ofRequest = collectUntilDone(aliceClient, id)
+            .filter { it.path("id").asString() == id }
         assertEquals(
-            firstMessages.filter { it.path("id").asString() == id }.map { it.path("status").asString() },
-            secondMessages.filter { it.path("id").asString() == id }.map { it.path("status").asString() }
+            listOf("PENDING", "PROCESSING", "DONE"),
+            ofRequest.map { it.path("status").asString() }.distinct(),
+            "onverwachte statusvolgorde bij de eigenaar: $ofRequest"
         )
+
+        // B hoort er niets van te merken: de server levert per eigenaar. A
+        // heeft DONE al gezien, dus een ongefilterde broadcast had hier
+        // allang in B's queue gestaan; de extra marge dekt nawerk af.
+        val bijBob = mutableListOf<JsonNode>()
+        val deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos()
+        while (System.nanoTime() < deadline) {
+            val node = bobClient.poll(silenceTimeout) ?: continue
+            if (node.path("id").asString() == id) bijBob.add(node)
+        }
+        assertTrue(bijBob.isEmpty(), "gebruiker B kreeg berichten over het verzoek van A: $bijBob")
+    }
+
+    @Test
+    fun `een handshake zonder token of met een onzin-token wordt geweigerd`() {
+        // Er komt geen sessie tot stand, dus geen close-code: de JDK-client
+        // ziet de 401 als een falende handshake-future.
+        assertEquals(401, handshakeFailureStatus(null), "handshake zonder token werd niet geweigerd")
+        assertEquals(401, handshakeFailureStatus("dit-is-geen-jwt"), "handshake met onzin-token werd niet geweigerd")
+    }
+
+    /** Verwacht dat de handshake met [token] faalt en geeft de HTTP-status terug. */
+    private fun handshakeFailureStatus(token: String?): Int {
+        val thrown = assertThrows(ExecutionException::class.java) {
+            WsTestClient.connect(port, mapper, token)
+        }
+        val cause = thrown.cause
+        assertTrue(
+            cause is WebSocketHandshakeException,
+            "verwachtte een geweigerde handshake, kreeg: $cause"
+        )
+        return (cause as WebSocketHandshakeException).response.statusCode()
     }
 
     @Test
     fun `een gesloten verbinding blokkeert de broadcast naar de overige clients niet`() {
         val user = registerUser("ws")
-        val first = connectAndAwaitServerVersion()
-        val second = connectAndAwaitServerVersion()
+        val first = connectAndAwaitServerVersion(user)
+        val second = connectAndAwaitServerVersion(user)
 
         first.close()
 

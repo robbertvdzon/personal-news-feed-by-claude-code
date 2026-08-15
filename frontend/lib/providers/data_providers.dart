@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../api/api_client.dart';
@@ -253,13 +254,35 @@ class RequestNotifier extends AsyncNotifier<List<NewsRequest>> {
   ApiClient get _api => ref.read(apiProvider);
   String? get _user => ref.read(authProvider).username;
   RequestsWebSocket? _ws;
+  String? _connectedToken;
+
+  /// Het token waarmee de huidige verbinding is opgezet (`null` = geen
+  /// verbinding). Alleen bedoeld om in tests te kunnen vaststellen dat na
+  /// een gebruikerswissel met het nieuwe token wordt verbonden.
+  @visibleForTesting
+  String? get connectedToken => _connectedToken;
 
   @override
   Future<List<NewsRequest>> build() async {
-    _ws ??= RequestsWebSocket()..connect().listen((msg) => _apply(msg));
+    // Het JWT gaat mee de handshake in: de backend levert statusupdates
+    // alleen aan de eigenaar. Deze provider is daarom token-reactief — bij
+    // in- en uitloggen verandert het token en bouwt Riverpod opnieuw op,
+    // waarbij de oude socket via onDispose sluit en er met het token van de
+    // nu ingelogde gebruiker opnieuw wordt verbonden. Zonder die watch zou
+    // een rebuild tijdens uitloggen (het instellingenscherm watcht deze
+    // provider) een dode, tokenloze socket achterlaten die bij de volgende
+    // login niet meer wordt vervangen.
+    final token = ref.watch(authProvider.select((s) => s.token));
+    final ws = RequestsWebSocket();
+    _ws = ws;
+    _connectedToken = token;
+    ws.connect(token).listen((msg) => _apply(msg));
     ref.onDispose(() {
-      _ws?.close();
-      _ws = null;
+      ws.close();
+      if (identical(_ws, ws)) {
+        _ws = null;
+        _connectedToken = null;
+      }
     });
     final list = await _fetchListWithCache(
       api: _api, path: '/api/requests', username: _user, cacheName: 'requests');
@@ -276,12 +299,12 @@ class RequestNotifier extends AsyncNotifier<List<NewsRequest>> {
     final updated = NewsRequest.fromJson(msg);
     final cur = state.value;
     if (cur == null) return;
-    // Per spec (frontend-spec §7): the /ws/requests broadcast carries
-    // updates for ALL users. Known IDs in our local list are safe to
-    // patch in place (the list itself comes from JWT-scoped /api/requests
-    // so it only contains our own items). Unknown IDs trigger a quiet
-    // reload, which silently filters out other users' requests via the
-    // JWT-scoped fetch.
+    // Per spec (frontend-spec §7): de /ws/requests-verbinding is
+    // geauthenticeerd en levert alleen updates van deze gebruiker. Bekende
+    // id's patchen we in place. Een onbekend id is daarmee geen andermans
+    // verzoek meer, maar een verzoek dat nog niet in onze lijst staat (bv.
+    // aangemaakt tijdens een herlaad of op een ander toestel); de stille
+    // reload blijft als vangnet staan zodat het alsnog verschijnt.
     final idx = cur.indexWhere((r) => r.id == updated.id);
     if (idx >= 0) {
       final list = [...cur];

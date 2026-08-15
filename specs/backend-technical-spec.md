@@ -55,7 +55,7 @@ De backend gebruikt **Spring Modulith** voor het afdwingen van modulegescheiden 
 
 | Module | Package | Verantwoordelijkheid |
 |--------|---------|----------------------|
-| `auth` | `com.vdzon.newsfeedbackend.auth` | Registratie, login, JWT-aanmaak en -validatie, gebruikersbeheer |
+| `auth` | `com.vdzon.newsfeedbackend.auth` | Registratie, login, JWT-aanmaak en -validatie, gebruikersbeheer; `AuthService.validateToken(token)` geeft `(username, role)` en is de publieke module-API voor kanalen die de servlet-securityketen niet doorlopen (vandaag de WebSocket-handshake) |
 | `rss` | `com.vdzon.newsfeedbackend.rss` | RSS-feeds ophalen, AI-verwerking van artikelen, feed-selectie |
 | `feed` | `com.vdzon.newsfeedbackend.feed` | Gecureerde feed-items beheren, feedback, cleanup |
 | `request` | `com.vdzon.newsfeedbackend.request` | Ad-hoc verzoeken en dagelijkse updates verwerken |
@@ -63,7 +63,7 @@ De backend gebruikt **Spring Modulith** voor het afdwingen van modulegescheiden 
 | `settings` | `com.vdzon.newsfeedbackend.settings` | Categorie-instellingen en RSS-feed URLs per gebruiker |
 | `ai` | `com.vdzon.newsfeedbackend.ai` | Gedeelde OpenAI-client + prijsconfiguratie (gebruikt door rss, feed, request, podcast) |
 | `storage` | `com.vdzon.newsfeedbackend.storage` | Gedeelde PostgreSQL/JDBC-opslag-utilities |
-| `websocket` | `com.vdzon.newsfeedbackend.websocket` | WebSocket handler voor request-statusupdates |
+| `websocket` | `com.vdzon.newsfeedbackend.websocket` | WebSocket handler voor request-statusupdates; `JwtHandshakeInterceptor` authenticeert de handshake van `/ws/requests` en `broadcast(username, payload)` levert alleen aan de sessies van die gebruiker (SF-2165) |
 | `admin` | `com.vdzon.newsfeedbackend.admin` | Gebruikersbeheer en AI-kostenoverzicht (admin-only endpoints) |
 | `external_call` | `com.vdzon.newsfeedbackend.external_call` | Logging en kostenberekening van externe API-aanroepen (`external_calls`-tabel); `ExternalCallLogger.logCall(...)` is de gedeelde helper waarmee alle clients loggen (SF-2022) |
 | `podcast_source` | `com.vdzon.newsfeedbackend.podcast_source` | Ingest van podcast-RSS-bronnen en episode-verwerking (transcript-lookup); event-driven transcript-fase (`PodcastTranscriptPipeline`) met uurlijks vangnet (`PodcastRecoveryScheduler`); beheer van de feed-lijst incl. validatie van nieuwe feeds en ingestion-trigger achter `PodcastFeedsService` |
@@ -314,6 +314,8 @@ sluiten de e2e-suite uit (`**/e2e/**`). De suite in
 - `shared/api/dto/SharedCategoryDtoTest.kt` — `CategorySettings.toSharedDto()` neemt uitsluitend `id`, `name` en `enabled` over, en de Jackson-serialisatie van `SharedCategoryDto` bevat precies die drie velden: de privé `extraInstructions` (bijstuurtekst voor het taalmodel) en het interne `isSystem` van de bron-gebruiker komen niet in het publieke `GET /api/shared/categories` terecht (SF-1992)
 - `external_call/ExternalCallLoggerTest.kt` — de gedeelde `ExternalCallLogger.logCall(...)`-default-implementatie: `id` (UUID), `endTime` en `durationMs` worden zelf ingevuld, de optionele parameters blijven leeg als ze niet worden meegegeven, `subject` wordt níet afgekapt (dat blijft bij de aanroeper), en een `log(call)` die een exception gooit wordt ingeslikt zodat de business-flow doorloopt (SF-2022)
 - `request/domain/RequestServiceImplCancelTest.kt` — de eigenaarscheck in `RequestServiceImpl.cancel`: annuleren van een eigen lopend verzoek zet `CANCELLED` plus de annuleervlag, een andere gebruiker of een onbekend id levert `false` op zonder sleutel in de `cancellation`-map en zonder `upsert` (de vlag van de eigenaar blijft dus uit), hetzelfde request-id bij twee gebruikers raakt elkaar niet, een al afgerond eigen verzoek wordt niet overschreven maar geeft wel `true`, en `rerun` ruimt de vlag van dezelfde gebruiker op; gemockte `RequestRepository`/`AuthService`/`RequestWebSocketHandler`/`ApplicationEventPublisher` (SF-2051)
+- `websocket/JwtHandshakeInterceptorTest.kt` — de handshake-authenticatie van `/ws/requests` (6 tests): een geldig token laat `beforeHandshake` `true` teruggeven en zet de gebruikersnaam in `attributes["username"]`; een ontbrekende, lege, onzin-, met een ander secret gesmede of verlopen `token`-queryparameter levert `false` op met responsestatus `401` en zonder attribuut. Draait tegen een echte `JwtService` (geen mock), zodat de handtekening- en vervalcontrole echt meeloopt (SF-2166)
+- `websocket/RequestWebSocketHandlerTest.kt` — het eigenaarsfilter in `RequestWebSocketHandler.broadcast(username, payload)` (7 tests): een statusbericht gaat alleen naar de sessies van de eigenaar, het `serverVersion`-bericht alleen naar de verbindende sessie, een sessie zónder `username`-attribuut ontvangt niets, een gesloten sessie blokkeert de levering aan de andere niet en wordt opgeruimd — óók als die dode sessie van een ándere gebruiker is (de `isOpen`-check staat bewust vóór het eigenaarsfilter), een sessie die bij het sturen een exception gooit wordt opgeruimd zonder de rest te raken, en na `afterConnectionClosed` ontvangt de sessie niets meer (SF-2166)
 - `podcast_source/domain/PodcastRecoverySchedulerTest.kt` — het uurlijkse vangnet: afleveringen met verlopen `next_attempt_at` worden hertriggerd, zonder achterstand publiceert de job niets, hoogstens `MAX_EPISODES_PER_RUN` per run, show-notes-timeout zet de `feed_promotion_attempted_at`-marker vóór het promotie-event (en een mislukte marker blokkeert het event — anti-loop), afleveringen zonder `rss_item_id` worden niet gepromoot, de promotie-timeout komt uit de property, en een fout in de transcript-stap blokkeert de promotie-stap niet (SF-1739)
 
 Daarnaast draait bij elke `mvn test` ook `ModuleStructureTest.kt` —
@@ -421,7 +423,7 @@ assertie stil triviaal-waar; en de aanvalspoging moet plaatsvinden terwijl de
 eigenaar écht nog verwerkt, waarvoor de test de eerste `adhoc_summarize` van
 `FakeOpenAiChatClient` met een `CountDownLatch` vasthoudt.
 
-`RequestWebSocketE2eTest` (5 tests, SF-2109) dekt het WebSocket-endpoint
+`RequestWebSocketE2eTest` (6 tests, SF-2109/SF-2166) dekt het WebSocket-endpoint
 `/ws/requests` zoals §5 van `backend-functional-spec.md` en de sectie
 *WebSocket-integratie* van `frontend-spec.md` het beschrijven — de REST-kant van
 `NewsRequest` was al via `RequestsE2eTest` gedekt, deze kant niet: (1) na connect
@@ -432,27 +434,44 @@ eerste géén tweede `serverVersion` — het is bewust geen broadcast; (3) bij e
 ad-hoc verzoek komen de statuswijzigingen binnen als volledige `NewsRequest`-
 objecten zonder `type`-veld, met de reeks `PENDING → PROCESSING → DONE` en de
 velden `id`/`status`/`subject`/`newItemCount` erin (er is geen DTO-laag, dus deze
-serialisatie wordt nergens anders afgedekt); (4) beide verbonden clients krijgen
-dezelfde statusberichten, want de server filtert niet per gebruiker; (5) na een
-nette close van de ene verbinding blijft de andere berichten ontvangen.
+serialisatie wordt nergens anders afgedekt); (4) sinds SF-2166 gaan die
+statusberichten alleen naar de eigenaar — een verzoek van gebruiker A levert bij
+een gelijktijdig verbonden gebruiker B géén bericht met dat id op, terwijl A de
+volledige reeks wél ziet; (5) een handshake zonder `token` en een handshake met
+een onzin-token worden allebei geweigerd; (6) na een nette close van de ene
+verbinding blijft de andere berichten ontvangen.
 Aandachtspunten voor wie deze tests uitbreidt: de verbinding loopt via de
-JDK-`HttpClient.newWebSocketBuilder()` (geen extra dependency, `/ws/**` is
-`permitAll` dus er is geen token nodig), verpakt in de test-only hulpklasse
-`WsTestClient` die twee valkuilen van de JDK-listener afvangt — `onText` moet
+JDK-`HttpClient.newWebSocketBuilder()` (geen extra dependency), verpakt in de
+test-only hulpklasse `WsTestClient`. `WsTestClient.connect(port, mapper, token)`
+hangt het token als queryparameter aan de URL; `/ws/**` staat weliswaar op
+`permitAll`, maar `JwtHandshakeInterceptor` authenticeert de handshake, dus elke
+test registreert eerst een gebruiker (`E2eTestBase.TestUser.token`) en verbindt
+daarmee. `token = null` is de vorm waarmee de weigering getest wordt: de server
+antwoordt met `401`, er komt geen sessie tot stand en de JDK-client uit zich dat
+als een falende `buildAsync(...)`-future (`WebSocketHandshakeException` in de
+`ExecutionException`) — asserteer daar dus op, niet op een close-code. De klasse
+vangt daarnaast twee valkuilen van de JDK-listener af — `onText` moet
 zelf `webSocket.request(1)` aanroepen (anders komt na het eerste bericht niets
 meer binnen) en levert fragmenten, dus er wordt pas geparsed bij `last == true`.
 Verbind altijd vóór het uitlokken van een statuswijziging en consumeer eerst het
 `serverVersion`-bericht als anker dat de sessie server-side geregistreerd is; er
 staat nergens een vaste `sleep`, wachten gebeurt via `poll(timeout)` en de enige
-korte time-out (2 s) zit in de twee negatieve asserties. Asserteer per `id`: de
+korte time-out (2 s) zit in de negatieve asserties. Bij de twee-gebruikerstest is
+het anker dat A `DONE` al gezien heeft — een ongefilterde broadcast had dan
+allang in B's queue gestaan — met daarbovenop een venster van 5 s voor nawerk.
+Asserteer per `id`: de
 hardcoded `RssScheduler`-cron (`0 0 * * * *`) is niet uit te schakelen, dus een
 run precies over het hele uur kan er een `hourly-update-*`-broadcast tussen
 zetten. De klasse zet net als `RequestsE2eTest` via een eigen
 `@DynamicPropertySource` een dummy `app.tavily.api-key`, anders doet
-`TavilyClient` geen HTTP-call naar `FakeContentServer`. Test 5 bewijst alleen het
-waarneembare gedrag: bij een nette close haalt Spring de sessie al weg in
+`TavilyClient` geen HTTP-call naar `FakeContentServer`. Test 6 gebruikt twee
+verbindingen van **dezelfde** gebruiker (anders zou het eigenaarsfilter, en niet
+de close, de tweede verbinding stil houden) en bewijst alleen het waarneembare
+gedrag: bij een nette close haalt Spring de sessie al weg in
 `afterConnectionClosed`, dus de dode-sessie-tak in
-`RequestWebSocketHandler.broadcast` wordt er niet gegarandeerd door geraakt.
+`RequestWebSocketHandler.broadcast` wordt er niet gegarandeerd door geraakt —
+die tak is sinds SF-2166 wel op unit-niveau gedekt door
+`RequestWebSocketHandlerTest`.
 
 `mvn test` (surefire) draait alleen de unit-tests en `ModuleStructureTest`
 (sluit `**/e2e/**` uit, geen Docker nodig). `mvn verify` (failsafe) draait

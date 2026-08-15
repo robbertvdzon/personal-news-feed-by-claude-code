@@ -17,6 +17,7 @@ class AuthState {
 
 class AuthNotifier extends StateNotifier<AuthState> {
   final ApiClient api;
+
   AuthNotifier(this.api) : super(const AuthState());
 
   Future<void> bootstrap() async {
@@ -63,6 +64,13 @@ class AuthNotifier extends StateNotifier<AuthState> {
     // hetzelfde toestel geen oude data ziet bij netwerkproblemen.
     await LocalCache.clearAll();
     api.setToken(null);
+    // Het leegmaken van de state sluit ook de WebSocket van de uitgelogde
+    // gebruiker: RequestNotifier.build() watcht dit token en wordt daardoor
+    // opnieuw opgebouwd — de oude socket sluit via onDispose en er wordt pas
+    // weer verbonden als er (met een ander account) is ingelogd. Een expliciete
+    // `ref.invalidate(requestProvider)` kan hier niet: requestProvider hangt
+    // sinds SF-2166 van authProvider af, wat Riverpod als circulaire
+    // afhankelijkheid afkeurt.
     state = const AuthState();
   }
 }
