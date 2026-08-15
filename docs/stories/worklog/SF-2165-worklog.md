@@ -31,3 +31,27 @@ Done / rationale:
 - Vangnet groen: mvn -B --no-transfer-progress clean verify exit 0 (128 unit +
   77 e2e), flutter test in frontend/ 36 groen. Docker WAS beschikbaar in de
   container, dus de e2e-suite is lokaal echt gedraaid.
+
+Review SF-2166 (ronde 1) — afgekeurd, 1 blocker:
+- [blocker] Na uitloggen + opnieuw inloggen komt er in de app geen WebSocket
+  meer tot stand (AC6/AC7). `AuthNotifier.logout()` invalideert
+  `requestProvider` terwijl het instellingenscherm hem nog watcht
+  (`_BackgroundJobsSection`, settings_screen.dart:342/359). Riverpod bouwt de
+  provider daardoor meteen opnieuw op, met `_api.token == null` (setToken(null)
+  staat vóór de invalidate), zodat `connect(null)` geen verbinding opent. De
+  provider is niet autoDispose en wordt bij login niet ge-invalideerd, dus de
+  volgende `read` hergebruikt die dode notifier. Reviewer reproduceerde dit met
+  een tijdelijke widgettest (verwijderd): opgenomen tokens per build =
+  [token-a, null] en na login van B nog steeds [token-a, null].
+  Richting: invalideer `requestProvider` ook na een geslaagde login/bootstrap,
+  of maak de verbinding token-reactief (`ref.watch(authProvider.select((s) =>
+  s.token))` in `RequestNotifier.build`).
+- [suggestie] `broadcast` ruimt dode sessies alleen nog op binnen de sessies van
+  de eigenaar (de `return@forEach` staat vóór de `isOpen`-check). Sessies van
+  andere gebruikers die zonder `afterConnectionClosed` sneuvelen blijven in
+  `sessions` staan tot die gebruiker zelf een bericht krijgt.
+- Backend zelf is akkoord: AC4 klopt (`grep -rn "broadcast(" src/main` = 1
+  declaratie + 2 callers met username), modulith-grens via
+  `AuthService.validateToken` is correct, e2e-weigeringstest en
+  twee-gebruikerstest dekken AC1/AC3. Harnessbewijs `backend-maven-verify`
+  passed op tree 59378b28…, gelijk aan `git rev-parse HEAD^{tree}`.
