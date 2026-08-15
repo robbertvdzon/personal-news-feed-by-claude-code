@@ -324,11 +324,11 @@ opgenomen in de allowlist, zie §3).
 
 ### E2e-testsuite (`mvn verify`)
 Naast de unit-tests bestaat er een e2e-suite onder
-`src/test/kotlin/com/vdzon/newsfeedbackend/e2e/` (12 testklassen): `RssRefreshE2eTest`,
+`src/test/kotlin/com/vdzon/newsfeedbackend/e2e/` (13 testklassen): `RssRefreshE2eTest`,
 `RssItemsE2eTest`, `SettingsE2eTest`, `AdminE2eTest`,
 `AuthE2eTest`, `FeedE2eTest`, `FixedRequestsE2eTest`, `PodcastGenerationE2eTest`,
-`PodcastIngestE2eTest`, `RequestsE2eTest`, `RequestWebSocketE2eTest` en
-`SharedFeedE2eTest`. Naast de testklassen staat in dezelfde map de hulpklasse
+`PodcastIngestE2eTest`, `RequestRecoveryE2eTest`, `RequestsE2eTest`,
+`RequestWebSocketE2eTest` en `SharedFeedE2eTest`. Naast de testklassen staat in dezelfde map de hulpklasse
 `WsTestClient` (zie hieronder). Het gedeelde
 harnas (`E2eTestBase`/`E2eTestConfig`) start
 de volledige Spring-app tegen een echte PostgreSQL via Testcontainers (met
@@ -376,6 +376,38 @@ aangemaakt, dus daar moet eerst op gewacht worden; `newItemCount` wordt door
 samenvattings-item van een eerdere run valt zelf binnen het 24-uursvenster van
 een volgende run, daarom staat de vensterassertie in een eigen test met precies
 één run.
+
+`RequestRecoveryE2eTest` (5 tests, SF-2158) dekt het opstartherstel uit §6.6 van
+`backend-functional-spec.md`: `RequestServiceImpl.resetStuck()`, dat bij
+serverstart door `RequestBootstrap` wordt aangeroepen. De vijf gevallen: (1) een
+`PROCESSING`-verzoek wordt `FAILED` met een `completedAt` die van de reset komt
+(de beginsituatie zonder `completedAt` wordt eerst via HTTP vastgelegd, zodat de
+test bewijst dát `resetStuck` de waarde zette); (2) ook een verzoek dat nog in
+`PENDING` stond wordt `FAILED`; (3) een `DONE`- en een `CANCELLED`-verzoek
+houden hun status én hun oorspronkelijke `completedAt`, net als de twee vaste
+verzoeken (`hourly-update-<user>`/`daily-summary-<user>`, die op `DONE` staan met
+een lege `completedAt`); (4) de reset raakt álle gebruikers, bewezen met een
+tweede geregistreerde gebruiker; (5) een tweede `resetStuck()` direct erna
+verandert niets — de `completedAt` van de eerste reset blijft staan.
+Aandachtspunten voor wie deze tests uitbreidt: `resetStuck()` wordt rechtstreeks
+op de `@Autowired RequestService`-bean aangeroepen (de app wordt niet herstart;
+`RequestBootstrap` doet niets anders dan deze aanroep plus `ensureFixedRequests`)
+en loopt via `auth.listUsernames()` over álle gebruikers in de database — dus ook
+over die van eerder gedraaide tests in dezelfde fork. Asserteer daarom nooit op de
+totale lijst of het totale aantal verzoeken, maar altijd per eigen gebruiker en
+per eigen request-id, en lees direct na de reset (de hardcoded
+`RssScheduler`-cron `0 0 * * * *` staat, anders dan `app.podcast.recovery.cron`,
+niet uit en kan bij een run over het hele uur het `hourly-update-*`-verzoek
+aanraken). Begintoestanden worden uitsluitend met `requestService.upsert(...)` en
+UUID-vormige id's gezet — een écht lopend verzoek dat op een latch in
+`PROCESSING` wacht zou door de orkestrator alsnog op `DONE` gezet kunnen worden
+terwijl de test asserteert. Elke test wacht na `registerUser(...)` eerst tot
+`GET /api/requests` de twee vaste verzoeken toont (patroon uit
+`FixedRequestsE2eTest`): `ensureFixedRequests` eindigt in een `repo.save(...)`
+die eerst alle rijen van de gebruiker vervangt, dus zonder dat anker kan die
+asynchrone stap een net geseed verzoek weer wegvagen. Alle asserties op `status`
+en `completedAt` komen uit de respons van `GET /api/requests` met het token van
+de betreffende gebruiker, niet uit de repository, zodat de serialisatie meeloopt.
 
 `RequestsE2eTest` dekt sinds SF-2051 ook de eigenaarsgrens rond annuleren: een
 tweede gebruiker die het id van een lopend verzoek kent krijgt `404`, het
