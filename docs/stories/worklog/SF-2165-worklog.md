@@ -55,3 +55,25 @@ Review SF-2166 (ronde 1) — afgekeurd, 1 blocker:
   `AuthService.validateToken` is correct, e2e-weigeringstest en
   twee-gebruikerstest dekken AC1/AC3. Harnessbewijs `backend-maven-verify`
   passed op tree 59378b28…, gelijk aan `git rev-parse HEAD^{tree}`.
+
+Ronde 2 (developer) — reviewbevindingen verwerkt:
+- [blocker AC6/AC7] `RequestNotifier.build()` is token-reactief gemaakt:
+  `ref.watch(authProvider.select((s) => s.token))` bepaalt nu met welk token
+  de socket wordt opgezet, en elke build maakt een verse `RequestsWebSocket`
+  (de oude sluit via `onDispose`). De `ref.invalidate(requestProvider)` in
+  `AuthNotifier.logout()` is daarmee overbodig én onmogelijk geworden:
+  requestProvider hangt nu van authProvider af, dus Riverpod gooit
+  `CircularDependencyError` op zo'n invalidate (in de test aangetoond). De
+  optionele `Ref`-parameter op `AuthNotifier` is weer verwijderd.
+  Nieuwe regressietest `frontend/test/auth_logout_ws_test.dart` draait op de
+  echte notifier met een `container.listen` (de eager-rebuild-situatie uit de
+  review): login A → `token-van-a`, logout → `null`, login B → `token-van-b`.
+  Tegenproef gedaan: met `ref.read` i.p.v. `ref.watch` faalt de test.
+- [suggestie] `RequestWebSocketHandler.broadcast` controleert `isOpen` nu vóór
+  het eigenaarsfilter, zodat dode sessies van álle gebruikers worden
+  opgeruimd; extra unit-test legt dat vast.
+- Vangnet ronde 2: `mvn -B --no-transfer-progress clean verify` exit 0 —
+  129 unit (was 128) + 77 e2e, 0 failures/errors, 4:12 min; jacoco.exec
+  372 KB + jacoco-it.exec 9,2 MB; `grep -icE 'warning|deprecat|self-attach'`
+  = 1 (bekende `[Podcast]`-logregel). `flutter test` 37 groen (was 36),
+  `flutter analyze` 6 pre-existing infos, `pubspec.lock` onaangeroerd.

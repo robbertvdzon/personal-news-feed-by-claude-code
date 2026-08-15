@@ -51,9 +51,16 @@ class RequestWebSocketHandler(private val mapper: ObjectMapper) : TextWebSocketH
         val msg = TextMessage(mapper.writeValueAsString(payload))
         val dead = mutableListOf<WebSocketSession>()
         sessions.forEach { s ->
+            // Dode sessies ruimen we op ongeacht eigenaar: een sessie die
+            // sneuvelt zonder afterConnectionClosed zou anders blijven hangen
+            // tot die gebruiker zelf weer een bericht krijgt.
+            if (!s.isOpen) {
+                dead.add(s)
+                return@forEach
+            }
             if (s.attributes[JwtHandshakeInterceptor.ATTR_USERNAME] != username) return@forEach
             try {
-                if (s.isOpen) s.sendMessage(msg) else dead.add(s)
+                s.sendMessage(msg)
             } catch (e: Exception) {
                 dead.add(s)
             }

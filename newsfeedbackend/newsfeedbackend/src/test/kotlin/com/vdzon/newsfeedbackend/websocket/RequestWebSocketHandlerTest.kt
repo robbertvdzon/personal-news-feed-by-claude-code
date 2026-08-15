@@ -113,6 +113,27 @@ class RequestWebSocketHandlerTest {
     }
 
     @Test
+    fun `een dode sessie van een andere gebruiker wordt ook opgeruimd`() {
+        val (bobDicht, sentBob) = session("bob", open = false)
+        val (alice, sentAlice) = session("alice")
+        handler.afterConnectionEstablished(bobDicht)
+        connect(alice, sentAlice)
+        sentBob.messages.clear()
+
+        // Een bericht aan alice ruimt ook bobs dode sessie op; anders zou die
+        // blijven hangen tot bob zelf weer een bericht krijgt.
+        handler.broadcast("alice", mapOf("id" to "r1"))
+
+        // Stond hij nog in de lijst, dan zou hij nu (weer 'open') alsnog een
+        // bericht krijgen.
+        `when`(bobDicht.isOpen).thenReturn(true)
+        handler.broadcast("bob", mapOf("id" to "r2"))
+
+        assertEquals(1, sentAlice.messages.size)
+        assertTrue(sentBob.messages.isEmpty(), "bobs sessie was niet opgeruimd: ${sentBob.messages}")
+    }
+
+    @Test
     fun `een sessie die bij het sturen faalt wordt opgeruimd zonder de rest te raken`() {
         val (kapot, sentKapot) = session("alice", failOnSend = true)
         val (gezond, sentGezond) = session("alice")

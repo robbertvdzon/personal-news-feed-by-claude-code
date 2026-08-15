@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../api/api_client.dart';
@@ -253,17 +254,35 @@ class RequestNotifier extends AsyncNotifier<List<NewsRequest>> {
   ApiClient get _api => ref.read(apiProvider);
   String? get _user => ref.read(authProvider).username;
   RequestsWebSocket? _ws;
+  String? _connectedToken;
+
+  /// Het token waarmee de huidige verbinding is opgezet (`null` = geen
+  /// verbinding). Alleen bedoeld om in tests te kunnen vaststellen dat na
+  /// een gebruikerswissel met het nieuwe token wordt verbonden.
+  @visibleForTesting
+  String? get connectedToken => _connectedToken;
 
   @override
   Future<List<NewsRequest>> build() async {
     // Het JWT gaat mee de handshake in: de backend levert statusupdates
-    // alleen aan de eigenaar. Bij uitloggen invalideert AuthNotifier deze
-    // provider, zodat de socket sluit en na een volgende login opnieuw
-    // wordt opgezet met het token van de dán ingelogde gebruiker.
-    _ws ??= RequestsWebSocket()..connect(_api.token).listen((msg) => _apply(msg));
+    // alleen aan de eigenaar. Deze provider is daarom token-reactief — bij
+    // in- en uitloggen verandert het token en bouwt Riverpod opnieuw op,
+    // waarbij de oude socket via onDispose sluit en er met het token van de
+    // nu ingelogde gebruiker opnieuw wordt verbonden. Zonder die watch zou
+    // een rebuild tijdens uitloggen (het instellingenscherm watcht deze
+    // provider) een dode, tokenloze socket achterlaten die bij de volgende
+    // login niet meer wordt vervangen.
+    final token = ref.watch(authProvider.select((s) => s.token));
+    final ws = RequestsWebSocket();
+    _ws = ws;
+    _connectedToken = token;
+    ws.connect(token).listen((msg) => _apply(msg));
     ref.onDispose(() {
-      _ws?.close();
-      _ws = null;
+      ws.close();
+      if (identical(_ws, ws)) {
+        _ws = null;
+        _connectedToken = null;
+      }
     });
     final list = await _fetchListWithCache(
       api: _api, path: '/api/requests', username: _user, cacheName: 'requests');

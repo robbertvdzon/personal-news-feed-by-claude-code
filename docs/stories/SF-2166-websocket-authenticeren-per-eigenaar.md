@@ -51,22 +51,27 @@ de eigenaar.
 - `lib/api/ws_client.dart`: nieuwe top-level `requestsWsUrl(token)` bouwt de
   URL met `?token=<jwt>`; `connect(token)` onthoudt het token zodat óók elke
   reconnect in `_open()` het meestuurt. Zonder token wordt er niet verbonden.
-- `lib/providers/data_providers.dart`: geeft `_api.token` mee bij connect. De
+- `lib/providers/data_providers.dart`: `RequestNotifier.build()` is
+  token-reactief — het watcht `authProvider.select((s) => s.token)` en zet de
+  socket met dát token op. Elke tokenwissel (login, logout, gebruikerswissel)
+  bouwt de provider dus opnieuw op: `onDispose` sluit de oude socket en er
+  wordt opnieuw verbonden met het token van de nu ingelogde gebruiker. De
   comment over "the broadcast carries updates for ALL users" is vervangen: een
   onbekend id is geen andermans verzoek meer, en `_reloadFromServer()` blijft
   als vangnet (niet meer als privacymaatregel).
-- `lib/providers/auth_provider.dart`: `AuthNotifier` krijgt een optionele
-  `Ref` en invalideert bij `logout()` `requestProvider`. Die provider is niet
-  autoDispose, dus zonder deze stap bleef de socket van gebruiker A luisteren
-  terwijl B inlogde. De optionele parameter houdt de bestaande
-  `_FakeAuthNotifier(super.api, …)`-tests intact.
+- `lib/providers/auth_provider.dart`: `logout()` maakt de auth-state leeg; dat
+  is meteen het signaal waarop `requestProvider` herbouwt. Een expliciete
+  `ref.invalidate(requestProvider)` is bewust weggehaald: die provider hangt nu
+  van `authProvider` af en Riverpod keurt zo'n invalidate af met een
+  `CircularDependencyError`. Daarmee vervalt ook de optionele `Ref`-parameter
+  op `AuthNotifier`; de `_FakeAuthNotifier(super.api, …)`-tests blijven intact.
 
 **Tests (zelf geschreven)**
 
 - `websocket/JwtHandshakeInterceptorTest.kt` (6): geldig token laat door en
   zet de gebruikersnaam; ontbrekend, leeg, onzin-, vreemd-secret- en verlopen
   token geven `401` en zetten geen identiteit.
-- `websocket/RequestWebSocketHandlerTest.kt` (6): levering alleen aan de
+- `websocket/RequestWebSocketHandlerTest.kt` (7): levering alleen aan de
   sessies van de eigenaar, `serverVersion` alleen naar de verbindende sessie,
   en het opruimen van gesloten/kapotte sessies zonder de rest te raken.
 - `e2e/WsTestClient.connect(port, mapper, token)` zet het token op de
@@ -77,18 +82,24 @@ de eigenaar.
   ziet binnen een ruime marge niets met dat id), plus een nieuwe test die een
   handshake zonder token en met een onzin-token beide op `401` vastlegt.
 - `frontend/test/ws_client_test.dart` (5) en
-  `frontend/test/auth_logout_ws_test.dart` (2).
+  `frontend/test/auth_logout_ws_test.dart` (3). Die laatste bevat de
+  regressietest op de échte `RequestNotifier`: met een `container.listen` erop
+  (zoals het instellingenscherm dat watcht) wordt achtereenvolgens login A,
+  logout en login B doorlopen en het token van de actieve verbinding
+  gecontroleerd (`token-van-a` → `null` → `token-van-b`). Zonder de
+  token-watch in `build()` faalt die test — geverifieerd door de watch
+  tijdelijk door een `ref.read` te vervangen.
 
 ## Verificatie
 
-- `mvn -B --no-transfer-progress clean verify`: exit 0 — 128 unit-tests
+- `mvn -B --no-transfer-progress clean verify`: exit 0 — 129 unit-tests
   (was 116) + 77 e2e-tests (was 76), 0 failures/errors, ~4 min.
   `target/jacoco.exec` (372 KB) en `target/jacoco-it.exec` (9,2 MB) zijn
   geschreven; `grep -icE 'warning|deprecat|self-attach'` geeft 1 hit, de
   bekende Nederlandse `[Podcast]`-logregel.
   Anders dan de story aannam wás Docker hier beschikbaar (`/var/run/docker.sock`),
   dus de e2e-criteria zijn lokaal echt gedraaid.
-- `flutter test` in `frontend/`: 36 tests groen (was 29). `flutter analyze`:
+- `flutter test` in `frontend/`: 37 tests groen (was 29). `flutter analyze`:
   6 pre-existing infos (was 7 — de melding op `ws_client.dart:20` verviel met
   de herschreven URL-opbouw). `frontend/pubspec.lock` is niet gemuteerd.
 
