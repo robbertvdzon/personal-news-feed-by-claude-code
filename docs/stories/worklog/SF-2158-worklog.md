@@ -116,3 +116,46 @@ testklasse + dit worklog):
   reden in één regel commentaar vastleggen.
 - [info] Het Ryuk-restrisico uit de tweede ronde is correct gediagnosticeerd en buiten scope gehouden; blijft
   een terugkerende infra-flake voor de factory-gate.
+
+## Test (SF-2160)
+
+Akkoord — `tested`. Getest op branch `ai/SF-2158`, diff `main...HEAD` = 2 bestanden (de nieuwe testklasse +
+dit worklog).
+
+Vangnet (zelf gedraaid, tot het einde uitgelopen):
+- `mvn -B --no-transfer-progress clean verify` in `newsfeedbackend/newsfeedbackend`: **BUILD SUCCESS,
+  exit 0**, 04:31 min. 116 unit + 76 e2e (13 e2e-klassen), `Failures: 0, Errors: 0, Skipped: 0` in beide
+  `Results`-blokken.
+- Hard nagerekend over alle 33 reportbestanden: `failures="0"` 33×, `errors="0"` 33×;
+  `failsafe-summary.xml` geeft `<errors>0</errors><failures>0</failures>`. Geen rode test, dus de gate
+  is gehaald zonder flake-protocol.
+- `RequestRecoveryE2eTest`: 5 testcases, 12,09 s, groen.
+- `target/jacoco.exec` (334.990 B) en `target/jacoco-it.exec` (9.239.988 B) beide geschreven — de
+  `@{argLine}`-vangrail uit SF-2151 staat overeind.
+- De Ryuk-flake uit de tweede developerronde trad in deze run niet op.
+
+Acceptatiecriteria nagelopen:
+- AC1-AC7: gecontroleerd in de testklasse — erft van `E2eTestBase`, `@Autowired RequestService`, vijf
+  `@Test`s met Nederlandse gedragsnamen, alle status-/`completedAt`-asserties komen uit `GET /api/requests`
+  met het token van de betreffende gebruiker (`requestById`), commentaarregel §6.6 bij geval 2 (r126-129) en
+  `auth.listUsernames()`-toelichting bij geval 4 (r175-178), nergens een assertie op totaal/aantal (alleen
+  de `size() == 2`-wachtconditie per eigen, net geregistreerde gebruiker), en geen latch: begintoestanden
+  uitsluitend via `requestService.upsert(...)` met UUID-id's.
+- AC8: `git diff main...HEAD --stat` raakt geen `src/main/`, geen `pom.xml` en geen `specs/`.
+- AC9: hierboven, exit 0.
+- AC10: de asserties komen 1-op-1 overeen met `RequestServiceImpl.resetStuck()` (r129-144) en met §6.6
+  (`specs/backend-functional-spec.md:354-358`). Geen spec-afwijking gevonden.
+
+Live corroboratie op de preview (`https://pnf-pr-228.vdzonsoftware.nl`), modus: **fallback wegwerp-account**
+— `TESTER_USERNAME`/`TESTER_PASSWORD` zijn in deze harness niet gezet en het namespace-secret is niet
+leesbaar (bekende `agent:local`-beperking). Met `tester_sf-2160` bevestigd dat `GET /api/requests` direct na
+registratie exact de twee vaste verzoeken geeft, beide `status=DONE` met `completedAt=null`. Dat is precies
+de aanname waar geval 3 op asserteert, nu ook buiten de testcontainer bewezen. Opgeruimd met
+`DELETE /api/account/me` (200); cleanup geverifieerd met een herlogin die 401 geeft.
+
+Geen browser-/screenshotbewijs: deze story voegt uitsluitend een backend-e2e-testklasse toe en heeft geen
+frontend- of runtime-oppervlak (`resetStuck()` draait alleen bij serverstart en is niet via een endpoint aan
+te roepen). De preview draait daardoor per definitie hetzelfde gedrag als main.
+
+Bevindingen: geen. De suggestie van de reviewer over de ontbrekende `completedAt`-assertie op
+`hourly-update-…` in geval 3 is niet blokkerend en niet in strijd met een AC; laten staan.
