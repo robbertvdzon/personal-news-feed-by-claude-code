@@ -93,3 +93,68 @@ Ronde 2 (reviewer) — goedgekeurd:
   Zelf gedraaid (frontend heeft geen harnessbewijs): `flutter test` 37 groen,
   `flutter analyze` 6 pre-existing infos, `git status` schoon.
 - AC9 (documentatie) blijft bewust open voor subtaak SF-2169.
+
+## SF-2167 — Story-brede test (tester)
+
+Inlogmodus: **fallback wegwerp-accounts** (`tester_sf-2165` en
+`tester_sf-2165b`) — `TESTER_USERNAME`/`TESTER_PASSWORD` zijn in deze
+harness leeg (bekende SF-`agent:local`-situatie). Beide accounts na afloop
+verwijderd via `DELETE /api/account/me` (200) met herlogin-controle (401).
+Preview: `https://pnf-pr-229.vdzonsoftware.nl` (pods draaiden tijdens de test
+sha-5bcdaca → sha-91963a9; de reviewer-commit raakt alleen dit worklog).
+
+### Vangnet (lokaal gedraaid, exit 0)
+- `mvn -B --no-transfer-progress clean verify` → **BUILD SUCCESS**, 4:39 min.
+  129 unit (surefire, 22 klassen) + 77 e2e (failsafe, 13 klassen);
+  `failures="0"`/`errors="0"` in alle 35 reports, failsafe-summary 0/0/0.
+- `flutter test` in een kopie van `frontend/` → **37 groen** (pubspec.lock in
+  de repo onaangeroerd, build gedaan in /tmp).
+
+### Live bewijs op de preview (backend)
+- **AC1** — handshake `/ws/requests` zonder token, met `token=` (leeg) en met
+  onzin-token: alle drie geweigerd; rauwe curl-upgrade geeft **HTTP 401**,
+  geen 101.
+- **AC2** — met geldig token: verbinding slaagt, precies één
+  `{"type":"serverVersion","sha":"5bcdaca",...}` naar de verbindende client;
+  een tweede/derde client levert géén extra bericht bij de eerste.
+- **AC3** — ad-hoc verzoek van A (`POST /api/requests`, 201): A's beide
+  sessies zien `PENDING → PROCESSING → … → DONE` met het volledige
+  `NewsRequest` (17 keys, **geen** `type`-veld); gelijktijdig verbonden
+  gebruiker B ontving **0** berichten (ook niet na afloop).
+- **AC5** — na `close()` van A's eerste sessie blijft A's tweede sessie
+  berichten ontvangen (rerun → `PENDING → PROCESSING`).
+- **AC4** — `grep -rn "broadcast(" src/main` = 3 treffers: de nieuwe
+  signatuur + de twee callers.
+
+### Live bewijs frontend (Playwright, screenshots in /work/screenshots)
+De preview-web-build draait met `API_BASE_URL=` (leeg, zie
+`frontend/Dockerfile:34`). In díé configuratie opent de Flutter-web-app
+**helemaal geen** WebSocket — zie de bevinding hieronder; AC6/AC7 zijn daar
+dus niet te tonen. Bewijs is daarom geleverd met een lokaal gebouwde
+web-build (`--dart-define=API_BASE_URL=https://pnf-pr-229…`, de vorm die de
+APK-builds gebruiken), geserveerd op de preview-origin tegen de echte
+preview-backend:
+- **AC6/AC7** — login A ⇒ één WS-verbinding **mét `?token=`**, `open` +
+  `serverVersion` (voedt `versionProvider`); rerun van A's dagelijkse
+  samenvatting ⇒ live `PENDING`-bericht en de tegel springt zichtbaar op
+  “Bezig…” (`41-A-live-update-bezig.png`) en daarna terug op “Start”
+  (`42`). Uitloggen ⇒ socket `close` (`43-na-logout.png`). Opnieuw inloggen
+  als **B** ⇒ nieuwe WS-verbinding met een ander token
+  (`44-B-ingelogd.png`); een rerun van A's verzoek levert bij B **0**
+  berichten op. Dat dekt AC6 en AC3 ook via de UI.
+- Tegenproef met een main-build (zelfde absolute config): die verbindt
+  **zonder** token en loopt tegen de nieuwe 401 aan (reconnect-lus) — precies
+  het gedrag dat de story wegneemt.
+
+### Bevinding (pre-existing, niet door deze story veroorzaakt)
+In de web-deployment (`API_BASE_URL=` leeg) wordt de WS-URL relatief
+(`/ws/requests…`); `web_socket_channel` weigert een niet-`ws(s)`-scheme,
+`_open()` valt in de catch en herhaalt dat elke 5 s. Er wordt dus nooit een
+WebSocket geopend en statusupdates komen in de **web**-app niet live binnen.
+Hard aangetoond dat dit al vóór deze story zo was: een build van `main` met
+dezelfde `API_BASE_URL=`-config opent evenmin een WebSocket, terwijl beide
+builds met een absolute URL wél verbinden. Los issue waard; buiten scope van
+SF-2165 en geen gedragsverandering door deze story.
+
+### Nog open
+- AC9 (documentatie) is nog niet uitgevoerd — staat als subtaak SF-2169.
