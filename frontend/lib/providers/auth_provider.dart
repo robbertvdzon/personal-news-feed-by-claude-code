@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../api/api_client.dart';
 import '../api/local_cache.dart';
+import 'data_providers.dart';
 
 final apiProvider = Provider<ApiClient>((ref) => ApiClient());
 
@@ -17,7 +18,14 @@ class AuthState {
 
 class AuthNotifier extends StateNotifier<AuthState> {
   final ApiClient api;
-  AuthNotifier(this.api) : super(const AuthState());
+
+  /// Optioneel: alleen nodig om bij uitloggen [requestProvider] te
+  /// invalideren. Tests die de notifier los construeren laten hem weg.
+  final Ref? _ref;
+
+  AuthNotifier(this.api, {Ref? ref})
+      : _ref = ref,
+        super(const AuthState());
 
   Future<void> bootstrap() async {
     final prefs = await SharedPreferences.getInstance();
@@ -63,10 +71,15 @@ class AuthNotifier extends StateNotifier<AuthState> {
     // hetzelfde toestel geen oude data ziet bij netwerkproblemen.
     await LocalCache.clearAll();
     api.setToken(null);
+    // Sluit de WebSocket van de uitgelogde gebruiker: requestProvider is
+    // niet autoDispose, dus zonder deze invalidate blijft de socket van A
+    // luisteren terwijl B inlogt. Bij de volgende login wordt hij opnieuw
+    // opgezet met het token van de dán ingelogde gebruiker.
+    _ref?.invalidate(requestProvider);
     state = const AuthState();
   }
 }
 
 final authProvider = StateNotifierProvider<AuthNotifier, AuthState>(
-  (ref) => AuthNotifier(ref.read(apiProvider)),
+  (ref) => AuthNotifier(ref.read(apiProvider), ref: ref),
 );

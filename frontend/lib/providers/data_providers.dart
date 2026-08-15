@@ -256,7 +256,11 @@ class RequestNotifier extends AsyncNotifier<List<NewsRequest>> {
 
   @override
   Future<List<NewsRequest>> build() async {
-    _ws ??= RequestsWebSocket()..connect().listen((msg) => _apply(msg));
+    // Het JWT gaat mee de handshake in: de backend levert statusupdates
+    // alleen aan de eigenaar. Bij uitloggen invalideert AuthNotifier deze
+    // provider, zodat de socket sluit en na een volgende login opnieuw
+    // wordt opgezet met het token van de dán ingelogde gebruiker.
+    _ws ??= RequestsWebSocket()..connect(_api.token).listen((msg) => _apply(msg));
     ref.onDispose(() {
       _ws?.close();
       _ws = null;
@@ -276,12 +280,12 @@ class RequestNotifier extends AsyncNotifier<List<NewsRequest>> {
     final updated = NewsRequest.fromJson(msg);
     final cur = state.value;
     if (cur == null) return;
-    // Per spec (frontend-spec §7): the /ws/requests broadcast carries
-    // updates for ALL users. Known IDs in our local list are safe to
-    // patch in place (the list itself comes from JWT-scoped /api/requests
-    // so it only contains our own items). Unknown IDs trigger a quiet
-    // reload, which silently filters out other users' requests via the
-    // JWT-scoped fetch.
+    // Per spec (frontend-spec §7): de /ws/requests-verbinding is
+    // geauthenticeerd en levert alleen updates van deze gebruiker. Bekende
+    // id's patchen we in place. Een onbekend id is daarmee geen andermans
+    // verzoek meer, maar een verzoek dat nog niet in onze lijst staat (bv.
+    // aangemaakt tijdens een herlaad of op een ander toestel); de stille
+    // reload blijft als vangnet staan zodat het alsnog verschijnt.
     final idx = cur.indexWhere((r) => r.id == updated.id);
     if (idx >= 0) {
       final list = [...cur];

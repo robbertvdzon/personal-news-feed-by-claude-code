@@ -54,7 +54,7 @@ class RequestServiceImpl(
             createdAt = Instant.now()
         )
         val saved = repo.upsert(username, req)
-        ws.broadcast(saved)
+        ws.broadcast(username, saved)
         events.publishEvent(RequestCreatedEvent(username, saved.id))
         return saved
     }
@@ -94,7 +94,7 @@ class RequestServiceImpl(
 
     override fun upsert(username: String, request: NewsRequest): NewsRequest {
         val saved = repo.upsert(username, request)
-        ws.broadcast(saved)
+        ws.broadcast(username, saved)
         return saved
     }
 
