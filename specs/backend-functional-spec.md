@@ -64,7 +64,7 @@ cleanup-paden — niet als primaire dataopslag.
 
 ## 3. Authenticatie
 
-**Mechanisme:** JWT Bearer token (HS256), geldig 30 dagen. Alle endpoints vereisen een geldig token in de `Authorization: Bearer {token}` header, behalve de vijf publieke paden die `SecurityConfig` op `permitAll` zet: `/api/auth/**`, `/api/version`, `/api/shared/**`, `/ws/**` en `/actuator/**`. Diezelfde vijf staan sinds SF-2130 ook in de inleidende `description` van `openapi.yaml` — die noemde er drie.
+**Mechanisme:** JWT Bearer token (HS256), geldig 30 dagen. Alle endpoints vereisen een geldig token in de `Authorization: Bearer {token}` header, behalve de vijf publieke paden die `SecurityConfig` op `permitAll` zet: `/api/auth/**`, `/api/version`, `/api/shared/**`, `/ws/**` en `/actuator/**`. Diezelfde vijf staan sinds SF-2130 ook in de inleidende `description` van `openapi.yaml` — die noemde er drie. `permitAll` betekent daarbij niet in alle gevallen "onbeschermd": `/ws/**` staat er alleen op omdat de servlet-securityketen een WebSocket-handshake niet kan afhandelen, en authenticeert sinds SF-2165 zelf via een handshake-interceptor (zie §5).
 
 **Rollen:** een gebruiker heeft precies één rol met als waarde `user` of `admin` (`User.ROLE_USER` / `User.ROLE_ADMIN`; let op: dat zijn de namen van de Kotlin-constanten, de wáárdes zijn de kleine-letter-strings). De rol wordt gezet bij registratie — de eerste gebruiker die zich registreert terwijl er nog geen admin bestaat wordt automatisch admin, daarna is elke registratie `user` — of later via `PUT /api/admin/users/{username}/role`, dat elke andere waarde dan `user`/`admin` weigert met een `400`. `/api/admin/**` is admin-only via `hasRole("ADMIN")`; dat is de Spring-Security-autoriteitsnaam (`ROLE_` + rol in hoofdletters) en niet de waarde die de API in- of uitgaat. Zowel `POST /api/auth/register` als `POST /api/auth/login` geven de rol mee in de response (`AuthResponse.role`, sinds SF-2130 ook in het contract), zodat de client het admin-onderscheid kan maken zonder het JWT te parsen; de rol zit óók in het token, dus na een rolwijziging werkt een oud token door tot de gebruiker opnieuw inlogt.
 
@@ -129,17 +129,17 @@ Daarin staan alle endpoints met paden, methoden, request/response bodies, query 
 
 **Publieke endpoints — gedeelde feed (reader-app):** `GET /api/shared/feed` en `GET /api/shared/categories` geven zonder authenticatie de gecureerde feed respectievelijk de ingeschakelde categorieën van één vaste gebruiker terug (`app.shared-feed.username`, zie §8). De feed-items volgen een eigen responseschema `SharedFeedItem` (SF-1884) dat afwijkt van `FeedItem`: de persoonlijke vlaggen `isRead`, `starred` en `liked` worden **niet** meegestuurd, zodat het leesgedrag van de bron-gebruiker niet naar bezoekers kan lekken. De reader-app houdt gelezen/bewaard daarom lokaal op het toestel bij; er zijn bewust geen schrijf-endpoints onder `/api/shared/**`. Ook de categorieën hebben een eigen responseschema `SharedCategory` (SF-1992) met uitsluitend `id`, `name` en `enabled` — de privé `extraInstructions` waarmee de bron-gebruiker het taalmodel bijstuurt (en het interne `isSystem`) blijven daarmee buiten de publieke response. Het volledige `CategorySettings`-schema wordt alleen nog door de geauthenticeerde `/api/settings/categories`-endpoints gebruikt.
 
-**WebSocket:** `ws://{host}/ws/requests`
-- Geen authenticatie vereist
-- Alleen server → client (broadcast; berichten van de client worden genegeerd)
-- Kapotte verbindingen worden bij de volgende broadcast verwijderd
-- **Multi-user broadcast:** elk bericht wordt naar **alle** verbonden clients verstuurd, dus ook updates van andere gebruikers. De server filtert niet per gebruiker. Frontend-clients moeten zelf filteren (zie frontend-spec sectie 7 voor het matchregels-protocol).
+**WebSocket:** `ws://{host}/ws/requests?token={jwt}`
+- **Authenticatie op de handshake (SF-2165):** het JWT gaat als queryparameter `token` mee — een browser-WebSocket kan geen `Authorization`-header zetten, dus volgt dit endpoint hetzelfde patroon als het audio-endpoint. `JwtHandshakeInterceptor` valideert het token vóór de upgrade en onthoudt de gebruikersnaam op de sessie. Ontbreekt het token of is het ongeldig/verlopen, dan wordt de handshake geweigerd met **401**: er komt geen verbinding tot stand en dus ook geen `serverVersion`-bericht. `/ws/**` blijft in `SecurityConfig` op `permitAll` staan (de servlet-keten kan een handshake niet afhandelen); de interceptor is de grens.
+- Alleen server → client (berichten van de client worden genegeerd)
+- Kapotte verbindingen worden bij de volgende verzending verwijderd — ongeacht van welke gebruiker ze zijn
+- **Levering per eigenaar:** een `NewsRequest`-update gaat uitsluitend naar de verbindingen van de gebruiker van wie dat verzoek is. Een gelijktijdig verbonden andere gebruiker ontvangt het bericht niet; er is geen codepad meer dat naar álle sessies stuurt. Het filteren dat de frontend deed (zie frontend-spec sectie 7) is daarmee een vangnet geworden in plaats van een privacymaatregel.
 
 **Berichttypes:**
 
 1. **`serverVersion`** — wordt **direct na (re)connect** alleen naar de verbindende client gestuurd (geen broadcast). Bevat de actuele backend-build zodat de frontend tijdens lange sessies een nieuwe deploy kan detecteren zonder periodieke polling. Formaat: `{"type": "serverVersion", "sha": "<short-git-sha>", "buildTime": "<ISO-8601 UTC>"}`.
 
-2. **`NewsRequest`-updates** — bij elke statuswijziging van een `NewsRequest` stuurt de server het volledige `NewsRequest`-object naar **alle** verbonden clients. Deze berichten hebben **geen `type`-veld**; clients herkennen ze aan het `id`-veld en kunnen `serverVersion`-berichten daarvan onderscheiden via de aanwezigheid van `type`.
+2. **`NewsRequest`-updates** — bij elke statuswijziging van een `NewsRequest` stuurt de server het volledige `NewsRequest`-object naar de verbindingen van **de eigenaar** van dat verzoek (sinds SF-2165; daarvóór ging het ongefilterd naar iedereen). Deze berichten hebben **geen `type`-veld**; clients herkennen ze aan het `id`-veld en kunnen `serverVersion`-berichten daarvan onderscheiden via de aanwezigheid van `type`.
 
 **`NewsRequest`-berichtformaat:** een enkel JSON-object, identiek aan het `NewsRequest` schema uit `openapi.yaml`. Voorbeeld:
 ```json

@@ -5,19 +5,26 @@ info:
   description: |
     REST API voor de Personal News Feed backend.
     Alle endpoints (behalve /api/auth/**, /api/version, /api/shared/**, /ws/** en /actuator/**) vereisen een JWT Bearer token.
+    /ws/** staat weliswaar op permitAll in SecurityConfig, maar authenticeert
+    zelf op de handshake — zie het WebSocket-blok hieronder.
 
     ## WebSocket
     Naast de REST API is er een WebSocket endpoint:
-    - **ws://{host}/ws/requests**
-    - Geen authenticatie vereist
-    - Alleen server → client (broadcast)
+    - **ws://{host}/ws/requests?token={jwt}**
+    - Authenticatie op de handshake: het JWT gaat als queryparameter `token` mee
+      (een browser-WebSocket kan geen `Authorization`-header zetten, net als bij
+      het audio-endpoint). Ontbreekt het token of is het ongeldig/verlopen, dan
+      weigert de server de handshake met **401** en komt er geen verbinding
+      (dus ook geen `serverVersion`-bericht) tot stand.
+    - Alleen server → client (berichten van de client worden genegeerd)
     - Direct na (re)connect stuurt de server een `serverVersion`-bericht met de
       backend-versie zodat clients tijdens lange sessies een nieuwe deploy
       kunnen detecteren zonder polling: `{ "type": "serverVersion", "sha": "...",
       "buildTime": "..." }`.
     - Bij elke statuswijziging van een NewsRequest stuurt de server het volledige
-      NewsRequest object als JSON naar alle verbonden clients (geen `type`-veld;
-      clients herkennen het op het `id`-veld).
+      NewsRequest object als JSON naar de verbindingen van **de eigenaar** van
+      dat verzoek (geen `type`-veld; clients herkennen het op het `id`-veld).
+      Andere ingelogde gebruikers ontvangen het bericht niet.
     - Clients hoeven niets te sturen
 
 servers:

@@ -58,7 +58,7 @@ personal-news-feed/
 ```
 Flutter app (frontend/)
       │
-      │  REST (JWT Bearer)      WebSocket
+      │  REST (JWT Bearer)      WebSocket (JWT als ?token=)
       ▼                              ▼
 Spring Boot backend (newsfeedbackend/)
       │

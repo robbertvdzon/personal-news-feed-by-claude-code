@@ -196,17 +196,20 @@ De app heeft géén Queue-tab meer. De twee scheduled jobs lopen automatisch doo
 De gebruiker kan ze beide handmatig starten via de sectie *Achtergrond-taken* op de instellingen-tab (zie §9). De `requestProvider` blijft op de achtergrond actief — hij is nodig om de knop-state (idle / "Loopt al…") en de "Klaar"-toast af te kunnen leiden uit de live status.
 
 ### WebSocket-integratie
-Verbinding met `ws(s)://{host}/ws/requests` zodra de verzoeken geladen zijn.
+Verbinding met `ws(s)://{host}/ws/requests?token={jwt}` zodra de verzoeken geladen zijn.
 
+- **Het JWT gaat mee de handshake in** (SF-2165). `requestsWsUrl(token)` in `lib/api/ws_client.dart` bouwt de URL en zet het token als queryparameter (url-gecodeerd) — een browser-WebSocket kan geen `Authorization`-header zetten. Zonder token wordt er níet verbonden: `requestsWsUrl` geeft dan `null` en ook `connect(null)` opent geen socket. De backend weigert een tokenloze of ongeldige handshake met `401`.
+- **Elke reconnect gebruikt hetzelfde token** als waarmee de socket is opgezet; `RequestsWebSocket` onthoudt het bij `connect()`.
+- **Token-reactief bij in- en uitloggen:** `RequestNotifier.build()` doet `ref.watch(authProvider.select((s) => s.token))`. Verandert het token (login, logout, andere gebruiker), dan bouwt Riverpod de provider opnieuw op: de oude socket sluit via `onDispose` en er wordt met het token van de nu ingelogde gebruiker opnieuw verbonden. `AuthNotifier.logout()` maakt daarvoor alleen de auth-state leeg — een expliciete `ref.invalidate(requestProvider)` kan niet meer, want `requestProvider` hangt nu van `authProvider` af en Riverpod ziet dat als een circulaire afhankelijkheid.
 - Inkomende berichten zijn JSON-objecten. De handler onderscheidt twee types:
   - **`{"type": "serverVersion", "sha": "...", "buildTime": "..."}`** — wordt direct na (re)connect verstuurd. De `RequestNotifier` filtert dit bericht eruit en geeft het door aan `versionProvider` (zie sectie 9 — *Versie-check & snackbar*).
   - **`NewsRequest`-objecten** (geen `type`-veld) conform het schema uit `openapi.yaml` (zie ook de berichtspecificatie in `backend-functional-spec.md` sectie 5).
-- **Belangrijk:** de WebSocket-broadcast bevat updates van **alle** gebruikers (server filtert niet per user). De frontend moet zelf filteren:
-  - Bij **bekend ID** in de lokale lijst: vervang het item — dit is veilig omdat de lokale lijst is geladen via `GET /api/requests` (JWT-gescoped, dus alleen eigen items).
-  - Bij **onbekend ID**: doe een stille herlaad van de volledige verzoeklijst via `GET /api/requests`. De backend filtert daar wel op JWT, dus updates van andere gebruikers verdwijnen automatisch en eigen nieuwe items komen binnen. Voeg het item níet rechtstreeks toe op basis van het WebSocket-bericht — dan zouden andere gebruikers' verzoeken zichtbaar worden.
+- De verbinding levert sinds SF-2165 **alleen updates van de ingelogde gebruiker**; de server filtert per eigenaar. Het id-protocol hieronder blijft staan als **vangnet**, niet langer als privacymaatregel:
+  - Bij **bekend ID** in de lokale lijst: vervang het item in place.
+  - Bij **onbekend ID**: doe een stille herlaad van de volledige verzoeklijst via `GET /api/requests`. Een onbekend id is nu geen verzoek van iemand anders meer, maar een eigen verzoek dat nog niet in de lijst staat (aangemaakt tijdens een herlaad of op een ander toestel); de herlaad zorgt dat het alsnog verschijnt. Voeg het item nog steeds níet rechtstreeks toe op basis van het WebSocket-bericht — de JWT-gescoopte `GET /api/requests` blijft de bron van waarheid voor de lijst.
 - Bij status DONE of CANCELLED: automatisch RSS-items en feed-items herladen (nieuwe artikelen kunnen zijn binnengekomen)
-- Bij verbrekingsfout: automatisch herverbinden na 5 seconden
-- Verbinding verbreken bij uitloggen
+- Bij verbrekingsfout: automatisch herverbinden na 5 seconden — ook een door de backend geweigerde handshake (`401`) valt in die lus; er komt bewust geen backoff of foutmelding in de UI bij
+- Verbinding verbreken bij uitloggen (volgt uit de token-watch hierboven) en opnieuw opzetten bij de volgende login, met het token van de dán ingelogde gebruiker
 
 ### Ad-hoc "Meer hierover"-verzoeken
 Vanuit de RSS-item-detailpagina kan de gebruiker met **Meer hierover** een ad-hoc verzoek aanmaken (`POST /api/requests` met `sourceItemId`/`sourceItemTitle`). De UI toont alleen een bevestigingstoast — er is geen aparte lijst meer waarin deze verzoeken zichtbaar zijn. De resultaten verschijnen vanzelf in de feed wanneer de backend het verzoek heeft verwerkt.
@@ -443,7 +446,7 @@ De app gebruikt Riverpod. Providers zijn globaal beschikbaar via `ProviderScope`
 | `feedProvider` | Feed-items (`/api/feed`) |
 | `filteredFeedProvider` | Afgeleide gefilterde feedlijst op basis van categorie, gelezen, ster, samenvatting |
 | `rssItemsProvider` | RSS-items (`/api/rss`) |
-| `requestProvider` | Verzoeken + WebSocket-updates (gebruikt door Settings → Achtergrond-taken voor knop-state en klaar-toast) |
+| `requestProvider` | Verzoeken + WebSocket-updates (gebruikt door Settings → Achtergrond-taken voor knop-state en klaar-toast); watcht het JWT uit `authProvider` en zet bij elke tokenwissel een nieuwe geauthenticeerde WebSocket op (zie §7) |
 | `settingsProvider` | Categorie-instellingen (gebruikt door CategoriesScreen, §9b) |
 | `rssFeedsProvider` | RSS-feed URLs (gebruikt door RssFeedsScreen, §9a) |
 | `podcastFeedsProvider` | Podcast-RSS-bronnen + transcribe-toggle (KAN-56; gebruikt door RssFeedsScreen, §9a) |
@@ -571,13 +574,20 @@ flutter build apk --release \
 
 De app heeft tests onder `frontend/test/`: widget-tests (`widget_test.dart`,
 `main_shell_test.dart`, `settings_screen_test.dart`, `rss_feeds_screen_test.dart`,
-`categories_screen_test.dart`) en één unittest
-(`podcast_in_progress_statuses_test.dart`, SF-2066: legt vast welke zes
+`categories_screen_test.dart`) en unittests. `ws_client_test.dart` (SF-2166) legt
+de vorm van de WebSocket-URL vast: het token komt er url-gecodeerd als
+queryparameter `token` op, `http(s)` wordt `ws(s)`, en zonder token wordt er geen
+URL gebouwd én geen verbinding geopend. `auth_logout_ws_test.dart` (SF-2166) is
+de regressietest voor de gebruikerswissel: op de échte `RequestNotifier`, met een
+`container.listen` die de eager rebuild van het instellingenscherm nabootst,
+levert login A → logout → login B achtereenvolgens het token van A, `null` en het
+token van B op als verbindingstoken. `podcast_in_progress_statuses_test.dart`
+(SF-2066) legt vast welke zes
 statussen de gedeelde `kPodcastInProgressStatuses` bevat, zodat spinner en
 poll-timer niet opnieuw uit elkaar kunnen lopen; sinds SF-2123 legt hij ook
 vast dat `kPodcastTranslationInProgressStatuses` exact de drie vertaalstatussen
 bevat én een *echte* deelverzameling van de gedeelde set blijft — die laatste
-assertie is de vangrail die omvalt zodra de twee lijsten uiteenlopen):
+assertie is de vangrail die omvalt zodra de twee lijsten uiteenlopen.
 
 ```bash
 cd frontend
