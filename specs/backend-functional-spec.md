@@ -353,7 +353,7 @@ Naast de zelf-gegenereerde DevTalk-podcasts kan een gebruiker een Engelse RSS-po
 
 ### 6.6 Opstartgedrag
 
-Bij serverstart worden alle verzoeken met status `PENDING` of `PROCESSING` gereset naar `FAILED` (herstel na herstart).
+Bij serverstart worden alle verzoeken met status `PENDING` of `PROCESSING` gereset naar `FAILED` (herstel na herstart). Zo'n gereset verzoek krijgt daarbij een `completedAt` op het moment van de reset; dat onderscheidt het van een verzoek dat al eerder faalde. De reset loopt over álle gebruikers — het is startup-herstel, geen gebruikersactie — en laat afgeronde verzoeken (`DONE`, `CANCELLED`, `FAILED`) ongemoeid, inclusief hun oorspronkelijke `completedAt`. Een tweede reset direct erna verandert dus niets meer (SF-2158 legt dit vast in `RequestRecoveryE2eTest`).
 
 Voor elke bestaande gebruiker worden de vaste verzoekrecords `hourly-update-{username}` en `daily-summary-{username}` aangemaakt als ze nog niet bestaan.
 
