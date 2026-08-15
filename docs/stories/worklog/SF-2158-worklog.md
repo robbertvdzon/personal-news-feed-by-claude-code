@@ -92,3 +92,27 @@ e2e-klasse in zijn geheel om. Dat is infrastructuur, niet code: er zijn geen ach
 Een structurele oplossing (bijv. `reuseForks=true` of gedeelde container) vraagt een `pom.xml`-wijziging en
 botst met AC8 van deze story; dat is stof voor een aparte story. Blijft de factory-verificatie hierop hangen,
 dan is een herstart van de verificatie de eerste stap.
+
+## Review (SF-2159)
+
+Akkoord, geen blockers. Gecontroleerd op de volledige story-diff `main...HEAD` (2 bestanden: de nieuwe
+testklasse + dit worklog):
+- Testbewijs is revisiegebonden: `[FACTORY VERIFICATION EVIDENCE]` van het tweede developercomment staat op
+  `status=passed / exitCode=0` met `testedTreeSha=33f4f52…`, exact gelijk aan `git rev-parse HEAD^{tree}`.
+  Aanvullend nagelopen in de bewaarde reports: 116 unit + 76 e2e over 13 e2e-klassen, geen enkel report
+  zonder `Failures: 0, Errors: 0`, en `TEST-…RequestRecoveryE2eTest.xml` bevat de vijf nieuwe testnamen.
+- AC1-AC8 nagelopen en gehaald: erft van `E2eTestBase` met `@Autowired RequestService`, vijf `@Test`s met
+  Nederlandse gedragsnamen, alle status-/`completedAt`-asserties uit `GET /api/requests`, commentaarregels
+  bij geval 2 (§6.6) en geval 4 (`auth.listUsernames()`), geen assertie op totalen, geen latch, en geen
+  wijziging in `src/main/`, `pom.xml` of `specs/`.
+- Spec-check: §6.6 (regel 354-358 van `specs/backend-functional-spec.md`) dekt wat de tests vastleggen; de
+  asserties komen overeen met `RequestServiceImpl.resetStuck()`. Geen Modulith-schending (alleen imports uit
+  de publieke `request`-rootpackage), geen endpoint- of Flyway-wijziging, dus `specs/openapi.yaml` blijft
+  terecht ongemoeid.
+- [suggestie] Geval 3 asserteert de lege `completedAt` alleen op `daily-summary-…`, niet op
+  `hourly-update-…`, terwijl de aannames in de story beide vaste verzoeken noemen. Waarschijnlijk bewust om
+  de blootstelling aan de hardcoded `RssScheduler.hourlyRefresh`-cron te beperken; de statusassertie op
+  `hourly-update-…` staat er wél, dus die blootstelling bestaat sowieso al. Niet blokkerend; eventueel de
+  reden in één regel commentaar vastleggen.
+- [info] Het Ryuk-restrisico uit de tweede ronde is correct gediagnosticeerd en buiten scope gehouden; blijft
+  een terugkerende infra-flake voor de factory-gate.
