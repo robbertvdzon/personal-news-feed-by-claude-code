@@ -77,3 +77,19 @@ Ronde 2 (developer) — reviewbevindingen verwerkt:
   372 KB + jacoco-it.exec 9,2 MB; `grep -icE 'warning|deprecat|self-attach'`
   = 1 (bekende `[Podcast]`-logregel). `flutter test` 37 groen (was 36),
   `flutter analyze` 6 pre-existing infos, `pubspec.lock` onaangeroerd.
+
+Ronde 2 (reviewer) — goedgekeurd:
+- Beide bevindingen uit ronde 1 zijn opgelost en nagelopen. De blocker
+  (AC6/AC7) is opgelost via token-reactiviteit in `RequestNotifier.build()`;
+  de regressietest gebruikt nu `container.listen` op de échte notifier en
+  bootst daarmee de eager rebuild van het instellingenscherm na. De
+  `isOpen`-check in `broadcast` staat nu vóór het eigenaarsfilter.
+- Geen regressies gevonden in de fix: `requestProvider` wordt alleen bij een
+  tokenwissel (of een expliciete invalidate) herbouwd, `onDispose` sluit de
+  vorige socket met een `identical`-guard, en er is geen codepad dat
+  `build()` handmatig aanroept (anders dan bij Feed/Rss/Podcast).
+- Testbewijs: `[FACTORY VERIFICATION EVIDENCE]` → `backend-maven-verify`
+  passed, exitCode 0, `testedTreeSha` 0150c093… == `git rev-parse HEAD^{tree}`.
+  Zelf gedraaid (frontend heeft geen harnessbewijs): `flutter test` 37 groen,
+  `flutter analyze` 6 pre-existing infos, `git status` schoon.
+- AC9 (documentatie) blijft bewust open voor subtaak SF-2169.
