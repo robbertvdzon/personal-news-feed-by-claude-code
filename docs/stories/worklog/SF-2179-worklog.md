@@ -71,3 +71,23 @@ Review (SF-2180, ronde 1) — akkoord:
   `'200'`/`'201'`/`'403'`/`'404'`-blokken ongewijzigd, volgorde `'400'` na `'200'` en vóór `'403'`.
 - Nederlandse meldingen bij `setUserRole` en `deleteUser` letterlijk overgenomen uit
   `AdminServiceImpl.kt:42`/`:49`; `setUserRole` benoemt beide bronnen.
+
+Test (SF-2181) — akkoord:
+- Vangnet `mvn -B --no-transfer-progress clean verify` opnieuw gedraaid op de huidige boom:
+  **exit 0**, 129 unit + 77 e2e, 35 reportbestanden allemaal `failures="0"`/`errors="0"`,
+  `failsafe-summary.xml` completed=77 / errors=0 / failures=0. `AdminE2eTest` ongewijzigd.
+- Semantische YAML-boomdiff main↔branch (js-yaml): exact 7 toevoegingen, alle van de vorm
+  `/paths/<pad>/<method>/responses/400`, nul verwijderingen of wijzigingen elders. 46 paths en
+  33 schemas onveranderd. `grep -c "'400'"` = 10, `grep -n 'components/responses'` leeg,
+  alle tien `'400'`-blokken hebben keys `["description"]`.
+- Alle 12 `BadRequestException`-throw-sites herleid tot een operatie met een `'400'` (grep geeft
+  13 regels incl. de klassedeclaratie); controller-mappings gecontroleerd in `AccountController`,
+  `AdminController` en `AdminCostsController`.
+- Live op preview `https://pnf-pr-231.vdzonsoftware.nl` (wegwerp-user, opgeruimd met
+  `DELETE /api/account/me`, herlogin gaf 401): `PUT /api/account/password` met een nieuw
+  wachtwoord van 3 tekens geeft **400** `{"error":"Password must be at least 4 characters"}`,
+  met een geldig wachtwoord 200 — precies wat het nieuwe `changePassword`-blok documenteert.
+  De zes admin-400's zijn niet live te bewijzen: alle `/api/admin/*`-calls geven 403 vóór de
+  validatie (geen admin-account op preview); die vijf van de zeven staan in `AdminE2eTest.kt`
+  (regels 152, 165, 177, 233-236).
+- Geen frontendwijziging in deze story, dus geen browser-screenshots.
