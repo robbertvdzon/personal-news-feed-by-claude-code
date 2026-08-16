@@ -60,3 +60,22 @@ Verificatie:
   (`git checkout -- frontend-reader/pubspec.lock`); `pubspec.yaml` wijzigde niet.
 - Geen nieuwe test toegevoegd: er is geen unit- of e2e-test die op `openapi.yaml` asserteert
   en deze story wijzigt geen gedrag (zie Aannames in de story).
+
+Review (SF-2173, ronde 1):
+- Volledige story-diff `main...HEAD` beoordeeld. Scope klopt: alleen `specs/openapi.yaml`,
+  `docs/factory/technical-spec.md`, `specs/backend-technical-spec.md` + dit worklog; nul
+  bestanden onder `newsfeedbackend/`, `frontend/`, `frontend-reader/`, `deploy/`, `e2e/`.
+- AC1-3 zelf nagerekend met SnakeYAML: bestand parset (46 paths); `EpisodeLookup.episodeStatus`
+  heeft de 9 `PodcastEpisodeStatus`-waarden in declaratievolgorde (`PodcastEpisode.kt:78-88`),
+  `EpisodeLookup.translatedPodcastStatus` en `TranslationStart.status` elk de 8 waarden in de
+  volgorde van het `PodcastStatus`-schema; `nullable: true` en de descriptions staan er nog,
+  `Podcast.status` is nog `$ref` en `PodcastStatus` zelf is ongewijzigd.
+- AC4-5: de vier 404's blijven kale blokken met alleen een `description` en noemen het concrete
+  resourcetype; `getPodcastAudio` benoemt beide bronnen, wat overeenkomt met de twee
+  gefilterde lookups in `PodcastController.kt:56-57`. AC6: `DONE/FAILED` gelijk aan :1911.
+- AC7: `grep "of de resource is van een andere gebruiker"` geeft 0 treffers in de living docs.
+- AC10: harness-bewijs `backend-maven-verify` exit 0; `testedTreeSha 0696562…` is gelijk aan
+  `git rev-parse HEAD^{tree}`, dus het bewijs hoort bij deze revisie. Geen codewijziging.
+- [suggestie] In de drie herformuleringen staat de sjabloonplaatshouder een tweede keer binnen
+  backticks (`` `\<resource\>` ``). Binnen een code-span is `\` geen escape, dus daar renderen de
+  backslashes letterlijk. Cosmetisch; op te lossen door in de code-span `<resource>` te schrijven.
