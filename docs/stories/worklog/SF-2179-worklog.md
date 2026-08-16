@@ -57,3 +57,17 @@ Verificatie:
   0 failures / 0 errors, 4:28 min. `grep -icE 'warning|deprecat|self-attach'` op de verify-log
   geeft 1 hit — de bekende `[Podcast]`-logregel met het woord "warnings" erin, geen regressie.
   `AdminE2eTest` (10 tests) ongewijzigd groen.
+
+Review (SF-2180, ronde 1) — akkoord:
+- Revisie-anker: `git rev-parse HEAD^{tree}` = `3c0d2704…` = `testedTreeSha` uit
+  [FACTORY VERIFICATION EVIDENCE] (`backend-maven-verify` passed, exit 0). Bewijs hoort dus bij
+  precies deze boom; docs-only, dus daarmee volledig gedekt.
+- Diff-scope klopt: alleen `specs/openapi.yaml` (16+/0-), `specs/backend-technical-spec.md` (1 bullet
+  uitgebreid) en dit worklog. Geen code-, test- of frontendwijziging.
+- Alle 12 `BadRequestException`-throw-sites nageteld tegen de bron (grep geeft 13 regels incl.
+  `common/Exceptions.kt:15`) en één voor één herleid tot een operatie met een `'400'`.
+- YAML opnieuw geparsed met SnakeYAML 2.5: 10 operaties met een `400`, elk een kaal blok met alleen
+  `description`; `grep -c "'400'"` = 10, `components/responses` blijft leeg. Bestaande
+  `'200'`/`'201'`/`'403'`/`'404'`-blokken ongewijzigd, volgorde `'400'` na `'200'` en vóór `'403'`.
+- Nederlandse meldingen bij `setUserRole` en `deleteUser` letterlijk overgenomen uit
+  `AdminServiceImpl.kt:42`/`:49`; `setUserRole` benoemt beide bronnen.
