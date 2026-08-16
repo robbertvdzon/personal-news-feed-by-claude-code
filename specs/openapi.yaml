@@ -979,6 +979,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/StatusOk'
+        '400':
+          description: Nieuw wachtwoord te kort (minimaal 4 tekens)
 
   /api/account/me:
     delete:
@@ -1071,6 +1073,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/StatusOk'
+        '400':
+          description: Nieuw wachtwoord te kort (minimaal 4 tekens)
         '403':
           description: Geen ROLE_ADMIN
         '404':
@@ -1096,6 +1100,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/StatusOk'
+        '400':
+          description: >-
+            Twee bronnen: de rolwaarde is niet `user` of `admin`, of een admin trekt zijn
+            eigen adminrol in ("Je kunt je eigen admin-rol niet verwijderen")
         '403':
           description: Geen ROLE_ADMIN
         '404':
@@ -1115,6 +1123,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/StatusOk'
+        '400':
+          description: Een admin probeert zichzelf te verwijderen ("Je kunt jezelf niet verwijderen")
         '403':
           description: Geen ROLE_ADMIN
         '404':
@@ -1160,6 +1170,8 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/DailyCostTotal'
+        '400':
+          description: '`days` valt buiten 1..365 (de controller valideert dit zelf)'
         '403':
           description: Geen ROLE_ADMIN
 
@@ -1185,6 +1197,8 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/UserCostTotal'
+        '400':
+          description: 'Onbekende `period`; toegestaan zijn `this_month`, `last_month`, `this_year` en `all`'
         '403':
           description: Geen ROLE_ADMIN
 
@@ -1235,6 +1249,8 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/ExternalCall'
+        '400':
+          description: '`from` en/of `to` is geen geldige ISO-8601-timestamp (`limit` wordt geclamped en geeft géén 400)'
         '403':
           description: Geen ROLE_ADMIN
 
