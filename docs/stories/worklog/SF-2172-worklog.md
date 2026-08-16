@@ -79,3 +79,47 @@ Review (SF-2173, ronde 1):
 - [suggestie] In de drie herformuleringen staat de sjabloonplaatshouder een tweede keer binnen
   backticks (`` `\<resource\>` ``). Binnen een code-span is `\` geen escape, dus daar renderen de
   backslashes letterlijk. Cosmetisch; op te lossen door in de code-span `<resource>` te schrijven.
+
+Test (SF-2174, story-brede test):
+- **Scope/AC9.** `git diff --name-only main...HEAD` = `docs/factory/technical-spec.md`,
+  `specs/backend-technical-spec.md`, `specs/openapi.yaml` + dit worklog; 0 bestanden onder
+  `newsfeedbackend/`, `frontend/`, `frontend-reader/`, `deploy/`, `e2e/`.
+- **AC1-3, 8.** `specs/openapi.yaml` geparsed met js-yaml (YAML 1.2): geldig, openapi 3.1.0,
+  46 paths, 33 schemas, 35 `$ref`'s allemaal resolvend (incl. `components/parameters/ItemId`
+  en `/Username`). Semantische diff main->HEAD op de geparste boom geeft **exact 8**
+  verschillen: 5 `description`s (createPodcast + 4x404) en de 3 nieuwe `enum`-lijsten.
+  Path- en schema-sleutels zijn identiek aan main -> geen structurele/indentatie-wijziging,
+  geen nieuwe of hernoemde schema's, operaties of `$ref`'s. `Podcast.status` is nog
+  `$ref: '#/components/schemas/PodcastStatus'`; `PodcastStatus.enum` ongewijzigd (8 waarden).
+  `episodeStatus` heeft de 9 waarden in exact de declaratievolgorde van
+  `PodcastEpisode.kt:78-88`; `translatedPodcastStatus` (met `nullable: true`) en
+  `TranslationStart.status` elk de 8 waarden in de volgorde van het `PodcastStatus`-schema;
+  alle drie de bestaande `description`s staan er nog.
+- **AC4-5.** Alle 12 `'404'`-blokken opgesomd uit de geparste boom: de vier gewijzigde
+  operaties hebben nog uitsluitend de sleutel `description` (kaal blok) en noemen het
+  concrete resourcetype; `getPodcastAudio` benoemt beide bronnen (podcast onbekend/andere
+  gebruiker en nog geen MP3). Formulering ligt in lijn met de bestaande gevallen op
+  r. 720/739/756/824. De 409 bij `translatePodcastEpisode` is onaangeroerd.
+- **AC6.** `openapi.yaml:781` luidt nu `... -> GENERATING_AUDIO -> DONE/FAILED`, inhoudelijk
+  gelijk aan het `PodcastStatus`-schema (r. 1911).
+- **AC7.** `grep -n "of de resource is van een andere gebruiker" docs/factory/technical-spec.md
+  specs/backend-technical-spec.md` -> 0 treffers; op alle drie de plekken staat de
+  sjabloonformulering met toelichting.
+- **Live contractcheck op de preview** (`https://pnf-pr-230.vdzonsoftware.nl`, image sha
+  `30ef4c6`): met een wegwerp-user zijn de vier gedocumenteerde 404's echt gedrag -
+  `GET /api/podcasts/{onbekend}` -> 404, `GET /api/podcasts/{onbekend}/audio` -> 404,
+  `GET /api/podcast-source/by-rss-item/{onbekend}` -> 404,
+  `POST /api/podcast-source/{onbekende-guid}/translate` -> 404; `GET /api/podcasts` -> 200 als
+  controle. Account opgeruimd met `DELETE /api/account/me` (200), herlogin daarna 401.
+  Modus: wegwerp-account (fallback) omdat TESTER_USERNAME/TESTER_PASSWORD leeg zijn en het
+  namespace-secret voor deze SA Forbidden is. Geen browser-screenshots: de story raakt geen
+  frontend-code en heeft geen UI-oppervlak.
+- **AC10 / vangnet.** `mvn -B --no-transfer-progress clean verify` in
+  `newsfeedbackend/newsfeedbackend`: **exit 0**, BUILD SUCCESS in 05:38, 129 unit + 77 e2e,
+  0 failures / 0 errors over alle 35 reportbestanden, `failsafe-summary.xml` 77/0/0/0,
+  `grep -c '^\[WARNING\]'` = 0. `flutter test` in `frontend/`: 37 groen, exit 0, geen
+  lockfile-drift (`git status` schoon).
+- **Opmerking (niet-blokkerend, cosmetisch).** De reviewer-suggestie over
+  `\<resource\>` binnen een code-span staat nog open: binnen backticks is `\` geen
+  escape, dus daar renderen de backslashes letterlijk terwijl dezelfde plaatshouder in de
+  omringende tekst als `<resource>` rendert. Raakt geen AC.
