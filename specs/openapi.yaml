@@ -778,7 +778,7 @@ paths:
       summary: Maak een nieuwe podcast aan
       description: |
         Start asynchroon de podcastgeneratie. Statusverloop:
-        PENDING → DETERMINING_TOPICS → GENERATING_SCRIPT → GENERATING_AUDIO → DONE
+        PENDING → DETERMINING_TOPICS → GENERATING_SCRIPT → GENERATING_AUDIO → DONE/FAILED
       requestBody:
         required: true
         content:
@@ -809,7 +809,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Podcast'
         '404':
-          description: Niet gevonden
+          description: Podcast niet gevonden (onbekend id, of de podcast is van een andere gebruiker)
     delete:
       tags: [Podcasts]
       operationId: deletePodcast
@@ -883,7 +883,9 @@ paths:
                 type: string
                 format: binary
         '404':
-          description: Audio nog niet beschikbaar
+          description: |
+            Podcast niet gevonden (onbekend id, of de podcast is van een andere gebruiker),
+            of de audio is nog niet beschikbaar (er staat nog geen MP3 bij deze podcast).
 
   # ── Podcast-source translate (KAN-63) ────────────────────────────────────────
 
@@ -911,7 +913,9 @@ paths:
               schema:
                 $ref: '#/components/schemas/EpisodeLookup'
         '404':
-          description: Geen podcast-aflevering gevonden voor dit rss-item
+          description: |
+            Geen podcast-aflevering gevonden voor dit rss-item (onbekend id, of het
+            rss-item/de aflevering is van een andere gebruiker).
 
   /api/podcast-source/{episodeGuid}/translate:
     post:
@@ -947,7 +951,9 @@ paths:
               schema:
                 $ref: '#/components/schemas/TranslationStart'
         '404':
-          description: Aflevering niet gevonden
+          description: |
+            Aflevering niet gevonden (onbekende guid, of de aflevering is van een
+            andere gebruiker) — het antwoord verraadt bewust niet welke van de twee.
         '409':
           description: |
             State-conflict: aflevering heeft (nog) geen transcript, of
@@ -1938,6 +1944,16 @@ components:
         episodeStatus:
           type: string
           description: PodcastEpisodeStatus-naam (DONE = transcript klaar).
+          enum:
+            - PENDING
+            - SUMMARIZING_FROM_NOTES
+            - NEEDS_TRANSCRIPT
+            - SHOW_NOTES_DONE
+            - DOWNLOADING
+            - TRANSCRIBING
+            - SUMMARIZING
+            - DONE
+            - FAILED
         transcriptCharCount:
           type: integer
         feedUrl:
@@ -1954,6 +1970,15 @@ components:
           type: string
           nullable: true
           description: Indien een vertaling bestaat, de PodcastStatus daarvan.
+          enum:
+            - PENDING
+            - DETERMINING_TOPICS
+            - GENERATING_SCRIPT
+            - GENERATING_AUDIO
+            - TRANSLATING
+            - TTS_GENERATING
+            - DONE
+            - FAILED
         translatedPodcastTitle:
           type: string
           nullable: true
@@ -1970,6 +1995,15 @@ components:
         status:
           type: string
           description: PodcastStatus-naam van de (nieuwe of hergebruikte) vertaling.
+          enum:
+            - PENDING
+            - DETERMINING_TOPICS
+            - GENERATING_SCRIPT
+            - GENERATING_AUDIO
+            - TRANSLATING
+            - TTS_GENERATING
+            - DONE
+            - FAILED
         created:
           type: boolean
           description: |
