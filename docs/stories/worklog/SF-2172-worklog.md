@@ -123,3 +123,28 @@ Test (SF-2174, story-brede test):
   `\<resource\>` binnen een code-span staat nog open: binnen backticks is `\` geen
   escape, dus daar renderen de backslashes letterlijk terwijl dezelfde plaatshouder in de
   omringende tekst als `<resource>` rendert. Raakt geen AC.
+
+Documentatie (SF-2176):
+- **Norm vs. praktijk gelijkgetrokken.** `docs/factory/technical-spec.md` § API-contract zei nog
+  dat een `String`-veld dat met `enum.name` gevuld wordt "`type: string` met een `description`
+  over de herkomst" is — zonder inline `enum`, precies het gat dat deze story dichtte. Die zin
+  benoemt nu dat het `$ref`-verbod over het *type* gaat en de inline `enum` over de
+  *waardenverzameling*, met de drie velden uit deze story en de uitzondering `Podcast.status`.
+- **`specs/backend-technical-spec.md` §8** kreeg dezelfde nuance in het SF-2073-bullet
+  ("Types die strenger beloven") en het SF-2130-bullet ("gesloten waardenverzameling":
+  afdwingen op de invoer óf alleen produceren via `.name` telt allebei), plus een nieuw blok
+  **"Een huisregel geldt niet met terugwerkende kracht (SF-2172)"** met de uitkomst van deze
+  opruimronde: de drie inline enums (incl. `nullable`-huisstijl), de vier 404-descriptions
+  (met de nieuwe regel: één `'404'` met twee bronnen benoemt ze allebei) en de prozalijst van
+  `createPodcast`, met de greps om de volgende ronde meteen repo-breed te doen.
+- **`docs/onboarding-senior-developer.md`** review-checklist "API-wijziging?": de enum-clausule
+  dekte alleen invoervalidatie en dus niet de gevallen van deze story.
+- **Cosmetische reviewer-/testeropmerking opgelost:** de plaatshouder binnen een code-span is nu
+  `` `<resource>` `` in plaats van `` `\<resource\>` `` (drie plekken). De backslashes in de
+  omringende platte tekst blijven staan — daar zijn ze wél nodig.
+- Niet geraakt: `specs/openapi.yaml` (de story is dit contract), `specs/backend-functional-spec.md`
+  (§6.5 :334 en §10 :550 beschrijven de translate-404/409 al correct; de audio- en podcast-404's
+  zijn contractdetail zonder functionele alinea), `specs/frontend-spec.md` (nul UI-oppervlak;
+  de 404-tak van de lookup is via de UI onbereikbaar), `README.md`/`runbook.md`/`deploy/`/`e2e/`
+  (nul verwijzingen naar deze descriptions of statuslijsten), en de historische verslagen onder
+  `docs/stories/**`.
