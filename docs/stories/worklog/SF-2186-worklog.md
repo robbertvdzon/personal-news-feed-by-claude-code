@@ -60,3 +60,23 @@ Review (SF-2187, reviewer, 2026-08-17) — akkoord, geen bevindingen:
 - AC5-7: de afgeleide regels onder het §8-blok en het SF-2094-blok zijn ongewijzigd,
   `docs/factory/technical-spec.md` en `docs/stories/**` zijn ongemoeid, en de diff bevat exact
   de drie scope-bestanden plus dit worklog.
+
+Test (SF-2188, tester, 2026-08-17) — akkoord:
+- Statische ACs herhaald op de branchrevisie: `grep -c "'401'"` = 2, `grep -c 'minLength'` = 3,
+  `grep -n 'components/responses'` leeg, en de vier exception-greps 15/13/4/6 tegenover
+  `'404'` 12 / `'400'` 10 / `'409'` 2 / `'401'` 2 — precies de tellingen die §8 nu claimt.
+- Semantische boomdiff `main` vs branch (js-yaml) geeft exact drie toevoegingen en niets anders:
+  `/paths//api/account/password/put/responses/401`,
+  `/components/schemas/ChangePasswordRequest/properties/newPassword/minLength` en
+  `/components/schemas/ResetPasswordRequest/properties/newPassword/minLength`.
+  46 paths / 33 schemas ongewijzigd; `currentPassword` heeft géén `minLength`.
+- Live gedragsbewijs op de preview (`https://pnf-pr-232.vdzonsoftware.nl`), wegwerp-user via
+  `POST /api/auth/register` (fallback-modus: in deze harness zijn `TESTER_USERNAME`/`TESTER_PASSWORD`
+  leeg en is het namespace-secret niet leesbaar):
+  `PUT /api/account/password` met fout `currentPassword` → **401** `{"error":"Huidig wachtwoord klopt niet"}`
+  (exact de melding die de nieuwe `'401'`-description letterlijk overneemt), met correct wachtwoord → 200,
+  met nieuw wachtwoord van 2 tekens → 400 `Password must be at least 4 characters` (bevestigt `minLength: 4`).
+  Zonder token → 403 (globaal `security`-blok, dus terecht niet als operatie-`'401'` gedocumenteerd).
+  Opgeruimd met `DELETE /api/account/me` (200), geverifieerd met een herlogin → 401.
+- Geen wijziging in `newsfeedbackend/`, `frontend/`, `frontend-reader/` of `e2e/`; docs-only story
+  zonder frontend-diff, dus geen browser-screenshots.
