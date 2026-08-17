@@ -23,15 +23,14 @@ interface AuthService {
     fun deleteOwnAccount(username: String): Boolean
 
     /**
-     * Valideert een JWT en geeft `(username, role)`, of `null` bij een
-     * ongeldig of verlopen token.
+     * Valideert een JWT, of geeft `null` bij een ongeldig of verlopen token.
      *
      * Bedoeld voor kanalen die de servlet-security-keten niet doorlopen en
      * dus zelf moeten authenticeren — vandaag de WebSocket-handshake van
      * `/ws/requests`. HTTP-endpoints hoeven dit niet: daar doet `JwtAuthFilter`
      * het werk en levert `SecurityHelpers.currentUsername()` de gebruiker.
      */
-    fun validateToken(token: String): Pair<String, String>?
+    fun validateToken(token: String): AuthenticatedUser?
 
     // ── Beheer-operaties (gebruikt door de admin-module) ─────────────
     // Autorisatie en guardrails (mag deze actor dit?) horen bij de
@@ -54,3 +53,6 @@ data class AuthToken(val token: String, val username: String, val role: String)
 
 /** Publieke, wachtwoord-loze weergave van een account (voor beheer-schermen). */
 data class UserAccount(val id: String, val username: String, val role: String)
+
+/** De geauthenticeerde gebruiker achter een geldig JWT. */
+data class AuthenticatedUser(val username: String, val role: String)

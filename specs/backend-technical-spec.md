@@ -55,7 +55,7 @@ De backend gebruikt **Spring Modulith** voor het afdwingen van modulegescheiden 
 
 | Module | Package | Verantwoordelijkheid |
 |--------|---------|----------------------|
-| `auth` | `com.vdzon.newsfeedbackend.auth` | Registratie, login, JWT-aanmaak en -validatie, gebruikersbeheer; `AuthService.validateToken(token)` geeft `(username, role)` en is de publieke module-API voor kanalen die de servlet-securityketen niet doorlopen (vandaag de WebSocket-handshake) |
+| `auth` | `com.vdzon.newsfeedbackend.auth` | Registratie, login, JWT-aanmaak en -validatie, gebruikersbeheer; `AuthService.validateToken(token)` geeft een `AuthenticatedUser` (`username`, `role`) en is de publieke module-API voor kanalen die de servlet-securityketen niet doorlopen (vandaag de WebSocket-handshake) |
 | `rss` | `com.vdzon.newsfeedbackend.rss` | RSS-feeds ophalen, AI-verwerking van artikelen, feed-selectie |
 | `feed` | `com.vdzon.newsfeedbackend.feed` | Gecureerde feed-items beheren, feedback, cleanup |
 | `request` | `com.vdzon.newsfeedbackend.request` | Ad-hoc verzoeken en dagelijkse updates verwerken |
