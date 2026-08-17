@@ -308,7 +308,7 @@ Sectiekop boven het account-blok heet sinds SF-1046 weer **"Account"**; tussen S
 
 - Gebruikersnaam weergeven
 - **Uitloggen:** wist token, navigeer naar LoginScreen
-- **Wachtwoord wijzigen:** `ListTile` opent een dialoog met velden voor huidig en nieuw wachtwoord; opslaan stuurt `PUT /api/account/password`
+- **Wachtwoord wijzigen:** `ListTile` opent een dialoog met drie velden ("Huidig wachtwoord", "Nieuw wachtwoord" met helper "Min. 4 tekens", "Nieuw wachtwoord bevestigen"); opslaan stuurt `PUT /api/account/password`. De dialoog valideert eerst zelf (leeg veld, nieuw wachtwoord korter dan 4 tekens, bevestiging ongelijk) en toont de fout als rode regel onder de velden. Komt het verzoek wél bij de backend, dan wordt **401** apart afgevangen en vertaald naar "Huidig wachtwoord klopt niet" — precies de melding die de backend zelf teruggeeft en die sinds SF-2187 ook in `openapi.yaml` staat; elke andere status valt terug op "Fout: {code}". Bij succes sluit de dialoog en verschijnt de snackbar "Wachtwoord gewijzigd"
 
 ### Categorieën (navigatie-tile, SF-754)
 Eén `ListTile` (`Icons.category`, titel "Categorieën", `Icons.chevron_right`) die via `MaterialPageRoute` naar de **Categorieën-subpagina** (`CategoriesScreen`, zie §9b) navigeert. De volledige categorieënlijst stond vóór SF-754 inline uitgeklapt op deze pagina; ze is nu naar de subpagina verplaatst zodat de Settings-tab korter blijft — hetzelfde patroon als de RSS-feeds-tile (SF-220).
