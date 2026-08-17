@@ -80,3 +80,49 @@ Geen endpoint-/contractwijziging, dus `specs/openapi.yaml` terecht ongemoeid; ge
   ongeldig of verlopen token." Die formulering laat de succeswaarde impliciet; iets als "Valideert
   een JWT en geeft de bijbehorende [AuthenticatedUser], of `null` bij …" leest natuurlijker. Puur
   cosmetisch, geen blocker.
+
+## Test SF-2195 (story-brede test) — 2026-08-17
+
+Akkoord. Inlogmodus: **fallback wegwerp-account** `tester_sf-2193` — `TESTER_USERNAME`/
+`TESTER_PASSWORD` zijn leeg en `oc get secret newsfeed-api-keys -n pnf-pr-233` geeft Forbidden
+voor `system:serviceaccount:agent-access:claude-agent`. Account na afloop verwijderd
+(`DELETE /api/account/me` → 200, herlogin → 401).
+
+**Statische AC's (1, 2, 3, 7, 8)** opnieuw gecontroleerd op de checkout: `Pair<String, String>`
+geeft 0 treffers in `auth`/`websocket` onder `src/main`; geen `.first`/`.second`/destructurering
+meer in `JwtAuthFilter`/`JwtHandshakeInterceptor`; `(username, role)` staat in geen van beide
+specs meer; `git diff main...HEAD -- '*/src/test/*'` is leeg.
+
+**Vangnet (AC4, 5, 6)** — `mvn -B --no-transfer-progress clean test`: exit 0, BUILD SUCCESS,
+**129 tests, 0 failures, 0 errors, 0 skipped**, 22 surefire-reports allemaal `failures="0"
+errors="0"` (incl. `ModuleStructureTest`). Ruisfilter `warning|deprecat|self-attach|discontinued|
+no longer work|will be removed|in a future release`: **0** regels; `^\[WARNING\]`: 0.
+`target/jacoco.exec` = 372.155 B, exact de baseline.
+
+**Live gedragstests op de preview** (`https://pnf-pr-233.vdzonsoftware.nl`) — precies de codepaden
+uit de diff:
+
+- HTTP (`JwtAuthFilter`, `parsed.username`/`parsed.role`): geldig token op `/api/settings` → 200;
+  zonder token → 403; onzin-token → 403. `/api/admin/users` met user-token → 403, dus de
+  `ROLE_`-autoriteit wordt nog steeds uit `parsed.role` afgeleid. `GET /api/requests` geeft
+  `daily-summary-tester_sf-2193` / `hourly-update-tester_sf-2193`, dus het principal is de
+  gebruikersnaam uit het token.
+- WebSocket-handshake (`JwtHandshakeInterceptor`, `parsed.username`): met geldig token opent
+  `/ws/requests` en komt het `serverVersion`-frame binnen; **zonder** token en met een kapot token
+  wordt de handshake geweigerd (geen open socket). Een `POST .../rerun` leverde op die socket het
+  user-scoped `daily-summary-tester_sf-2193`-frame (PENDING) en 0 frames van andere gebruikers —
+  dat bewijst dat `ATTR_USERNAME` nog steeds de juiste gebruikersnaam draagt.
+- Frontend end-to-end via Playwright (Flutter-UI-login met dezelfde wegwerp-user): login slaagt,
+  de app landt op het Feed-scherm en doet daarna geauthenticeerde calls naar `/api/feed`,
+  `/api/settings`, `/api/rss`, `/api/podcasts` en `/api/requests`. Screenshots:
+  `/work/screenshots/01-login-ingevuld.png` en `02-na-login.png`.
+
+Twee observaties, geen van beide een bevinding tegen deze story:
+
+- Het `daily-summary`-rerun-verzoek bleef op PENDING staan in plaats van naar DONE te gaan. Oorzaak
+  gevonden in de cluster-status: de preview deed midden in mijn run een rolling restart naar
+  `sha-95b19a9` (de reviewercommit), waardoor de verwerkende pod werd vervangen. Niet gerelateerd
+  aan de diff — die raakt geen enkel request-verwerkingspad.
+- Ik testte de auth-paden op `sha-0a6d85c` (de developercommit, met álle productiecode van deze
+  story) en na de restart op `sha-95b19a9`; `git diff 0a6d85c..95b19a9` bevat uitsluitend dit
+  worklog, dus het bewijs blijft geldig voor HEAD.
