@@ -981,6 +981,10 @@ paths:
                 $ref: '#/components/schemas/StatusOk'
         '400':
           description: Nieuw wachtwoord te kort (minimaal 4 tekens)
+        '401':
+          description: |
+            Huidig wachtwoord klopt niet, of de gebruiker uit het token bestaat
+            niet meer (account elders verwijderd terwijl het token nog geldig is).
 
   /api/account/me:
     delete:
@@ -2082,6 +2086,7 @@ components:
           type: string
         newPassword:
           type: string
+          minLength: 4
 
     DeleteAccountResult:
       type: object
@@ -2114,6 +2119,7 @@ components:
       properties:
         newPassword:
           type: string
+          minLength: 4
 
     SetRoleRequest:
       type: object
