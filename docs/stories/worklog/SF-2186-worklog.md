@@ -43,3 +43,20 @@ Verificatie:
   puur een baseline-bevestiging.
 - `git diff --name-only` toont exact de drie scope-bestanden; geen wijziging in
   `newsfeedbackend/`, `frontend/`, `frontend-reader/` of `e2e/`.
+
+Review (SF-2187, reviewer, 2026-08-17) — akkoord, geen bevindingen:
+- Testbewijs: `[FACTORY VERIFICATION EVIDENCE]` `backend-maven-verify` status=passed, exitCode=0;
+  `testedTreeSha` `e92afde…` == `git rev-parse HEAD^{tree}` van de developercommit `2ef7fee`.
+- AC1-4 zelf nagemeten: `'401'` = 2 (login + changePassword), `minLength` = 3,
+  `grep -n 'components/responses'` leeg, `'404'` 12 / `'400'` 10 / `'409'` 2 en de vier
+  exception-greps 15/13/4/6 kloppen met de norm-tekst in §8.
+- `specs/openapi.yaml` opnieuw met SnakeYAML 2.5 geladen: parse OK; `changePassword` heeft
+  responses `[200, 400, 401]`, het `'401'`-blok is kaal (alleen `description`, block scalar zoals
+  de 52 andere multiline-descriptions in dit bestand) en `minLength: 4` staat op
+  `ChangePasswordRequest.newPassword` en `ResetPasswordRequest.newPassword`, niet op
+  `currentPassword`.
+- Throw-sites herleid: `AuthServiceImpl.kt:43/:44` → `login`, `:53/:55` → `changePassword`,
+  `SecurityHelpers.kt:8` bewust buiten scope; geen andere operatie mist een `'401'`.
+- AC5-7: de afgeleide regels onder het §8-blok en het SF-2094-blok zijn ongewijzigd,
+  `docs/factory/technical-spec.md` en `docs/stories/**` zijn ongemoeid, en de diff bevat exact
+  de drie scope-bestanden plus dit worklog.
