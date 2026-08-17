@@ -49,3 +49,34 @@ Vangnet: `mvn -B --no-transfer-progress clean verify` (het commando uit
 (op de volledige verify-log 1 regel, de bekende Nederlandse `[Podcast]`-e2e-logregel met het
 woord "warnings" erin — geen regressie). `target/jacoco.exec` 372.155 B en
 `target/jacoco-it.exec` 9,2 MB bestaan na afloop.
+
+## Review SF-2194 — 2026-08-17
+
+Akkoord. Volledige story-diff (`git diff main...HEAD`, 7 productie-/docbestanden + story-log en
+worklog) nagelopen tegen de refined story en de acceptatiecriteria; alle acht kloppen:
+
+- AC1 `grep -rn "Pair<String, String>"` over `auth`/`websocket` in `src/main` → 0 treffers.
+- AC2 `AuthenticatedUser(username, role)` staat als publieke `data class` onderaan
+  `auth/AuthService.kt` naast `AuthToken`/`UserAccount` en is het retourtype van zowel
+  `AuthService.validateToken` als `JwtService.validate` (+ `AuthServiceImpl`-override).
+- AC3 geen destructurering en geen `.first`/`.second` meer op dit resultaat: `JwtAuthFilter:25-26`
+  gebruikt `parsed.role`/`parsed.username`, `JwtHandshakeInterceptor:44` `parsed.username`.
+  Gedrag identiek: `ROLE_${...uppercase()}` blijft de autoriteit, de gebruikersnaam het principal.
+- AC4/6 harnessbewijs `[FACTORY VERIFICATION EVIDENCE]`: `backend-maven-verify` status=passed,
+  exit 0. `testedTreeSha 9af84454…` == `git rev-parse HEAD^{tree}` van de developercommit `0a6d85c`,
+  dus het bewijs hoort bij déze revisie. Reports in de checkout: 129 unit + 77 e2e, geen enkel
+  report zonder `Failures: 0, Errors: 0`, `ModuleStructureTest` meegedraaid en
+  `KNOWN_VIOLATIONS` is nog steeds leeg. `target/jacoco.exec` en `jacoco-it.exec` bestaan.
+- AC7 `specs/backend-technical-spec.md:58` en `docs/factory/technical-spec.md:86` noemen beide het
+  benoemde type; nergens nog een `(username, role)`-paarbeschrijving in de specs.
+- AC8 `git diff main...HEAD --name-only -- '*/src/test/*'` is leeg; de stub in
+  `JwtHandshakeInterceptorTest:35` delegeert via `thenAnswer` en beweegt inderdaad automatisch mee.
+
+Modulith: `AuthenticatedUser` staat in de module-root `com.vdzon.newsfeedbackend.auth` en is dus
+geëxposeerd; `websocket` blijft via `AuthService` gaan en importeert geen `auth`-intern type.
+Geen endpoint-/contractwijziging, dus `specs/openapi.yaml` terecht ongemoeid; geen Flyway-migraties.
+
+- [suggestie] `AuthService.validateToken`-KDoc luidt nu "Valideert een JWT, of geeft `null` bij een
+  ongeldig of verlopen token." Die formulering laat de succeswaarde impliciet; iets als "Valideert
+  een JWT en geeft de bijbehorende [AuthenticatedUser], of `null` bij …" leest natuurlijker. Puur
+  cosmetisch, geen blocker.
