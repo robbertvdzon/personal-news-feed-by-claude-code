@@ -79,6 +79,7 @@ De backend gebruikt **Spring Modulith** voor het afdwingen van modulegescheiden 
 - Communicatie tussen modules verloopt via:
   - Directe aanroep van de **publieke service-interface** van de doelmodule
   - Spring Application Events (`ApplicationEventPublisher`) voor losgekoppelde communicatie
+- Elk type dat in de **signatuur** van een publieke service-interface voorkomt (parameter of retourwaarde) moet zelf in de moduleroot staan; staat het in `domain/` of `infrastructure/`, dan faalt `ModuleStructureTest` op "depends on non-exposed type". Daarom wonen `AuthToken`, `UserAccount` en (sinds SF-2193) `AuthenticatedUser` naast `AuthService` in `auth/AuthService.kt`. Zo'n resultaat krijgt een **benoemd type** en geen naamloze `Pair`/`Triple`: `validateToken` gaf eerder `Pair<String, String>?` terug, waarbij alleen een KDoc-zin en de destructurering bij de aanroeper vertelden welke helft de gebruikersnaam was.
 - Spring Modulith-moduleregels worden afgedwongen door `ModuleStructureTest.kt` (`ApplicationModules.of(Application::class.java).verify()`), met een lege allowlist; deze test draait bij elke `mvn test` en dient als ratchet tegen nieuwe modulegrens-overtredingen (zie §7).
 
 ### Packagestructuur per module (voorbeeld: `rss`)
