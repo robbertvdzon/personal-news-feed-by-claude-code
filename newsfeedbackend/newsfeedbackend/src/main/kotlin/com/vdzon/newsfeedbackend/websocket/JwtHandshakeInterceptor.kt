@@ -41,7 +41,7 @@ class JwtHandshakeInterceptor(private val auth: AuthService) : HandshakeIntercep
             response.setStatusCode(HttpStatus.UNAUTHORIZED)
             return false
         }
-        attributes[ATTR_USERNAME] = parsed.first
+        attributes[ATTR_USERNAME] = parsed.username
         return true
     }
 

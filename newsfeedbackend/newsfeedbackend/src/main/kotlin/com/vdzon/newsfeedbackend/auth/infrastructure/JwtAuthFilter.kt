@@ -21,10 +21,9 @@ class JwtAuthFilter(private val jwt: JwtService) : OncePerRequestFilter() {
         if (token != null) {
             val parsed = jwt.validate(token)
             if (parsed != null) {
-                val (username, role) = parsed
                 // Spring Security verwacht ROLE_-prefix wanneer je hasRole(...) gebruikt.
-                val authorities = listOf(SimpleGrantedAuthority("ROLE_${role.uppercase()}"))
-                val auth = UsernamePasswordAuthenticationToken(username, null, authorities)
+                val authorities = listOf(SimpleGrantedAuthority("ROLE_${parsed.role.uppercase()}"))
+                val auth = UsernamePasswordAuthenticationToken(parsed.username, null, authorities)
                 SecurityContextHolder.getContext().authentication = auth
             }
         }

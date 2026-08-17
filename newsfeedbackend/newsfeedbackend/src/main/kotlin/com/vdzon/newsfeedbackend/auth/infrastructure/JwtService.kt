@@ -1,5 +1,6 @@
 package com.vdzon.newsfeedbackend.auth.infrastructure
 
+import com.vdzon.newsfeedbackend.auth.AuthenticatedUser
 import com.vdzon.newsfeedbackend.auth.domain.User
 import io.jsonwebtoken.Claims
 import io.jsonwebtoken.Jwts
@@ -54,8 +55,7 @@ class JwtService(
             .compact()
     }
 
-    /** Returns (username, role) of een geldige token, of null. */
-    fun validate(token: String): Pair<String, String>? = try {
+    fun validate(token: String): AuthenticatedUser? = try {
         val claims: Claims = Jwts.parser()
             .verifyWith(key)
             .build()
@@ -63,7 +63,7 @@ class JwtService(
             .payload
         val sub = claims.subject ?: return null
         val role = claims[CLAIM_ROLE] as? String ?: User.ROLE_USER
-        sub to role
+        AuthenticatedUser(sub, role)
     } catch (e: Exception) {
         null
     }

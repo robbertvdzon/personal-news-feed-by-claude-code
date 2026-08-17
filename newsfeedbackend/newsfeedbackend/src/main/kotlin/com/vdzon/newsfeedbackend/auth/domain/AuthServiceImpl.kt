@@ -1,5 +1,6 @@
 package com.vdzon.newsfeedbackend.auth.domain
 
+import com.vdzon.newsfeedbackend.auth.AuthenticatedUser
 import com.vdzon.newsfeedbackend.auth.AuthService
 import com.vdzon.newsfeedbackend.auth.AuthToken
 import com.vdzon.newsfeedbackend.auth.UserAccount
@@ -66,7 +67,7 @@ class AuthServiceImpl(
         return deleted
     }
 
-    override fun validateToken(token: String): Pair<String, String>? = jwt.validate(token)
+    override fun validateToken(token: String): AuthenticatedUser? = jwt.validate(token)
 
     override fun listAccounts(): List<UserAccount> =
         users.all().map { UserAccount(it.id, it.username, it.role) }
