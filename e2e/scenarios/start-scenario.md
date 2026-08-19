@@ -18,7 +18,7 @@ Bereid een verse omgeving voor zodat de andere scenario's tegen schone, voorspel
 
 ### 3. Maak nieuwe user aan
 - Klik **"Account aanmaken"** onderaan.
-- Gebruikersnaam: `e2e_<DATETIME-STAMP>` (bv. `e2e_20260509_1432`) — uniek per run zodat scenario's elkaar niet bijten.
+- Gebruikersnaam: `e2e_<DATETIME-STAMP>` (bv. `e2e_20260509_1432`) — uniek per run zodat scenario's elkaar niet bijten. Houd je aan dat formaat: registratie accepteert sinds SF-2208 alleen namen van 3-64 tekens uit `[A-Za-z0-9._-]` en weigert al het andere (spaties, `@`, `/`) met een `400` die in de app als "Inloggen mislukt (400)" verschijnt.
 - Wachtwoord: `e2etest`
 - Klik **"Account aanmaken"**.
 - Verwacht: MainShell verschijnt met de Feed-tab actief en leeg.

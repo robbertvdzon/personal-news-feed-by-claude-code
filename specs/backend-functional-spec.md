@@ -55,6 +55,15 @@ Het pad `app.data-dir` (standaard `./data`) wordt alleen nog gebruikt voor het
 JSONL-audit-logbestand van externe calls (`external_calls.jsonl`) en runtime-/
 cleanup-paden — niet als primaire dataopslag.
 
+Het enige overgebleven cleanup-pad is `<data-dir>/users/<gebruikersnaam>/audio`, dat
+`DELETE /api/admin/users/{username}` recursief opruimt. Omdat de gebruikersnaam daar een
+padsegment vormt, gebeurt dat alleen als het genormaliseerde doelpad aantoonbaar ónder
+`<data-dir>/users/` valt; valt het erbuiten (een oud account met een `..` of een `/` in de
+naam), dan wordt er niets verwijderd en volgt alleen een `WARN`-logregel — het account zelf
+wordt wél gewoon verwijderd. Voor een normale gebruiker bestaat die map sinds de overstap
+naar `audio_bytes` in de regel niet meer, en dan is de opruiming een no-op. Zie §3 voor de
+allowlist op de gebruikersnaam die dit aan de voorkant afvangt (SF-2208).
+
 ### Concurrency
 - Alle achtergrondtaken zijn asynchroon (`@Async`).
 - Per-gebruiker vergrendeling voorkomt dat dezelfde gebruiker meerdere RSS-verwerkingen tegelijk uitvoert.
