@@ -80,3 +80,28 @@ Review (SF-2201, ronde 1):
 - Alle veertien gevraagde gevallen zijn gedekt, inclusief de notificatieteller via
   `addListener`, de sentinel-assertie voor "geen schrijfactie", de `toggleStar`-
   commentaarregel en het `load()`-loze randgeval. Geen bevindingen.
+
+Test (SF-2202, story-brede verificatie):
+- `frontend-reader/`: `flutter pub get` + `flutter test --coverage` zelf herdraaid →
+  **exit 0, 17 tests groen, 0 failures/0 errors** (2 bestaande in `widget_test.dart`,
+  8 in `read_store_test.dart`, 7 in `time_format_test.dart`). AC3 voldaan (≥ 15).
+- Coverage uit `coverage/lcov.info`, onafhankelijk gemeten: `lib/local_store.dart`
+  LH=32/LF=32, `lib/time_format.dart` LH=10/LF=10, `lib/models.dart` LH=17/LF=24 →
+  totaal 59/66. Exact de cijfers die het worklog noemt. AC5 voldaan.
+- `coverage/` na de meting verwijderd; de door `flutter pub get` gemuteerde
+  `frontend-reader/pubspec.lock` teruggezet met `git checkout --`. AC6 voldaan,
+  werkboom weer schoon.
+- Diff `main...HEAD` = exact 3 bestanden (`test/read_store_test.dart`,
+  `test/time_format_test.dart`, dit worklog); niets onder `frontend-reader/lib/`,
+  geen `pubspec.yaml`, geen `pubspec.lock`, `widget_test.dart` onaangeroerd. AC4 voldaan.
+- Asserties tegen de bron gelegd (`lib/local_store.dart`, `lib/time_format.dart`):
+  ze beschrijven het feitelijke gedrag, inclusief de `<= 3`-dagengrens, de
+  onvoorwaardelijke `toggleStar` en de null-safe schrijfacties zonder `load()`.
+  Geen enkele test legt een verschil met het bedoelde gedrag bloot. AC1/AC2/AC7 voldaan.
+- Preview-context: `GET https://pnf-pr-234.vdzonsoftware.nl/api/version` → 200,
+  sha `f74ce97`; screenshot van de preview-UI in `/work/screenshots/`
+  (`SF-2202-reader-preview.png`). De reader-app zelf heeft een vaste
+  productieroute (`deploy/base/reader-route.yaml`, host `reader.vdzonsoftware.nl`)
+  en dus géén per-PR preview; productie wordt niet getest. Deze story wijzigt
+  bovendien geen enkele regel productiecode, dus er is geen runtime-gedrag
+  om in een browser te bewijzen — het bewijs is de testrun hierboven.
