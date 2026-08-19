@@ -54,7 +54,10 @@ ziet — **zonder** DB-mutatie, wachtwoord-reset of guard-check.
 Lukt het lezen van `TESTER_USERNAME`/`TESTER_PASSWORD` niet of zijn ze
 leeg/onleesbaar, dan — en alléén dan — val je terug op de vaste
 wegwerp-user `tester_<lowercase-STORY_ID>`: registreer/log in via de UI en
-`DELETE /api/account/me` aan het eind zodat de DB schoon blijft.
+`DELETE /api/account/me` aan het eind zodat de DB schoon blijft. Die naam
+voldoet aan de allowlist die registratie sinds SF-2208 afdwingt (3-64 tekens
+uit `[A-Za-z0-9._-]`); wijk er niet van af met spaties of andere tekens, want
+dan geeft `POST /api/auth/register` een `400`.
 **Meld expliciet** in je rapport dat je terugviel omdat de test-user-creds
 ontbraken — nooit een wachtwoord-reset of zelf-verzonnen login.
 

@@ -78,6 +78,7 @@ Toont een formulier met gebruikersnaam en wachtwoord.
 - Bij indienen: POST `/api/auth/login` of `/api/auth/register`
 - Bij succes: token en gebruikersnaam opslaan in `SharedPreferences`, app gaat naar MainShell
 - Foutmelding inline weergeven (geen pop-up)
+- Het scherm valideert zelf niets: elke afwijzing komt van de backend en wordt als één generieke tekst getoond. `AuthNotifier` vangt iedere `ApiException` af als `"Inloggen mislukt (${statusCode})"` (`auth_provider.dart`), ook bij registreren. Sinds SF-2208 kan `register` ook een `400` geven voor een gebruikersnaam die niet aan `^[A-Za-z0-9._-]{3,64}$` voldoet — die is voor de gebruiker dus niet te onderscheiden van een te kort wachtwoord (`400`) of een bezette naam (`409`). Een specifiekere Nederlandse melding per oorzaak is een bewust openstaande verbetering, geen bug
 - Formulier indienen via knop of toetsenbord Enter
 
 **Na herstart:** Als er een token in `SharedPreferences` staat, direct naar MainShell zonder LoginScreen te tonen.
