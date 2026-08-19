@@ -177,4 +177,33 @@ geen Docker/JDK nodig: `flutter test` draait op de Dart-VM.
 > Let op: `flutter pub get`/`flutter test` in `frontend-reader/` kan
 > `frontend-reader/pubspec.lock` muteren zonder dat `pubspec.yaml` wijzigt.
 > Zet zo'n kale lockfile-drift terug (`git checkout -- frontend-reader/pubspec.lock`)
-> voordat je afrondt.
+> voordat je afrondt. De container draait Flutter 3.44.7, terwijl CI
+> (`frontend-tests.yml`, `build-apk-reader.yml`) `3.35.0` pint — vandaar dat die
+> drift lokaal wél en in CI niet ontstaat.
+
+De reader-app had lang alleen de twee gegenereerde tests in `test/widget_test.dart`.
+Sinds SF-2200 staan er in `frontend-reader/test/` drie bestanden, samen **17 tests**:
+
+| Bestand | Dekt | Tests |
+|---|---|---|
+| `widget_test.dart` | `lib/models.dart` (bestaand, ongewijzigd) | 2 |
+| `read_store_test.dart` | `lib/local_store.dart` — `ReadStore` | 8 |
+| `time_format_test.dart` | `lib/time_format.dart` — `formatRelativeTime` | 7 |
+
+`read_store_test.dart` roept bovenin `main()` één keer
+`TestWidgetsFlutterBinding.ensureInitialized()` aan en zet per test een eigen
+`SharedPreferences.setMockInitialValues({...})` — zonder die binding is er geen
+platformkanaal voor de mock. Dat is hetzelfde patroon als
+`frontend/test/auth_logout_ws_test.dart`; per-test mockwaarden zijn voldoende
+isolatie, er is geen `setUp`/teardown nodig.
+
+Regeldekking meet je met `flutter test --coverage`; dat schrijft
+`coverage/lcov.info` (per bestand `LF` = regels, `LH` = gedekt). Stand na
+SF-2200: `lib/local_store.dart` 32/32, `lib/time_format.dart` 10/10,
+`lib/models.dart` 17/24 — samen 59/66 over de drie gedekte bestanden. De rest
+van `lib/` (o.a. `main.dart`, `api_client.dart`, de deep-link-bestanden) is nog
+ongedekt: `main.dart` gebruikt globale singletons (`readStore`, `api`) en
+`ApiClient` roept `http.get` rechtstreeks aan, dus een widgettest op het
+reader-scherm vraagt eerst een injectiepunt. Ruim `coverage/` na de meting op —
+de map is gitignored (`frontend-reader/.gitignore`), maar hij hoort niet in de
+werkboom rond te blijven slingeren.
