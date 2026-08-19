@@ -65,3 +65,18 @@ Verificatie:
   `newsfeedbackend/newsfeedbackend` `mvn -B --no-transfer-progress clean verify` → exit 0,
   129 unit + 77 e2e, 0 failures/errors, 0 `[WARNING]`-regels, 4:34 min.
 - `git status` toont alleen de twee nieuwe testbestanden en dit worklog.
+
+Review (SF-2201, ronde 1):
+- Diff t.o.v. `main` bevat exact drie bestanden (twee nieuwe tests + dit worklog); geen
+  `frontend-reader/lib/`, geen `pubspec.yaml`, geen `pubspec.lock`, `widget_test.dart`
+  onaangeroerd. AC4 voldaan.
+- Zelf herdraaid in `frontend-reader/`: `flutter test --coverage` → **17 tests groen**;
+  `lcov.info` geeft `local_store.dart` 32/32, `time_format.dart` 10/10, `models.dart`
+  17/24 = 59/66 — exact de cijfers uit het worklog. `flutter analyze`: geen issues.
+  `coverage/` na de meting weer verwijderd; werkboom schoon.
+- Harnessbewijs `[FACTORY VERIFICATION EVIDENCE]`: `backend-maven-verify` passed,
+  `testedTreeSha` = `c05ddfd8…` = `git rev-parse HEAD^{tree}`, dus het bewijs hoort bij
+  deze revisie.
+- Alle veertien gevraagde gevallen zijn gedekt, inclusief de notificatieteller via
+  `addListener`, de sentinel-assertie voor "geen schrijfactie", de `toggleStar`-
+  commentaarregel en het `load()`-loze randgeval. Geen bevindingen.
