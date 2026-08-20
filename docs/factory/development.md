@@ -182,7 +182,8 @@ geen Docker/JDK nodig: `flutter test` draait op de Dart-VM.
 > drift lokaal wél en in CI niet ontstaat.
 
 De reader-app had lang alleen de twee gegenereerde tests in `test/widget_test.dart`.
-Sinds SF-2200 staan er in `frontend-reader/test/` drie bestanden, samen **18 tests**:
+Sinds SF-2200 staan er in `frontend-reader/test/` drie bestanden, samen **18 tests**
+(SF-2200 bracht er 15, SF-2221 de achtste van `time_format_test.dart`):
 
 | Bestand | Dekt | Tests |
 |---|---|---|
@@ -197,9 +198,28 @@ platformkanaal voor de mock. Dat is hetzelfde patroon als
 `frontend/test/auth_logout_ws_test.dart`; per-test mockwaarden zijn voldoende
 isolatie, er is geen `setUp`/teardown nodig.
 
+`time_format_test.dart` test een pure functie waarvan de **hoofd-app een eigen
+kopie heeft** (`frontend/lib/util/time_format.dart`), en die twee kopieën zijn
+uiteengelopen. Vier van de acht tests asserteren daarom reader-gedrag dat in de
+hoofd-app anders is; bij elk staat sinds SF-2221 een comment met het antwoord
+van de hoofd-app ernaast, zodat wie de twee varianten ooit samenvoegt weet dat die rode
+tests de bedoeling waren en niet stilletjes de asserties "corrigeert":
+
+| Invoer | Reader (`frontend-reader/lib/time_format.dart`) | Hoofd-app (`frontend/lib/util/time_format.dart`) |
+|---|---|---|
+| < 1 min | `'zojuist'` (`:8`) | `'net binnen'` (`:18`) — `'zojuist'` is daar gereserveerd voor een negatief tijdsverschil (`:17`), een guard die de reader mist |
+| 5 minuten | `'5 min geleden'` (`:9`) | `'5 minuten geleden'` (`:21`) |
+| precies 1 dag | `'1 dagen geleden'` (`:11`, geen enkelvoudsvorm) | `'1 dag geleden'` (`:29`) |
+| precies 3 dagen | `'3 dagen geleden'`, grens `<= 3` (`:11`) | de absolute datum, grens `< 3` (`:27`) |
+
+De meervoudsfout bij precies één dag is bewust **vastgelegd, niet gerepareerd** —
+zie de karakteriseringstest-regel in `technical-spec.md` § Codeconventies. Het
+samenvoegen van de twee varianten is stof voor een aparte story.
+
 Regeldekking meet je met `flutter test --coverage`; dat schrijft
 `coverage/lcov.info` (per bestand `LF` = regels, `LH` = gedekt). Stand na
-SF-2200: `lib/local_store.dart` 32/32, `lib/time_format.dart` 10/10,
+SF-2200 (ongewijzigd na SF-2221 — de extra test raakt geen nieuwe regels):
+`lib/local_store.dart` 32/32, `lib/time_format.dart` 10/10,
 `lib/models.dart` 17/24 — samen 59/66 over de drie gedekte bestanden. De rest
 van `lib/` (o.a. `main.dart`, `api_client.dart`, de deep-link-bestanden) is nog
 ongedekt: `main.dart` gebruikt globale singletons (`readStore`, `api`) en

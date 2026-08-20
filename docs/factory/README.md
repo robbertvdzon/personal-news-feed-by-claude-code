@@ -13,6 +13,28 @@ Een zelf-gehoste persoonlijke nieuwsfeed met AI-curation, podcastgeneratie en mu
 - `secrets-local.md`: lokale secrets en omgevingsvariabelen.
 - `agents/`: rol-specifieke instructies voor factory-agents.
 
+## Storyverwijzingen in levende documentatie
+
+De levende documentatie (`docs/factory/`, `specs/`, `README.md`, `runbook.md`,
+`e2e/scenarios/`) tagt een afweging met het storynummer waar die afweging is
+gemaakt — "sinds SF-2207", "(SF-2130)". Dat nummer moet het **storynummer** zijn:
+het nummer waar een `docs/stories/SF-<nr>-*.md` en een
+`docs/stories/worklog/SF-<nr>-worklog.md` bij horen. De subtaaknummers binnen een
+story (developer, tester, documenter, …) zijn factory-intern: daar is geen
+storybestand, geen worklog en geen commit, dus een lezer die het nummer opzoekt
+komt op niets uit. SF-2221 heeft er twee zo gecorrigeerd — SF-2208 → SF-2207
+(12 plekken) en SF-2187 → SF-2186 (7 plekken).
+
+Verifieer een nummer vóór je het opschrijft:
+
+```bash
+ls docs/stories/SF-<nr>-*.md docs/stories/worklog/SF-<nr>-worklog.md
+```
+
+De storyverslagen in `docs/stories/` zelf zijn hierop de uitzondering: die zijn
+historisch verslag en verwijzen terecht naar hun eigen subtaaknummers. Corrigeer
+zo'n nummer dus per bestand en nooit met een repo-brede `sed`.
+
 ## Eerste leeslijst voor agents
 
 1. `docs/factory/technical-spec.md` — Spring Modulith-moduleregels, lagenstructuur, Maven-root
