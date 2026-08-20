@@ -61,6 +61,28 @@ class AuthServiceImplRegisterTest {
         verify(users).add(userWith { it.username == "user-a1b2c3d4" })
     }
 
+    /**
+     * Karakteriseringstest: legt bestaand gedrag vast, geen wens. De punt zit in de tekenset van
+     * `USERNAME_PATTERN`, dus `..` wordt *niet* uitgesloten en `a..b` levert gewoon een token op.
+     * Dat is geen gat — zonder `/` en `\` kan `..` nooit een eigen padsegment worden, en
+     * `AdminServiceImpl.deleteAudioDir` heeft daaronder nog de containment-check op
+     * `<data-dir>/users/`. Repareer deze assertie dus niet los: hij mag alleen wijzigen in
+     * dezelfde diff die de regex zelf verscherpt (die wijziging kan bestaande accounts raken en
+     * is stof voor een aparte story).
+     */
+    @Test
+    fun `accepts a username containing consecutive dots`() {
+        `when`(users.findByUsername("a..b")).thenReturn(null)
+        `when`(users.hasAdmin()).thenReturn(true)
+        `when`(jwt.create("a..b", User.ROLE_USER)).thenReturn("token-789")
+
+        val result = service.register("a..b", "geheim")
+
+        assertEquals("token-789", result.token)
+        assertEquals("a..b", result.username)
+        verify(users).add(userWith { it.username == "a..b" })
+    }
+
     @Test
     fun `rejects an empty username`() = assertRejected("")
 
@@ -74,7 +96,8 @@ class AuthServiceImplRegisterTest {
     fun `rejects a username containing a slash`() = assertRejected("a/b")
 
     @Test
-    fun `rejects a username containing a parent directory segment`() = assertRejected("../x")
+    fun `rejects a relative path style username because of its slash, not its dots`() =
+        assertRejected("../x")
 
     @Test
     fun `rejects a username containing a newline`() = assertRejected("alice\nadmin")
