@@ -34,3 +34,25 @@ Done / rationale:
 - Let op voor volgende rollen: de story noemde een unit-baseline van 129 → 130; die was
   verouderd. Werkelijk 141 → 142 (sinds SF-2207).
 - Volledige details in `docs/stories/SF-2228-corrigeer-dotdot-claim-username-allowlist.md`.
+
+SF-2230 (tester) — story-brede test, alle 9 AC's geverifieerd:
+- Live op preview `https://pnf-pr-237.vdzonsoftware.nl` (backend-pod draait `sha-2592fbc` = HEAD,
+  `/api/version` bevestigd) via `POST /api/auth/register` — het gedrag dat de gecorrigeerde tekst
+  nu beschrijft, gemeten in plaats van aangenomen:
+  `a..b` → 201 + token, `...` → 201, `..a` → 201, `a..` → 201;
+  `..` → 400 (te kort), `../x` → 400, `a/b` → 400, `a\b` → 400, `a b` → 400,
+  `alice\nadmin` → 400 — alle vier de afwijzingen met dezelfde generieke melding.
+  Opgeruimd: de 4 wegwerp-accounts via `DELETE /api/account/me` (200) + herlogin → 401.
+- `mvn -B --no-transfer-progress clean test` exit 0: **142 tests, 0 failures, 0 errors**,
+  17,5 s, 24 surefire-reports allemaal `failures="0" errors="0"`.
+  `AuthServiceImplRegisterTest` afzonderlijk: 11 tests groen.
+- AC3: `git diff main...HEAD` toont geen enkele wijziging aan de `USERNAME_PATTERN`-regel.
+- AC4: `echo 'a..b' | grep -E '^[A-Za-z0-9._-]{3,64}$'` matcht.
+- AC8: de resterende `` `..` ``-treffers buiten `docs/stories/` beweren geen van alle nog dat de
+  allowlist `..` uitsluit — het zijn de twee toegestane passages over bestaande accounts
+  (`specs/backend-functional-spec.md:61`, `AdminServiceImpl.kt:64`) plus de nieuwe, correcte
+  uitleg-zinnen. (`.task.md` staat in `.git/info/exclude` en is geen repo-inhoud.)
+- Frontend niet geraakt door deze story; ter completering wel een preview-screenshot van het
+  live loginscherm: `/work/screenshots/SF-2230-preview-login.png`.
+- Bevestigd: de AC-baseline van 129 → 130 tests is verouderd; werkelijk 141 → 142.
+- Werkboom na de testrun schoon (`git status --porcelain` leeg), geen lockfile-drift.
