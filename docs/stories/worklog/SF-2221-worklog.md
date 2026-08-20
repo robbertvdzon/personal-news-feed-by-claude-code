@@ -72,3 +72,41 @@ Review (SF-2222, reviewer, 2026-08-20) — akkoord, geen blockers:
 - [info] Story-log en worklog noemen `mvn … clean test` (141), terwijl de
   developer-handover `clean verify` meldt (141 unit + 77 e2e). Puur prozaverschil;
   het harnessbewijs is `backend-maven-verify` en dat is groen.
+
+## SF-2223 — Story-brede test (tester, 2026-08-20)
+
+Akkoord. Alle 11 AC's geverifieerd op branch `ai/SF-2221` (HEAD `29f261b`).
+
+**Testruns (alle exitcode 0, 0 failures, 0 errors):**
+- `flutter test` in `frontend-reader/`: **18 tests groen** (baseline 17), waaronder de
+  nieuwe `1 dag geleden geeft "1 dagen geleden"` — AC 1, 5.
+- `flutter test` in `frontend/`: 37 tests groen — AC 6.
+- `mvn -B --no-transfer-progress clean test` in `newsfeedbackend/newsfeedbackend/`:
+  `Tests run: 141, Failures: 0, Errors: 0`, BUILD SUCCESS (26,9 s) — AC 6.
+
+**Statische verificatie:**
+- AC 2/3: comments nagelopen tegen de bron; alle regelverwijzingen kloppen —
+  reader `lib/time_format.dart:8` (`'zojuist'`), `:9` (`'min geleden'`),
+  `:11` (`inDays <= 3`, geen enkelvoud); hoofd-app `frontend/lib/util/time_format.dart:17`
+  (`diff.isNegative` → `'zojuist'`), `:18` (`'net binnen'`), `:21` (`'5 minuten geleden'`),
+  `:27` (`inDays < 3` → absolute datum), `:29` (`'1 dag geleden'`).
+- AC 4: `git diff main...HEAD -- frontend-reader/test/time_format_test.dart` bevat
+  uitsluitend toegevoegde regels; geen bestaande assertie geraakt.
+- AC 7/8: beide AC-greps geven 0 treffers; `grep -rn "SF-2187" docs/stories/` houdt de
+  bestaande treffers in `SF-2186-Audit-…md` en `SF-2186-worklog.md`.
+- AC 9: `--word-diff` toont uitsluitend `SF-2208→SF-2207` en `SF-2187→SF-2186` als
+  gewijzigde tokens; 12 resp. 7 treffers op exact de in de scope genoemde regels
+  (incl. de dubbele vervanging op `specs/backend-technical-spec.md:588`).
+- AC 10: `docs/factory/development.md:185` = 18 tests, tabelregel `time_format_test.dart` = 8;
+  de regels 2 (`widget_test.dart`) en 8 (`read_store_test.dart`) staan ongewijzigd.
+- AC 11: `git status --porcelain` is leeg na alle testruns — geen `pubspec.lock`-drift,
+  geen `coverage/`-map.
+
+**Omgeving:** preview `https://pnf-pr-236.vdzonsoftware.nl` is live (HTTP 200,
+`/api/version` sha `7c6eb36`, springVersion 4.0.7); screenshot van het loginscherm in
+`/work/screenshots/SF-2223-preview-live.png`. `git diff 7c6eb36..HEAD` raakt alleen dit
+worklog, dus het preview-bewijs geldt onverkort voor HEAD. Een gedragstest in de browser
+is hier niet van toepassing: de story wijzigt nul regels productiecode (alleen
+`frontend-reader/test/` en documentatie), en de reader-app heeft sowieso geen per-PR
+preview (`deploy/base/reader-route.yaml` pint de vaste host `reader.vdzonsoftware.nl`).
+Geen flakes waargenomen; geen DB-mutaties, geen login nodig.
