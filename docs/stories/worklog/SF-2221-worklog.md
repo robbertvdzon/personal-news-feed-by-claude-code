@@ -44,3 +44,31 @@ Done / rationale:
 - Vangnet: reader 18 groen, frontend 37 groen, `mvn -B --no-transfer-progress clean test`
   BUILD SUCCESS met 141 tests / 0 failures / 0 errors. `frontend-reader/pubspec.lock`
   teruggezet; geen `coverage/`-map achtergebleven.
+
+Review (SF-2222, reviewer, 2026-08-20) — akkoord, geen blockers:
+- Revisie-anker: `git rev-parse HEAD^{tree}` = `e4f9e8e3…` == `testedTreeSha` uit
+  [FACTORY VERIFICATION EVIDENCE] (`backend-maven-verify` passed, exit 0). Het
+  harnessbewijs hoort dus bij precies deze diff.
+- Zelf gedraaid (frontend valt buiten `.factory/verification.yaml`):
+  `flutter test` in `frontend-reader/` = **18 groen** (de acht `time_format_test.dart`-
+  tests staan er per naam bij), `flutter test` in `frontend/` = **37 groen**,
+  `flutter analyze` in `frontend-reader/` = "No issues found". `git status` na die
+  runs schoon: geen `pubspec.lock`-drift, geen `coverage/`-map (AC 5, 6, 11).
+- AC 4 hard gemeten: `git diff main...HEAD -- frontend-reader/` toont 26 toegevoegde
+  en 0 verwijderde regels — geen enkele bestaande assertie geraakt.
+- Alle regelverwijzingen in de nieuwe comments nagelopen tegen de bron en ze kloppen
+  exact: reader `lib/time_format.dart:11` (`'$dagen dagen geleden'`, geen enkelvoud),
+  hoofd-app `:17` (`diff.isNegative` → `'zojuist'`), `:18` (`'net binnen'`),
+  `:21` (`'5 minuten geleden'`), `:27` (`inDays < 3`), `:29` (`'1 dag geleden'`).
+- Deel 3 gecontroleerd met een genormaliseerde diff (SF-2208/2207 → `@@A`,
+  SF-2187/2186 → `@@B`): elke `-`-regel heeft een exact gepaarde `+`-regel, dus
+  uitsluitend het storynummer wijzigt (AC 9). 12 nieuwe SF-2207- en 7 nieuwe
+  SF-2186-treffers; beide AC-greps geven 0 treffers (AC 7, 8) en
+  `docs/stories/SF-2186-*` houdt zijn 4 correcte SF-2187-verwijzingen.
+- [info] Het comment schrijft "Karakteriseringstest" met hoofdletter aan het begin
+  van de zin; een hoofdlettergevoelige grep op het exacte woord vindt hem daardoor
+  niet. Inhoudelijk voldoet AC 2 (woord, `'1 dag geleden'` en het correctieverbod
+  staan er alle drie).
+- [info] Story-log en worklog noemen `mvn … clean test` (141), terwijl de
+  developer-handover `clean verify` meldt (141 unit + 77 e2e). Puur prozaverschil;
+  het harnessbewijs is `backend-maven-verify` en dat is groen.
