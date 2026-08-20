@@ -182,13 +182,13 @@ geen Docker/JDK nodig: `flutter test` draait op de Dart-VM.
 > drift lokaal wél en in CI niet ontstaat.
 
 De reader-app had lang alleen de twee gegenereerde tests in `test/widget_test.dart`.
-Sinds SF-2200 staan er in `frontend-reader/test/` drie bestanden, samen **17 tests**:
+Sinds SF-2200 staan er in `frontend-reader/test/` drie bestanden, samen **18 tests**:
 
 | Bestand | Dekt | Tests |
 |---|---|---|
 | `widget_test.dart` | `lib/models.dart` (bestaand, ongewijzigd) | 2 |
 | `read_store_test.dart` | `lib/local_store.dart` — `ReadStore` | 8 |
-| `time_format_test.dart` | `lib/time_format.dart` — `formatRelativeTime` | 7 |
+| `time_format_test.dart` | `lib/time_format.dart` — `formatRelativeTime` | 8 |
 
 `read_store_test.dart` roept bovenin `main()` één keer
 `TestWidgetsFlutterBinding.ensureInitialized()` aan en zet per test een eigen
