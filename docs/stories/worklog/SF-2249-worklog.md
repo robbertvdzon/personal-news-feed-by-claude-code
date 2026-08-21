@@ -67,3 +67,43 @@ Geen enkele bestaande test hoefde aangepast te worden buiten de twee toegevoegde
 Eigen review op de diff: beide productieblokken zijn regel-voor-regel identiek verplaatst,
 geen herschrijving. Buiten scope gebleven zoals afgesproken: `SsrfUrlValidator`,
 `ArticleFetcher`, `PodcastAudioDownloader`, `specs/*`, de Flutter-apps, e2e en deploy.
+
+## SF-2251 — Story-brede test (tester)
+
+Resultaat: **akkoord**. Alle 7 acceptatiecriteria onafhankelijk nagemeten op `ai/SF-2249`
+(commit `c496131`); geen bevindingen.
+
+| AC | Meting | Uitkomst |
+| --- | --- | --- |
+| 1 | `mvn -B --no-transfer-progress clean test` | exit 0, BUILD SUCCESS, `Tests run: 142, Failures: 0, Errors: 0` |
+| 2 | grep op `/tmp/mvntest.log` | `[RSS] blocked SSRF-risky URL file:///etc/passwd: alleen http/https-URLs zijn toegestaan` (r.68) en dezelfde regel met `[PodcastFeed]` (r.109); geen `failed to fetch ...` meer |
+| 3 | `grep -c "invalid URI scheme"` | **0** (baseline op `main` zelf nagemeten: **3**) |
+| 4 | log-omvang | 332 regels (baseline `main`: 417); stacktrace in de `RssFetcherSsrfTest`-sectie is weg |
+| 5 | `grep -icE 'warning\|deprecat\|self-attach'` | **0** |
+| 6 | test-only wijziging op `main` in een tijdelijke kloon | exact 2 failures: `RssFetcherSsrfTest.blocks fetch for non-http scheme:42` en `PodcastFeedFetcherSsrfTest...:42`, beide `expected: <true> but was: <false>` |
+| 7 | volledig vangnet + diff-review | `mvn clean verify` exit 0: 142 unit + 77 e2e, 0 failures/0 errors; loopback- en RFC1918-tests ongewijzigd groen |
+
+Aantekeningen bij de meting:
+
+- **AC3/AC4-baseline zelf gemeten**, niet overgenomen: een schone kloon van `main` in `/tmp`
+  gaf 3 treffers en 417 regels (de story noemt 419 — omgevingsafhankelijk, orde van grootte
+  klopt). Delta is 85 regels.
+- **AC6 onafhankelijk gereproduceerd** door in die kloon *alleen* de twee testbestanden van de
+  branch te halen en `-Dtest='RssFetcherSsrfTest,PodcastFeedFetcherSsrfTest'` te draaien:
+  6 tests, 2 failures, precies de twee bedoelde. De asserties bewaken het gedrag dus echt.
+- De twee stacktraces die nog in `/tmp/mvntest.log` staan zijn **pre-existing** en bedoeld:
+  `java.lang.RuntimeException: db weg` uit bestaande fixtures, niet uit de SSRF-tests.
+- Preview `https://pnf-pr-239.vdzonsoftware.nl` draait `sha-c496131` (de developer-commit).
+  Live gecontroleerd via `PUT /api/rss-feeds`: `file:///etc/passwd` → 400
+  *"alleen http/https-URLs zijn toegestaan"*, `http://127.0.0.1:8080/feed.xml` → 400
+  *"loopback: 127.0.0.1"*, `https://dartweekly.com/rss` → 200. Dit bevestigt dat de
+  opslagvalidatie in `SettingsServiceImpl` een `file://`-feed al bij opslaan weigert; de
+  gewijzigde fetcher-tak is daardoor **niet via de UI bereikbaar** en de fix is per definitie
+  alleen langs de unit-tests aantoonbaar.
+- Geen browser-screenshots: de story raakt geen enkele frontend (diff bevat alleen backend-
+  Kotlin + worklog) en levert geen zichtbare UI-verandering op.
+- Inlogmodus: **fallback wegwerp-account** `tester_sf-2249`, omdat `TESTER_USERNAME`/
+  `TESTER_PASSWORD` niet in de omgeving stonden én de service-account het namespace-secret
+  niet mag lezen (`secrets "newsfeed-api-keys" is forbidden`). Geen wachtwoord-reset gebruikt.
+  Opgeruimd: `DELETE /api/account/me` → 200, herlogin → 401.
+- Geen flakes waargenomen; geen code, tests of infra gewijzigd.
