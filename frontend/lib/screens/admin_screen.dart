@@ -176,7 +176,14 @@ class AdminScreen extends ConsumerWidget {
           break;
       }
     } on ApiException catch (e) {
-      if (context.mounted) _snack(context, 'Fout: ${e.statusCode} ${e.body}');
+      // Backend stuurt bij een afwijzing een foutbody met een Nederlandse
+      // melding in het `error`-veld — die tonen we direct, zonder rauwe JSON
+      // of statuscode. Bewust géén 400-filter zoals bij de feed-/categorie-
+      // schermen: dit scherm heeft meerdere faalpaden (404/401/403/500) en
+      // álle backend-fouten passeren `GlobalExceptionHandler`.
+      if (context.mounted) {
+        _snack(context, extractDutchMessage(e.body, emptyFallback: 'Actie mislukt'));
+      }
     } catch (e) {
       if (context.mounted) _snack(context, 'Fout: $e');
     }

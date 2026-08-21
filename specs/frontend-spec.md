@@ -379,6 +379,7 @@ De rol komt uit het `role`-veld van de register-/login-response (`AuthResponse`,
 - **Beheer gebruikers-knop:** navigeert via `Navigator.push` naar AdminScreen.
   - AdminScreen toont alle gebruikers met hun rollen.
   - Per gebruiker: wachtwoord resetten, promoveren naar admin, degraderen naar user, verwijderen.
+  - Mislukt een beheeractie, dan toont een snackbar de **Nederlandse servermelding** uit het `error`-veld van de foutbody, gelezen via de gedeelde helper `extractDutchMessage` (`lib/api/api_client.dart`) — dus niet de rauwe responsebody en niet de HTTP-statuscode (SF-2242). Bij een lege body verschijnt de fallback "Actie mislukt"; bij een body zonder `error`-veld de body zelf.
 
 - **Beheer kosten-knop:** navigeert via `Navigator.push` naar AdminCostsScreen.
   - AdminCostsScreen toont kostenoverzichten per dag, per gebruiker en gedetailleerd logboek van externe API-calls.
