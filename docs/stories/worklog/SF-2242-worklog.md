@@ -70,3 +70,44 @@ Verificatie (vangnet uit docs/factory/development.md, frontend-kant):
 - Revisie-anker: `git rev-parse HEAD^{tree}` = `dbb1cf74` = `testedTreeSha` uit [FACTORY VERIFICATION EVIDENCE] (backend-maven-verify passed, exit 0).
 - Zelf gedraaid (frontend valt niet onder het harnessbewijs): `flutter test` = **40 groen**, `flutter analyze` = 6 pre-existing infos (identiek aan baseline), `git status` schoon na afloop.
 - Alle acceptatiecriteria 1-10 geverifieerd; geen blockers of bugs gevonden. Akkoord.
+
+## Test (SF-2244, story-brede test)
+
+Inlogmodus: **fallback wegwerp-account**. `TESTER_USERNAME`/`TESTER_PASSWORD` waren leeg en de
+SF-`agent:local`-harness heeft geen leesrechten op `newsfeed-api-keys`, dus geregistreerd via de
+Flutter-UI als `tester_sf-2244` en na afloop opgeruimd (`DELETE /api/account/me` = 200,
+herlogin = 401).
+
+Preview: `https://pnf-pr-238.vdzonsoftware.nl`, `GET /api/version` → sha `fa35ebc` = HEAD van
+`ai/SF-2242` (de reviewer-commit draait, dus het bewijs geldt voor de te mergen revisie).
+
+Gedragsbewijs in de browser (Playwright, viewport 420x900, screenshots in `/work/screenshots/`).
+Het admin-scherm is op preview niet bereikbaar met een gewoon account, dus de `role`-waarde uit
+de login-response is naar `admin` herschreven en `GET /api/admin/users` +
+`DELETE /api/admin/users/bob` zijn met `page.route` gemockt. Echte app-bundle, echte
+`ApiException`-afhandeling, alleen het serverantwoord is gestuurd:
+
+| Foutbody van de server | HTTP | Snackbar in beeld | Screenshot |
+| --- | --- | --- | --- |
+| `{"error":"Je kunt jezelf niet verwijderen"}` | 400 | `Je kunt jezelf niet verwijderen` | `14-snackbar-json.png` |
+| *(leeg)* | 500 | `Actie mislukt` | `14-snackbar-empty.png` |
+| `User not found: bob` | 404 | `User not found: bob` | `14-snackbar-plain.png` |
+
+In geen van de drie snackbars staat een accolade, een aanhalingsteken, de statuscode of het
+`Fout:`-voorvoegsel — AC2 en AC3 zijn daarmee live bewezen, niet alleen in een widgettest.
+
+Overige checks:
+- `cd frontend && flutter test`: **exit 0, 40 tests groen, 0 failures** (AC6, baseline 37 → ≥38).
+- `cd frontend && flutter analyze`: 6 issues, alle pre-existing infos in `feed_screen.dart:189`,
+  `podcast_detail_screen.dart:278`, `rss_detail_screen.dart:64` en `rss_screen.dart:67/78/228` —
+  geen enkele in `admin_screen.dart` of `admin_screen_test.dart` (AC7). Exit 1 is hier het normale
+  gedrag van `flutter analyze` bij info-lints, geen regressie.
+- AC1: `grep -n 'e\.body' frontend/lib/screens/admin_screen.dart` geeft alleen r185
+  (`extractDutchMessage(e.body, ...)`); `'Fout: ${e.statusCode}'` komt niet meer voor.
+- AC4: de generieke `catch (e)`-tak op r188 toont onveranderd `'Fout: $e'`; ook `usersAsync.when`
+  (r87) is ongewijzigd.
+- AC9/AC10: `git status --porcelain` leeg na alle runs (dus geen `pubspec.lock`-drift); de diff
+  raakt alleen de 5 bedoelde bestanden.
+- Geen DB-mutatie op preview behalve het eigen wegwerp-account; geen productie aangeraakt.
+
+Conclusie: geen bugs of blockers gevonden. Akkoord.
