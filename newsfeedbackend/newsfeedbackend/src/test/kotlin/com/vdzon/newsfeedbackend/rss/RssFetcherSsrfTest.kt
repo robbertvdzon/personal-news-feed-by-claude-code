@@ -39,5 +39,6 @@ class RssFetcherSsrfTest {
 
         assertTrue(items.isEmpty())
         assertEquals("error", loggedCall?.status)
+        assertTrue(loggedCall?.errorMessage?.contains("geblokkeerd") ?: false)
     }
 }

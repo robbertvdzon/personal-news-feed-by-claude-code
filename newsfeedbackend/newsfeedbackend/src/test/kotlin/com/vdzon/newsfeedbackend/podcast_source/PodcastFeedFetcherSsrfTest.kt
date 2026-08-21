@@ -39,6 +39,7 @@ class PodcastFeedFetcherSsrfTest {
         val result = fetcher.fetch("file:///etc/passwd", username = "system")
 
         assertFalse(result.ok)
+        assertTrue(result.errorMessage?.contains("geblokkeerd") ?: false)
         assertEquals("error", loggedCall?.status)
     }
 }

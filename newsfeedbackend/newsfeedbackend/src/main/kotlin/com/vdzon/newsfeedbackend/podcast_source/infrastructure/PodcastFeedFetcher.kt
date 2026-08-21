@@ -67,10 +67,6 @@ class PodcastFeedFetcher(
         var errorMessage: String? = null
         var itemCount = 0
         try {
-            val req = HttpRequest.newBuilder().uri(URI.create(feedUrl))
-                .header("User-Agent", "PersonalNewsFeed/1.0")
-                .timeout(Duration.ofSeconds(20))
-                .GET().build()
             // Defense-in-depth: verse DNS-resolutie vlak vóór het versturen,
             // ook al is de URL al gevalideerd bij opslaan (dekt DNS-rebinding af).
             val validation = SsrfUrlValidator.validate(feedUrl, allowLoopback = ssrfAllowLoopback)
@@ -80,6 +76,10 @@ class PodcastFeedFetcher(
                 errorMessage = "geblokkeerd: ${validation.reason}"
                 return FetchResult(ok = false, podcastName = "", episodes = emptyList(), errorMessage = errorMessage)
             }
+            val req = HttpRequest.newBuilder().uri(URI.create(feedUrl))
+                .header("User-Agent", "PersonalNewsFeed/1.0")
+                .timeout(Duration.ofSeconds(20))
+                .GET().build()
             val resp = http.send(req, HttpResponse.BodyHandlers.ofInputStream())
             if (resp.statusCode() >= 400) {
                 status = "error"
