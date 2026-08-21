@@ -293,6 +293,8 @@ private- (RFC1918/ULA) of multicast-adres. Op drie plekken:
   DNS-resolutie op dat moment (dekt DNS-rebinding af). Bij afwijzing wordt
   er geen HTTP-request verstuurd; de fetch levert `FetchResult(ok=false)` op
   met een `errorMessage` die "geblokkeerd" bevat, gelogd als `status="error"`.
+  Net als bij `RssFetcher` staat die validatie sinds SF-2249 vóór het opbouwen
+  van het `HttpRequest`, zodat dat ook geldt voor een niet-`http`/`https`-URL.
 - **Vlak vóór elke audio-/enclosure-fetch** (`PodcastAudioDownloader.download()`,
   SF-1877): de audio-URL komt uit de feed-inhoud zelf (tweede-orde-URL) en is
   dus nooit bij opslaan gevalideerd. Ook hier een verse DNS-resolutie op dat
@@ -498,7 +500,12 @@ multicast-adres. Dit gebeurt in de RSS-tak op drie plekken:
   op dat moment — dekt DNS-rebinding af (een URL die bij opslaan nog geldig
   was maar inmiddels naar een privé-adres resolvet). Bij afwijzing wordt er
   geen HTTP-request verstuurd; de fetch wordt behandeld als een gewone
-  fetch-fout (`status="error"`, lege itemlijst, gelogd via `logFetch`).
+  fetch-fout (`status="error"`, lege itemlijst, gelogd via `logFetch` met een
+  `errorMessage` die "geblokkeerd" bevat). Die validatie staat sinds SF-2249
+  vóór het opbouwen van het `HttpRequest`, zodat ook een niet-`http`/`https`-URL
+  (`file://`) als eigen weigering in het auditspoor komt en niet als
+  JDK-melding "invalid URI scheme" (zie de SSRF-conventie in
+  `docs/factory/technical-spec.md`).
 - **Vlak vóór elke artikel-fetch** (`ArticleFetcher.fetchPlainText()`, SF-1843):
   de artikel-URL komt uit de feed-inhoud zelf (tweede-orde-URL) en is dus nooit
   door de gebruiker ingetypt of bij opslaan gevalideerd. Ook hier een verse
@@ -553,7 +560,7 @@ Alle configuratie via `application.properties` of omgevingsvariabelen.
 ## 10. Foutafhandeling & Grenzen
 
 - **RSS-verwerking:** Als de AI-aanroep mislukt voor één artikel, wordt dat artikel overgeslagen; verwerking gaat door.
-- **RSS SSRF-afwijzing (SF-1345):** wijst de defense-in-depth-check in `RssFetcher.fetch()` een feed-URL af (zie §7.5), dan wordt die feed als `status="error"` gelogd en levert de fetch een lege itemlijst op — geen exception richting de caller/scheduler.
+- **RSS SSRF-afwijzing (SF-1345):** wijst de defense-in-depth-check in `RssFetcher.fetch()` een feed-URL af (zie §7.5), dan wordt die feed als `status="error"` gelogd met een `errorMessage` die "geblokkeerd" bevat en levert de fetch een lege itemlijst op — geen exception richting de caller/scheduler. Dat geldt sinds SF-2249 voor élke afwijzingsreden, ook een niet-`http`/`https`-schema: daarvóór ketste die categorie af op `HttpRequest.Builder.uri(...)` en kwam er "invalid URI scheme" in het auditspoor.
 - **Artikel-URL SSRF-afwijzing (SF-1843):** wijst de check in `ArticleFetcher.fetchPlainText()` de artikel-URL uit een feed-item af (zie §7.5), dan wordt er geen HTTP-request gedaan, wordt één externe call gelogd (`status="error"`, `units=0`, `errorMessage` bevat "geblokkeerd") en levert de fetch `null` op. `FeedItemGenerator` valt dan terug op het feed-fragment (`rss.snippet`) — identiek aan het bestaande gedrag bij een mislukte artikel-fetch; geen exception, de RSS-refresh loopt door.
 - **Podcast-feed SSRF-afwijzing (SF-1387):** wijst de defense-in-depth-check in `PodcastFeedFetcher.fetch()` een feed-URL af (zie §6.4), dan wordt de externe call als `status="error"` gelogd en levert de fetch `FetchResult(ok=false, errorMessage bevat "geblokkeerd")` op — geen HTTP-request, geen exception richting de caller.
 - **Podcast-audio SSRF-afwijzing (SF-1877):** wijst de defense-in-depth-check in `PodcastAudioDownloader.download()` de audio-/enclosure-URL af (zie §6.4), dan wordt er geen HTTP-request gedaan, wordt één externe call gelogd (`action=podcast_audio_download`, `status="error"`, `units=0`, `errorMessage` bevat "geblokkeerd") en levert `download()` `null` op. `PodcastTranscriptProcessor` volgt het bestaande `audioFile == null`-pad (status `SHOW_NOTES_DONE`, `errorMessage` "Audio-download faalde") — geen nieuw foutpad.

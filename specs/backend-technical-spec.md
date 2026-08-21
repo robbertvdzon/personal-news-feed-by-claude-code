@@ -298,7 +298,7 @@ sluiten de e2e-suite uit (`**/e2e/**`). De suite in
 `src/test/kotlin/com/vdzon/newsfeedbackend/` bestaat uit gerichte unit-tests:
 
 - `rss/RssFetcherImageUrlTest.kt` — extractie van de afbeeldings-URL uit RSS
-- `rss/RssFetcherSsrfTest.kt` — SSRF-defense-in-depth-check vlak vóór `http.send(...)` in `RssFetcher.fetch()` (SF-1345)
+- `rss/RssFetcherSsrfTest.kt` — SSRF-defense-in-depth-check vlak vóór `http.send(...)` in `RssFetcher.fetch()` (SF-1345); loopback, RFC1918 en het niet-http-schema leveren alle drie een lege itemlijst op met één `ExternalCall` (`status="error"`) waarvan de `errorMessage` `"geblokkeerd"` bevat. Die laatste assertie kwam er pas met SF-2249: zolang het `HttpRequest` vóór de validatie werd gebouwd, ketste `file:///etc/passwd` af op de JDK (`invalid URI scheme file`) en zou de assertie falen — de test was groen om de verkeerde reden. Hij hoort dus te falen zodra de validatie weer achter de request-opbouw belandt
 - `rss/ArticleFetcherSsrfTest.kt` — SSRF-check op de artikel-URL uit een feed-item vlak vóór `http.send(...)` in `ArticleFetcher.fetchPlainText()`; loopback, RFC1918, niet-http-scheme en het link-local metadata-endpoint leveren `null` op met één `ExternalCall` (`status="error"`, `units=0`) (SF-1843)
 - `ai/AiJsonTest.kt` — JSON-hulpfuncties voor AI-responses
 - `ai/AiPricingPropertiesTest.kt` — OpenAI-prijsconfiguratie (`app.ai.pricing`)
@@ -306,7 +306,7 @@ sluiten de e2e-suite uit (`**/e2e/**`). De suite in
 - `podcast/domain/PodcastScriptParserTest.kt` — parser van INTERVIEWER/GAST-scripts
 - `common/SsrfUrlValidatorTest.kt` — scheme-afwijzing, elke geblokkeerde IP-range-categorie, geldige publieke URL, niet-resolvebare host (SF-1345)
 - `settings/domain/SettingsServiceImplSaveRssFeedsTest.kt` — `saveRssFeeds` wijst ongeldige/SSRF-risicovolle feed-URLs af vóór opslag (SF-1345)
-- `podcast_source/PodcastFeedFetcherSsrfTest.kt` — SSRF-defense-in-depth-check vlak vóór `http.send(...)` in `PodcastFeedFetcher.fetch()` (SF-1387)
+- `podcast_source/PodcastFeedFetcherSsrfTest.kt` — SSRF-defense-in-depth-check vlak vóór `http.send(...)` in `PodcastFeedFetcher.fetch()` (SF-1387); loopback, RFC1918 en het niet-http-schema leveren `FetchResult(ok=false)` op met een `errorMessage` die `"geblokkeerd"` bevat en `status="error"` in de `external_calls`-regel. Net als bij `RssFetcherSsrfTest` is de assertie op `"geblokkeerd"` voor het niet-http-schema pas met SF-2249 toegevoegd en bewaakt hij de volgorde validatie-vóór-request-opbouw
 - `podcast_source/PodcastAudioDownloaderSsrfTest.kt` — SSRF-check op de audio-/enclosure-URL uit een podcast-aflevering vlak vóór `http.send(...)` in `PodcastAudioDownloader.download()`; loopback, RFC1918, niet-http-scheme en het link-local metadata-endpoint leveren `null` op met één `ExternalCall` (`status="error"`, `units=0`) (SF-1877)
 - `settings/domain/SettingsServiceImplSavePodcastFeedsTest.kt` — `savePodcastFeeds` wijst ongeldige/SSRF-risicovolle feed-URLs af vóór opslag (SF-1387)
 - `podcast_source/domain/PodcastFeedsServiceImplTest.kt` — `savePodcastFeeds` fetcht alleen nieuwe, niet-blanco URLs (bestaande en blanco worden overgeslagen), slaat op vóór het triggeren van de ingestion, en gooit bij een mislukte fetch een `BadRequestException` met de melding `Kon feed niet ophalen: <url> (<reden>|onbekende fout)` zonder op te slaan of te triggeren; gemockte `SettingsService`/`PodcastIngestionTrigger`/`PodcastFeedFetcher` (SF-1683)
