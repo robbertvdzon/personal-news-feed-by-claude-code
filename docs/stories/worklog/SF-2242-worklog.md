@@ -63,3 +63,10 @@ Verificatie (vangnet uit docs/factory/development.md, frontend-kant):
   `[Podcast]`-logregel, geen regressie).
 - `frontend/pubspec.lock` is ongewijzigd; de drift op `frontend-reader/pubspec.lock` (bijproduct
   van `flutter pub get` op Flutter 3.44.7 vs 3.35.0 in CI) is teruggezet met `git checkout`.
+
+## Review (SF-2243, ronde 1)
+
+- Reviewer heeft de volledige story-diff (`git diff main...HEAD`) beoordeeld: 5 bestanden, geen scope-overschrijding (`newsfeedbackend/`, `specs/openapi.yaml`, `frontend-reader/`, `frontend/lib/api/api_client.dart`, `frontend/pubspec.lock` alle ongewijzigd).
+- Revisie-anker: `git rev-parse HEAD^{tree}` = `dbb1cf74` = `testedTreeSha` uit [FACTORY VERIFICATION EVIDENCE] (backend-maven-verify passed, exit 0).
+- Zelf gedraaid (frontend valt niet onder het harnessbewijs): `flutter test` = **40 groen**, `flutter analyze` = 6 pre-existing infos (identiek aan baseline), `git status` schoon na afloop.
+- Alle acceptatiecriteria 1-10 geverifieerd; geen blockers of bugs gevonden. Akkoord.
