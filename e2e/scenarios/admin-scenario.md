@@ -47,6 +47,11 @@ de sectie **Beheer** is dan simpelweg afwezig in Instellingen.
   > vragen een bevestigingsdialoog ("Bevestig", knoppen "Annuleren"/"Doorgaan") — annuleer die altijd.
   > "Maak admin" kent **géén** bevestiging en past de rol **direct** toe (snackbar "<user> is nu
   > admin"); tik die optie daarom in de e2e-run **niet** aan — sluit het menu i.p.v. te kiezen.
+  > Faalt een beheeractie tóch (bijv. een verouderde lijst → 404 nadat een andere admin het account
+  > al verwijderde), dan verschijnt sinds SF-2242 een snackbar met **alleen de servermelding** uit
+  > het `error`-veld — dus zónder `{"error": …}`-JSON, zonder statuscode en zonder het voorvoegsel
+  > "Fout:". Bij een lege body staat er "Actie mislukt". Let op: sommige backend-meldingen zijn
+  > Engels (`User not found: <naam>`) — dat is bekend en geen faalconditie.
 
 ### 2. Kosten-overzicht (`AdminCostsScreen`)
 - Tik in de AppBar van het Admin-scherm op **"Kosten-overzicht"** (`payments`).
@@ -96,7 +101,11 @@ de sectie **Beheer** is dan simpelweg afwezig in Instellingen.
 ## Faal-condities
 - ❌ De sectie **Beheer** verschijnt bij een **niet-admin** account (= `auth.isAdmin`-gate omzeild).
 - ❌ `AdminScreen` laadt niet (foutmelding **"Fout: …"** i.p.v. de gebruikerslijst) terwijl het
-  account admin is (= `/api/admin/users` faalt — check backend log).
+  account admin is (= `/api/admin/users` faalt — check backend log). Dit is de *lijst*-fout uit
+  `usersAsync.when`; die houdt bewust het "Fout: …"-formaat, want er is daar geen responsebody.
+- ❌ Een mislukte **beheeractie** toont een snackbar met rauwe JSON (`{"error": …}`), met een
+  HTTP-statuscode of met het voorvoegsel **"Fout:"** (= de `extractDutchMessage`-afhandeling uit
+  SF-2242 is weggevallen).
 - ❌ Het eigen account toont een **"Verwijderen"**-optie (= self-delete-guard ontbreekt).
 - ❌ `AdminCostsScreen` toont een fout i.p.v. de totaal-kaarten/tabs terwijl er een admin-sessie is
   (= `/api/admin/costs/…` faalt).

@@ -379,6 +379,10 @@ De rol komt uit het `role`-veld van de register-/login-response (`AuthResponse`,
 - **Beheer gebruikers-knop:** navigeert via `Navigator.push` naar AdminScreen.
   - AdminScreen toont alle gebruikers met hun rollen.
   - Per gebruiker: wachtwoord resetten, promoveren naar admin, degraderen naar user, verwijderen.
+  - Mislukt een beheeractie, dan toont een snackbar de **Nederlandse servermelding** uit het `error`-veld van de foutbody, gelezen via de gedeelde helper `extractDutchMessage` (`lib/api/api_client.dart`) — dus niet de rauwe responsebody en niet de HTTP-statuscode (SF-2242). Bij een lege body verschijnt de fallback "Actie mislukt"; bij een body zonder `error`-veld de body zelf.
+    - Anders dan bij de lijst-editors in §9a/§9b is dit een **neutrale** snackbar (`_snack` zet geen `backgroundColor`), en er is geen statuscode-filter: élke `ApiException` wordt geëxtraheerd, omdat een beheeractie op meerdere manieren kan falen (400/401/403/404/500) en álle backend-fouten dezelfde `{"error": …}`-vorm hebben.
+    - **Twee losse foutoppervlakken, niet verwarren:** bovenstaande geldt voor de *acties*. Faalt het **laden** van de gebruikerslijst zelf, dan komt dat uit de `error:`-tak van `usersAsync.when` — dat is een `AsyncError` zonder responsebody en die toont onveranderd "Fout: …" in de body van het scherm. Alleen de acties hebben een `ApiException` met een servermelding erin.
+    - **Bekende openstaande verbetering:** niet alle admin-meldingen van de backend zijn Nederlands. `AdminServiceImpl` gooit bij een onbekend account `NotFoundException("User not found: <naam>")`, dus die Engelse zin komt nu letterlijk in de snackbar (voorheen als JSON-fragment — dus wél een verbetering). Vernederlandsen is backendwerk en viel buiten SF-2242.
 
 - **Beheer kosten-knop:** navigeert via `Navigator.push` naar AdminCostsScreen.
   - AdminCostsScreen toont kostenoverzichten per dag, per gebruiker en gedetailleerd logboek van externe API-calls.
