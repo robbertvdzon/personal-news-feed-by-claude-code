@@ -45,3 +45,20 @@ Done / rationale:
 Daarmee zijn de vier artefacten uit de aanleiding op de doelversies waarvoor OSV.dev tijdens de audit leeg
 terugkwam (log4j-api 2.25.4 -> 2.25.5, postgresql 42.7.11 -> 42.7.13, `com.fasterxml` jackson-databind
 2.21.4 -> 2.21.5, `tools.jackson` jackson-databind 3.1.4 -> 3.1.5): 6 advisories -> 0.
+
+## Review (SF-2271, ronde 1)
+
+- Revisie-anker: `git rev-parse HEAD^{tree}` = `ba62139f…` == `testedTreeSha` uit
+  `[FACTORY VERIFICATION EVIDENCE]` (`backend-maven-verify` status=passed, exit 0). Bewijs hoort bij deze diff.
+- AC1/AC2: diff raakt exact pom-regel 10 + dit worklog; `grep -c '4\.0\.7'` op de pom = 0;
+  geen nieuwe `<version>`-pin of versie-property voor log4j/postgresql/jackson.
+- AC5: geverifieerd uit de fat jar van deze revisie (`unzip -l target/newsfeedbackend-1.0.0.jar`):
+  log4j-api-2.25.5, postgresql-42.7.13, jackson-databind-3.1.5 en jackson-databind-2.21.5 in `BOOT-INF/lib`.
+- AC3/AC4 zelf herdraaid (`mvn -B --no-transfer-progress -o test`): BUILD SUCCESS,
+  `Tests run: 142, Failures: 0, Errors: 0, Skipped: 0`, ruisfilter = 0.
+- AC6: de vier `dependency:tree`-regels staan letterlijk in dit worklog. AC7 gedekt door de harness-run.
+- [suggestie] voor de documentatie-subtaak: `specs/openapi.yaml:1316` heeft nog `example: 4.0.7` bij
+  `springVersion`. Puur een spec-voorbeeld (waarde komt runtime uit `SpringBootVersion.getVersion()`),
+  dus geen blocker en buiten scope van deze subtaak.
+
+Besluit: akkoord.
