@@ -92,3 +92,48 @@ niets stilzwijgend gerepareerd.
   vast dat niet uit de code blijkt: de herkomst van de veldnamen (`FeedItemDto.kt`), de reden
   voor de hardgecodeerde `@JsonProperty`-velden, welke drie velden bewust géén terugval hebben,
   en waarom `liked: null` letterlijk in de aanroep moet staan.
+
+## SF-2265 — Story-brede test (tester)
+
+Onafhankelijk nagemeten in `frontend/` met Flutter 3.44.7; niets gewijzigd aan code of tests.
+
+| Check | Resultaat |
+|---|---|
+| `flutter pub get` | OK, `pubspec.lock` en `pubspec.yaml` blijven ongewijzigd |
+| `flutter test` | **exit 0**, 49 tests groen, 0 failures / 0 errors |
+| `flutter test --coverage` | **exit 0**, 49 groen |
+| `lib/models/models.dart` ná | `LH: 107` / `LF: 200` — ruim boven de ondergrens 82 uit AC 3 |
+| App-breed ná | 765/2785 = **27,5 %** |
+| Baseline (zelfde suite zónder `models_test.dart`, 40 tests groen) | `models.dart` `LH: 11`/`LF: 200`; app-breed 669/2785 = **24,0 %** |
+
+De vóór-cijfers uit het worklog zijn dus zelfstandig gereproduceerd: de nieuwe tests tillen
+`models.dart` van 11 naar 107 gedekte regels en de app-brede dekking van 24,0 % naar 27,5 %.
+
+Acceptatiecriteria: AC 1 t/m 7 voldaan. De zes gevallen zitten alle in
+`frontend/test/models_test.dart` (9 tests); `git diff main...HEAD` toont uitsluitend dat
+testbestand en dit worklog — geen enkel bestand onder `frontend/lib/`, geen `coverage/`,
+geen lockfile. De `coverage/`-map van mijn eigen metingen is na afloop verwijderd.
+
+Preview-verificatie (PR 240, `https://pnf-pr-240.vdzonsoftware.nl`), screenshots in
+`/work/screenshots`:
+- De story raakt geen productiecode, dus er is geen story-specifiek UI-gedrag te zien; de
+  preview is als rooktest gebruikt. Login-scherm, Feed-tab, RSS-tab en Instellingen-tab
+  renderen normaal; Instellingen toont frontend- én backend-build `1f5d7b2`, gelijk aan de
+  branch-commit. Geen console-fouten buiten de hieronder genoemde 403.
+
+Signaleringen voor een volgende ronde (niet gerepareerd, buiten scope van deze story):
+- **Inlog-modus**: de default-modus (vaste test-user uit het namespace-secret) was niet
+  beschikbaar — `TESTER_USERNAME`/`TESTER_PASSWORD` zijn niet gezet in deze harness en de
+  serviceaccount `agent-access:claude-agent` mag `secrets/newsfeed-api-keys` in `pnf-pr-240`
+  niet lezen (`Forbidden`). Volgens contract teruggevallen op het wegwerp-account
+  `tester_sf-2265`, via de UI geregistreerd.
+- **Restant testdata**: het opruimen van dat wegwerp-account is *niet* gelukt.
+  `DELETE /api/account/me` gaf **403**: het bearer-token is uit `localStorage` gehaald met een
+  heuristiek, terwijl de app het via `SharedPreferences` onder `flutter.token` opslaat
+  (`auth_provider.dart:47`), en het wachtwoord was per run willekeurig gegenereerd en dus niet
+  opnieuw bruikbaar. De user `tester_sf-2265` blijft daardoor in de preview-DB van PR 240
+  achter, zonder feeds of categorieën. Die per-PR Neon-branch wordt bij PR-close in zijn geheel
+  opgeruimd, dus er blijft niets buiten de preview staan. Productie is niet geraakt.
+- Het worklog verwijst voor de `isDailyUpdate`-signalering naar `models.dart:335`; de regel
+  staat feitelijk op **`models.dart:337`** (zoals de story ook noemt). Puur een regelnummer,
+  de signalering zelf klopt.
