@@ -579,7 +579,10 @@ flutter build apk --release \
 
 De app heeft tests onder `frontend/test/`: widget-tests (`widget_test.dart`,
 `main_shell_test.dart`, `settings_screen_test.dart`, `rss_feeds_screen_test.dart`,
-`categories_screen_test.dart`) en unittests. `ws_client_test.dart` (SF-2166) legt
+`categories_screen_test.dart`, `admin_screen_test.dart`) en unittests
+(`ws_client_test.dart`, `auth_logout_ws_test.dart`,
+`podcast_in_progress_statuses_test.dart`, `models_test.dart`) — samen **49 tests**
+(SF-2263 bracht er 9). `ws_client_test.dart` (SF-2166) legt
 de vorm van de WebSocket-URL vast: het token komt er url-gecodeerd als
 queryparameter `token` op, `http(s)` wordt `ws(s)`, en zonder token wordt er geen
 URL gebouwd én geen verbinding geopend. `auth_logout_ws_test.dart` (SF-2166) is
@@ -593,6 +596,43 @@ poll-timer niet opnieuw uit elkaar kunnen lopen; sinds SF-2123 legt hij ook
 vast dat `kPodcastTranslationInProgressStatuses` exact de drie vertaalstatussen
 bevat én een *echte* deelverzameling van de gedeelde set blijft — die laatste
 assertie is de vangrail die omvalt zodra de twee lijsten uiteenlopen.
+
+`models_test.dart` (SF-2263) is de eerste test op het **JSON-contract** van
+`lib/models/models.dart` en dekt de twee modellen die door de feed- en
+RSS-schermen stromen. Vier dingen liggen er nu vast. (1) `FeedItem.fromJson`
+met een volledige payload: alle twintig velden landen op het juiste veld. De
+veldnamen komen één-op-één uit het DTO dat de backend serialiseert
+(`newsfeedbackend/.../feed/api/dto/FeedItemDto.kt`); `summary`, `isRead` en
+`isSummary` staan daar met een expliciete `@JsonProperty` — die drie staan
+daarom hardgecodeerd in de testdata en niet afgeleid van de Kotlin-veldnaam.
+`createdAt` is backend-side een `Instant` en komt als ISO-8601-**string** over
+de lijn. (2) De terugvallen bij een lege payload, voor `FeedItem` én `RssItem`:
+`category` = `'overig'`, `mediaType` = `'ARTICLE'`, `summarySource` =
+`'transcript'`, lege lijsten voor `topics`/`sourceRssIds`/`sourceUrls`/
+`keyTakeaways` — en `url`/`liked`/`imageUrl`/`durationSeconds` blijven bewust
+`null`, die hebben géén terugval. (3) Beide takken van `listPreview`
+(`models.dart:61`): een gevulde `shortSummary` wint, anders valt hij terug op
+`summary` met samengevouwen en getrimde witruimte. (4) De drietrapswaarde
+`liked` in `copyWith` (`models.dart:87`/`:210`, sentinel op `:102`/`:225`):
+`copyWith(isRead: true)` laat `liked` staan, `copyWith(liked: false)` zet
+`false`, en `copyWith(liked: null)` zet hem écht op `null` in plaats van hem te
+laten staan. Dat laatste is de hele reden dat de `_Sentinel`-constructie
+bestaat — `data_providers.dart:92`/`:154` gebruiken het voor de optimistische
+UI-update van duim-omhoog/duim-omlaag/geen-mening — en het is de assertie die
+bij een "opruimende" refactor van `Object? liked = const _Sentinel()` naar
+`bool? liked` stil omslaat. Schrijf `liked: null` daarom altijd **letterlijk in
+de aanroep**; via een tussenvariabele duikt de sentinel-default weer op en
+bewaakt de test niets.
+
+De resterende vijf modellen (`PodcastFeed`, `CategorySettings`, `NewsRequest`,
+`Podcast`, `EpisodeLookup`) zijn nog ongedekt; dat is de logische tweede stap nu
+het patroon staat. Openstaand punt dat SF-2263 bewust **niet** repareerde:
+`NewsRequest.fromJson` (`models.dart:337`) leest
+`j['isHourlyUpdate'] ?? j['isDailyUpdate'] ?? false`, terwijl `isDailyUpdate`
+nergens meer in de backend of in `specs/openapi.yaml` voorkomt
+(`JacksonConfig.kt:27` documenteert die hernoeming juist als reden om onbekende
+velden te negeren). Dode terugvalcode — opruimen of bewust bewaren als
+bescherming tegen oude, lokaal gecachete JSON is stof voor een aparte story.
 
 ```bash
 cd frontend

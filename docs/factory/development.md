@@ -179,7 +179,27 @@ geen Docker/JDK nodig: `flutter test` draait op de Dart-VM.
 > Zet zo'n kale lockfile-drift terug (`git checkout -- frontend-reader/pubspec.lock`)
 > voordat je afrondt. De container draait Flutter 3.44.7, terwijl CI
 > (`frontend-tests.yml`, `build-apk-reader.yml`) `3.35.0` pint — vandaar dat die
-> drift lokaal wél en in CI niet ontstaat.
+> drift lokaal wél en in CI niet ontstaat. `frontend/pubspec.lock` (de hoofd-app)
+> muteert daar niet van — nagemeten in SF-2263 met dezelfde 3.44.7: lege diff.
+
+De hoofd-app heeft sinds SF-2263 **49 tests** in tien bestanden onder
+`frontend/test/`: zes widget-tests en vier unittests. De inhoudelijke
+beschrijving per bestand staat in `specs/frontend-spec.md` § 13 "Tests draaien";
+die lijst is de living plek, hier staat alleen de stand.
+
+Regeldekking van de hoofd-app, gemeten met `flutter test --coverage` in
+`frontend/` (Flutter 3.44.7, som over alle `LH`/`LF` in `coverage/lcov.info`):
+
+| Meting | Vóór SF-2263 | Ná SF-2263 |
+|---|---|---|
+| `lib/models/models.dart` | `LH: 11` / `LF: 200` | `LH: 107` / `LF: 200` |
+| App-breed | 669/2785 = **24,0 %** | 765/2785 = **27,5 %** |
+
+`models_test.dart` dekt de eerste twee van de zeven modelklassen (`FeedItem`,
+`RssItem`); de overige vijf (`PodcastFeed`, `CategorySettings`, `NewsRequest`,
+`Podcast`, `EpisodeLookup`) draaien hun `fromJson` nog niet en verklaren het
+gat tot 200. Ruim `coverage/` na de meting op — de map is gitignored
+(`frontend/.gitignore:34`), maar hoort niet in de werkboom te blijven slingeren.
 
 De reader-app had lang alleen de twee gegenereerde tests in `test/widget_test.dart`.
 Sinds SF-2200 staan er in `frontend-reader/test/` drie bestanden, samen **18 tests**
