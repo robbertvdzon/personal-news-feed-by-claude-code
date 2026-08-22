@@ -107,12 +107,21 @@ zie `specs/backend-technical-spec.md` §7. De Cucumber- en WireMock-dependencies
 staan nog in `pom.xml`, maar lijken ongebruikt (geen feature-bestanden,
 step-definitions of WireMock-stubs gevonden).
 
+> **`mvn verify` werkt óók in de agentcontainer.** `which docker` is daar leeg, maar
+> dat zegt alleen dat de CLI ontbreekt: Testcontainers praat rechtstreeks tegen
+> `/var/run/docker.sock` en die socket is gemount. Concludeer dus niet uit een lege
+> `which docker` dat de e2e-suite lokaal onmogelijk is (SF-2270 draaide `clean verify`
+> in de container: 142 unit + 77 e2e groen in ~4 min). Test de socket in plaats van de CLI.
+
 De testbuild is sinds SF-1945 warning-vrij: `mvn -B clean test` produceert nul
 `[WARNING]`-regels (daarvóór 92 `asText()`-deprecations uit de e2e-tests).
 Sinds SF-2151 is óók de JVM-ruis weg: de uitvoer bevat nul regels die matchen op
 `grep -icE 'warning|deprecat|self-attach'` (baseline 6 regels — Mockito's
 dynamic-self-attach-waarschuwing van de JDK plus de bijbehorende
-`Sharing is only supported for boot loader classes`-CDS-regels). Er is geen
+`Sharing is only supported for boot loader classes`-CDS-regels). Dat nulgetal geldt
+voor de **`clean test`**-log; de `verify`-log heeft één bekende, niet-regressieve hit
+(de bewust negatieve `[Podcast] … (zie [TTS]-warnings)`-applicatielogregel uit
+`PodcastGenerationE2eTest`). Er is geen
 build-gate die op warnings faalt, dus behandel elke nieuwe `[WARNING]`- of
 JVM-waarschuwingsregel in de output als een signaal dat je zelf oppakt.
 Controleer met de log in een bestand:
