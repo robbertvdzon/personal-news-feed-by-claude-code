@@ -65,3 +65,23 @@ Review SF-2285 (2026-08-23) — akkoord, geen bevindingen:
   **14 van 14** met de 3/4/3/4-uitsplitsing.
 - Vorm van de vijf nieuwe asserties is identiek aan de bestaande loopback-case in hetzelfde
   bestand; geen nieuwe imports, geen productiecode geraakt.
+
+Test SF-2286 (2026-08-23) — akkoord, geen bevindingen:
+- AC1: `mvn -B --no-transfer-progress clean test` vanuit `newsfeedbackend/newsfeedbackend`:
+  exit 0, BUILD SUCCESS, `Tests run: 142, Failures: 0, Errors: 0, Skipped: 0`.
+  Testlog 332 regels (worklog noteerde 331; 1 regel verschil is een tijd-/volgorderegel,
+  geen extra ruis — zie AC3).
+- AC2: `grep -c 'geblokkeerd'` = `RssFetcherSsrfTest` 3, `ArticleFetcherSsrfTest` 4,
+  `PodcastFeedFetcherSsrfTest` 3, `PodcastAudioDownloaderSsrfTest` 4 — samen 14 van 14.
+- AC3: ruisfilter `grep -icE 'warning|deprecat|self-attach'` op de testlog = 0.
+  (De 26 `WARN `-regels zijn de legitieme SSRF-afwijzingslogging; daar is bewust niet op gegrept.)
+- AC4: `git diff --name-only main...HEAD | grep src/main` is leeg; alleen de drie testbestanden,
+  `docs/factory/technical-spec.md` en dit worklog. Productiepad `ArticleFetcher.kt:53` zet nog
+  steeds `errorMessage = "geblokkeerd: ${validation.reason}"` — ongewijzigd.
+- AC5: `technical-spec.md:105` bevat geen "deden het al"-claim meer en noemt expliciet 14 van 14.
+- Niet-vacuïteit van de vijf nieuwe asserties: bij een `null` errorMessage valt
+  `?: false` naar `false` en faalt de test — ze kunnen dus niet stil groen staan.
+- Preview-smoke `https://pnf-pr-242.vdzonsoftware.nl/`: HTTP 200 (root laadt);
+  `/api/actuator/health` geeft 403 (auth-guarded, verwacht). Geen UI-screenshots gemaakt:
+  de diff raakt uitsluitend testcode en één docregel, er is geen frontend- of runtimegedrag
+  gewijzigd om visueel te bewijzen.
