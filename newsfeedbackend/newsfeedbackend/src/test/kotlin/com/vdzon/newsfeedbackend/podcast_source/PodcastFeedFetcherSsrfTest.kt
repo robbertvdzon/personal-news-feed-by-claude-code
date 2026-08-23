@@ -31,6 +31,7 @@ class PodcastFeedFetcherSsrfTest {
         val result = fetcher.fetch("http://10.0.0.5/feed.xml", username = "system")
 
         assertFalse(result.ok)
+        assertTrue(result.errorMessage?.contains("geblokkeerd") ?: false)
         assertEquals("error", loggedCall?.status)
     }
 

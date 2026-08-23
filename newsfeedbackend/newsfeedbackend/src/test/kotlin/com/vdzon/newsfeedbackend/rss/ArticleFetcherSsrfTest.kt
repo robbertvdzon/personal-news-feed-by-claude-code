@@ -35,6 +35,15 @@ class ArticleFetcherSsrfTest {
         assertEquals(url, call.subject)
     }
 
+    // De errorMessage-assertie in de drie tests hieronder bewaakt dat de afwijzing
+    // van `SsrfUrlValidator` komt en niet van elders; ruim hem dus niet los op,
+    // alleen in dezelfde diff die `ArticleFetcher` meeverandert. Twee motieven, niet door
+    // elkaar halen: bij het niet-http-schema bewaakt hij dat `ArticleFetcher` valideert
+    // VOOR het opbouwen van het `HttpRequest` — draait iemand die volgorde om, dan weigert
+    // `HttpRequest.Builder.uri(...)` de URL zelf en staat er "invalid URI scheme file" in
+    // external_calls in plaats van onze eigen reden. Bij de RFC1918- en link-local-case
+    // weigert de JDK niets; daar bewaakt hij dat de "error"-status van onze validator komt
+    // en niet van een netwerk- of DNS-fout.
     @Test
     fun `blocks article fetch for private rfc1918 host`() {
         val text = fetcher.fetchPlainText("bob", "http://10.0.0.5/artikel.html")
@@ -42,6 +51,7 @@ class ArticleFetcherSsrfTest {
         assertNull(text)
         assertEquals(1, loggedCalls.size)
         assertEquals("error", loggedCalls.single().status)
+        assertTrue(loggedCalls.single().errorMessage?.contains("geblokkeerd") ?: false)
     }
 
     @Test
@@ -51,6 +61,7 @@ class ArticleFetcherSsrfTest {
         assertNull(text)
         assertEquals(1, loggedCalls.size)
         assertEquals("error", loggedCalls.single().status)
+        assertTrue(loggedCalls.single().errorMessage?.contains("geblokkeerd") ?: false)
     }
 
     @Test
@@ -60,5 +71,6 @@ class ArticleFetcherSsrfTest {
         assertNull(text)
         assertEquals(1, loggedCalls.size)
         assertEquals("error", loggedCalls.single().status)
+        assertTrue(loggedCalls.single().errorMessage?.contains("geblokkeerd") ?: false)
     }
 }
