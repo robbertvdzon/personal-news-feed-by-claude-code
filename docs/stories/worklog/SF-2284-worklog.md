@@ -49,3 +49,19 @@ Verificatie (agentcontainer, 2026-08-23):
   `PodcastFeedFetcherSsrfTest` 3, `PodcastAudioDownloaderSsrfTest` 4 — samen 14.
 - `git diff --stat`: uitsluitend de drie testbestanden + `docs/factory/technical-spec.md`
   (15 insertions, 1 deletion); niets onder `src/main`.
+
+Review SF-2285 (2026-08-23) — akkoord, geen bevindingen:
+- Revisie-anker hard: `git rev-parse HEAD^{tree}` = `632c1418…` = `testedTreeSha` uit
+  [FACTORY VERIFICATION EVIDENCE] (`backend-maven-verify` passed, exit 0). Het groene bewijs
+  hoort dus bij precies deze boom.
+- AC1: `target/surefire-reports` uit die run sommeert tot 142 tests; `grep -hL "Failures: 0,
+  Errors: 0" target/*-reports/*.txt` is leeg (alles groen).
+- AC2 zelf nagemeten: `grep -c 'geblokkeerd'` = 3/4/3/4 = 14, en per bestand exact gelijk aan
+  het aantal `@Test`-methodes (3/4/3/4) — dus één assertie per testcase, geen dubbeltelling in
+  het nieuwe comment.
+- AC4: `git diff main...HEAD --name-only | grep src/main` is leeg; alleen de drie testbestanden,
+  `technical-spec.md` en dit worklog.
+- AC5: `technical-spec.md:105` bevat geen "deden het al"-claim meer en noemt narekenbaar
+  **14 van 14** met de 3/4/3/4-uitsplitsing.
+- Vorm van de vijf nieuwe asserties is identiek aan de bestaande loopback-case in hetzelfde
+  bestand; geen nieuwe imports, geen productiecode geraakt.
