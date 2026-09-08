@@ -74,16 +74,14 @@ Omdat de signing-key verandert ten opzichte van oudere debug-gesigneerde APK's m
 app één keer van Android worden verwijderd voordat de eerste nieuwe APK geïnstalleerd kan worden.
 De serverdata blijft behouden; alleen lokale cache/sessie verdwijnt.
 
-## 4. Android OAuth-client maken
+Een apart Android-OAuth-client (gekoppeld aan de SHA-1 hierboven) is **niet nodig**: de app geeft
+op Android de Web client-ID door als `serverClientId` (zie `auth_provider.dart`), en dat is precies
+zoals `google_sign_in` een ID-token voor de backend ophaalt zonder een geregistreerd Android-client
+— zelfde aanpak als de software-factory-dashboard-app. De vaste keystore hierboven is puur nodig
+zodat Android updates niet als "nieuwe app" behandelt (elke build anders ondertekend zou anders
+telkens een verwijder-herinstalleer-stap vergen); met Google-login heeft dat niets te maken.
 
-1. Open opnieuw [Google Auth Platform – Clients](https://console.cloud.google.com/auth/clients).
-2. Kies **Create client** → **Android**.
-3. Package name: `com.vdzon.personal_news_feed`.
-4. SHA-1: de fingerprint uit stap 3.
-5. Maak de client aan. Deze Android client-ID hoeft niet in `secrets.env`; de app en backend
-   gebruiken als audience de Web client-ID uit stap 1.
-
-## 5. Cluster-secret sealen en uitrollen
+## 4. Cluster-secret sealen en uitrollen
 
 ```bash
 ./deploy/seal-secrets.sh
