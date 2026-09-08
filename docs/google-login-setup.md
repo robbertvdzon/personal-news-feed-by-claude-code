@@ -74,14 +74,26 @@ Omdat de signing-key verandert ten opzichte van oudere debug-gesigneerde APK's m
 app één keer van Android worden verwijderd voordat de eerste nieuwe APK geïnstalleerd kan worden.
 De serverdata blijft behouden; alleen lokale cache/sessie verdwijnt.
 
-Een apart Android-OAuth-client (gekoppeld aan de SHA-1 hierboven) is **niet nodig**: de app geeft
-op Android de Web client-ID door als `serverClientId` (zie `auth_provider.dart`), en dat is precies
-zoals `google_sign_in` een ID-token voor de backend ophaalt zonder een geregistreerd Android-client
-— zelfde aanpak als de software-factory-dashboard-app. De vaste keystore hierboven is puur nodig
-zodat Android updates niet als "nieuwe app" behandelt (elke build anders ondertekend zou anders
-telkens een verwijder-herinstalleer-stap vergen); met Google-login heeft dat niets te maken.
+## 4. Android OAuth-client maken
 
-## 4. Cluster-secret sealen en uitrollen
+**Wél degelijk nodig** — eerder (2026-09-08) uit deze doc geschrapt met de redenering dat
+`serverClientId` (zie `auth_provider.dart`) genoeg zou zijn omdat de software-factory-dashboard-app
+er ook geen apart Android-client voor lijkt te hebben. Dat klopte niet: op een echt toestel gaf
+Google Sign-In `PlatformException(sign_in_failed, ..., 10: ...)` — `10` is Google's
+`DEVELOPER_ERROR`, en dat betekent vrijwel altijd precies dit: geen Android-OAuth-client
+geregistreerd voor deze package name + SHA-1. `serverClientId` bepaalt alleen de audience van het
+uiteindelijke ID-token; het native Android-handshake met Google Play Services checkt sowieso de
+SHA-1 van de signing-key tegen een geregistreerd Android-client. Niet nogmaals schrappen zonder
+eerst een echte device-test.
+
+1. Open opnieuw [Google Auth Platform – Clients](https://console.cloud.google.com/auth/clients).
+2. Kies **Create client** → **Android**.
+3. Package name: `com.vdzon.personal_news_feed`.
+4. SHA-1: de fingerprint uit stap 3 hierboven (van de release-keystore).
+5. Maak de client aan. Deze Android client-ID hoeft niet in `secrets.env`; de app en backend
+   gebruiken als audience de Web client-ID uit stap 1. Alleen de registratie (package+SHA-1) telt.
+
+## 5. Cluster-secret sealen en uitrollen
 
 ```bash
 ./deploy/seal-secrets.sh
