@@ -38,7 +38,7 @@ De frontend is een **Flutter-app** (mobile + web) voor het lezen van een persoon
 
 ## 3. Navigatiestructuur
 
-De app heeft twee hoofdstaten: **niet ingelogd** (toont LoginScreen) en **ingelogd** (toont een shell met vijf tabs).
+De app heeft twee hoofdstaten: **niet ingelogd** (toont LoginScreen) en **ingelogd** (toont een shell met vier tabs).
 
 ```
 AuthGate
@@ -53,9 +53,7 @@ AuthGate
     │       └── dialog → NieuwePodcastDialog
     │       └── navigeer naar → PodcastDetailScreen
     │               └── bottom sheet → ScriptSheet
-    ├── Tab 3: EventsScreen                  (KAN-65)
-    │       └── navigeer naar → EventDetailScreen
-    └── Tab 4: SettingsScreen
+    └── Tab 3: SettingsScreen
             └── navigeer naar → CategoriesScreen        (SF-754)
             │       └── dialog → EditCategoryDialog
             │       └── dialog → AddCategoryDialog
@@ -80,6 +78,7 @@ Toont een formulier met gebruikersnaam en wachtwoord.
 - Bij indienen: POST `/api/auth/login` of `/api/auth/register`
 - Bij succes: token en gebruikersnaam opslaan in `SharedPreferences`, app gaat naar MainShell
 - Foutmelding inline weergeven (geen pop-up)
+- Het scherm valideert zelf niets: elke afwijzing komt van de backend en wordt als één generieke tekst getoond. `AuthNotifier` vangt iedere `ApiException` af als `"Inloggen mislukt (${statusCode})"` (`auth_provider.dart`), ook bij registreren. Sinds SF-2207 kan `register` ook een `400` geven voor een gebruikersnaam die niet aan `^[A-Za-z0-9._-]{3,64}$` voldoet — die is voor de gebruiker dus niet te onderscheiden van een te kort wachtwoord (`400`) of een bezette naam (`409`). Een specifiekere Nederlandse melding per oorzaak is een bewust openstaande verbetering, geen bug
 - Formulier indienen via knop of toetsenbord Enter
 
 **Na herstart:** Als er een token in `SharedPreferences` staat, direct naar MainShell zonder LoginScreen te tonen.
@@ -147,7 +146,7 @@ Identiek aan Feed-tab in opbouw: een aparte **"Verberg gelezen"-switch** boven d
 ### RssItem-kaart
 Toont: titel, bron, **relatieve tijd** ("12 minuten geleden" / "3 uur geleden" / "2 dagen geleden" / DD-MM-YYYY na 3 dagen, op basis van `timestamp`), categorie, datum en een **preview-tekst van max 2 regels**. De preview toont bij voorkeur de Nederlandse AI-samenvatting (`summary`) — die geeft de gebruiker direct context in zijn eigen taal. Als `summary` leeg is (item nog niet door AI verwerkt) valt de kaart terug op de ruwe RSS-`snippet`. Een badge geeft aan of het item **in de feed** staat (`inFeed: true`) of niet, inclusief een tooltip met de `feedReason`.
 
-**KAN-60 — show-notes-voorlopige-badge (AC #2):** podcast-kaartjes met `summarySource: 'show_notes'` tonen extra een amberkleurig `📝 voorlopig`-chip met tooltip "Voorlopige samenvatting op basis van de RSS show-notes — het echte transcript wordt op de achtergrond verwerkt." De badge verdwijnt automatisch bij de volgende data-refresh nadat de transcript-worker `summary_source` op `'transcript'` heeft gezet. Voor feeds met `transcribeEnabled=false` blijft de badge permanent staan (de eindgebruiker weet dan dat deze bron altijd op show-notes draait).
+**KAN-60 — show-notes-voorlopige-badge (AC #2):** podcast-kaartjes met `summarySource: 'show_notes'` tonen extra een amberkleurig `📝 voorlopig`-chip met tooltip "Voorlopige samenvatting op basis van de RSS show-notes — het echte transcript wordt op de achtergrond verwerkt." De badge verdwijnt automatisch bij de volgende data-refresh nadat de transcript-fase `summary_source` op `'transcript'` heeft gezet. Voor feeds met `transcribeEnabled=false` blijft de badge permanent staan (de eindgebruiker weet dan dat deze bron altijd op show-notes draait).
 
 **Acties per kaart:** identiek aan Feed (swipe-delete, 👍/👎, ster).
 
@@ -176,7 +175,7 @@ Onderaan staat een **"🇳🇱 Vertaal & genereer Nederlandse podcast"**-knop (K
 **Translate-knop (KAN-63):** bij openen van het scherm fetcht de body `GET /api/podcast-source/by-rss-item/{rssItemId}` om de bron-aflevering-guid, transcript-lengte en (eventueel) een bestaande vertaling op te halen. De knop heeft drie staten:
 - **"🇳🇱 Vertaal & genereer Nederlandse podcast"** (default) — actief zodra het Engelse transcript klaar is (`episodeStatus='DONE'`). Tik opent een dialog met de geschatte kosten (vertaling + TTS in $, 2 decimalen) op basis van de transcript-lengte. Bij "Starten": `POST /api/podcast-source/{episodeGuid}/translate`. HTTP 202 → nieuwe podcast verschijnt bovenaan de Podcast-tab; HTTP 409 → snackbar "Transcript is nog niet klaar voor vertaling".
 - **"🇳🇱 Bekijk vertaling"** — zodra er een DONE-vertaling bestaat. Tik navigeert naar `PodcastDetailScreen` van die podcast.
-- **"🇳🇱 Bekijk vertaling — vertalen… / audio genereren…"** — wanneer de vertaling op de achtergrond loopt (status `PENDING` / `TRANSLATING` / `TTS_GENERATING`). De detail-pagina pollt zelf elke 4 seconden tot de status `DONE`/`FAILED` is.
+- **"🇳🇱 Bekijk vertaling — in wachtrij… / vertalen… / audio genereren…"** — wanneer de vertaling op de achtergrond loopt. Welke statussen dat zijn staat sinds SF-2123 op één plek: de top-level constante `kPodcastTranslationInProgressStatuses` in `frontend/lib/models/models.dart` (`PENDING` / `TRANSLATING` / `TTS_GENERATING`), gelezen via `EpisodeLookup.translationInProgress` op `translatedPodcastStatus`. Het fase-woord achter het streepje komt uit de `_phaseLabel`-`switch` in `rss_podcast_detail_screen.dart`, die één op één bij die constante hoort (onbekende status → `bezig…`). De detail-pagina pollt zelf elke 4 seconden tot de status `DONE`/`FAILED` is.
 
 **Client-side cost-schatting** (geen apart API-endpoint, refiner-keuze): `tokens ≈ transcriptChars / 4`; `translateCost = (tokens/1000) × (0.0005 + 0.002)`; `ttsCost = transcriptChars / 1_000_000 × 15`. Dit is een vuistregel — de echte kosten worden achteraf via `external_calls` per call gelogd.
 
@@ -198,17 +197,20 @@ De app heeft géén Queue-tab meer. De twee scheduled jobs lopen automatisch doo
 De gebruiker kan ze beide handmatig starten via de sectie *Achtergrond-taken* op de instellingen-tab (zie §9). De `requestProvider` blijft op de achtergrond actief — hij is nodig om de knop-state (idle / "Loopt al…") en de "Klaar"-toast af te kunnen leiden uit de live status.
 
 ### WebSocket-integratie
-Verbinding met `ws(s)://{host}/ws/requests` zodra de verzoeken geladen zijn.
+Verbinding met `ws(s)://{host}/ws/requests?token={jwt}` zodra de verzoeken geladen zijn.
 
+- **Het JWT gaat mee de handshake in** (SF-2165). `requestsWsUrl(token)` in `lib/api/ws_client.dart` bouwt de URL en zet het token als queryparameter (url-gecodeerd) — een browser-WebSocket kan geen `Authorization`-header zetten. Zonder token wordt er níet verbonden: `requestsWsUrl` geeft dan `null` en ook `connect(null)` opent geen socket. De backend weigert een tokenloze of ongeldige handshake met `401`.
+- **Elke reconnect gebruikt hetzelfde token** als waarmee de socket is opgezet; `RequestsWebSocket` onthoudt het bij `connect()`.
+- **Token-reactief bij in- en uitloggen:** `RequestNotifier.build()` doet `ref.watch(authProvider.select((s) => s.token))`. Verandert het token (login, logout, andere gebruiker), dan bouwt Riverpod de provider opnieuw op: de oude socket sluit via `onDispose` en er wordt met het token van de nu ingelogde gebruiker opnieuw verbonden. `AuthNotifier.logout()` maakt daarvoor alleen de auth-state leeg — een expliciete `ref.invalidate(requestProvider)` kan niet meer, want `requestProvider` hangt nu van `authProvider` af en Riverpod ziet dat als een circulaire afhankelijkheid.
 - Inkomende berichten zijn JSON-objecten. De handler onderscheidt twee types:
   - **`{"type": "serverVersion", "sha": "...", "buildTime": "..."}`** — wordt direct na (re)connect verstuurd. De `RequestNotifier` filtert dit bericht eruit en geeft het door aan `versionProvider` (zie sectie 9 — *Versie-check & snackbar*).
   - **`NewsRequest`-objecten** (geen `type`-veld) conform het schema uit `openapi.yaml` (zie ook de berichtspecificatie in `backend-functional-spec.md` sectie 5).
-- **Belangrijk:** de WebSocket-broadcast bevat updates van **alle** gebruikers (server filtert niet per user). De frontend moet zelf filteren:
-  - Bij **bekend ID** in de lokale lijst: vervang het item — dit is veilig omdat de lokale lijst is geladen via `GET /api/requests` (JWT-gescoped, dus alleen eigen items).
-  - Bij **onbekend ID**: doe een stille herlaad van de volledige verzoeklijst via `GET /api/requests`. De backend filtert daar wel op JWT, dus updates van andere gebruikers verdwijnen automatisch en eigen nieuwe items komen binnen. Voeg het item níet rechtstreeks toe op basis van het WebSocket-bericht — dan zouden andere gebruikers' verzoeken zichtbaar worden.
+- De verbinding levert sinds SF-2165 **alleen updates van de ingelogde gebruiker**; de server filtert per eigenaar. Het id-protocol hieronder blijft staan als **vangnet**, niet langer als privacymaatregel:
+  - Bij **bekend ID** in de lokale lijst: vervang het item in place.
+  - Bij **onbekend ID**: doe een stille herlaad van de volledige verzoeklijst via `GET /api/requests`. Een onbekend id is nu geen verzoek van iemand anders meer, maar een eigen verzoek dat nog niet in de lijst staat (aangemaakt tijdens een herlaad of op een ander toestel); de herlaad zorgt dat het alsnog verschijnt. Voeg het item nog steeds níet rechtstreeks toe op basis van het WebSocket-bericht — de JWT-gescoopte `GET /api/requests` blijft de bron van waarheid voor de lijst.
 - Bij status DONE of CANCELLED: automatisch RSS-items en feed-items herladen (nieuwe artikelen kunnen zijn binnengekomen)
-- Bij verbrekingsfout: automatisch herverbinden na 5 seconden
-- Verbinding verbreken bij uitloggen
+- Bij verbrekingsfout: automatisch herverbinden na 5 seconden — ook een door de backend geweigerde handshake (`401`) valt in die lus; er komt bewust geen backoff of foutmelding in de UI bij
+- Verbinding verbreken bij uitloggen (volgt uit de token-watch hierboven) en opnieuw opzetten bij de volgende login, met het token van de dán ingelogde gebruiker
 
 ### Ad-hoc "Meer hierover"-verzoeken
 Vanuit de RSS-item-detailpagina kan de gebruiker met **Meer hierover** een ad-hoc verzoek aanmaken (`POST /api/requests` met `sourceItemId`/`sourceItemTitle`). De UI toont alleen een bevestigingstoast — er is geen aparte lijst meer waarin deze verzoeken zichtbaar zijn. De resultaten verschijnen vanzelf in de feed wanneer de backend het verzoek heeft verwerkt.
@@ -220,9 +222,9 @@ Vanuit de RSS-item-detailpagina kan de gebruiker met **Meer hierover** een ad-ho
 Toont gegenereerde podcasts: `GET /api/podcasts`.
 
 ### PodcastCard (in de lijst)
-Toont: podcastnummer, titel, datum, duur, status, kosten, TTS-provider.
+Toont: podcastnummer, titel, datum, duur, status, TTS-provider.
 
-**Visuele progress-indicatie:** zolang de podcast nog niet `DONE` of `FAILED` is, vervangt een `CircularProgressIndicator` het podcasts-icoon, en wordt het Nederlandse statuslabel ("In wachtrij…", "Onderwerpen bepalen…", "Script schrijven…", "Audio genereren…", "Vertalen…") in primaire kleur en bold getoond. Bij `FAILED` toont een rood error-icon en label "Mislukt".
+**Visuele progress-indicatie:** zolang de podcast een bezig-status heeft (de gedeelde `kPodcastInProgressStatuses`, zie [Podcast-polling](#podcast-polling)), vervangt een `CircularProgressIndicator` het podcasts-icoon, en wordt het Nederlandse statuslabel ("In wachtrij…", "Onderwerpen bepalen…", "Script schrijven…", "Audio genereren…", "Vertalen…") in primaire kleur en bold getoond. Bij `FAILED` toont een rood error-icon en label "Mislukt".
 
 **KAN-63 — vertaal-badge:** voor podcasts met `translatedFromEpisodeGuid != null` toont de subtitle in plaats van "Duur: Xmin · TTS: Y" de chip-tekst *"Vertaald van \<feed-naam\>"* (een `Icons.translate` + 1-regel waarde uit `translatedFromFeedName`). Op de detail-pagina komt deze info terug als een aparte `Chip` die navigeert naar het bron-RSS-podcast-detail-scherm (lookup op `translatedFromRssItemId` in de rssProvider; niet-tappable als de bron-aflevering inmiddels uit de RSS-tab is opgeruimd).
 
@@ -240,9 +242,9 @@ Toont: podcastnummer, titel, datum, duur, status, kosten, TTS-provider.
 - Indienen: POST `/api/podcasts`
 
 ### PodcastDetailScreen
-Toont: titel, periode, duur, kosten, TTS-provider, onderwerp-chips, volledig audiospeler-paneel.
+Toont: titel, periode, duur, TTS-provider, onderwerp-chips, volledig audiospeler-paneel.
 
-**KAN-63 — vertaling-modus:** wanneer `podcast.isTranslation` (d.w.z. `translatedFromEpisodeGuid != null`) staat er onder de status-chips een chip "Vertaald van \<feed-naam\>" met tap-actie die terugnavigeert naar de bron `RssPodcastDetailScreen` (lookup via rssProvider op `translatedFromRssItemId`). Bij status `FAILED` toont het scherm bovenaan een rode foutbox met `errorMessage`. De detail-pagina pollt elke 4 seconden zolang de status nog `PENDING` / `TRANSLATING` / `TTS_GENERATING` is en switcht automatisch naar de audiospeler zodra `DONE`.
+**KAN-63 — vertaling-modus:** wanneer `podcast.isTranslation` (d.w.z. `translatedFromEpisodeGuid != null`) staat er onder de status-chips een chip "Vertaald van \<feed-naam\>" met tap-actie die terugnavigeert naar de bron `RssPodcastDetailScreen` (lookup via rssProvider op `translatedFromRssItemId`). Bij status `FAILED` toont het scherm bovenaan een rode foutbox met `errorMessage`. De detail-pagina pollt elke 4 seconden zolang de status in de gedeelde `kPodcastInProgressStatuses` staat (dus ook `TRANSLATING` / `TTS_GENERATING`; zie [Podcast-polling](#podcast-polling)) en switcht automatisch naar de audiospeler zodra `DONE`.
 
 **Audiospeler:**
 - Play/pause-knop
@@ -263,33 +265,51 @@ Zolang audio actief is (ook na navigeren naar andere schermen binnen de Podcast-
 - `v`: cache-buster (gebruik `durationSeconds` van de podcast)
 
 ### Podcast-polling
-Zolang een of meer podcasts de status `PENDING`, `DETERMINING_TOPICS`, `GENERATING_SCRIPT` of `GENERATING_AUDIO` hebben, wordt elke 4 seconden GET `/api/podcasts` opnieuw aangeroepen totdat alle podcasts `DONE` of `FAILED` zijn.
+Zolang een of meer podcasts een "bezig"-status hebben, wordt elke 4 seconden GET
+`/api/podcasts` opnieuw aangeroepen; zodra geen enkele podcast meer bezig is
+(alles `DONE`/`FAILED`) wordt de timer gestopt.
+
+De bezig-statussen staan op één plek: de top-level constante
+`kPodcastInProgressStatuses` in `frontend/lib/models/models.dart` met
+`PENDING`, `DETERMINING_TOPICS`, `GENERATING_SCRIPT`, `GENERATING_AUDIO`,
+`TRANSLATING` en `TTS_GENERATING`. Zowel de spinner/het statuslabel in de lijst
+als de poll-timer van het overzicht én het detailscherm lezen die set (SF-2066).
+Daarvóór had `_maybePoll` een eigen, kortere lijst zonder de vertaalstatussen,
+waardoor een podcast in `TRANSLATING` wél een draaiend rondje "Vertalen…" kreeg
+maar het scherm zichzelf niet meer ververste — het rondje bleef eindeloos
+draaien tot je handmatig verversde.
+
+> `EpisodeLookup.translationInProgress` (`PENDING` / `TRANSLATING` /
+> `TTS_GENERATING`, gelezen van `translatedPodcastStatus`) is bewust een
+> smallere, eigen lijst voor uitsluitend de vertaalflow van één RSS-aflevering
+> — een vertaling doorloopt nooit de generatie-statussen — en hoort níet
+> vervangen te worden door de gedeelde set. Sinds SF-2123 staat die lijst als
+> tweede top-level constante `kPodcastTranslationInProgressStatuses` naast
+> `kPodcastInProgressStatuses`, met een test die vastlegt dat hij een
+> deelverzameling van de gedeelde set blijft.
 
 > **Belangrijk:** poll-fetches mogen de provider níet via `invalidate()` resetten — dat zou de `AsyncData` voor 1-2 frames terugzetten naar `loading` en de progress-indicator op de kaart laten flikkeren. Implementatie: een aparte `poll()` notifier-methode die de lijst stilletjes ophaalt en de state vervangt zonder eerst `AsyncLoading` te zetten.
 
 ---
 
-## 8b. Events-tab (Tab 3) — KAN-65
+## 9. Settings-tab (Tab 3)
 
-Toont de per-gebruiker AI-ontdekte tech-events uit `eventsProvider` (`GET /api/events`).
+Sectievolgorde op het scherm: Weergave → Over deze app → Account → Categorieën → RSS feeds → Achtergrond-taken → Opruimen → Debug → (alleen admins) Beheer. De subsecties hieronder staan functioneel gegroepeerd en volgen niet strikt die schermvolgorde.
 
-- **Lijst**: gesplitst in twee secties, **"Aankomend"** (begindatum vandaag of later, oplopend gesorteerd) en **"Geweest"** (aflopend gesorteerd). Events zonder begindatum tellen als aankomend. Elke kaart toont naam, datum-range (Nederlands geformatteerd), locatie, organisatie en een categorie-chip.
-- **Toolbar**: een zoekknop (`Icons.travel_explore`) die `POST /api/events/discover` triggert (mirror van de RSS-refresh; toont een toast), en een herlaad-knop.
-- **EventDetailScreen**: naam, datum/locatie/organisatie als chips, de Nederlandse beschrijving (onderwerpen) als selecteerbare tekst, en de bronlinks als aantikbare tegels (openen extern via `url_launcher`). Een verwijder-knop verwijdert het event en keert terug naar de lijst.
-- **Video's** (KAN-66): boven de bronlinks staat een lijst kaarten met de per event ontdekte video's. Elke kaart heeft een trailing "open in browser"-icoon dat de externe video opent via `url_launcher`.
-- **Video-samenvatting** (KAN-67): elke video-kaart toont onderaan een knop "Maak samenvatting" wanneer er nog geen Nederlandse samenvatting voor die video bestaat. Indrukken stuurt `POST /api/events/{id}/videos/summarize` met de `videoUrl`; tijdens de call laat de kaart een mini-spinner zien met de tekst "Samenvatting wordt gemaakt…" en is de knop disabled. Bij succes verschijnt de samenvatting in een gehighlight tekstblok en verdwijnt de knop. Bij HTTP 502 (geen transcript verkrijgbaar) toont een snackbar de melding "Samenvatting kon niet worden gemaakt — probeer het later opnieuw."; de knop blijft staan zodat de gebruiker het opnieuw kan proberen.
-- De handmatige zoek-trigger zit óók in Settings onder *Achtergrond-taken* (zie §9).
+### Weergave (bovenste sectie, SF-1768)
+Staat als **eerste sectie bovenaan** het instellingen-scherm, boven "Over deze app", zodat de schakelaar direct zichtbaar is zonder scrollen. Tussen SF-809 en SF-1768 stond dit blok juist als laatste sectie onderaan (ná de admin-only Beheer-sectie); daarvóór stond het bovenin, direct onder Account (zie SF-987/SF-1046 voor de sectiekop-tekst). SF-1768 is puur een herschikking van de sectievolgorde — het gedrag van de switch is ongewijzigd, en de onderlinge volgorde van alle overige secties is gelijk gebleven.
 
----
-
-## 9. Settings-tab (Tab 4)
+- Lettergrootte-instelling: "Normaal" of "Groot" (`SwitchListTile` "Grote tekst")
+- "Groot" schaalt alle tekst met factor ~1.38 (via `TextScaler` op `MediaQuery`)
+- Waarde komt uit `appearanceProvider`; aanpassen roept `setLarge` aan
+- Instelling opgeslagen in `SharedPreferences`
 
 ### Account (SF-1046)
 Sectiekop boven het account-blok heet sinds SF-1046 weer **"Account"**; tussen SF-987 en SF-1046 was dit tijdelijk "Account Settings" (letterlijk Engels overgenomen, ook al is de rest van de pagina Nederlandstalig).
 
 - Gebruikersnaam weergeven
 - **Uitloggen:** wist token, navigeer naar LoginScreen
-- **Wachtwoord wijzigen:** `ListTile` opent een dialoog met velden voor huidig en nieuw wachtwoord; opslaan stuurt `PUT /api/account/password`
+- **Wachtwoord wijzigen:** `ListTile` opent een dialoog met drie velden ("Huidig wachtwoord", "Nieuw wachtwoord" met helper "Min. 4 tekens", "Nieuw wachtwoord bevestigen"); opslaan stuurt `PUT /api/account/password`. De dialoog valideert eerst zelf (leeg veld, nieuw wachtwoord korter dan 4 tekens, bevestiging ongelijk) en toont de fout als rode regel onder de velden. Komt het verzoek wél bij de backend, dan wordt **401** apart afgevangen en vertaald naar "Huidig wachtwoord klopt niet" — precies de melding die de backend zelf teruggeeft en die sinds SF-2186 ook in `openapi.yaml` staat; elke andere status valt terug op "Fout: {code}". Bij succes sluit de dialoog en verschijnt de snackbar "Wachtwoord gewijzigd"
 
 ### Categorieën (navigatie-tile, SF-754)
 Eén `ListTile` (`Icons.category`, titel "Categorieën", `Icons.chevron_right`) die via `MaterialPageRoute` naar de **Categorieën-subpagina** (`CategoriesScreen`, zie §9b) navigeert. De volledige categorieënlijst stond vóór SF-754 inline uitgeklapt op deze pagina; ze is nu naar de subpagina verplaatst zodat de Settings-tab korter blijft — hetzelfde patroon als de RSS-feeds-tile (SF-220).
@@ -311,7 +331,7 @@ Gedrag per rij:
 - De vaste records bestaan altijd zodra `ensureFixedRequests` heeft gedraaid; bij ontbreken (eerste login zonder server-roundtrip) zijn de knoppen disabled.
 
 ### Over deze app
-Bovenaan het instellingen-scherm staat een blok **Over deze app** met twee regels:
+Direct onder de Weergave-sectie, bovenin het instellingen-scherm, staat een blok **Over deze app** met twee regels:
 
 - **Frontend:** `<short-git-sha>` · `<build-timestamp in lokale tijd>` — beide compile-time geïnjecteerd via `--dart-define=BUILD_SHA=...` en `--dart-define=BUILD_TIME=...` en uitgelezen met `String.fromEnvironment`. Altijd beschikbaar uit de bundel zelf.
 - **Backend:** `<short-git-sha>` · `<build-timestamp in lokale tijd>` — komt uit het `versionProvider` (gevuld door `GET /api/version` of het WebSocket `serverVersion`-bericht). Bij een fout (`/api/version` offline of 5xx) toont de regel **`onbekend`** tot de volgende geslaagde check.
@@ -354,22 +374,20 @@ Sectie **"Debug"** met één `ListTile` "API-log" (subtitle "Laatste calls + sta
 
 Onderaan het instellingen-scherm verschijnt een extra sectie **"Beheer"** die alleen zichtbaar is voor gebruikers met de rol `admin`.
 
+De rol komt uit het `role`-veld van de register-/login-response (`AuthResponse`, waarden `user` of `admin`; sinds SF-2130 ook zo in `openapi.yaml` gedocumenteerd). `AuthNotifier` bewaart hem in `SharedPreferences` naast token en username, en `AuthState.isAdmin` (`role == 'admin'`) gate't deze sectie. Ontbreekt het veld in de response — een oudere backend — dan valt de client bewust terug op `'user'`: de Beheer-sectie blijft dan verborgen in plaats van dat de UI crasht. Daarom is `role` in het contract ook géén `required`-veld.
+
 - **Beheer gebruikers-knop:** navigeert via `Navigator.push` naar AdminScreen.
   - AdminScreen toont alle gebruikers met hun rollen.
   - Per gebruiker: wachtwoord resetten, promoveren naar admin, degraderen naar user, verwijderen.
+  - Mislukt een beheeractie, dan toont een snackbar de **Nederlandse servermelding** uit het `error`-veld van de foutbody, gelezen via de gedeelde helper `extractDutchMessage` (`lib/api/api_client.dart`) — dus niet de rauwe responsebody en niet de HTTP-statuscode (SF-2242). Bij een lege body verschijnt de fallback "Actie mislukt"; bij een body zonder `error`-veld de body zelf.
+    - Anders dan bij de lijst-editors in §9a/§9b is dit een **neutrale** snackbar (`_snack` zet geen `backgroundColor`), en er is geen statuscode-filter: élke `ApiException` wordt geëxtraheerd, omdat een beheeractie op meerdere manieren kan falen (400/401/403/404/500) en álle backend-fouten dezelfde `{"error": …}`-vorm hebben.
+    - **Twee losse foutoppervlakken, niet verwarren:** bovenstaande geldt voor de *acties*. Faalt het **laden** van de gebruikerslijst zelf, dan komt dat uit de `error:`-tak van `usersAsync.when` — dat is een `AsyncError` zonder responsebody en die toont onveranderd "Fout: …" in de body van het scherm. Alleen de acties hebben een `ApiException` met een servermelding erin.
+    - **Bekende openstaande verbetering:** niet alle admin-meldingen van de backend zijn Nederlands. `AdminServiceImpl` gooit bij een onbekend account `NotFoundException("User not found: <naam>")`, dus die Engelse zin komt nu letterlijk in de snackbar (voorheen als JSON-fragment — dus wél een verbetering). Vernederlandsen is backendwerk en viel buiten SF-2242.
 
 - **Beheer kosten-knop:** navigeert via `Navigator.push` naar AdminCostsScreen.
   - AdminCostsScreen toont kostenoverzichten per dag, per gebruiker en gedetailleerd logboek van externe API-calls.
 
 Er is geen aparte Admin-tab in de bottom navigation bar — alle admin-functionaliteit zit achter de twee Beheer-knoppen in Settings.
-
-### Weergave (onderste sectie, SF-809)
-Staat als **laatste sectie onderaan** het instellingen-scherm, ná alle andere secties (dus ook ná de admin-only Beheer-sectie; voor niet-admins staat Weergave onder Debug). Vóór SF-809 stond dit blok bovenin, direct onder Account (zie SF-987/SF-1046 voor de sectiekop-tekst). Puur een herschikking van de sectievolgorde — het gedrag van de switch is ongewijzigd.
-
-- Lettergrootte-instelling: "Normaal" of "Groot" (`SwitchListTile` "Grote tekst")
-- "Groot" schaalt alle tekst met factor ~1.38 (via `TextScaler` op `MediaQuery`)
-- Waarde komt uit `appearanceProvider`; aanpassen roept `setLarge` aan
-- Instelling opgeslagen in `SharedPreferences`
 
 ---
 
@@ -381,8 +399,8 @@ Aparte subpagina (`frontend/lib/screens/rss_feeds_screen.dart`) met een eigen `A
 Lijst van geconfigureerde RSS-feed URLs uit `GET /api/rss-feeds` (`rssFeedsProvider`), met de gebruikelijke loading-spinner en error-tekst "Fout: …".
 
 - **Tik op URL:** opent URL (monospace-weergave) in externe browser
-- **Verwijder-icoon (×):** verwijder feed-URL, PUT `/api/rss-feeds` (`rssFeedsProvider.save`)
-- **Invoerveld + toevoegen-knop:** nieuwe URL toevoegen, PUT `/api/rss-feeds`
+- **Verwijder-icoon (×):** verwijder feed-URL, PUT `/api/rss-feeds` (`rssFeedsProvider.save`); tijdens het opslaan is de knop uitgeschakeld. Weigert de server, dan blijft de feed in de lijst staan en verschijnt een rode snackbar.
+- **Invoerveld + toevoegen-knop:** nieuwe URL toevoegen met synchrone server-side URL-validatie (SSRF-check), PUT `/api/rss-feeds`. Tijdens het opslaan is het invoerveld uitgeschakeld en staat er een spinner op de plek van de **+**-knop. Bij een afwijzing (HTTP 400) verschijnt een **rode snackbar** met de Nederlandse foutmelding uit het `error`-veld van de responsbody, wordt de URL **niet** aan de lijst toegevoegd en behoudt het invoerveld de ingetypte tekst (SF-1552).
 
 ### Podcast-bronnen (sectie, KAN-56)
 Lijst van podcast-RSS-bronnen uit `GET /api/podcast-feeds` (`podcastFeedsProvider`), eveneens met loading-spinner en "Fout: …"-afhandeling.
@@ -390,26 +408,28 @@ Lijst van podcast-RSS-bronnen uit `GET /api/podcast-feeds` (`podcastFeedsProvide
 - **Tik op URL:** opent de bron in externe browser
 - **"Transcriberen aan/uit"-toggle:** per bron schakelbaar; staat de toggle uit, dan valt de backend terug op de show-notes als input voor de AI-samenvatting (zonder Whisper-kosten).
 - **Verwijder-icoon:** verwijder bron, PUT `/api/podcast-feeds`
-- **Invoerveld + toevoegen-knop:** nieuwe URL toevoegen met synchrone server-side URL-validatie; een ongeldige URL geeft een snackbar (AC #7). Opslaan via `podcastFeedsProvider.save`.
+- **Invoerveld + toevoegen-knop:** nieuwe URL toevoegen met synchrone server-side URL-validatie; een ongeldige URL geeft een rode snackbar met de Nederlandse foutmelding uit het `error`-veld van de responsbody (AC #7). Opslaan via `podcastFeedsProvider.save`.
 
 ---
 
 ## 9b. Categorieën-subpagina (CategoriesScreen, SF-754)
 
-Aparte subpagina (`frontend/lib/screens/categories_screen.dart`) met een eigen `AppBar` (titel "Categorieën"), bereikbaar via de navigatie-tile in de Settings-tab (§9). Bevat de volledige categorieënlijst uit `GET /api/settings` (`settingsProvider`), met de gebruikelijke loading-spinner en error-tekst "Fout: …". De lijst, dialogen en hun gedrag zijn ongewijzigd t.o.v. de oude inline-sectie op de Settings-tab; alleen de plaatsing verandert. Puur frontend-herstructurering — geen backend-, API- of providerwijzigingen.
+Aparte subpagina (`frontend/lib/screens/categories_screen.dart`) met een eigen `AppBar` (titel "Categorieën"), bereikbaar via de navigatie-tile in de Settings-tab (§9). Bevat de volledige categorieënlijst uit `GET /api/settings` (`settingsProvider`), met de gebruikelijke loading-spinner en error-tekst "Fout: …".
+
+Alle vier de mutaties (schakelaar, toevoegen, bewerken/opslaan, verwijderen) lopen via één gedeelde opslag-route met hetzelfde faalcontract als de RSS-feeds-editor (§9a, SF-1851): de lijst muteert **pas ná een geslaagde** PUT `/api/settings`, tijdens het opslaan is de bediening (schakelaars, bewerk-icoon en de "Categorie toevoegen"-tile) uitgeschakeld, en weigert de server (of is de backend onbereikbaar), dan blijft de lijst — en de lokale cache — ongewijzigd en verschijnt een **rode snackbar** met de Nederlandse foutmelding uit het `error`-veld van de responsbody (bij een andere fout een generieke melding "Fout bij opslaan: …").
 
 **Per categorie** (`SwitchListTile`):
-- **Schakelaar (enabled/disabled):** opslaan via `settingsProvider.notifier.save(...)` (PUT `/api/settings` met bijgewerkte lijst)
+- **Schakelaar (enabled/disabled):** opslaan via `settingsProvider.notifier.save(...)` (PUT `/api/settings` met bijgewerkte lijst); het schakelaartje verspringt pas nadat de PUT geslaagd is.
 - **Bewerk-icoon (potlood):** opent EditCategoryDialog
   - Naam wijzigen
   - Extra AI-instructies wijzigen
-  - Opslaan via `settingsProvider.notifier.save(...)`
-  - Verwijderen (knop): categorie verwijderd en opgeslagen
+  - Opslaan via `settingsProvider.notifier.save(...)`; bij een fout blijven de oude naam/instructies in de lijst staan
+  - Verwijderen (knop): categorie verwijderd en opgeslagen; bij een fout blijft de categorie in de lijst staan
 - **Systeemcategorieën** (`isSystem: true`) tonen de subtitel "Systeem" en hebben geen bewerk-/verwijderoptie.
 
 **Categorie toevoegen:** `ListTile` "Categorie toevoegen" opent AddCategoryDialog
 - Naam invoeren
-- Opslaan via `settingsProvider.notifier.save(...)` met nieuwe categorie toegevoegd (ID gegenereerd op basis van naam)
+- Opslaan via `settingsProvider.notifier.save(...)` met nieuwe categorie toegevoegd (ID gegenereerd op basis van naam); bij een fout verschijnt de categorie niet in de lijst
 
 ---
 
@@ -431,7 +451,7 @@ De app gebruikt Riverpod. Providers zijn globaal beschikbaar via `ProviderScope`
 | `feedProvider` | Feed-items (`/api/feed`) |
 | `filteredFeedProvider` | Afgeleide gefilterde feedlijst op basis van categorie, gelezen, ster, samenvatting |
 | `rssItemsProvider` | RSS-items (`/api/rss`) |
-| `requestProvider` | Verzoeken + WebSocket-updates (gebruikt door Settings → Achtergrond-taken voor knop-state en klaar-toast) |
+| `requestProvider` | Verzoeken + WebSocket-updates (gebruikt door Settings → Achtergrond-taken voor knop-state en klaar-toast); watcht het JWT uit `authProvider` en zet bij elke tokenwissel een nieuwe geauthenticeerde WebSocket op (zie §7) |
 | `settingsProvider` | Categorie-instellingen (gebruikt door CategoriesScreen, §9b) |
 | `rssFeedsProvider` | RSS-feed URLs (gebruikt door RssFeedsScreen, §9a) |
 | `podcastFeedsProvider` | Podcast-RSS-bronnen + transcribe-toggle (KAN-56; gebruikt door RssFeedsScreen, §9a) |
@@ -555,6 +575,79 @@ flutter build apk --release \
   --dart-define=API_BASE_URL=http://217.120.100.76:19283
 ```
 
+### Tests draaien
+
+De app heeft tests onder `frontend/test/`: widget-tests (`widget_test.dart`,
+`main_shell_test.dart`, `settings_screen_test.dart`, `rss_feeds_screen_test.dart`,
+`categories_screen_test.dart`, `admin_screen_test.dart`) en unittests
+(`ws_client_test.dart`, `auth_logout_ws_test.dart`,
+`podcast_in_progress_statuses_test.dart`, `models_test.dart`) — samen **49 tests**
+(SF-2263 bracht er 9). `ws_client_test.dart` (SF-2166) legt
+de vorm van de WebSocket-URL vast: het token komt er url-gecodeerd als
+queryparameter `token` op, `http(s)` wordt `ws(s)`, en zonder token wordt er geen
+URL gebouwd én geen verbinding geopend. `auth_logout_ws_test.dart` (SF-2166) is
+de regressietest voor de gebruikerswissel: op de échte `RequestNotifier`, met een
+`container.listen` die de eager rebuild van het instellingenscherm nabootst,
+levert login A → logout → login B achtereenvolgens het token van A, `null` en het
+token van B op als verbindingstoken. `podcast_in_progress_statuses_test.dart`
+(SF-2066) legt vast welke zes
+statussen de gedeelde `kPodcastInProgressStatuses` bevat, zodat spinner en
+poll-timer niet opnieuw uit elkaar kunnen lopen; sinds SF-2123 legt hij ook
+vast dat `kPodcastTranslationInProgressStatuses` exact de drie vertaalstatussen
+bevat én een *echte* deelverzameling van de gedeelde set blijft — die laatste
+assertie is de vangrail die omvalt zodra de twee lijsten uiteenlopen.
+
+`models_test.dart` (SF-2263) is de eerste test op het **JSON-contract** van
+`lib/models/models.dart` en dekt de twee modellen die door de feed- en
+RSS-schermen stromen. Vier dingen liggen er nu vast. (1) `FeedItem.fromJson`
+met een volledige payload: alle twintig velden landen op het juiste veld. De
+veldnamen komen één-op-één uit het DTO dat de backend serialiseert
+(`newsfeedbackend/.../feed/api/dto/FeedItemDto.kt`); `summary`, `isRead` en
+`isSummary` staan daar met een expliciete `@JsonProperty` — die drie staan
+daarom hardgecodeerd in de testdata en niet afgeleid van de Kotlin-veldnaam.
+`createdAt` is backend-side een `Instant` en komt als ISO-8601-**string** over
+de lijn. (2) De terugvallen bij een lege payload, voor `FeedItem` én `RssItem`:
+`category` = `'overig'`, `mediaType` = `'ARTICLE'`, `summarySource` =
+`'transcript'`, lege lijsten voor `topics`/`sourceRssIds`/`sourceUrls`/
+`keyTakeaways` — en `url`/`liked`/`imageUrl`/`durationSeconds` blijven bewust
+`null`, die hebben géén terugval. (3) Beide takken van `listPreview`
+(`models.dart:61`): een gevulde `shortSummary` wint, anders valt hij terug op
+`summary` met samengevouwen en getrimde witruimte. (4) De drietrapswaarde
+`liked` in `copyWith` (`models.dart:87`/`:210`, sentinel op `:102`/`:225`):
+`copyWith(isRead: true)` laat `liked` staan, `copyWith(liked: false)` zet
+`false`, en `copyWith(liked: null)` zet hem écht op `null` in plaats van hem te
+laten staan. Dat laatste is de hele reden dat de `_Sentinel`-constructie
+bestaat — `data_providers.dart:92`/`:154` gebruiken het voor de optimistische
+UI-update van duim-omhoog/duim-omlaag/geen-mening — en het is de assertie die
+bij een "opruimende" refactor van `Object? liked = const _Sentinel()` naar
+`bool? liked` stil omslaat. Schrijf `liked: null` daarom altijd **letterlijk in
+de aanroep**; via een tussenvariabele duikt de sentinel-default weer op en
+bewaakt de test niets.
+
+De resterende vijf modellen (`PodcastFeed`, `CategorySettings`, `NewsRequest`,
+`Podcast`, `EpisodeLookup`) zijn nog ongedekt; dat is de logische tweede stap nu
+het patroon staat. Openstaand punt dat SF-2263 bewust **niet** repareerde:
+`NewsRequest.fromJson` (`models.dart:337`) leest
+`j['isHourlyUpdate'] ?? j['isDailyUpdate'] ?? false`, terwijl `isDailyUpdate`
+nergens meer in de backend of in `specs/openapi.yaml` voorkomt
+(`JacksonConfig.kt:27` documenteert die hernoeming juist als reden om onbekende
+velden te negeren). Dode terugvalcode — opruimen of bewust bewaren als
+bescherming tegen oude, lokaal gecachete JSON is stof voor een aparte story.
+
+```bash
+cd frontend
+flutter pub get
+flutter test
+```
+
+`flutter test` draait op de Dart-VM — geen Docker, JDK of Android-toolchain nodig.
+Sinds SF-1952 dwingt CI deze suite af via `.github/workflows/frontend-tests.yml`,
+bij elke pull request en elke push naar `main` die `frontend/**` of
+`frontend-reader/**` raakt. De workflow heeft twee losse jobs (deze app en de
+reader-app), zodat de uitslag per app zichtbaar blijft ook als er één faalt; hij
+pint Flutter `3.35.0`, dezelfde versie als de APK-builds. Zie
+`docs/factory/development.md` voor de commando's van beide apps naast elkaar.
+
 ---
 
 ## 14. Offline cache
@@ -576,8 +669,11 @@ De Android-app moet bruikbaar blijven als internet wegvalt of de backend (tijdel
 | `podcastProvider` | `GET /api/podcasts` | `podcasts` |
 | `settingsProvider` | `GET /api/settings` | `settings` |
 | `rssFeedsProvider` | `GET /api/rss-feeds` | `rss-feeds` |
+| `podcastFeedsProvider` | `GET /api/podcast-feeds` | `podcast-feeds` |
 
-Schrijfacties (PUT/POST/DELETE) cachen niet expliciet — ze updaten de in-memory state optimistisch en falen stil bij offline. Bij volgende online refresh komt de juiste server-state weer binnen.
+De meeste schrijfacties (PUT/POST/DELETE) cachen niet expliciet — ze updaten de in-memory state optimistisch en falen stil bij offline. Bij volgende online refresh komt de juiste server-state weer binnen.
+
+Uitzondering zijn de drie lijst-editors: `rssFeedsProvider.save` en `podcastFeedsProvider.save` uit §9a (SF-1552) en `settingsProvider.save` uit §9b (SF-1851). Ze schrijven de nieuwe lijst na een geslaagde PUT ook zelf naar de cache (`rss-feeds`, `podcast-feeds` resp. `settings`) en muteren de state **pas daarna**. Ze zijn dus niet optimistisch en falen niet stil: gaat de PUT mis, dan blijven state én cache ongewijzigd en propageert de `ApiException` naar het scherm, dat er een rode snackbar van maakt.
 
 ### Cache-leven
 - Wordt gewist bij `AuthNotifier.logout()` via `LocalCache.clearAll()` zodat een volgende user geen residue ziet.

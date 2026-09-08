@@ -1,17 +1,28 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../api/api_client.dart';
 import '../models/models.dart';
 import '../providers/data_providers.dart';
 
 /// SF-762: aparte subpagina voor het beheren van de categorieën. Verplaatst
 /// uit `settings_screen.dart` volgens hetzelfde patroon als de RSS-feeds
-/// (`RssFeedsScreen`, SF-220/312); de lijst, dialogen en hun gedrag zijn
-/// ongewijzigd — alleen de plaatsing verandert.
-class CategoriesScreen extends ConsumerWidget {
+/// (`RssFeedsScreen`, SF-220/312).
+///
+/// SF-1851: het faalcontract is gelijkgetrokken met `_RssFeedsEditor` — elke
+/// mutatie loopt via [_CategoriesScreenState._save], de lijst muteert pas ná
+/// een geslaagde PUT en bij een fout verschijnt een rode snackbar.
+class CategoriesScreen extends ConsumerStatefulWidget {
   const CategoriesScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<CategoriesScreen> createState() => _CategoriesScreenState();
+}
+
+class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
+  bool _busy = false;
+
+  @override
+  Widget build(BuildContext context) {
     final cats = ref.watch(settingsProvider);
     final bottomInset = MediaQuery.of(context).padding.bottom;
     return Scaffold(
@@ -26,18 +37,23 @@ class CategoriesScreen extends ConsumerWidget {
                 title: Text(c.name),
                 subtitle: c.isSystem ? const Text('Systeem') : null,
                 value: c.enabled,
-                onChanged: (v) {
-                  final next = list.map((x) => x.id == c.id ? x.copyWith(enabled: v) : x).toList();
-                  ref.read(settingsProvider.notifier).save(next);
-                },
+                onChanged: _busy
+                    ? null
+                    : (v) {
+                        final next = list.map((x) => x.id == c.id ? x.copyWith(enabled: v) : x).toList();
+                        _save(next);
+                      },
                 secondary: c.isSystem
                     ? null
-                    : IconButton(icon: const Icon(Icons.edit), onPressed: () => _editCategory(context, ref, c, list)),
+                    : IconButton(
+                        icon: const Icon(Icons.edit),
+                        onPressed: _busy ? null : () => _editCategory(c, list),
+                      ),
               ),
             ListTile(
               leading: const Icon(Icons.add),
               title: const Text('Categorie toevoegen'),
-              onTap: () => _addCategory(context, ref, list),
+              onTap: _busy ? null : () => _addCategory(list),
             ),
           ]),
           loading: () => const Center(child: CircularProgressIndicator()),
@@ -47,7 +63,33 @@ class CategoriesScreen extends ConsumerWidget {
     );
   }
 
-  Future<void> _addCategory(BuildContext context, WidgetRef ref, List<CategorySettings> list) async {
+  /// SF-1851: identiek faalcontract als [_RssFeedsEditorState._save] — de
+  /// lijst muteert pas nadat de PUT geslaagd is en tijdens het opslaan is de
+  /// bediening uitgeschakeld. Er is geen invoerveld dat geleegd moet worden,
+  /// dus ook geen `validateFailureMessage`-parameter.
+  Future<void> _save(List<CategorySettings> next) async {
+    setState(() => _busy = true);
+    try {
+      await ref.read(settingsProvider.notifier).save(next);
+    } catch (e) {
+      if (!mounted) return;
+      // Backend stuurt bij een afwijzing HTTP 400 met een Nederlandse
+      // foutmelding in de body — die tonen we direct.
+      final msg = e is ApiException && e.statusCode == 400
+          ? extractDutchMessage(e.body, emptyFallback: 'Kon categorieën niet opslaan')
+          : 'Fout bij opslaan: $e';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(msg),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _addCategory(List<CategorySettings> list) async {
     final name = TextEditingController();
     final ok = await showDialog<bool>(
       context: context,
@@ -63,10 +105,10 @@ class CategoriesScreen extends ConsumerWidget {
     if (ok != true || name.text.trim().isEmpty) return;
     final id = name.text.trim().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_');
     final next = [...list, CategorySettings(id: id, name: name.text.trim())];
-    await ref.read(settingsProvider.notifier).save(next);
+    await _save(next);
   }
 
-  Future<void> _editCategory(BuildContext context, WidgetRef ref, CategorySettings c, List<CategorySettings> list) async {
+  Future<void> _editCategory(CategorySettings c, List<CategorySettings> list) async {
     final name = TextEditingController(text: c.name);
     final extra = TextEditingController(text: c.extraInstructions);
     final action = await showDialog<String>(
@@ -92,10 +134,10 @@ class CategoriesScreen extends ConsumerWidget {
       final next = list.map((x) => x.id == c.id
               ? x.copyWith(name: name.text.trim(), extraInstructions: extra.text)
               : x).toList();
-      await ref.read(settingsProvider.notifier).save(next);
+      await _save(next);
     } else if (action == 'delete') {
       final next = list.where((x) => x.id != c.id).toList();
-      await ref.read(settingsProvider.notifier).save(next);
+      await _save(next);
     }
   }
 }

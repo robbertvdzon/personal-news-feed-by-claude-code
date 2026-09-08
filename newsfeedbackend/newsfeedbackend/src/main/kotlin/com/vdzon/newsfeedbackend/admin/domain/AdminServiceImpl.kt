@@ -56,8 +56,29 @@ class AdminServiceImpl(
         log.info("[Admin] '{}' deleted user '{}'", actor, targetUsername)
     }
 
+    /**
+     * Ruimt `<dataDir>/users/<username>/audio` op.
+     *
+     * Dit is de vangnetlaag voor accounts van vóór de allowlist-validatie op de gebruikersnaam
+     * in `AuthServiceImpl.register`: die accounts zijn niet met terugwerkende kracht gevalideerd,
+     * dus een bestaande naam kan nog steeds `..` of een `/` bevatten. Daarom wordt hier
+     * gecontroleerd dat het genormaliseerde doelpad aantoonbaar ónder `<dataDir>/users` valt;
+     * valt het erbuiten, dan wordt er niets verwijderd en volgt alleen een `log.warn`.
+     *
+     * Bewust géén `toRealPath()`: `app.data-dir` heeft default `./data` en hoeft niet te
+     * bestaan, wat een `NoSuchFileException` zou opleveren.
+     *
+     * Een lege naam levert `<dataDir>/users/audio` op — dat valt technisch ónder de basis en
+     * wordt hier dus niet geweigerd. Die vorm wordt bewust door de registratie-validatie
+     * afgevangen en niet hier.
+     */
     private fun deleteAudioDir(username: String) {
-        val dir: Path = Path.of(dataDir, "users", username, "audio")
+        val base: Path = Path.of(dataDir, "users").toAbsolutePath().normalize()
+        val dir: Path = Path.of(dataDir, "users", username, "audio").toAbsolutePath().normalize()
+        if (!dir.startsWith(base)) {
+            log.warn("[Admin] Refusing to delete audio dir outside {}: {}", base, dir)
+            return
+        }
         if (!Files.exists(dir)) return
         Files.walk(dir).use { stream ->
             stream.sorted(Comparator.reverseOrder()).forEach { p ->

@@ -39,8 +39,8 @@ class AdminE2eTest : E2eTestBase() {
         check(resp.status == 201) { "register faalde: ${resp.status} ${resp.body}" }
         val json = resp.json(mapper)
         val created = FirstUser(
-            TestUser(username, password, json.path("token").asText()),
-            json.path("role").asText()
+            TestUser(username, password, json.path("token").asString()),
+            json.path("role").asString()
         )
         firstUser = created
         return created
@@ -57,7 +57,7 @@ class AdminE2eTest : E2eTestBase() {
             body = """{"username": "${first.user.username}", "password": "${first.user.password}"}"""
         )
         check(login.status == 200) { "admin-login faalde: ${login.status} ${login.body}" }
-        return first.user.copy(token = login.json(mapper).path("token").asText())
+        return first.user.copy(token = login.json(mapper).path("token").asString())
     }
 
     @Test
@@ -86,10 +86,10 @@ class AdminE2eTest : E2eTestBase() {
         val user = registerUser("lijst")
 
         val users = getJson("/api/admin/users", admin.token)
-        val byName = users.associate { it.path("username").asText() to it.path("role").asText() }
+        val byName = users.associate { it.path("username").asString() to it.path("role").asString() }
         assertEquals("admin", byName[admin.username])
         assertEquals("user", byName[user.username])
-        assertTrue(users.all { it.path("id").asText().isNotBlank() })
+        assertTrue(users.all { it.path("id").asString().isNotBlank() })
     }
 
     @Test
@@ -102,7 +102,7 @@ class AdminE2eTest : E2eTestBase() {
             """{"newPassword": "nieuwwachtwoord1"}"""
         )
         assertEquals(200, resp.status)
-        assertEquals("ok", resp.json(mapper).path("status").asText())
+        assertEquals("ok", resp.json(mapper).path("status").asString())
 
         // Oud wachtwoord werkt niet meer, nieuw wel.
         assertEquals(
@@ -132,8 +132,8 @@ class AdminE2eTest : E2eTestBase() {
             "/api/auth/login",
             body = """{"username": "${user.username}", "password": "${user.password}"}"""
         ).json(mapper)
-        assertEquals("admin", alsAdmin.path("role").asText())
-        assertEquals(200, get("/api/admin/users", alsAdmin.path("token").asText()).status)
+        assertEquals("admin", alsAdmin.path("role").asString())
+        assertEquals(200, get("/api/admin/users", alsAdmin.path("token").asString()).status)
 
         // Demoveren (door de oorspronkelijke admin, dus geen self-demote).
         assertEquals(
@@ -144,8 +144,8 @@ class AdminE2eTest : E2eTestBase() {
             "/api/auth/login",
             body = """{"username": "${user.username}", "password": "${user.password}"}"""
         ).json(mapper)
-        assertEquals("user", alsUser.path("role").asText())
-        assertEquals(403, get("/api/admin/users", alsUser.path("token").asText()).status)
+        assertEquals("user", alsUser.path("role").asString())
+        assertEquals(403, get("/api/admin/users", alsUser.path("token").asString()).status)
 
         // Onbekende rol wordt geweigerd.
         assertEquals(
@@ -163,7 +163,7 @@ class AdminE2eTest : E2eTestBase() {
             """{"role": "user"}"""
         )
         assertEquals(400, resp.status)
-        assertTrue(resp.json(mapper).path("error").asText().isNotBlank())
+        assertTrue(resp.json(mapper).path("error").asString().isNotBlank())
 
         // Admin is nog steeds admin.
         assertEquals(200, get("/api/admin/users", admin.token).status)
@@ -195,7 +195,7 @@ class AdminE2eTest : E2eTestBase() {
             401,
             post("/api/auth/login", body = """{"username": "${user.username}", "password": "${user.password}"}""").status
         )
-        val names = getJson("/api/admin/users", admin.token).values().map { it.path("username").asText() }
+        val names = getJson("/api/admin/users", admin.token).values().map { it.path("username").asString() }
         assertFalse(user.username in names)
 
         // Onbekende user verwijderen geeft 404.

@@ -704,6 +704,10 @@ class _TranslateSection extends StatelessWidget {
     );
   }
 
+  /// Labelvertaling voor de lopende vertaalflow. De cases hier horen één op één
+  /// bij `kPodcastTranslationInProgressStatuses` (`models.dart`), die bepaalt
+  /// wanneer dit label überhaupt getoond wordt: voeg je daar een status toe,
+  /// pas dan ook deze switch aan (anders val je terug op `'bezig…'`).
   String _phaseLabel(String? status) {
     switch (status) {
       case 'PENDING':

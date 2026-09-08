@@ -40,7 +40,9 @@ class RequestController(private val service: RequestService) {
 
     @PostMapping("/{id}/cancel")
     fun cancel(@PathVariable id: String): ResponseEntity<Void> {
-        service.cancel(user(), id)
+        // Bewust 404 (net als delete/rerun) en geen 403: het antwoord mag
+        // niet verraden of een id van een andere gebruiker bestaat.
+        if (!service.cancel(user(), id)) throw NotFoundException("request $id")
         return ResponseEntity.noContent().build()
     }
 }

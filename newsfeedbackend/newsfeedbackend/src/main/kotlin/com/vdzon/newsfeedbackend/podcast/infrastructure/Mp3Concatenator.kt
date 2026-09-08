@@ -4,7 +4,6 @@ import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import java.io.ByteArrayOutputStream
 import java.nio.file.Files
-import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 /**

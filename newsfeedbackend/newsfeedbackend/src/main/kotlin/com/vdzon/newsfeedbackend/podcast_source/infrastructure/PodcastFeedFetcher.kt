@@ -3,9 +3,11 @@ package com.vdzon.newsfeedbackend.podcast_source.infrastructure
 import com.rometools.rome.feed.synd.SyndFeed
 import com.rometools.rome.io.SyndFeedInput
 import com.rometools.rome.io.XmlReader
+import com.vdzon.newsfeedbackend.common.SsrfUrlValidator
 import com.vdzon.newsfeedbackend.external_call.ExternalCall
 import com.vdzon.newsfeedbackend.external_call.ExternalCallLogger
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
 import java.net.URI
 import java.net.http.HttpClient
@@ -15,7 +17,6 @@ import java.time.Duration
 import java.time.Instant
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
-import java.util.UUID
 
 /**
  * Haalt één podcast-RSS-feed op en parsed naar [PodcastFeedEpisode]s.
@@ -32,7 +33,10 @@ import java.util.UUID
  */
 @Component
 class PodcastFeedFetcher(
-    private val callLogger: ExternalCallLogger
+    private val callLogger: ExternalCallLogger,
+    // Zie SettingsServiceImpl.ssrfAllowLoopback / RssFetcher — zelfde e2e-only escape-hatch,
+    // hier voor de defense-in-depth-check vlak vóór het echte fetch-request.
+    @param:Value("\${app.security.ssrf.allow-loopback:false}") private val ssrfAllowLoopback: Boolean = false,
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -63,6 +67,15 @@ class PodcastFeedFetcher(
         var errorMessage: String? = null
         var itemCount = 0
         try {
+            // Defense-in-depth: verse DNS-resolutie vlak vóór het versturen,
+            // ook al is de URL al gevalideerd bij opslaan (dekt DNS-rebinding af).
+            val validation = SsrfUrlValidator.validate(feedUrl, allowLoopback = ssrfAllowLoopback)
+            if (validation is SsrfUrlValidator.ValidationResult.Invalid) {
+                log.warn("[PodcastFeed] blocked SSRF-risky URL {}: {}", feedUrl, validation.reason)
+                status = "error"
+                errorMessage = "geblokkeerd: ${validation.reason}"
+                return FetchResult(ok = false, podcastName = "", episodes = emptyList(), errorMessage = errorMessage)
+            }
             val req = HttpRequest.newBuilder().uri(URI.create(feedUrl))
                 .header("User-Agent", "PersonalNewsFeed/1.0")
                 .timeout(Duration.ofSeconds(20))
@@ -100,7 +113,12 @@ class PodcastFeedFetcher(
             errorMessage = e.message ?: e.javaClass.simpleName
             return FetchResult(ok = false, podcastName = "", episodes = emptyList(), errorMessage = errorMessage)
         } finally {
-            logFetch(username, feedUrl, started, itemCount, status, errorMessage)
+            callLogger.logCall(
+                ExternalCall.PROVIDER_RSS, ExternalCall.ACTION_PODCAST_FEED_FETCH, username, started,
+                ExternalCall.UNIT_ITEMS, status,
+                units = itemCount.toLong(), costUsd = 0.0, errorMessage = errorMessage,
+                subject = feedUrl.take(120)
+            )
         }
     }
 
@@ -129,38 +147,6 @@ class PodcastFeedFetcher(
             }
         } catch (_: NumberFormatException) {
             null
-        }
-    }
-
-    private fun logFetch(
-        username: String,
-        feedUrl: String,
-        started: Instant,
-        itemCount: Int,
-        status: String,
-        errorMessage: String?
-    ) {
-        val end = Instant.now()
-        try {
-            callLogger.log(
-                ExternalCall(
-                    id = UUID.randomUUID().toString(),
-                    provider = ExternalCall.PROVIDER_RSS,
-                    action = ExternalCall.ACTION_PODCAST_FEED_FETCH,
-                    username = username,
-                    startTime = started,
-                    endTime = end,
-                    durationMs = end.toEpochMilli() - started.toEpochMilli(),
-                    units = itemCount.toLong(),
-                    unitType = ExternalCall.UNIT_ITEMS,
-                    costUsd = 0.0,
-                    status = status,
-                    errorMessage = errorMessage,
-                    subject = feedUrl.take(120)
-                )
-            )
-        } catch (e: Exception) {
-            log.warn("[PodcastFeed] could not log external_call: {}", e.message)
         }
     }
 

@@ -18,14 +18,16 @@ ArgoCD ◄── synct main ──── git ──┘
         │
         ▼
 OpenShift cluster (personal-news-feed)
-  ├── backend Pod + Service + Route (debug)
-  ├── frontend Pod + Service + Route ← gebruikers
-  ├── PVC (audio files, 5 Gi)
+  ├── backend Pod + Service + Route (debug) + PVC (runtime-state, 5 Gi)
+  ├── frontend Pod + Service + Route ← gebruikers (news.vdzonsoftware.nl)
+  ├── reader Pod + Service + Route   ← reader.vdzonsoftware.nl
+  ├── cloudflared    (tunnel: *.vdzonsoftware.nl → ingressrouter → Route)
   └── Secret (uit SealedSecret in git, ge-decrypt door cluster)
 ```
 
-Data zelf staat in een externe Postgres (Neon); alleen audio-MP3's en
-de runtime-state staan in het cluster.
+Data zelf staat in een externe Postgres (Neon) — inclusief de podcast-audio,
+die sinds migratie `V5__podcast_audio_bytes.sql` als BYTEA in de database
+staat. Het PVC houdt alleen runtime-state / admin-cleanup paden.
 
 ## Eenmalige cluster-setup
 
@@ -42,7 +44,8 @@ imperatieve stappen toen de ArgoCD-instance cluster-scoped werd):
 ~/git/robberts-infrastructure/scripts/bootstrap/bootstrap-apps.sh
 ```
 
-`deploy/bootstrap.sh` hier is verouderd en doet niets meer. Wat het deed:
+De twee imperatieve stappen die hier ooit een eigen bootstrap-script nodig
+hadden, zijn allebei vervallen:
 
 1. Namespace `personal-news-feed` aanmaken + labelen — overbodig:
    `CreateNamespace=true` werkt echt sinds ArgoCD cluster-scoped draait
@@ -94,7 +97,7 @@ ontstaat in de namespace → backend pod start.
 ### Code-wijziging
 
 Push naar `main`:
-- GitHub Actions bouwt nieuwe images, pusht naar `ghcr.io/robbertvdzon/personal-news-feed-{backend,frontend}:sha-…`
+- GitHub Actions bouwt nieuwe images, pusht naar `ghcr.io/robbertvdzon/personal-news-feed-{backend,frontend,reader}:sha-…`
 - Workflow committet de nieuwe SHA in `deploy/base/kustomization.yaml`
 - ArgoCD detecteert de manifest-wijziging, doet `kubectl apply`, pods rollen
 - Geen handmatige stap nodig
@@ -139,10 +142,22 @@ Wat je nog moet doen:
 2. **Zero Trust → Networks → Tunnels → Create a tunnel** (Cloudflared type).
    - Geef 'm een naam, b.v. `personal-news-feed`.
    - Kopieer de **TUNNEL_TOKEN** uit het install-commando.
-3. **Public hostname** in de tunnel-config:
-   - Subdomain: `news`
-   - Domain: `vdzonsoftware.nl`
-   - Service: `HTTP` → `frontend.personal-news-feed.svc.cluster.local:8080`
+3. **Eén public hostname** in de tunnel-config — een wildcard die naar de
+   ingressrouter van het cluster wijst:
+   - Subdomain: `*`
+   - Domain: `vdzonsoftware.nl` (dus `*.vdzonsoftware.nl`)
+   - Service: `HTTP` → de OpenShift-ingressrouter van je cluster (dus
+     **niet** rechtstreeks een app-Service). De concrete DNS-naam en poort van
+     die router staan bewust niet in deze repo — die zijn cluster-specifiek;
+     zoek ze op in je eigen cluster (ingress-controller in
+     `openshift-ingress`).
+
+   De tunnel geeft de oorspronkelijke `Host`-header ongewijzigd door, en de
+   ingressrouter kiest daarop de bijbehorende `Route`. Deze ene regel bedient
+   dus `news.vdzonsoftware.nl`, `reader.vdzonsoftware.nl` én alle
+   `pnf-pr-<N>.vdzonsoftware.nl`-previews; er zijn geen losse public hostnames
+   per app of per PR nodig. Zie "Preview-deploys per PR", punt 5 hieronder en
+   `runbook.md` §7 voor het volledige routeringsverhaal.
 4. **Token in de SealedSecret** zetten:
    ```bash
    # Edit deploy/secrets-cluster.env, voeg TUNNEL_TOKEN=eyJ... toe
@@ -151,7 +166,11 @@ Wat je nog moet doen:
    git commit -m "deploy: add cloudflare tunnel token"
    git push
    ```
-5. ArgoCD synct, `cloudflared`-pod start, tunnel opent → `https://news.vdzonsoftware.nl` werkt vanaf elke browser, met geldig Cloudflare-cert.
+5. ArgoCD synct, `cloudflared`-pod start, tunnel opent → alle hosts onder
+   `*.vdzonsoftware.nl` waarvoor een `Route` bestaat werken vanaf elke browser,
+   met geldig Cloudflare-cert: `https://news.vdzonsoftware.nl`,
+   `https://reader.vdzonsoftware.nl` en elke actieve
+   `https://pnf-pr-<N>.vdzonsoftware.nl`-preview.
 
 Geen port-forwarding op je router nodig — alleen uitgaande connectie van het cluster naar Cloudflare.
 
@@ -169,27 +188,59 @@ PR-nummer is). Bij merge/close wordt de preview opgeruimd.
    `robberts-infrastructure/manifests/root-app/apps/personal-news-feed-applicationset.yaml`)
    pollt elke 3 min GitHub voor open PR's matching `^ai/.+$` en spawnt per
    PR een ArgoCD Application.
-3. **Preview-ns-labeller** (RBAC hier in `deploy/preview-ns-labeller/`,
-   Deployment sinds 2026-07-08 in
-   `robberts-infrastructure/manifests/root-app/apps/preview-ns-labeller-deployment.yaml`)
+3. **Preview-ns-labeller** (RBAC én Deployment sinds 2026-07-08 in
+   `robberts-infrastructure/manifests/root-app/apps/preview-ns-labeller-rbac.yaml`
+   respectievelijk `…/preview-ns-labeller-deployment.yaml`; in
+   `deploy/preview-ns-labeller/` staan alleen `labeller.sh` en `Dockerfile`
+   nog echt — `rbac.yaml` is daar een leeggehaald pointer-bestand)
    zorgt dat de bijbehorende namespace `pnf-pr-<N>` bestaat met de
    `argocd.argoproj.io/managed-by`-label (anders blokkeert de
-   argocd-operator).
+   argocd-operator). Vóór élke creatiehandeling — dus ook vóór het
+   (opnieuw) aanmaken en labelen van die namespace — checkt de labeller
+   eerst bij GitHub of PR `<N>` echt open is; die check is fail-closed
+   (zie "Beperkingen" hieronder).
 4. **Reflector** mirror't de `newsfeed-api-keys` Secret automatisch
    naar elke nieuwe `pnf-*`-namespace.
-5. **Preview-router** (nginx in personal-news-feed) ontvangt
-   `*.vdzonsoftware.nl` traffic via Cloudflare en route't host-based
-   naar de juiste preview-namespace.
+5. **Routering via de OpenShift-ingressrouter.** Cloudflare stuurt de
+   wildcard `*.vdzonsoftware.nl` naar de ingressrouter van het cluster;
+   die kiest op de oorspronkelijke Host-header de bijbehorende Route.
+   Er zit dus géén extra nginx-tussenlaag meer in het pad. De
+   productiehosts staan declaratief in de manifests:
+   `deploy/base/frontend-route.yaml` (`news.vdzonsoftware.nl`) en
+   `deploy/base/reader-route.yaml` (`reader.vdzonsoftware.nl`). Voor
+   previews zet de `preview`-overlay op de frontend-Route de
+   placeholder-host `preview-host-must-be-set.invalid`, die de
+   ApplicationSet per PR vervangt door `pnf-pr-<N>.vdzonsoftware.nl`.
+   Op de frontend- en reader-Route staat
+   `insecureEdgeTerminationPolicy` op `Allow` (niet `Redirect`), omdat de
+   Cloudflare-connector de router cluster-intern via HTTP bereikt — een
+   redirect naar HTTPS zou dat verkeer laten stuiteren.
+   `deploy/base/backend-route.yaml` (debug, niet via de gedeelde
+   wildcard) houdt bewust `Redirect`.
+
+**Geen productie-JWT-sleutel in previews (SF-1542).** De
+`preview`-overlay overschrijft `APP_JWT_SECRET` op de backend-Deployment
+naar een lege waarde (strategic-merge-patch met `valueFrom: null`), zodat
+de `secretKeyRef` naar `newsfeed-api-keys`/`JWT_SECRET` daar vervalt. De
+backend genereert dan bij het opstarten zelf een random ephemeral sleutel
+per pod: tokens uit een preview zijn alleen binnen die preview geldig, niet
+op productie, en vervallen bij pod-herstart. Dat is prima — previews zijn
+wegwerp en de e2e-runner logt per run opnieuw in. De
+`openshift`-(productie)overlay blijft de vaste sleutel uit de SealedSecret
+gebruiken. De rest van het `newsfeed-api-keys`-secret wordt nog steeds
+volledig gespiegeld (o.a. `PNF_DATABASE_URL`); alleen de koppeling van de
+JWT-sleutel aan de preview-Deployment is verbroken.
 
 **Beperkingen:**
 
-- **Alleen code-changes triggeren een preview.** PR's die alleen
-  `specs/**` of `deploy/**` aanraken matchen niet de paths-filter
-  van `build-images.yml` → er wordt geen image gebouwd → de preview
-  blijft hangen op "Pending". Niet kritiek (geen runtime-impact
-  om te previewen) maar wel verwarrend. Workaround: tijdelijk een
-  trivial commit in `newsfeedbackend/**` of `frontend/**` toevoegen
-  om de build te forceren.
+- **Een preview verschijnt niet meteen.** De ArgoCD ApplicationSet pollt
+  GitHub elke ~3 min voor nieuwe/gewijzigde PR's, dus tussen het openen
+  van de PR en een draaiende preview zit al gauw een paar minuten
+  ("Pending"). Even wachten lost dit meestal op. Elke `pull_request`-event
+  bouwt wél altijd een image: het trigger-blok in `build-images.yml` heeft
+  bewust **geen** `paths:`-filter, zodat ook docs-only PR's een image met
+  hun eigen SHA krijgen en de preview niet op `ImagePullBackOff` blijft
+  staan.
 
 - **Database per preview.** De `preview-ns-labeller` maakt per
   preview een Neon-branch `pr-<N>` aan en patcht `PNF_DATABASE_URL`
@@ -197,8 +248,13 @@ PR-nummer is). Bij merge/close wordt de preview opgeruimd.
   dus op een eigen kopie, niet op prod. Restrisico's: (a) de eerste
   boot van een verse preview kan kort de prod-URL uit het base-secret
   zien totdat de labeller (30s-poll) gepatcht en de pod herstart
-  heeft; (b) zonder NEON_API_KEY degradeert de labeller naar
-  labeling-only en draaien previews wél op prod.
+  heeft; (b) zonder `NEON_API_KEY`/`NEON_PROJECT_ID` degradeert de
+  labeller naar labeling-only en draaien previews wél op prod; (c) de
+  labeller heeft daarnaast `GITHUB_TOKEN` nodig voor de fail-closed
+  PR-statuscheck — ontbreekt dat token, faalt de GitHub-call of komt er
+  geen HTTP 200, dan is de PR-status "onbekend" en doet de labeller voor
+  die preview helemaal niets: geen namespace-label, geen Neon-branch,
+  geen secret-patch en geen cleanup.
 
 - **Geen automatic preview cleanup van orphan namespaces.** Bij merge/close
   ruimt ArgoCD de gegenereerde Application + resources netjes op
@@ -216,8 +272,8 @@ PR-nummer is). Bij merge/close wordt de preview opgeruimd.
 ```
 deploy/
 ├── README.md                    ← deze file
-├── bootstrap.sh                 ← VEROUDERD (doet niets meer; alles via GitOps)
 ├── seal-secrets.sh              ← .env → SealedSecret YAML (cert komt uit robberts-infrastructure)
+├── neon-endpoint-config.sh      ← Neon-endpoint op suspend=300s / 0.25–1 CU (idempotent, zie runbook §6.1)
 ├── secrets-cluster.env.example  ← template
 ├── secrets-cluster.env          ← (gitignored) jouw waarden
 ├── preview-ns-labeller/
@@ -226,18 +282,27 @@ deploy/
 │   └── Dockerfile
 ├── base/
 │   ├── kustomization.yaml
-│   ├── namespace.yaml
 │   ├── backend-deployment.yaml
 │   ├── backend-service.yaml
-│   ├── backend-route.yaml      ← optioneel/debug
-│   ├── backend-pvc.yaml         ← audio storage
+│   ├── backend-route.yaml       ← optioneel/debug
+│   ├── backend-pvc.yaml         ← runtime-state / admin-cleanup paden
 │   ├── frontend-deployment.yaml
 │   ├── frontend-service.yaml
 │   ├── frontend-route.yaml
+│   ├── reader-deployment.yaml
+│   ├── reader-service.yaml
+│   ├── reader-route.yaml        ← reader.vdzonsoftware.nl
+│   ├── cloudflared-deployment.yaml   ← tunnel *.vdzonsoftware.nl
 │   └── sealed-secret-api-keys.yaml  ← na seal-secrets.sh
 └── overlays/
-    └── openshift/
-        └── kustomization.yaml  ← cluster-specifieke patches
+    ├── openshift/
+    │   └── kustomization.yaml  ← cluster-specifieke patches (productie)
+    └── preview/
+        └── kustomization.yaml  ← per-PR preview: frontend-Route blijft (met
+                                   per-PR host), backend-debug- en reader-Route,
+                                   PVC, cloudflared en SealedSecret vervallen;
+                                   emptyDir i.p.v. PVC en een ephemeral
+                                   JWT-sleutel (SF-1542)
 ```
 
 De ArgoCD `Application`, `ApplicationSet`, `github-pr-token`-SealedSecret en

@@ -1,7 +1,7 @@
 package com.vdzon.newsfeedbackend.shared.api
 
 import com.vdzon.newsfeedbackend.feed.FeedService
-import com.vdzon.newsfeedbackend.settings.CategorySettings
+import com.vdzon.newsfeedbackend.shared.api.dto.SharedCategoryDto
 import com.vdzon.newsfeedbackend.shared.api.dto.SharedFeedItemDto
 import com.vdzon.newsfeedbackend.shared.api.dto.toSharedDto
 import com.vdzon.newsfeedbackend.settings.SettingsService
@@ -19,6 +19,12 @@ import org.springframework.web.bind.annotation.RestController
  * lokaal op het toestel bij. De persoonlijke read/star/liked-vlaggen van
  * de bron-gebruiker zitten helemaal niet in [SharedFeedItemDto], zodat we
  * z'n leesgedrag niet lekken en de reader met een schone lei begint.
+ *
+ * Beide endpoints hier staan op `permitAll` en worden publiek doorgeproxyd,
+ * dus geen van beide geeft een domeinobject terug: naast de feed heeft ook
+ * het categorieën-endpoint een eigen, uitgeklede vorm ([SharedCategoryDto]).
+ * Daarmee blijft de privé `extraInstructions`-tekst — waarmee de
+ * bron-gebruiker het taalmodel bijstuurt — buiten de publieke response.
  */
 @RestController
 @RequestMapping("/api/shared")
@@ -36,8 +42,11 @@ class SharedFeedController(
      * Categorie-instellingen van de bron-gebruiker, zodat de reader-app de
      * categorie-tabjes met nette namen + volgorde kan tonen. Read-only,
      * geen auth — alleen ingeschakelde categorieën zijn relevant voor de UI.
+     * Alleen id/naam/enabled gaan mee, zie [SharedCategoryDto].
      */
     @GetMapping("/categories")
-    fun categories(): List<CategorySettings> =
-        settingsService.getCategories(sharedUsername).filter { it.enabled }
+    fun categories(): List<SharedCategoryDto> =
+        settingsService.getCategories(sharedUsername)
+            .filter { it.enabled }
+            .map { it.toSharedDto() }
 }

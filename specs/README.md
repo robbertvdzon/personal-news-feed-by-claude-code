@@ -45,7 +45,7 @@ personal-news-feed/
 | Bestand | Inhoud |
 |---------|--------|
 | [`backend-functional-spec.md`](./backend-functional-spec.md) | Wat de backend doet: datamodellen, achtergrondprocessen (pipelines), externe systemen, configuratie, foutafhandeling |
-| [`backend-technical-spec.md`](./backend-technical-spec.md) | Hoe de backend gebouwd is: Spring Modulith modules, gelaagde architectuur, DTOs, logging, Grafana-monitoring, Cucumber integratie-tests, IntelliJ setup |
+| [`backend-technical-spec.md`](./backend-technical-spec.md) | Hoe de backend gebouwd is: Spring Modulith modules, gelaagde architectuur, DTOs, logging, Grafana-monitoring, tests (unit + e2e), IntelliJ setup |
 | [`frontend-spec.md`](./frontend-spec.md) | Alle schermen, navigatie, gebruikersacties, state management, WebSocket-integratie, audio-afspelen |
 | [`openapi.yaml`](./openapi.yaml) | Alle REST-endpoints met paden, methoden, parameters, request/response-bodies en dataschema's. Dit is de **source of truth** voor de API-interface tussen backend en frontend. |
 | [`e2e.md`](./e2e.md) | Pointer naar `/e2e/readme.md` met de end-to-end-test scenario's, runner-procedure en testrun-administratie. |
@@ -58,13 +58,13 @@ personal-news-feed/
 ```
 Flutter app (frontend/)
       │
-      │  REST (JWT Bearer)      WebSocket
+      │  REST (JWT Bearer)      WebSocket (JWT als ?token=)
       ▼                              ▼
 Spring Boot backend (newsfeedbackend/)
       │
       ├── PostgreSQL (Neon)     (alle data; Flyway-migraties; podcast-audio als BYTEA)
-      ├── OpenAI API            (AI samenvatting, selectie, podcast, events, transcriptie/TTS)
-      ├── Tavily API            (websearch + extractie: ad-hoc + events-discovery)
+      ├── OpenAI API            (AI samenvatting, selectie, podcast, transcriptie/TTS)
+      ├── Tavily API            (websearch + extractie: ad-hoc nieuws-verzoeken)
       └── ElevenLabs TTS API    (podcast audio, optioneel)
 ```
 
@@ -78,3 +78,4 @@ Spring Boot backend (newsfeedbackend/)
 |----------|-------------|
 | `make serve-ext` / `make run` | Start web-app op poort **3000**, backend op `http://localhost:8080` |
 | `make build-apk-ext` | Bouwt release-APK met backend `http://217.120.100.76:19283` |
+| `flutter pub get && flutter test` | Draait de widget- en unittests; ook in `frontend-reader/` (daar sinds SF-2200 17 tests, sinds SF-2221 18). CI dwingt beide suites af via `.github/workflows/frontend-tests.yml` |

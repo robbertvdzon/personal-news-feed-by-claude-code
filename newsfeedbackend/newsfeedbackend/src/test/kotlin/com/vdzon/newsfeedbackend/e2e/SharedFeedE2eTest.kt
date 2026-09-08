@@ -74,7 +74,7 @@ class SharedFeedE2eTest : E2eTestBase() {
         seed(sharedUsername, newItem(eigenTitel))
         seed(ander.username, newItem(andermansTitel))
 
-        val titels = getJson("/api/shared/feed").values().map { it.path("title").asText() }
+        val titels = getJson("/api/shared/feed").values().map { it.path("title").asString() }
         assertTrue(eigenTitel in titels)
         assertFalse(andermansTitel in titels)
     }
@@ -85,31 +85,44 @@ class SharedFeedE2eTest : E2eTestBase() {
         val titel = "Gelezen met ster ${UUID.randomUUID().toString().take(8)}"
         seed(sharedUsername, newItem(titel, isRead = true, starred = true, liked = true))
 
-        val item = getJson("/api/shared/feed").first { it.path("title").asText() == titel }
+        val item = getJson("/api/shared/feed").first { it.path("title").asString() == titel }
         // Het leesgedrag van de bron-gebruiker mag niet lekken: de reader
         // begint met een schone lei.
         assertFalse(item.path("isRead").asBoolean())
         assertFalse(item.path("starred").asBoolean())
         assertTrue(item.path("liked").isNull || item.path("liked").isMissingNode)
         // De inhoud zelf is wel gewoon aanwezig.
-        assertEquals("samenvatting van $titel", item.path("summary").asText())
+        assertEquals("samenvatting van $titel", item.path("summary").asString())
     }
 
     @Test
     fun `alleen enabled categorieen van de shared-user komen terug`() {
         ensureSharedUser()
+        val privateInstructies = "Alleen artikelen over coroutines, geen tutorials"
         settingsService.saveCategories(
             sharedUsername,
             listOf(
-                CategorySettings("kotlin", "Kotlin", enabled = true),
+                CategorySettings("kotlin", "Kotlin", enabled = true, extraInstructions = privateInstructies),
                 CategorySettings("flutter", "Flutter", enabled = false),
                 CategorySettings("overig", "Overig", enabled = true, isSystem = true)
             )
         )
 
-        val ids = getJson("/api/shared/categories").values().map { it.path("id").asText() }
+        val response = getJson("/api/shared/categories")
+        val ids = response.values().map { it.path("id").asString() }
         assertTrue("kotlin" in ids)
         assertTrue("overig" in ids)
         assertFalse("flutter" in ids)
+
+        // De privé bijstuur-tekst mag niet mee naar buiten: dit endpoint is
+        // publiek (permitAll) en wordt doorgeproxyd naar de reader-app.
+        val kotlinCategorie = response.values().first { it.path("id").asString() == "kotlin" }
+        assertTrue(kotlinCategorie.path("extraInstructions").isMissingNode)
+        assertTrue(kotlinCategorie.path("isSystem").isMissingNode)
+        assertFalse(response.toString().contains("extraInstructions"))
+        assertFalse(response.toString().contains(privateInstructies))
+        // De drie velden die de reader-app wél parseert zijn er nog.
+        assertEquals("Kotlin", kotlinCategorie.path("name").asString())
+        assertTrue(kotlinCategorie.path("enabled").asBoolean())
     }
 }

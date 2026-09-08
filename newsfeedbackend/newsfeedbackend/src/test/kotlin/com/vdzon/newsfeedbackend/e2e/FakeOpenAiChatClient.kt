@@ -50,11 +50,6 @@ class FakeOpenAiChatClient : OpenAiChatClient {
         subject: String?, maxOutputTokens: Int
     ): OpenAiChatResponse = respond(model, action, username, system, user, subject)
 
-    override fun completeJson(
-        model: String, schemaName: String, schema: String, action: String, username: String,
-        system: String, user: String, subject: String?, maxOutputTokens: Int
-    ): OpenAiChatResponse = respond(model, action, username, system, user, subject)
-
     override fun translateModel(): String = "fake-translate-model"
 
     private fun respond(

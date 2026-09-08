@@ -3,8 +3,8 @@ package com.vdzon.newsfeedbackend.external_call
 import java.time.Instant
 
 /**
- * Eén log-regel voor een call naar een externe partij. Wordt geappend aan
- * `data/external_calls.jsonl` (één JSON-object per regel).
+ * Eén log-regel voor een call naar een externe partij. Wordt als rij
+ * opgeslagen in de Postgres-tabel `external_calls`.
  *
  * Het idee: "elke keer als we een externe API aanroepen schrijven we een
  * regel met provider, actie, kosten, duur, units, gebruiker en status".
@@ -67,19 +67,6 @@ data class ExternalCall(
         // KAN-63: vertaling van een RSS-podcast-aflevering naar een NL audio-podcast.
         const val ACTION_PODCAST_TRANSLATE = "podcast_translate"
         const val ACTION_PODCAST_TRANSLATE_TTS = "podcast_translate_tts"
-
-        // KAN-65: wekelijkse AI-ontdekking van tech-events per gebruiker.
-        const val ACTION_EVENT_DISCOVERY = "event_discovery"
-
-        // KAN-66: wekelijkse AI-ontdekking van video's (keynotes/sessies) per event.
-        const val ACTION_EVENT_VIDEO_DISCOVERY = "event_video_discovery"
-
-        // KAN-67: on-demand Nederlandse samenvatting van één event-video.
-        const val ACTION_EVENT_VIDEO_SUMMARIZE = "event_video_summarize"
-        /** KAN-67: yt-dlp audio-download voor de Whisper-fallback. */
-        const val ACTION_EVENT_VIDEO_AUDIO_DOWNLOAD = "event_video_audio_download"
-        /** KAN-67: YouTube timedtext-fetch voor de transcript-stap. */
-        const val ACTION_EVENT_VIDEO_TRANSCRIPT_FETCH = "event_video_transcript_fetch"
 
         // UnitType-constants
         const val UNIT_TOKENS = "tokens"

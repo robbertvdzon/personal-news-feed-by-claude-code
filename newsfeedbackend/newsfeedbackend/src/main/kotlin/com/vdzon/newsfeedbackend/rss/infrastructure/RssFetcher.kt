@@ -4,10 +4,12 @@ import com.rometools.rome.feed.synd.SyndEntry
 import com.rometools.rome.feed.synd.SyndFeed
 import com.rometools.rome.io.SyndFeedInput
 import com.rometools.rome.io.XmlReader
+import com.vdzon.newsfeedbackend.common.SsrfUrlValidator
 import com.vdzon.newsfeedbackend.external_call.ExternalCall
 import com.vdzon.newsfeedbackend.external_call.ExternalCallLogger
 import com.vdzon.newsfeedbackend.rss.RssItem
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
 import java.net.URI
 import java.net.http.HttpClient
@@ -21,7 +23,10 @@ import java.util.UUID
 
 @Component
 class RssFetcher(
-    private val callLogger: ExternalCallLogger
+    private val callLogger: ExternalCallLogger,
+    // Zie SettingsServiceImpl.ssrfAllowLoopback — zelfde e2e-only escape-hatch, hier voor de
+    // defense-in-depth-check vlak vóór het echte fetch-request.
+    @param:Value("\${app.security.ssrf.allow-loopback:false}") private val ssrfAllowLoopback: Boolean = false,
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -32,7 +37,7 @@ class RssFetcher(
 
     /**
      * Haalt één RSS-feed op en parsed naar [RssItem]s. Logt elke fetch
-     * (ook fouten) als `rss_fetch` in `external_calls.jsonl` met
+     * (ook fouten) als `rss_fetch` in de tabel `external_calls` met
      * `units = #items` — `costUsd` blijft 0 omdat RSS gratis is, maar de
      * regel is wel handig voor "is mijn feed wel echt opgehaald?"-debug.
      *
@@ -45,6 +50,15 @@ class RssFetcher(
         var errorMessage: String? = null
         var itemCount = 0
         try {
+            // Defense-in-depth: verse DNS-resolutie vlak vóór het versturen,
+            // ook al is de URL al gevalideerd bij opslaan (dekt DNS-rebinding af).
+            val validation = SsrfUrlValidator.validate(feedUrl, allowLoopback = ssrfAllowLoopback)
+            if (validation is SsrfUrlValidator.ValidationResult.Invalid) {
+                log.warn("[RSS] blocked SSRF-risky URL {}: {}", feedUrl, validation.reason)
+                status = "error"
+                errorMessage = "geblokkeerd: ${validation.reason}"
+                return emptyList()
+            }
             val req = HttpRequest.newBuilder().uri(URI.create(feedUrl))
                 .header("User-Agent", "PersonalNewsFeed/1.0")
                 .timeout(java.time.Duration.ofSeconds(20))
@@ -83,39 +97,12 @@ class RssFetcher(
             errorMessage = e.message ?: e.javaClass.simpleName
             return emptyList()
         } finally {
-            logFetch(username, feedUrl, started, itemCount, status, errorMessage)
-        }
-    }
-
-    private fun logFetch(
-        username: String,
-        feedUrl: String,
-        started: Instant,
-        itemCount: Int,
-        status: String,
-        errorMessage: String?
-    ) {
-        val end = Instant.now()
-        try {
-            callLogger.log(
-                ExternalCall(
-                    id = UUID.randomUUID().toString(),
-                    provider = ExternalCall.PROVIDER_RSS,
-                    action = ExternalCall.ACTION_RSS_FETCH,
-                    username = username,
-                    startTime = started,
-                    endTime = end,
-                    durationMs = end.toEpochMilli() - started.toEpochMilli(),
-                    units = itemCount.toLong(),
-                    unitType = ExternalCall.UNIT_ITEMS,
-                    costUsd = 0.0,
-                    status = status,
-                    errorMessage = errorMessage,
-                    subject = feedUrl.take(120)
-                )
+            callLogger.logCall(
+                ExternalCall.PROVIDER_RSS, ExternalCall.ACTION_RSS_FETCH, username, started,
+                ExternalCall.UNIT_ITEMS, status,
+                units = itemCount.toLong(), costUsd = 0.0, errorMessage = errorMessage,
+                subject = feedUrl.take(120)
             )
-        } catch (e: Exception) {
-            log.warn("[RSS] could not log external_call: {}", e.message)
         }
     }
 

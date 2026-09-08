@@ -1,6 +1,6 @@
 name: Build container images
 
-# Bouwt backend- en frontend-images en pusht naar ghcr.io.
+# Bouwt backend-, frontend- en reader-images en pusht naar ghcr.io.
 #
 # Triggers:
 #   * Push naar main         → bouw, push, en update kustomization.yaml

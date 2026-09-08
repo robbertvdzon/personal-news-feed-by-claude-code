@@ -29,17 +29,48 @@ GitHub Actions ── builds ──► ghcr.io (public)
         ├── pusht nieuwe SHA naar deploy/base/kustomization.yaml
         ▼
 ArgoCD ◄── synct main ── namespace: personal-news-feed (OpenShift)
-        ├── backend Pod + Service (poort 8080)
-        ├── frontend Pod + Service
-        ├── PVC (audio-MP3, 5 Gi)
+        ├── backend   Pod + Service (poort 8080) + Route (debug)
+        │              + PVC (runtime-state, 5 Gi)
+        ├── frontend  Pod + Service + Route ← gebruikers (news.vdzonsoftware.nl)
+        ├── reader    Pod + Service + Route ← reader.vdzonsoftware.nl
+        ├── cloudflared    (tunnel: *.vdzonsoftware.nl → ingressrouter → Route)
         └── Secret (via SealedSecret in git)
 ```
 
-Data staat in externe PostgreSQL (Neon); audio-MP3's staan als BYTEA in de DB.
+Data staat in externe PostgreSQL (Neon); de podcast-audio staat sinds migratie
+`V5__podcast_audio_bytes.sql` als BYTEA in de DB. Het PVC houdt alleen
+runtime-state / admin-cleanup paden.
+
+De prod-Neon-endpoint staat sinds SF-1739 op scale-to-zero: `suspend_timeout_seconds=300`
+en max 1 CU, gezet met het idempotente `deploy/neon-endpoint-config.sh` (credentials
+uitsluitend uit `NEON_API_KEY`/`NEON_PROJECT_ID`). Zie runbook §6.1 voor draaien,
+read-only verifiëren (`--verify`), cold-startgedrag en terugdraaien.
 
 ## Productie-URL
 
-`https://news.vdzonsoftware.nl` (via Cloudflare Tunnel → OpenShift-frontend)
+`https://news.vdzonsoftware.nl` (via Cloudflare Tunnel → OpenShift-ingressrouter
+→ frontend-Route)
+
+## Routering — Host-based via de ingressrouter
+
+Cloudflare stuurt de wildcard `*.vdzonsoftware.nl` via de tunnel naar de
+OpenShift-ingressrouter van het cluster; die kiest op de (ongewijzigd
+doorgegeven) `Host`-header de bijbehorende `Route`. Er zit géén
+nginx-tussenlaag meer in het pad.
+
+- De productiehosts staan declaratief in de manifests:
+  `deploy/base/frontend-route.yaml` (`news.vdzonsoftware.nl`) en
+  `deploy/base/reader-route.yaml` (`reader.vdzonsoftware.nl`).
+- Op beide staat `insecureEdgeTerminationPolicy: Allow` (niet `Redirect`),
+  omdat de Cloudflare-connector de router cluster-intern via HTTP bereikt — een
+  redirect naar HTTPS zou dat verkeer laten stuiteren.
+  `deploy/base/backend-route.yaml` (debug) houdt bewust `Redirect`.
+- Voor previews zet de `preview`-overlay op de frontend-Route een
+  placeholder-host, die de ApplicationSet per PR invult naar
+  `pnf-pr-<N>.vdzonsoftware.nl`.
+
+Details: `deploy/README.md` (sectie "Preview-deploys per PR", punt 5) en
+`runbook.md` §7.
 
 ## Preview-deploys per PR
 
@@ -48,6 +79,22 @@ Elke open PR met branch-prefix `ai/` krijgt automatisch een preview op:
 ```
 https://pnf-pr-<N>.vdzonsoftware.nl
 ```
+
+### Preview-JWT — ephemeral sleutel per pod (NIET de prod-sleutel)
+
+Previews krijgen sinds SF-1542 **niet** meer de productie-JWT-sleutel mee:
+de `preview`-overlay (`deploy/overlays/preview/kustomization.yaml`) zet
+`APP_JWT_SECRET` leeg en laat de `secretKeyRef` naar
+`newsfeed-api-keys`/`JWT_SECRET` vervallen. De backend genereert dan bij het
+opstarten zelf een random ephemeral sleutel. Gevolgen voor de factory:
+
+- Tokens uit een preview zijn **alleen daar** geldig, niet op productie
+  (en omgekeerd) — code op een PR-branch kan geen prod-token meer smeden.
+- Tokens vervallen bij pod-herstart. De tester en de e2e-runner loggen per
+  run opnieuw in via de UI / `POST /api/auth/login`, dus dat is geen
+  regressie; zie je onverwacht een 401 na een redeploy, log dan opnieuw in.
+- Productie (`openshift`-overlay) blijft de vaste sleutel uit de
+  SealedSecret gebruiken; er is geen nieuw secret of her-sealen nodig.
 
 ### Preview-DB — eigen per-PR Neon-branch (NIET prod)
 
@@ -58,21 +105,48 @@ van de productie-branch. Dat betekent:
 - De branch levert de geïsoleerde testdata waarmee de tester de feature
   realistisch ziet. De tester muteert die branch niet meer: inloggen gaat
   via een vaste test-user uit het secret (zie "Tester-login" hieronder).
-- Bij PR-close ruimt de `preview-ns-labeller` de branch (incl. testdata) op.
+- Bij PR-close ruimt de `preview-ns-labeller` de branch (incl. testdata) op —
+  maar pas nadat de preview-namespace daadwerkelijk verdwenen is **én** GitHub
+  bevestigt dat de PR gesloten is. Zolang één van beide niet vaststaat blijft
+  de branch staan.
 
 Wiring (door `deploy/preview-ns-labeller/labeller.sh`):
 
-1. Maakt de Neon-branch `pr-<N>` aan (parent = productie-branch).
-2. Patcht `PNF_DATABASE_URL` in het `newsfeed-api-keys`-secret van
-   `pnf-pr-<N>` naar de branch-URL, en zet de marker `PREVIEW_DB_BRANCH=pr-<N>`.
-3. Maakt per `pnf-pr-*` namespace een Role/RoleBinding zodat de
-   `claude-tester`-SA dat secret kan lezen (read-only, alleen daar).
+1. Vraagt eerst bij GitHub de actuele PR-status op (`GET /repos/…/pulls/<N>`).
+   Alleen bij een bevestigd open PR volgen de creatiestappen; deze check staat
+   vóór élke creatiehandeling, dus ook vóór het (opnieuw) aanmaken en labelen
+   van de namespace `pnf-pr-<N>`.
+2. Maakt de namespace `pnf-pr-<N>` aan als die nog niet bestaat en (her)zet het
+   label `argocd.argoproj.io/managed-by=argocd` (`kubectl create ns` /
+   `kubectl label ns`), anders blokkeert de argocd-operator de preview.
+3. Maakt de Neon-branch `pr-<N>` aan (parent = productie-branch).
+4. Patcht `PNF_DATABASE_URL` in het `newsfeed-api-keys`-secret van
+   `pnf-pr-<N>` naar de branch-URL, en zet de marker `PREVIEW_DB_BRANCH=pr-<N>`
+   (`kubectl patch secret`).
+5. Herstart de backend-pod (`kubectl delete pod -l app=backend`) zodat die de
+   gepatchte `PNF_DATABASE_URL` oppikt; het Deployment respawnt 'm.
 
-Vereist dat de labeller-credentials aanwezig zijn (`NEON_API_KEY` +
-`NEON_PROJECT_ID` in het secret). Ontbreken die, dan valt de labeller terug
-op alleen namespace-labeling (geen branch, geen marker); de preview deelt dan
-geen geïsoleerde branch-DB. De tester-login zelf raakt de DB niet en blijft
-ongewijzigd werken via de test-user-creds (zie "Tester-login" hieronder).
+Het script maakt zélf **geen** RBAC aan: de Role/RoleBinding waarmee de
+`claude-tester`-SA het secret in een `pnf-pr-*`-namespace mag lezen wordt via
+GitOps beheerd in de repo `robberts-infrastructure`
+(`manifests/root-app/apps/preview-ns-labeller-rbac.yaml`). De overige
+kubectl-aanroepen in `labeller.sh` zijn read-only (`get ns`, `get secret`,
+`get app`).
+
+Vereist dat drie sleutels in het secret aanwezig zijn: `NEON_API_KEY`,
+`NEON_PROJECT_ID` **en** `GITHUB_TOKEN`. De eerste twee zetten de Neon-mode
+aan; ontbreken die, dan valt de labeller terug op alleen namespace-labeling
+(geen branch, geen marker) en deelt de preview geen geïsoleerde branch-DB.
+
+`GITHUB_TOKEN` is strenger, want de PR-statuscheck is **fail-closed**:
+ontbreekt het token, faalt de curl of komt er geen HTTP 200 terug, dan is de
+PR-status "onbekend" en voert de labeller voor die preview **géén enkele
+mutatie** uit — geen namespace-label, geen Neon-branch, geen secret-patch en
+geen cleanup. De preview blijft dan hangen op wat er al stond (in het ergste
+geval dus zonder namespace en zonder branch-DB).
+
+De tester-login zelf raakt de DB niet en blijft ongewijzigd werken via de
+test-user-creds (zie "Tester-login" hieronder).
 
 **Tester-login (vaste test-user, sinds SF-282).** De tester krijgt een
 bruikbare preview-URL (`https://pnf-pr-<N>.vdzonsoftware.nl`) en logt daarop
@@ -100,7 +174,7 @@ eind). Zie `docs/factory/agents/tester.md`.
 ## Deploy-flow (dagelijks gebruik)
 
 Push naar `main`:
-1. GitHub Actions bouwt nieuwe backend- en frontend-images (`ghcr.io/robbertvdzon/personal-news-feed-{backend,frontend}:sha-…`).
+1. GitHub Actions bouwt nieuwe backend-, frontend- en reader-images (`ghcr.io/robbertvdzon/personal-news-feed-{backend,frontend,reader}:sha-…`).
 2. Workflow committet de nieuwe SHA in `deploy/base/kustomization.yaml`.
 3. ArgoCD detecteert de manifest-wijziging, pods rollen automatisch.
 

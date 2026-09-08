@@ -82,9 +82,9 @@ class FeedItemGenerator(
         var longSummary = ""
         try {
             val tree = mapper.readTree(AiJson.extract(ai.text))
-            titleNl = tree.path("titleNl").asText("").trim()
-            shortSummary = tree.path("shortSummary").asText("").trim()
-            longSummary = tree.path("longSummary").asText("").trim()
+            titleNl = tree.path("titleNl").asString("").trim()
+            shortSummary = tree.path("shortSummary").asString("").trim()
+            longSummary = tree.path("longSummary").asString("").trim()
         } catch (e: Exception) {
             log.warn("[RSS] feed-item parse fout voor '{}': {} — eerste 500 chars: {}",
                 rss.title, e.message, ai.text.take(500))

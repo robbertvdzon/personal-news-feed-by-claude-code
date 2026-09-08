@@ -9,7 +9,6 @@ Een zelf-gehoste, persoonlijke nieuwslezer met AI-curation, podcastgeneratie en 
 - Verwerkt ad-hoc zoekopdrachten: geef een onderwerp op en de AI zoekt en vat actuele artikelen samen
 - Genereert dagelijks een AI-nieuwsoverzicht
 - Genereert podcasts (script + audio) op basis van recente nieuwsartikelen, in een interview-format met twee stemmen
-- Ontdekt tech-events (Tavily + AI) en laat je events verwijderen (denylist)
 - Ondersteunt meerdere gebruikers, elk met volledig eigen data en instellingen
 
 ## Opbouw
@@ -45,12 +44,14 @@ De specificaties in de `specs/` map zijn het vertrekpunt: alle functionaliteit, 
 
 **Frontend:** Flutter · Dart · Riverpod
 
-**AI:** OpenAI (samenvatting, selectie, podcast, events, transcriptie/TTS) · Tavily (websearch) · ElevenLabs (podcast audio)
+**AI:** OpenAI (samenvatting, selectie, podcast, transcriptie/TTS) · Tavily (websearch voor ad-hoc nieuws-verzoeken) · ElevenLabs (podcast audio)
 
 ## Ontwikkelen
 
 **Nieuw op dit project?** Begin met [`docs/onboarding-senior-developer.md`](./docs/onboarding-senior-developer.md) — architectuur, de waarom-keuzes, teststrategie en review-checklist. Operationele zaken (deployen, database, secrets, lokaal draaien) staan in [`runbook.md`](./runbook.md).
 
 Backend-tests: `mvn test` (snel, unit) en `mvn verify` (volledige e2e-suite tegen een echte Postgres via Testcontainers; Docker vereist).
+
+Frontend-tests: `flutter test` in `frontend/` en in `frontend-reader/` (widget- én unittests, geen Docker of Android-toolchain nodig). Beide suites draaien sinds SF-1952 ook in CI via `.github/workflows/frontend-tests.yml` — één job per app, bij elke pull request en elke push naar `main` die een van beide app-mappen raakt.
 
 Een gecontaineriseerde dev-omgeving met de complete toolchain (JDK 21, Maven, Flutter, Android SDK, Node, Claude Code) is voorbereid voor wie z'n laptop schoon wil houden of z'n setup tussen machines wil delen. Zie [`.devcontainer/README.md`](./.devcontainer/README.md) voor de bouw-, start- en gebruiks-instructies.

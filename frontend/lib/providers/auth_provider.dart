@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -111,13 +111,18 @@ class AuthNotifier extends StateNotifier<AuthState> {
       final token = resp['token'] as String;
       final username = resp['username'] as String;
       final role = (resp['role'] as String?) ?? 'user';
-      await _storeSession(token, username, role);
+      await storeSession(token, username, role);
     } catch (e) {
       await _googleError(e);
     }
   }
 
-  Future<void> _storeSession(String token, String username, String role) async {
+  /// Zet een sessie direct, buiten de Google-flow om. Productiecode gebruikt
+  /// dit nooit rechtstreeks (alleen via [_authenticateGoogleAccount]) — puur
+  /// `@visibleForTesting` zodat tests een ingelogde staat kunnen simuleren
+  /// zonder een echte Google-token te hoeven vervalsen.
+  @visibleForTesting
+  Future<void> storeSession(String token, String username, String role) async {
     api.setToken(token);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('token', token);
@@ -141,6 +146,13 @@ class AuthNotifier extends StateNotifier<AuthState> {
     await LocalCache.clearAll();
     api.setToken(null);
     await googleSignIn.signOut().catchError((_) => null);
+    // Het leegmaken van de state sluit ook de WebSocket van de uitgelogde
+    // gebruiker: RequestNotifier.build() watcht dit token en wordt daardoor
+    // opnieuw opgebouwd — de oude socket sluit via onDispose en er wordt pas
+    // weer verbonden als er (met een ander account) is ingelogd. Een expliciete
+    // `ref.invalidate(requestProvider)` kan hier niet: requestProvider hangt
+    // sinds SF-2166 van authProvider af, wat Riverpod als circulaire
+    // afhankelijkheid afkeurt.
     state = const AuthState();
   }
 

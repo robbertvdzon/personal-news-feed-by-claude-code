@@ -42,12 +42,25 @@ class RequestWebSocketHandler(private val mapper: ObjectMapper) : TextWebSocketH
         sessions.remove(session)
     }
 
-    fun broadcast(payload: Any) {
+    /**
+     * Stuurt [payload] uitsluitend naar de sessies van [username]. De eigenaar
+     * van een sessie is op handshake-moment door [JwtHandshakeInterceptor] in
+     * `attributes` gezet; er is geen codepad meer dat naar álle sessies stuurt.
+     */
+    fun broadcast(username: String, payload: Any) {
         val msg = TextMessage(mapper.writeValueAsString(payload))
         val dead = mutableListOf<WebSocketSession>()
         sessions.forEach { s ->
+            // Dode sessies ruimen we op ongeacht eigenaar: een sessie die
+            // sneuvelt zonder afterConnectionClosed zou anders blijven hangen
+            // tot die gebruiker zelf weer een bericht krijgt.
+            if (!s.isOpen) {
+                dead.add(s)
+                return@forEach
+            }
+            if (s.attributes[JwtHandshakeInterceptor.ATTR_USERNAME] != username) return@forEach
             try {
-                if (s.isOpen) s.sendMessage(msg) else dead.add(s)
+                s.sendMessage(msg)
             } catch (e: Exception) {
                 dead.add(s)
             }
@@ -58,8 +71,13 @@ class RequestWebSocketHandler(private val mapper: ObjectMapper) : TextWebSocketH
 
 @Configuration
 @EnableWebSocket
-class WebSocketConfig(private val handler: RequestWebSocketHandler) : WebSocketConfigurer {
+class WebSocketConfig(
+    private val handler: RequestWebSocketHandler,
+    private val jwtHandshakeInterceptor: JwtHandshakeInterceptor
+) : WebSocketConfigurer {
     override fun registerWebSocketHandlers(registry: WebSocketHandlerRegistry) {
-        registry.addHandler(handler, "/ws/requests").setAllowedOrigins("*")
+        registry.addHandler(handler, "/ws/requests")
+            .addInterceptors(jwtHandshakeInterceptor)
+            .setAllowedOrigins("*")
     }
 }

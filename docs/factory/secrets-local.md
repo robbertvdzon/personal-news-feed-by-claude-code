@@ -7,7 +7,7 @@ Vereiste environment-variabelen voor lokaal draaien van de backend. Zet echte wa
 | Variabele | Doel | Hoe te verkrijgen |
 |-----------|------|------------------|
 | `PNF_DATABASE_URL` | PostgreSQL connection string | Neon dashboard → connection string, bv. `jdbc:postgresql://ep-xxx.neon.tech/neondb?user=…&password=…&sslmode=require` |
-| `JWT_SECRET` | JWT signing key (≥ 32 tekens) | `openssl rand -base64 48` |
+| `APP_JWT_SECRET` | JWT signing key (≥ 32 tekens) | `openssl rand -base64 48` |
 | `PNF_GOOGLE_CLIENT_ID` | Google Web OAuth client-ID; valideert de audience van ID-tokens | Google Cloud Console → APIs & Services → Credentials |
 | `PNF_GOOGLE_USERS` | Komma-gescheiden `email=username`-allowlist | Bijvoorbeeld `robbertvdzon@gmail.com=robbert` |
 | `PNF_OPENAI_API_KEY` | OpenAI API-sleutel (alle AI-tekst, transcriptie, TTS) | platform.openai.com → API Keys |

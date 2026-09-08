@@ -26,7 +26,15 @@ class RequestServiceImpl(
 ) : RequestService {
 
     private val log = LoggerFactory.getLogger(javaClass)
+
+    /**
+     * Cancel-vlaggen per gebruiker: de sleutel bevat de username, zodat
+     * gebruiker A's vlag nooit gebruiker B's verwerking kan raken. Er komt
+     * alleen een sleutel in als de eigenaarscheck in [cancel] slaagde.
+     */
     val cancellation = ConcurrentHashMap<String, Boolean>()
+
+    private fun cancelKey(username: String, id: String) = "$username/$id"
 
     override fun list(username: String): List<NewsRequest> = repo.load(username)
 
@@ -46,7 +54,7 @@ class RequestServiceImpl(
             createdAt = Instant.now()
         )
         val saved = repo.upsert(username, req)
-        ws.broadcast(saved)
+        ws.broadcast(username, saved)
         events.publishEvent(RequestCreatedEvent(username, saved.id))
         return saved
     }
@@ -57,8 +65,11 @@ class RequestServiceImpl(
     }
 
     override fun cancel(username: String, id: String): Boolean {
-        cancellation[id] = true
+        // Eerst controleren, dan pas annuleren: get() levert alleen requests
+        // van deze gebruiker op. Bestaat het id niet of is het van iemand
+        // anders, dan komt er géén sleutel in de cancellation-map.
         val req = get(username, id) ?: return false
+        cancellation[cancelKey(username, id)] = true
         if (req.status == RequestStatus.PENDING || req.status == RequestStatus.PROCESSING) {
             upsert(username, req.copy(status = RequestStatus.CANCELLED, completedAt = Instant.now()))
         }
@@ -67,7 +78,7 @@ class RequestServiceImpl(
 
     override fun rerun(username: String, id: String): NewsRequest? {
         val req = get(username, id) ?: throw NotFoundException("request $id")
-        cancellation.remove(id)
+        cancellation.remove(cancelKey(username, id))
         val reset = req.copy(
             status = RequestStatus.PENDING,
             completedAt = null,
@@ -83,7 +94,7 @@ class RequestServiceImpl(
 
     override fun upsert(username: String, request: NewsRequest): NewsRequest {
         val saved = repo.upsert(username, request)
-        ws.broadcast(saved)
+        ws.broadcast(username, saved)
         return saved
     }
 
@@ -132,5 +143,5 @@ class RequestServiceImpl(
         }
     }
 
-    fun isCancelled(id: String): Boolean = cancellation[id] == true
+    fun isCancelled(username: String, id: String): Boolean = cancellation[cancelKey(username, id)] == true
 }

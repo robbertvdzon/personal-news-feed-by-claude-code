@@ -102,10 +102,10 @@ class FeedSelector(
             val results = mutableMapOf<String, SelectionVerdict>()
             var inFeedCount = 0
             for (node in tree) {
-                val id = node.path("id").asText("")
+                val id = node.path("id").asString("")
                 if (id.isBlank()) continue
                 val inFeed = node.path("inFeed").asBoolean(false)
-                val reason = node.path("reason").asText("")
+                val reason = node.path("reason").asString("")
                 results[id] = SelectionVerdict(inFeed, reason)
                 if (inFeed) inFeedCount++
             }

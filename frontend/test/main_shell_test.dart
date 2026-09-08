@@ -9,7 +9,7 @@ import 'package:personal_news_feed/providers/data_providers.dart';
 import 'package:personal_news_feed/screens/main_shell.dart';
 
 /// Fake-notifiers voor de providers die [MainShell] via de IndexedStack
-/// direct laat bouwen (Feed/Rss/Podcast/Events/Settings/Request), zodat de
+/// direct laat bouwen (Feed/Rss/Podcast/Settings/Request), zodat de
 /// test geen netwerk/WebSocket raakt.
 class _FakeAuthNotifier extends AuthNotifier {
   _FakeAuthNotifier(super.api, AuthState initial) {
@@ -32,11 +32,6 @@ class _FakePodcastNotifier extends PodcastNotifier {
   Future<List<Podcast>> build() async => const [];
 }
 
-class _FakeEventsNotifier extends EventsNotifier {
-  @override
-  Future<List<Event>> build() async => const [];
-}
-
 class _FakeSettingsNotifier extends SettingsNotifier {
   @override
   Future<List<CategorySettings>> build() async => const [];
@@ -55,7 +50,6 @@ Widget _wrap() {
       feedProvider.overrideWith(_FakeFeedNotifier.new),
       rssProvider.overrideWith(_FakeRssNotifier.new),
       podcastProvider.overrideWith(_FakePodcastNotifier.new),
-      eventsProvider.overrideWith(_FakeEventsNotifier.new),
       settingsProvider.overrideWith(_FakeSettingsNotifier.new),
       requestProvider.overrideWith(_FakeRequestNotifier.new),
     ],
@@ -71,6 +65,19 @@ void main() {
 
     expect(find.widgetWithText(NavigationDestination, 'Instellingen'), findsOneWidget);
     expect(find.text('Settings'), findsNothing);
+  });
+
+  testWidgets('bottom-navigatie heeft vier tabs zonder Events (SF-1746)',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(_wrap());
+    await tester.pump();
+
+    final bar = tester.widget<NavigationBar>(find.byType(NavigationBar));
+    expect(bar.destinations.length, 4);
+    for (final label in ['Feed', 'RSS', 'Podcast', 'Instellingen']) {
+      expect(find.widgetWithText(NavigationDestination, label), findsOneWidget);
+    }
+    expect(find.widgetWithText(NavigationDestination, 'Events'), findsNothing);
   });
 
   testWidgets('settings-tab blijft navigeerbaar via het settings-icoon',

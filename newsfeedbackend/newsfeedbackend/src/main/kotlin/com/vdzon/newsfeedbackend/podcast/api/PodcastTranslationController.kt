@@ -5,10 +5,8 @@ import com.vdzon.newsfeedbackend.common.SecurityHelpers
 import com.vdzon.newsfeedbackend.podcast.EpisodeLookup
 import com.vdzon.newsfeedbackend.podcast.PodcastTranslationService
 import com.vdzon.newsfeedbackend.podcast.TranslationStart
-import com.vdzon.newsfeedbackend.podcast.domain.TranslationException
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
-import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
@@ -50,15 +48,4 @@ class PodcastTranslationController(
         val httpStatus = if (result.created) HttpStatus.ACCEPTED else HttpStatus.OK
         return ResponseEntity.status(httpStatus).body(result)
     }
-
-    /**
-     * Pre-validatie-fouten (geen aflevering, transcript nog niet klaar,
-     * etc.) komen hier binnen en worden vertaald naar HTTP 409 zodat de
-     * frontend ze in een snackbar kan tonen. 409 i.p.v. 400 omdat het
-     * een state-conflict is, geen bad request.
-     */
-    @ExceptionHandler(TranslationException::class)
-    fun handleTranslationException(e: TranslationException): ResponseEntity<Map<String, String>> =
-        ResponseEntity.status(HttpStatus.CONFLICT)
-            .body(mapOf("error" to (e.message ?: "Vertaling kan niet gestart worden")))
 }

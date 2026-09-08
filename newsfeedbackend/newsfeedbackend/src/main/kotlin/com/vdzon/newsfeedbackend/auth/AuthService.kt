@@ -7,7 +7,6 @@ interface AuthService {
     fun loginWithGoogle(idToken: String): AuthToken
     fun register(username: String, password: String): AuthToken
     fun login(username: String, password: String): AuthToken
-    fun userExists(username: String): Boolean
     fun listUsernames(): List<String>
     /**
      * Wijzigt het wachtwoord van een ingelogde user. Verifieert eerst het
@@ -23,6 +22,16 @@ interface AuthService {
      * fout, returnt of er iets is verwijderd.
      */
     fun deleteOwnAccount(username: String): Boolean
+
+    /**
+     * Valideert een JWT, of geeft `null` bij een ongeldig of verlopen token.
+     *
+     * Bedoeld voor kanalen die de servlet-security-keten niet doorlopen en
+     * dus zelf moeten authenticeren — vandaag de WebSocket-handshake van
+     * `/ws/requests`. HTTP-endpoints hoeven dit niet: daar doet `JwtAuthFilter`
+     * het werk en levert `SecurityHelpers.currentUsername()` de gebruiker.
+     */
+    fun validateToken(token: String): AuthenticatedUser?
 
     // ── Beheer-operaties (gebruikt door de admin-module) ─────────────
     // Autorisatie en guardrails (mag deze actor dit?) horen bij de
@@ -45,3 +54,6 @@ data class AuthToken(val token: String, val username: String, val role: String)
 
 /** Publieke, wachtwoord-loze weergave van een account (voor beheer-schermen). */
 data class UserAccount(val id: String, val username: String, val role: String)
+
+/** De geauthenticeerde gebruiker achter een geldig JWT. */
+data class AuthenticatedUser(val username: String, val role: String)

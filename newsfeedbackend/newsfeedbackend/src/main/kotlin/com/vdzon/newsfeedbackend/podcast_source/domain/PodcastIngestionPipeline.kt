@@ -143,7 +143,7 @@ class PodcastIngestionPipeline(
             episodeRepo.upsert(ep)
             // KAN-60: alleen de snelle show-notes-fase op het kritieke
             // pad. De transcript-fase loopt asynchroon via de
-            // PodcastTranscriptWorker (max 1 episode per tick) zodat een
+            // PodcastTranscriptPipeline (max 1 episode tegelijk) zodat een
             // burst-feed niet meteen Whisper-rate-limit raakt.
             processor.processShowNotes(username, entry.guid, transcribeEnabled)
         }

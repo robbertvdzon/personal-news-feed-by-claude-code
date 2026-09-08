@@ -30,10 +30,9 @@ class JwtAuthFilter(
         if (token != null) {
             val parsed = jwt.validate(token)
             if (parsed != null) {
-                val (username, role) = parsed
                 // Een allowlist-wijziging trekt ook reeds uitgegeven sessies direct in.
-                if (googleLoginConfig.passwordAuthEnabled || username in googleLoginConfig.allowedUsernames) {
-                    authenticate(username, role)
+                if (googleLoginConfig.passwordAuthEnabled || parsed.username in googleLoginConfig.allowedUsernames) {
+                    authenticate(parsed.username, parsed.role)
                 }
             }
         }

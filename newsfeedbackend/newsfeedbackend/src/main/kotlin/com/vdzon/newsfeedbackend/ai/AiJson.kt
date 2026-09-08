@@ -14,7 +14,7 @@ package com.vdzon.newsfeedbackend.ai
  * alles vanaf de opener terug — de caller krijgt dan een Jackson-parse-
  * fout en logt de ruwe tekst voor debugging.
  *
- * Stond eerst als privékopie in vier pipelines (rss, events ×2,
+ * Stond eerst als privékopie in meerdere pipelines (rss,
  * podcast_source); één geteste implementatie voorkomt dat een bug vier
  * keer gefixt moet worden.
  */

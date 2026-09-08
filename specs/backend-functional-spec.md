@@ -39,10 +39,6 @@ topic_history         # onderwerp-geschiedenis per gebruiker
 podcasts              # podcast-metadata + audio (BYTEA)
 podcast_feeds         # podcast-feed URLs
 podcast_episodes      # podcast-source ingest/transcriptie
-events                # ontdekte tech-events
-event_videos          # video's per event
-event_preferences     # per-user event-zoekvoorkeuren
-event_denylist        # per-user verwijderde events
 external_calls        # audit-/kostenlog van externe API-calls
 shedlock              # scheduler-lock
 flyway_schema_history # Flyway-migratiehistorie
@@ -59,6 +55,15 @@ Het pad `app.data-dir` (standaard `./data`) wordt alleen nog gebruikt voor het
 JSONL-audit-logbestand van externe calls (`external_calls.jsonl`) en runtime-/
 cleanup-paden — niet als primaire dataopslag.
 
+Het enige overgebleven cleanup-pad is `<data-dir>/users/<gebruikersnaam>/audio`, dat
+`DELETE /api/admin/users/{username}` recursief opruimt. Omdat de gebruikersnaam daar een
+padsegment vormt, gebeurt dat alleen als het genormaliseerde doelpad aantoonbaar ónder
+`<data-dir>/users/` valt; valt het erbuiten (een oud account met een `..` of een `/` in de
+naam), dan wordt er niets verwijderd en volgt alleen een `WARN`-logregel — het account zelf
+wordt wél gewoon verwijderd. Voor een normale gebruiker bestaat die map sinds de overstap
+naar `audio_bytes` in de regel niet meer, en dan is de opruiming een no-op. Zie §3 voor de
+allowlist op de gebruikersnaam die dit aan de voorkant afvangt (SF-2207).
+
 ### Concurrency
 - Alle achtergrondtaken zijn asynchroon (`@Async`).
 - Per-gebruiker vergrendeling voorkomt dat dezelfde gebruiker meerdere RSS-verwerkingen tegelijk uitvoert.
@@ -68,11 +73,17 @@ cleanup-paden — niet als primaire dataopslag.
 
 ## 3. Authenticatie
 
-**Mechanisme:** JWT Bearer token (HS256), geldig 30 dagen. Alle endpoints vereisen een geldig token in de `Authorization: Bearer {token}` header, behalve `/api/auth/**`, `/api/version` en `/ws/**`.
+**Mechanisme:** JWT Bearer token (HS256), geldig 30 dagen. Alle endpoints vereisen een geldig token in de `Authorization: Bearer {token}` header, behalve de vijf publieke paden die `SecurityConfig` op `permitAll` zet: `/api/auth/**`, `/api/version`, `/api/shared/**`, `/ws/**` en `/actuator/**`. Diezelfde vijf staan sinds SF-2130 ook in de inleidende `description` van `openapi.yaml` — die noemde er drie. `permitAll` betekent daarbij niet in alle gevallen "onbeschermd": `/ws/**` staat er alleen op omdat de servlet-securityketen een WebSocket-handshake niet kan afhandelen, en authenticeert sinds SF-2165 zelf via een handshake-interceptor (zie §5).
+
+**Rollen:** een gebruiker heeft precies één rol met als waarde `user` of `admin` (`User.ROLE_USER` / `User.ROLE_ADMIN`; let op: dat zijn de namen van de Kotlin-constanten, de wáárdes zijn de kleine-letter-strings). De rol wordt gezet bij registratie — de eerste gebruiker die zich registreert terwijl er nog geen admin bestaat wordt automatisch admin, daarna is elke registratie `user` — of later via `PUT /api/admin/users/{username}/role`, dat elke andere waarde dan `user`/`admin` weigert met een `400`. Een admin kan zichzelf niet buitenspel zetten: zijn eigen rol terugzetten naar `user` geeft `400` ("Je kunt je eigen admin-rol niet verwijderen") en `DELETE /api/admin/users/{username}` op het eigen account ook ("Je kunt jezelf niet verwijderen") — beide meldingen komen letterlijk in de app terecht en staan sinds SF-2179 ook in `openapi.yaml`. `/api/admin/**` is admin-only via `hasRole("ADMIN")`; dat is de Spring-Security-autoriteitsnaam (`ROLE_` + rol in hoofdletters) en niet de waarde die de API in- of uitgaat. Zowel `POST /api/auth/register` als `POST /api/auth/login` geven de rol mee in de response (`AuthResponse.role`, sinds SF-2130 ook in het contract), zodat de client het admin-onderscheid kan maken zonder het JWT te parsen; de rol zit óók in het token, dus na een rolwijziging werkt een oud token door tot de gebruiker opnieuw inlogt.
 
 **Uitzondering — audio endpoint:** `GET /api/podcasts/{id}/audio` accepteert het JWT token ook als query-parameter `?token=...`. Dit is nodig omdat browser mediaplayers en Flutter's `AudioPlayer` geen `Authorization` header kunnen meesturen bij het streamen van audio. De JWT-filter moet deze query-parameter herkennen en als geldig authenticatiemiddel beschouwen.
 
-**Wachtwoord:** BCrypt gehasht. Minimale lengte: 4 tekens.
+**Wachtwoord:** BCrypt gehasht. Minimale lengte: 4 tekens — afgedwongen op alle drie de plekken waar een wachtwoord binnenkomt (`POST /api/auth/register`, `PUT /api/account/password` en de admin-reset `PUT /api/admin/users/{username}/password`), telkens met een `400`. Sinds SF-2186 staat die grens ook als `minLength: 4` in `openapi.yaml`, op alle drie de request-schema's (`AuthRequest.password`, `ChangePasswordRequest.newPassword`, `ResetPasswordRequest.newPassword`) — niet op `currentPassword`, want dat veld wordt nergens op lengte gecontroleerd.
+
+**Gebruikersnaam:** bij registratie (`POST /api/auth/register`) moet de gebruikersnaam voldoen aan de allowlist `^[A-Za-z0-9._-]{3,64}$` — 3 tot 64 tekens, uitsluitend letters, cijfers, `.`, `_` en `-`. Elke andere vorm (leeg, te kort, te lang, met een `/`, met een `\`, met een spatie, met een null-byte of met een regeleinde) geeft een `400`. Een naam als `a..b` wordt wél geaccepteerd — de punt zit in de tekenset — maar kan zonder `/` of `\` nooit een eigen padsegment worden. De regel wordt afgedwongen in `AuthServiceImpl.register`, ná de wachtwoordcontrole en vóór de duplicaatcontrole, zodat een ongeldige naam altijd `400` geeft en nooit `409`. Reden: de naam wordt als padsegment gebruikt onder `app.data-dir` (pad-veiligheid) en komt in logregels terecht (logvervalsing via een regeleinde). `POST /api/auth/login` en `PUT /api/account/password` controleren de naam bewust níét, zodat bestaande accounts met een afwijkende naam kunnen blijven inloggen; als vangnet voor juist die accounts weigert `AdminServiceImpl.deleteAudioDir` elk opruimpad dat niet onder `<data-dir>/users/` valt. Dezelfde grenzen staan als `pattern`/`minLength`/`maxLength` op `AuthRequest.username` in `openapi.yaml`.
+
+**Wachtwoord wijzigen (`PUT /api/account/password`):** dit is het enige endpoint dat het *huidige* wachtwoord meevraagt. Klopt `currentPassword` niet, dan volgt een **401** met de gebruikerszichtbare melding "Huidig wachtwoord klopt niet" — een bedrijfsmatige 401, niet een authenticatiefout: de gebruiker is ingelogd en zijn token is geldig. Dezelfde 401 (met "Invalid credentials") volgt als de gebruiker uit het token niet meer bestaat, bijvoorbeeld omdat het account elders is verwijderd terwijl het token nog niet verlopen was. De lengtecontrole op het nieuwe wachtwoord gaat vóór de wachtwoordcontrole, dus een nieuw wachtwoord van minder dan 4 tekens geeft `400` ook als `currentPassword` fout is. Beide 401-bronnen staan sinds SF-2186 in `openapi.yaml`; de generieke 401 van een ontbrekend of ongeldig token is geen onderdeel van deze operatie maar van het globale `security`-blok.
 
 **CORS:** Alle origins toegestaan, methoden: GET, POST, PUT, DELETE, OPTIONS.
 
@@ -129,17 +140,19 @@ Daarin staan alle endpoints met paden, methoden, request/response bodies, query 
 
 **Publiek endpoint — versie-informatie:** `GET /api/version` geeft zonder authenticatie een JSON terug met `appName` (vaste waarde `"Personal News Feed"`), `sha` (kort git-SHA van de huidige build, gelezen uit env-var `BUILD_SHA`, fallback `"unknown"`), `buildTime` (ISO-8601 UTC build-timestamp, gelezen uit env-var `BUILD_TIME`, fallback `"unknown"`), `springVersion` (de Spring Boot-versie) en `environment` (naam van de omgeving, gelezen uit env-var `APP_ENVIRONMENT`, fallback `"prod"`). Voor backwards-compatibility blijft `gitSha` als alias van `sha` in de response staan. De response-header is `Cache-Control: no-cache, must-revalidate` zodat de frontend bij window-focus altijd de actuele waarde ziet. Handig voor health-checks, het verifiëren welke build live staat en — in combinatie met het WebSocket `serverVersion`-bericht — voor de frontend om nieuwe deploys te detecteren en de gebruiker een snackbar met "Nu vernieuwen" aan te bieden.
 
-**WebSocket:** `ws://{host}/ws/requests`
-- Geen authenticatie vereist
-- Alleen server → client (broadcast; berichten van de client worden genegeerd)
-- Kapotte verbindingen worden bij de volgende broadcast verwijderd
-- **Multi-user broadcast:** elk bericht wordt naar **alle** verbonden clients verstuurd, dus ook updates van andere gebruikers. De server filtert niet per gebruiker. Frontend-clients moeten zelf filteren (zie frontend-spec sectie 7 voor het matchregels-protocol).
+**Publieke endpoints — gedeelde feed (reader-app):** `GET /api/shared/feed` en `GET /api/shared/categories` geven zonder authenticatie de gecureerde feed respectievelijk de ingeschakelde categorieën van één vaste gebruiker terug (`app.shared-feed.username`, zie §8). De feed-items volgen een eigen responseschema `SharedFeedItem` (SF-1884) dat afwijkt van `FeedItem`: de persoonlijke vlaggen `isRead`, `starred` en `liked` worden **niet** meegestuurd, zodat het leesgedrag van de bron-gebruiker niet naar bezoekers kan lekken. De reader-app houdt gelezen/bewaard daarom lokaal op het toestel bij; er zijn bewust geen schrijf-endpoints onder `/api/shared/**`. Ook de categorieën hebben een eigen responseschema `SharedCategory` (SF-1992) met uitsluitend `id`, `name` en `enabled` — de privé `extraInstructions` waarmee de bron-gebruiker het taalmodel bijstuurt (en het interne `isSystem`) blijven daarmee buiten de publieke response. Het volledige `CategorySettings`-schema wordt alleen nog door de geauthenticeerde `/api/settings/categories`-endpoints gebruikt.
+
+**WebSocket:** `ws://{host}/ws/requests?token={jwt}`
+- **Authenticatie op de handshake (SF-2165):** het JWT gaat als queryparameter `token` mee — een browser-WebSocket kan geen `Authorization`-header zetten, dus volgt dit endpoint hetzelfde patroon als het audio-endpoint. `JwtHandshakeInterceptor` valideert het token vóór de upgrade en onthoudt de gebruikersnaam op de sessie. Ontbreekt het token of is het ongeldig/verlopen, dan wordt de handshake geweigerd met **401**: er komt geen verbinding tot stand en dus ook geen `serverVersion`-bericht. `/ws/**` blijft in `SecurityConfig` op `permitAll` staan (de servlet-keten kan een handshake niet afhandelen); de interceptor is de grens.
+- Alleen server → client (berichten van de client worden genegeerd)
+- Kapotte verbindingen worden bij de volgende verzending verwijderd — ongeacht van welke gebruiker ze zijn
+- **Levering per eigenaar:** een `NewsRequest`-update gaat uitsluitend naar de verbindingen van de gebruiker van wie dat verzoek is. Een gelijktijdig verbonden andere gebruiker ontvangt het bericht niet; er is geen codepad meer dat naar álle sessies stuurt. Het filteren dat de frontend deed (zie frontend-spec sectie 7) is daarmee een vangnet geworden in plaats van een privacymaatregel.
 
 **Berichttypes:**
 
 1. **`serverVersion`** — wordt **direct na (re)connect** alleen naar de verbindende client gestuurd (geen broadcast). Bevat de actuele backend-build zodat de frontend tijdens lange sessies een nieuwe deploy kan detecteren zonder periodieke polling. Formaat: `{"type": "serverVersion", "sha": "<short-git-sha>", "buildTime": "<ISO-8601 UTC>"}`.
 
-2. **`NewsRequest`-updates** — bij elke statuswijziging van een `NewsRequest` stuurt de server het volledige `NewsRequest`-object naar **alle** verbonden clients. Deze berichten hebben **geen `type`-veld**; clients herkennen ze aan het `id`-veld en kunnen `serverVersion`-berichten daarvan onderscheiden via de aanwezigheid van `type`.
+2. **`NewsRequest`-updates** — bij elke statuswijziging van een `NewsRequest` stuurt de server het volledige `NewsRequest`-object naar de verbindingen van **de eigenaar** van dat verzoek (sinds SF-2165; daarvóór ging het ongefilterd naar iedereen). Deze berichten hebben **geen `type`-veld**; clients herkennen ze aan het `id`-veld en kunnen `serverVersion`-berichten daarvan onderscheiden via de aanwezigheid van `type`.
 
 **`NewsRequest`-berichtformaat:** een enkel JSON-object, identiek aan het `NewsRequest` schema uit `openapi.yaml`. Voorbeeld:
 ```json
@@ -150,12 +163,11 @@ Daarin staan alle endpoints met paden, methoden, request/response bodies, query 
   "isHourlyUpdate": true,
   "isDailySummary": false,
   "newItemCount": 7,
-  "costUsd": 0.012,
   "durationSeconds": 43,
   "createdAt": "2025-05-08T06:00:00Z",
   "completedAt": "2025-05-08T06:00:43Z",
   "categoryResults": [
-    { "categoryId": "kotlin", "categoryName": "Kotlin", "articleCount": 3, "costUsd": 0.004, "searchResultCount": 12, "filteredCount": 3 }
+    { "categoryId": "kotlin", "categoryName": "Kotlin", "articleCount": 3, "searchResultCount": 12, "filteredCount": 3 }
   ]
 }
 ```
@@ -208,7 +220,7 @@ Wordt elke dag om 06:00 automatisch uitgevoerd voor elke gebruiker. **Daarnaast 
 1. Verzamel alle FeedItems van de afgelopen 24 uur + alle RssItems van de afgelopen 7 dagen.
 2. Stuur dit naar de AI voor een uitgebreid Nederlandstalig dagelijks nieuwsoverzicht in Markdown-formaat (600-1000 woorden).
 3. Sla op als FeedItem met `isSummary: true` en ID `daily-summary-feed-{datum}`. Een eventueel bestaand item met hetzelfde ID wordt eerst verwijderd.
-4. Zet het `daily-summary-{username}` request op `DONE` met de geactualiseerde `costUsd` en `newItemCount`.
+4. Zet het `daily-summary-{username}` request op `DONE` met de geactualiseerde `newItemCount`.
 
 ---
 
@@ -224,7 +236,7 @@ Wordt asynchroon gestart bij `POST /api/requests`.
 5. Vraag de AI voor elk artikel een Nederlandse samenvatting te genereren.
 6. Sla elk artikel direct op als FeedItem zodra het beschikbaar is (streaming aanpak).
 7. Werk de status bij na elk item; stuur WebSocket updates.
-8. Verzoek ondersteunt annulering: als het verzoek geannuleerd wordt, stopt de verwerking bij het eerstvolgende veilige moment.
+8. Verzoek ondersteunt annulering: als het verzoek geannuleerd wordt, stopt de verwerking bij het eerstvolgende veilige moment. Annuleren raakt alleen je eigen verzoek: de eigenaarscheck gaat vooraf aan het zetten van de annuleervlag, en een onbekend of andermans id geeft `404` zonder enig effect op de verwerking van de eigenaar (SF-2051).
 
 ---
 
@@ -246,27 +258,57 @@ Variaties:
 3. `SUMMARIZING_FROM_NOTES`: de AI krijgt de `<description>` (show-notes) als input en levert in één call `shortSummary`, `longSummary`, `keyTakeaways`, `topics` en `category` (KAN-62). Geen MP3-download, geen Whisper-call. Resultaat: een `rss_items`-rij met `media_type='PODCAST'`, `summary_source='show_notes'`. De RSS-tab toont de card direct met een `📝 voorlopig`-badge.
 4. Status naar `NEEDS_TRANSCRIPT` (of `SHOW_NOTES_DONE` bij uitgeschakelde transcriptie).
 
-**Async transcript-fase ([PodcastTranscriptWorker], @Scheduled fixedDelay):**
-- Tickt elke `app.podcast.transcript-worker.interval-ms` (default 2 min). Pakt **maximaal één aflevering per tick** op met `status=NEEDS_TRANSCRIPT` en `next_attempt_at <= now()` (FIFO over alle gebruikers, oudste eerst). AC #3.
+**Async transcript-fase ([PodcastTranscriptPipeline], event-driven — SF-1739):**
+- Start op het applicatie-event `PodcastTranscriptRequested` (username + guid), dat de show-notes-fase publiceert bij de overgang naar `NEEDS_TRANSCRIPT`. Er is **geen poll meer**: de oude `@Scheduled(fixedDelay=2 min)`-tick van `PodcastTranscriptWorker` is verwijderd omdat die de database wakker hield en Neon-scale-to-zero blokkeerde.
+- De `@EventListener @Async`-consument draait op de single-threaded executor `podcastTranscriptExecutor` en neemt daarnaast een proceswijde lock: **maximaal één aflevering tegelijk** in verwerking (AC #3). Per event wordt de rij opnieuw uit de database gelezen; alleen `status=NEEDS_TRANSCRIPT` met `next_attempt_at <= now()` wordt opgepakt, dus dubbele events leiden niet tot dubbele verwerking (idempotent).
+- **Vangnet ([PodcastRecoveryScheduler], `@Scheduled(cron)` + `@SchedulerLock`):** draait hoogstens elk uur (`app.podcast.recovery.cron`, default `0 5 * * * *`; `-` schakelt 'm uit) en hertriggert afleveringen op `NEEDS_TRANSCRIPT` met een verlopen (of lege) `next_attempt_at` — bv. omdat het event door een restart verloren ging of omdat een backoff-retry aan de beurt is. De job doet zelf geen Whisper-werk maar publiceert hetzelfde event (max 10 per run), zodat alles serieel via dezelfde pipeline loopt. Bewuste keuze: er is géén in-memory hertrigger op `next_attempt_at`, dus een retry start op z'n laatst bij de eerstvolgende uurlijkse run.
 - Doorloopt `DOWNLOADING` → `TRANSCRIBING` → `SUMMARIZING` → `DONE`. Het transcript wordt opgeslagen, de AI genereert een nieuwe samenvatting en overschrijft `rss_items.summary` + `rss_items.long_summary` + `rss_items.key_takeaways` + zet `summary_source='transcript'` (badge verdwijnt — AC #5). KAN-62: de AI krijgt tot 80.000 chars transcript-input zodat de lange samenvatting (3-5 alinea's, ~400-600 woorden) het inhoudelijk verloop van een 60-90-min aflevering reflecteert i.p.v. alleen de opening.
 - **Rate-limit-retry (AC #4):** bij HTTP 429 of 5xx van Whisper blijft de aflevering op `NEEDS_TRANSCRIPT` met `retry_count++` en `next_attempt_at = now() + backoff`:
   - 1e mislukte poging → wacht 5 min
   - 2e → wacht 15 min
   - 3e → wacht 45 min
   - 4e+ → wacht 24 u
-  De retry-state overleeft een restart (kolommen `retry_count` + `next_attempt_at` op `podcast_episodes`).
+  De retry-state overleeft een restart (kolommen `retry_count` + `next_attempt_at` op `podcast_episodes`); de uurlijkse recovery-job pakt 'm daarna weer op.
 - Bij een fatale fout (geen API-key, HTTP 4xx ≠ 429, parse-fout, lege transcript): status naar `SHOW_NOTES_DONE`. De show-notes-card blijft permanent staan; geen retry-storm.
 
 **Feed-promotie (AC #6):**
-- Voor podcasts is promotie naar de Feed-tab **niet automatisch via de hourly RSS-refresh**: de async transcript-worker (of de show-notes-fase bij `transcribeEnabled=false`) publiceert een `PodcastPromotionRequested`-event waarop `RssRefreshPipeline.promoteSingleItem(...)` reageert. Die draait de bestaande AI-feed-selectie op precies die ene rss-rij en — bij positief verdict — genereert een FeedItem.
+- Voor podcasts is promotie naar de Feed-tab **niet automatisch via de hourly RSS-refresh**: de async transcript-fase (of de show-notes-fase bij `transcribeEnabled=false`) publiceert een `PodcastPromotionRequested`-event waarop `RssRefreshPipeline.promoteSingleItem(...)` reageert. Die draait de bestaande AI-feed-selectie op precies die ene rss-rij en — bij positief verdict — genereert een FeedItem.
 - Promotie gebeurt:
   - **Op het transcript-pad:** zodra `status=DONE` is gezet.
-  - **Op het show-notes-timeout-pad:** als een aflevering langer dan `app.podcast.transcript-worker.promotion-timeout-hours` (default 24h) op `NEEDS_TRANSCRIPT` staat én de show-notes-promotie nog niet eerder is getriggerd (kolom `feed_promotion_attempted_at IS NULL`). De aflevering blijft daarna `NEEDS_TRANSCRIPT` — de transcript-poging gaat door — maar het FeedItem is alvast aangemaakt op basis van de show-notes-samenvatting. De worker zet `feed_promotion_attempted_at = now()` vóór het publishen van het event, zodat een AI-afwijzing (die `rss_items.feed_item_id` op NULL laat) niet leidt tot een loop van AI-selectie-calls op iedere tick.
+  - **Op het show-notes-timeout-pad:** als een aflevering langer dan `app.podcast.transcript-worker.promotion-timeout-hours` (default 24h) op `NEEDS_TRANSCRIPT` staat én de show-notes-promotie nog niet eerder is getriggerd (kolom `feed_promotion_attempted_at IS NULL`). De aflevering blijft daarna `NEEDS_TRANSCRIPT` — de transcript-poging gaat door — maar het FeedItem is alvast aangemaakt op basis van de show-notes-samenvatting. De recovery-job zet `feed_promotion_attempted_at = now()` vóór het publishen van het event, zodat een AI-afwijzing (die `rss_items.feed_item_id` op NULL laat) niet leidt tot een loop van AI-selectie-calls op iedere run.
 - De promoter is idempotent: rss-items met een bestaande `feed_item_id` worden overgeslagen.
 - `generateFeedItem(...)` gebruikt het transcript (via `PodcastTranscriptLookup`) i.p.v. de MP3-URL voor de uitgebreide samenvatting; bij show-notes-timeout-promotie valt 'ie terug op `snippet` (show-notes-tekst).
 - `FeedItem.media_type` wordt overgenomen van de bron-rss-rij zodat de Feed-tab filter (AC #8) op rij-niveau kan filteren.
 
-**Validatie bij toevoegen:** `PUT /api/podcast-feeds` toetst nieuwe URLs synchroon door één feed-fetch te doen. Faalt die binnen ~10s → HTTP 400 met Nederlandse foutmelding ("Kon feed niet ophalen: ..."). Bestaande URLs worden niet hertoetst.
+**Validatie bij toevoegen:** `PUT /api/podcast-feeds` toetst nieuwe URLs synchroon door één feed-fetch te doen. Faalt die binnen ~10s → HTTP 400 met Nederlandse foutmelding ("Kon feed niet ophalen: ..."). Bestaande URLs (en blanco URLs) worden niet hertoetst. Sinds SF-1683 zit die validatie — samen met opslaan en het triggeren van de ingestion, in die volgorde — achter de publieke `PodcastFeedsService` van de module `podcast_source` (implementatie in `podcast_source/domain/`); `PodcastFeedsController` delegeert er alleen naartoe. Gedrag en responsvorm zijn ongewijzigd.
+
+**SSRF-hardening (SF-1387, SF-1877):** analoog aan de RSS-feeds (§7.5) wordt elke
+URL waar de server in de podcast-tak zelf naartoe fetcht gevalideerd via
+`SsrfUrlValidator` — alleen `http`/`https`
+toegestaan, en de host mag niet resolven naar een loopback-, link-local-,
+private- (RFC1918/ULA) of multicast-adres. Op drie plekken:
+- **Bij opslaan** (`PUT /api/podcast-feeds`, in `SettingsServiceImpl.savePodcastFeeds`):
+  bij afwijzing → HTTP 400 met een Nederlandse foutmelding, niets wordt opgeslagen.
+- **Vlak vóór elke fetch** (`PodcastFeedFetcher.fetch()`), met een verse
+  DNS-resolutie op dat moment (dekt DNS-rebinding af). Bij afwijzing wordt
+  er geen HTTP-request verstuurd; de fetch levert `FetchResult(ok=false)` op
+  met een `errorMessage` die "geblokkeerd" bevat, gelogd als `status="error"`.
+  Net als bij `RssFetcher` staat die validatie sinds SF-2249 vóór het opbouwen
+  van het `HttpRequest`, zodat dat ook geldt voor een niet-`http`/`https`-URL.
+- **Vlak vóór elke audio-/enclosure-fetch** (`PodcastAudioDownloader.download()`,
+  SF-1877): de audio-URL komt uit de feed-inhoud zelf (tweede-orde-URL) en is
+  dus nooit bij opslaan gevalideerd. Ook hier een verse DNS-resolutie op dat
+  moment. Bij afwijzing wordt er geen HTTP-request verstuurd, wordt de temp-file
+  opgeruimd en levert `download()` `null` op; er wordt één externe call gelogd
+  (`action=podcast_audio_download`, `status="error"`, `units=0`, `errorMessage`
+  bevat "geblokkeerd"). `PodcastTranscriptProcessor` volgt dan het bestaande
+  "audio-download faalde"-pad (status `SHOW_NOTES_DONE`) — geen nieuw foutpad.
+
+Hiermee is de eerdere uitzondering uit §7.5 ("Buiten scope: `PodcastFeedFetcher`
+heeft deze validatie nog niet") vervallen — beide feed-fetchers zijn nu gelijk
+gehard. Sinds SF-1877 geldt hetzelfde voor de tweede-orde-URLs in beide takken:
+`ArticleFetcher` (artikel-URL, §7.5) en `PodcastAudioDownloader`
+(audio-/enclosure-URL) valideren allebei vlak vóór hun fetch.
 
 **Kosten:** ~$0.05 per aflevering (Whisper $0.006/min × ~7 min + AI-samenvatting ~$0.011). Gelogd in `external_calls` als `podcast_transcribe`, `podcast_episode_summarize`, `podcast_audio_download`, `podcast_feed_fetch`.
 
@@ -304,7 +346,7 @@ Naast de zelf-gegenereerde DevTalk-podcasts kan een gebruiker een Engelse RSS-po
 
 **Statusverloop (translate-flow):** `PENDING` → `TRANSLATING` → `TTS_GENERATING` → `DONE` / `FAILED`. Twee extra waarden op de bestaande `PodcastStatus`-enum; geen DDL-constraint omdat het status-veld een `TEXT`-kolom is.
 
-**Trigger:** `POST /api/podcast-source/{episodeGuid}/translate`. Pre-condities: de bron-aflevering bestaat voor deze user én staat op `PodcastEpisodeStatus.DONE` (transcript klaar). Bij conflict → HTTP 409 met Nederlandse foutmelding.
+**Trigger:** `POST /api/podcast-source/{episodeGuid}/translate`. Pre-condities: de bron-aflevering bestaat voor deze user én staat op `PodcastEpisodeStatus.DONE` (transcript klaar). Bestaat de aflevering niet voor deze user → HTTP 404; is de aflevering er wel maar is de status nog niet `DONE` of ontbreekt het transcript → HTTP 409. Beide met een Nederlandse foutmelding.
 
 **Idempotency:** als er al een vertaling bestaat voor deze (`username`, `translated_from_episode_guid`) met status `PENDING`/`TRANSLATING`/`TTS_GENERATING`/`DONE`, returnt de API HTTP 200 met de bestaande `podcastId`. Alleen na een eerdere `FAILED` start de API opnieuw (HTTP 202).
 
@@ -326,58 +368,11 @@ Naast de zelf-gegenereerde DevTalk-podcasts kan een gebruiker een Engelse RSS-po
 
 ### 6.6 Opstartgedrag
 
-Bij serverstart worden alle verzoeken met status `PENDING` of `PROCESSING` gereset naar `FAILED` (herstel na herstart).
+Bij serverstart worden alle verzoeken met status `PENDING` of `PROCESSING` gereset naar `FAILED` (herstel na herstart). Zo'n gereset verzoek krijgt daarbij een `completedAt` op het moment van de reset; dat onderscheidt het van een verzoek dat al eerder faalde. De reset loopt over álle gebruikers — het is startup-herstel, geen gebruikersactie — en laat afgeronde verzoeken (`DONE`, `CANCELLED`, `FAILED`) ongemoeid, inclusief hun oorspronkelijke `completedAt`. Een tweede reset direct erna verandert dus niets meer (SF-2158 legt dit vast in `RequestRecoveryE2eTest`).
 
 Voor elke bestaande gebruiker worden de vaste verzoekrecords `hourly-update-{username}` en `daily-summary-{username}` aangemaakt als ze nog niet bestaan.
 
 ---
-
-### 6.8 Event-ontdekking (KAN-65 + KAN-68, wekelijks + handmatig)
-
-De events-module ontdekt per gebruiker grote tech-events (conferenties zoals JavaOne, KotlinConf, Spring I/O, Devoxx, KubeCon, Google I/O, OpenAI DevDay).
-
-- **Trigger**: wekelijkse cron `0 0 2 * * SUN` (zondag 02:00), eigen `@SchedulerLock` (`weeklyEventDiscovery`, lockAtMostFor=4h), los van de RssScheduler. Ook handmatig via `POST /api/events/discover` (mirror van de RSS-refresh) — knop in de Events-tab én in Settings. De handmatige trigger respecteert dezelfde voorkeuren-lijst.
-- **Primaire seed (KAN-68)**: een per-user lijst event-voorkeuren in Settings (`/api/settings/event-preferences`). Per naam draait één gerichte Tavily-search (`"<naam> conference <year> <year+1> dates location"`, max-results 10), gevolgd door één OpenAI-extract die de edities + sterk overlappende zuster-edities uithaalt. Max 20 seed-queries per run om kosten te begrenzen. Sensible defaults bij eerste aanmaak van een user: JavaOne, KotlinConf, Spring I/O, Code with Claude, OpenAI DevDay, Google I/O, Devoxx, KubeCon.
-- **"Similar"-aanvulling (KAN-68)**: na de seed-pass één extra AI-call (`discoverEventsSimilar`) die op basis van de hele voorkeuren-lijst events binnen dezelfde scene/community/technologie voorstelt. Eén call per run per user — geen Tavily-grounding, valt terug op de eigen kennis van het model.
-- **Secundair: per categorie** (alleen ingeschakelde, niet-systeem categorieën, KAN-65 gedrag) draait nog steeds een Tavily-search met `days=365`. Blijft als aanvulling actief; dedup vangt overlap met de seed-pass op.
-- **Datum-recovery (KAN-68)**: events die uit de AI komen zonder valide `start_date` krijgen één extra gerichte Tavily-lookup (`"<naam> conference dates <year> <year+1>"`) + één kleine AI-call die alleen de datum extraheert. Lukt dat niet, dan wordt het event verworpen (`rejectedNoDate`-counter in de log).
-- **Denylist (KAN-68)**: bij het verwerken van AI-output worden events waarvan de genormaliseerde id op de per-user `/api/settings/event-denylist` staat overgeslagen. De denylist wordt door [Event-verwijdering](#evt-delete) gevuld; de gebruiker kan ids er via Settings weer afhalen.
-- **Dedup** op de stabiele id per gebruiker: een bestaand event wordt bijgewerkt (feedItemId + createdAt behouden), een nieuw event wordt toegevoegd. Events met een begindatum ouder dan één jaar worden overgeslagen.
-- **Aankondiging**: bij een nieuw event wordt een gewoon Nederlands feed-item aangemaakt (`mediaType=ARTICLE`, categorie van het event) met een verwijzing naar de Events-sectie.
-- **Logging/metrics**: alle AI-calls (`discoverEventsSeed`, `discoverEventsSimilar`, `discoverEventDate`, `discoverEvents`) worden gelogd als `event_discovery` in `external_calls`; Micrometer telt `newsfeed.events.discovered` en timet `newsfeed.events.discovery.duration`. Tavily logt zoals bestaand.
-
-### 6.8.1 Event-verwijdering en denylist (KAN-68) <a id="evt-delete"></a>
-
-- **`DELETE /api/events/{id}`**: verwijdert het event uit `events` (cascade ruimt `event_videos` op), én verwijdert het gekoppelde aankondigings-FeedItem (`events.feed_item_id`, géén DB-FK — explicit op service-niveau), én voegt de event-id + display-naam toe aan `event_denylist` voor deze user.
-- **Denylist-beheer**: `GET /api/settings/event-denylist` toont de lijst, `DELETE /api/settings/event-denylist/{normalizedId}` haalt 'n id eraf. Verwijderd-en-eraf-gehaald → discovery vindt 'm bij de volgende run weer.
-- **Event-voorkeuren-beheer**: `GET/PUT /api/settings/event-preferences` voor de hele lijst, `POST /api/settings/event-preferences` om er eentje bij te plaatsen, `POST /api/settings/event-preferences/remove` (body `{"name":"..."}`) om er eentje te verwijderen. Naam in de body i.p.v. als path-segment omdat defaults als "Spring I/O" en "Google I/O" een `/` bevatten en Spring/Tomcat `%2F` standaard strippen. Vrije tekst — geen autocomplete.
-
-### 6.9 Event-video-ontdekking (KAN-66, wekelijks + handmatig)
-
-Per al ontdekt event (zie 6.8) worden wekelijks de online video's (keynotes/sessies) ontdekt. Aparte job van de event-discovery — er wordt in deze story nog **geen** samenvatting gemaakt, alleen de video plus een eventuele Nederlandse beschrijving opgeslagen.
-
-- **Trigger**: tweede wekelijkse cron `0 0 3 * * SUN` (zondag 03:00, één uur na de event-job), eigen `@SchedulerLock` (`weeklyEventVideoDiscovery`, lockAtMostFor=4h). Ook handmatig via `POST /api/events/videos/discover` — aparte knop in Settings naast de event-discovery-knop.
-- **Per opgeslagen event** (begindatum maximaal één jaar terug) draait een Tavily-search met `days=365` op naam + organisatie van het event. De resultaten gaan naar de AI (`mainModel`), die er de video's uit haalt: titel, video-URL en — indien beschikbaar — een Nederlandse beschrijving.
-- **Dedup** op de canonieke video-URL per (gebruiker, event): een bestaande video wordt bijgewerkt, een nieuwe toegevoegd. Maximaal 10 video's per event per run om de Tavily/de AI-kosten te beperken.
-- **Geen aankondiging**: video's genereren geen FeedItem (alleen events doen dat).
-- **Tonen**: in het event-detailscherm verschijnt een lijst klikbare video's; een tik opent de externe URL in de systeembrowser (`GET /api/events/{id}/videos`).
-- **Logging/metrics**: de AI-call wordt gelogd als `event_video_discovery` in `external_calls`; Micrometer telt `newsfeed.event_videos.discovered` en timet `newsfeed.event_videos.discovery.duration`. Tavily logt zoals bestaand.
-
-### 6.10 Event-video-samenvatting on demand (KAN-67)
-
-Per event-video kan de gebruiker een uitgebreide Nederlandse samenvatting laten maken. Synchrone flow vanuit het event-detailscherm — de wekelijkse discovery (zie 6.9) maakt zelf nooit samenvattingen aan.
-
-- **Trigger**: knop "Maak samenvatting" in de video-kaart van het event-detailscherm. Stuurt `POST /api/events/{id}/videos/summarize` met body `{"videoUrl": "..."}`. De frontend toont een laad-indicator tot de response binnen is.
-- **Transcript-stap** (in volgorde, eerste succes wint):
-  1. YouTube `timedtext`-API met `lang=nl`.
-  2. Idem met `lang=en`.
-  3. Idem met `lang=en&kind=asr` (auto-gegenereerd).
-  4. Whisper-fallback: `yt-dlp` downloadt de audio als MP3 naar een temp-file, [`AudioTranscoder`] zorgt dat 'ie onder de 24 MiB Whisper-limit blijft, [`WhisperClient`] transcribeert (zelfde foutbeleid als de podcast-flow: 429/5xx levert mislukking op, gebruiker mag opnieuw proberen).
-- **Samenvatting**: de AI (`mainModel`) maakt op basis van het transcript een 4-7 alinea NL plain-text samenvatting met focus op tools, sprekers, voorbeelden en concrete inhoud.
-- **Persistentie**: de samenvatting wordt opgeslagen in `event_videos.summary_nl` via een aparte `UPDATE` (de discovery-upsert raakt dit veld bewust niet aan, anders zou een tweede discovery de samenvatting wissen). Het discovery-pad behoudt `summary_nl` bij `ON CONFLICT`.
-- **Idempotentie**: een tweede call met een al opgeslagen samenvatting komt direct terug zonder AI-calls. Een per-(user, event, video) `ReentrantLock` voorkomt dat twee gelijktijdige drukken op de knop twee Whisper-/AI-calls triggeren.
-- **Foutgedrag**: als zowel YouTube-transcript als Whisper niets oplevert, geeft het endpoint `502 Bad Gateway`; de UI toont "Samenvatting kon niet worden gemaakt" en de knop blijft beschikbaar.
-- **Logging/metrics**: de AI wordt gelogd als `event_video_summarize`, yt-dlp als `event_video_audio_download`, YouTube-timedtext als `event_video_transcript_fetch`, Whisper als bestaand `podcast_transcribe`. Micrometer registreert `newsfeed.event_videos.summary.duration` en `newsfeed.event_videos.summary.count` (beide met `result`-tag: `ok`, `cache_hit`, `no_transcript`, `summarize_failed`, `error`, `not_found`).
 
 ### 6.7 Onderwerp-geschiedenis
 
@@ -397,15 +392,16 @@ Deze geschiedenis wordt als context meegegeven aan de AI bij:
 
 ### 7.1 OpenAI (AI backbone)
 
-**API:** `https://api.openai.com/v1/chat/completions` (chat-completions, incl.
-Structured Outputs). Transcriptie via `/v1/audio/transcriptions`.
+**API:** `https://api.openai.com/v1/chat/completions` (chat-completions; alle
+JSON-antwoorden worden uit vrije tekst geparsed, er wordt geen `response_format`/
+Structured Outputs gebruikt — de ongebruikte `completeJson`-variant is in SF-1753
+verwijderd). Transcriptie via `/v1/audio/transcriptions`.
 
 **Configuratie:**
 - Model per actie is configureerbaar via `PNF_AI_MODEL_*` omgevingsvariabelen
   (defaults in `application.properties`). Defaults o.a.: `gpt-5.4-mini`
-  (rss/feed-samenvatting, selectie, ad-hoc, events), `gpt-5.4` (dagelijkse
-  samenvatting, event-video-samenvatting), `gpt-5.4-nano` (event-datum), en
-  `gpt-4o-mini-transcribe` voor transcriptie.
+  (rss/feed-samenvatting, selectie, ad-hoc), `gpt-5.4` (dagelijkse
+  samenvatting) en `gpt-4o-mini-transcribe` voor transcriptie.
 - API-sleutel: omgevingsvariabele `PNF_OPENAI_API_KEY`
 
 **Betrouwbaarheid:**
@@ -442,7 +438,7 @@ Structured Outputs). Transcriptie via `/v1/audio/transcriptions`.
 | `POST /search` | Zoek artikelen op onderwerp | Zoekopdracht (Engels, 4-8 woorden, afgeleid van het `subject` veld via de AI of directe vertaling), max_results, days, optioneel domeinfilter | Lijst van {title, url, snippet, publishedDate} |
 | `POST /extract` | Haal volledige artikeltekst op | Lijst van URLs | Map van {url → volledige tekst, max 8000 tekens} |
 
-Tavily wordt gebruikt voor ad-hoc verzoeken (`POST /api/requests`) **en** voor event-discovery en event-video-discovery (zie 6.8 en 6.9), **niet** voor de reguliere uurlijkse RSS-pipeline.
+Tavily wordt gebruikt voor ad-hoc nieuws-verzoeken (`POST /api/requests`), **niet** voor de reguliere uurlijkse RSS-pipeline.
 
 ---
 
@@ -493,6 +489,40 @@ Gewone HTTP GET-requests naar door de gebruiker geconfigureerde RSS-feed URLs.
 - Publicatiedatums worden geparsed in diverse formaten
 - Artikelen ouder dan 4 dagen worden gefilterd
 
+**SSRF-hardening (SF-1345, SF-1843):** elke URL waar de server zelf naartoe
+fetcht wordt gevalideerd — alleen `http`/`https` toegestaan, en de host mag
+niet resolven naar een loopback-, link-local-, private- (RFC1918/ULA) of
+multicast-adres. Dit gebeurt in de RSS-tak op drie plekken:
+- **Bij opslaan** (`PUT /api/rss-feeds`, in `SettingsServiceImpl.saveRssFeeds`):
+  bij afwijzing → HTTP 400 met een Nederlandse foutmelding, niets wordt
+  opgeslagen.
+- **Vlak vóór elke fetch** (`RssFetcher.fetch()`), met een verse DNS-resolutie
+  op dat moment — dekt DNS-rebinding af (een URL die bij opslaan nog geldig
+  was maar inmiddels naar een privé-adres resolvet). Bij afwijzing wordt er
+  geen HTTP-request verstuurd; de fetch wordt behandeld als een gewone
+  fetch-fout (`status="error"`, lege itemlijst, gelogd via `logFetch` met een
+  `errorMessage` die "geblokkeerd" bevat). Die validatie staat sinds SF-2249
+  vóór het opbouwen van het `HttpRequest`, zodat ook een niet-`http`/`https`-URL
+  (`file://`) als eigen weigering in het auditspoor komt en niet als
+  JDK-melding "invalid URI scheme" (zie de SSRF-conventie in
+  `docs/factory/technical-spec.md`).
+- **Vlak vóór elke artikel-fetch** (`ArticleFetcher.fetchPlainText()`, SF-1843):
+  de artikel-URL komt uit de feed-inhoud zelf (tweede-orde-URL) en is dus nooit
+  door de gebruiker ingetypt of bij opslaan gevalideerd. Ook hier een verse
+  DNS-resolutie op dat moment. Bij afwijzing wordt er geen HTTP-request
+  verstuurd, levert de fetch `null` op (`status="error"`, `units=0`, gelogd via
+  `logFetch` met een `errorMessage` die "geblokkeerd" bevat) en valt
+  `FeedItemGenerator` terug op `rss.snippet` — precies zoals bij een gewone
+  mislukte artikel-fetch. Er gaat geen fout richting API; de RSS-refresh
+  loopt door.
+
+`PodcastFeedFetcher` (podcast-RSS-bronnen, §6.4) is sinds SF-1387 op dezelfde
+manier gehard, en `PodcastAudioDownloader` (audio-/enclosure-URL, §6.4) sinds
+SF-1877. Ook wordt SSRF-via-redirect (een server die pas ná validatie
+via een 3xx naar een privé-adres doorstuurt) niet tegengehouden — bekend
+restrisico, `HttpClient.Redirect.ALWAYS` is ongewijzigd (geldt voor
+`RssFetcher`, `ArticleFetcher`, `PodcastFeedFetcher` en `PodcastAudioDownloader`).
+
 ---
 
 ## 8. Configuratie
@@ -504,11 +534,12 @@ Alle configuratie via `application.properties` of omgevingsvariabelen.
 | `server.port` | — | `8080` | Serverpoort |
 | `app.data-dir` | — | `./data` | Root voor het `external_calls.jsonl` audit-log en runtime-paden |
 | `PNF_DATABASE_URL` | `PNF_DATABASE_URL` | — | Verplicht — JDBC-URL naar PostgreSQL (Neon) |
-| `app.jwt.secret` | — | (hardcoded default) | JWT-signeringssleutel (wijzigen in productie!) |
+| `app.jwt.secret` | `APP_JWT_SECRET` | leeg | JWT-signeringssleutel (≥ 32 bytes). Leeg/ontbrekend → de backend genereert bij het opstarten een random ephemeral sleutel en logt een waarschuwing; alle tokens vervallen dan bij herstart. In productie verplicht te zetten; PR-previews draaien bewust op de ephemeral sleutel. |
 | `app.openai.api-key` | `PNF_OPENAI_API_KEY` | — | Verplicht (AI-tekst, transcriptie, TTS) |
 | `app.openai.base-url` | — | `https://api.openai.com` | — |
 | `app.ai.models.<actie>` | `PNF_AI_MODEL_*` | per actie (bijv. `gpt-5.4-mini`) | OpenAI-model per AI-actie |
-| `app.tavily.api-key` | `PNF_TAVILY_API_KEY` | — | Verplicht voor ad-hoc verzoeken + events |
+| `app.tavily.api-key` | `PNF_TAVILY_API_KEY` | — | Verplicht voor ad-hoc nieuws-verzoeken |
+| `app.shared-feed.username` | — | `robbert` | Gebruiker wiens feed/categorieën via de publieke `/api/shared/*`-endpoints gedeeld worden |
 | `app.elevenlabs.api-key` | `PNF_ELEVENLABS_API_KEY` | — | Optioneel (alleen bij ElevenLabs TTS) |
 | `app.elevenlabs.base-url` | — | `https://api.elevenlabs.io` | — |
 | `app.elevenlabs.voice-interviewer` | — | `Jn7U4vF8ZkmjZIZRn4Uk` | ElevenLabs stem voor interviewer |
@@ -522,18 +553,21 @@ Alle configuratie via `application.properties` of omgevingsvariabelen.
 |---|---|
 | Elk uur (`0 0 * * * *`) | RSS ophalen en verwerken voor alle gebruikers |
 | Dagelijks 06:00 (`0 0 6 * * *`) | Dagelijkse AI-samenvatting genereren voor alle gebruikers |
-| Wekelijks zondag 02:00 (`0 0 2 * * SUN`) | Tech-events ontdekken voor alle gebruikers (KAN-65) |
-| Wekelijks zondag 03:00 (`0 0 3 * * SUN`) | Event-video's ontdekken voor alle gebruikers (KAN-66) |
-| Elke ~2 min (`fixedDelay`, default `app.podcast.transcript-worker.interval-ms`) | Podcast-transcript-worker: max. één `NEEDS_TRANSCRIPT`-aflevering per tick (Whisper + samenvatting) met rate-limit-backoff (zie 6.4) |
+| Elk uur op :05 (`app.podcast.recovery.cron`, default `0 5 * * * *`) | Podcast-recovery-job (vangnet, SF-1739): hertriggert `NEEDS_TRANSCRIPT`-afleveringen met verlopen `next_attempt_at` en doet de show-notes-timeout-promotie. De normale transcript-start is event-driven, niet gepland (zie 6.4) |
 
 ---
 
 ## 10. Foutafhandeling & Grenzen
 
 - **RSS-verwerking:** Als de AI-aanroep mislukt voor één artikel, wordt dat artikel overgeslagen; verwerking gaat door.
+- **RSS SSRF-afwijzing (SF-1345):** wijst de defense-in-depth-check in `RssFetcher.fetch()` een feed-URL af (zie §7.5), dan wordt die feed als `status="error"` gelogd met een `errorMessage` die "geblokkeerd" bevat en levert de fetch een lege itemlijst op — geen exception richting de caller/scheduler. Dat geldt sinds SF-2249 voor élke afwijzingsreden, ook een niet-`http`/`https`-schema: daarvóór ketste die categorie af op `HttpRequest.Builder.uri(...)` en kwam er "invalid URI scheme" in het auditspoor.
+- **Artikel-URL SSRF-afwijzing (SF-1843):** wijst de check in `ArticleFetcher.fetchPlainText()` de artikel-URL uit een feed-item af (zie §7.5), dan wordt er geen HTTP-request gedaan, wordt één externe call gelogd (`status="error"`, `units=0`, `errorMessage` bevat "geblokkeerd") en levert de fetch `null` op. `FeedItemGenerator` valt dan terug op het feed-fragment (`rss.snippet`) — identiek aan het bestaande gedrag bij een mislukte artikel-fetch; geen exception, de RSS-refresh loopt door.
+- **Podcast-feed SSRF-afwijzing (SF-1387):** wijst de defense-in-depth-check in `PodcastFeedFetcher.fetch()` een feed-URL af (zie §6.4), dan wordt de externe call als `status="error"` gelogd en levert de fetch `FetchResult(ok=false, errorMessage bevat "geblokkeerd")` op — geen HTTP-request, geen exception richting de caller.
+- **Podcast-audio SSRF-afwijzing (SF-1877):** wijst de defense-in-depth-check in `PodcastAudioDownloader.download()` de audio-/enclosure-URL af (zie §6.4), dan wordt er geen HTTP-request gedaan, wordt één externe call gelogd (`action=podcast_audio_download`, `status="error"`, `units=0`, `errorMessage` bevat "geblokkeerd") en levert `download()` `null` op. `PodcastTranscriptProcessor` volgt het bestaande `audioFile == null`-pad (status `SHOW_NOTES_DONE`, `errorMessage` "Audio-download faalde") — geen nieuw foutpad.
 - **Podcast:** Bij een fout in een van de stappen wordt de podcast gemarkeerd als `FAILED`. Ook als de TTS-fase geen audio oplevert (alle segmenten faalden of het script bevatte geen INTERVIEWER/GAST-regels) wordt de podcast `FAILED`, niet `DONE`.
 - **Ad-hoc verzoek:** Bij een fatale fout wordt het verzoek gemarkeerd als `FAILED`.
-- **Annulering:** Verzoeken kunnen geannuleerd worden; de verwerking stopt bij het eerstvolgende controlepunt.
+- **Annulering:** Verzoeken kunnen geannuleerd worden; de verwerking stopt bij het eerstvolgende controlepunt. Alleen de eigenaar kan annuleren (SF-2051): `POST /api/requests/{id}/cancel` controleert eerst of het verzoek van de ingelogde gebruiker is en geeft anders `404` — bewust geen `403`, zodat het antwoord niet verraadt of een id van een andere gebruiker bestaat. Bij een `404` wordt er geen annuleervlag gezet.
+- **Podcast-aflevering vertalen (SF-2094):** `POST /api/podcast-source/{episodeGuid}/translate` onderscheidt twee foutsoorten. Bestaat de aflevering niet voor deze gebruiker, dan volgt `404` (`NotFoundException`) — hetzelfde antwoord als de lookup ernaast, en net als bij de andere resource-endpoints verraadt het niet of de guid van iemand anders is. Bestaat de aflevering wél maar is de status nog niet `DONE` of is het transcript leeg, dan volgt `409` (`ConflictException`). Tot SF-2094 gaf ook het niet-gevonden-pad een `409`, wat afweek van het contract en van alle andere 404-plekken.
 - **Restart-herstel:** Bij serverherstart worden openstaande PENDING/PROCESSING verzoeken gereset naar FAILED.
 - **OpenAI rate limiting:** Bij HTTP 429 wordt automatisch gewacht en opnieuw geprobeerd (exponentieel backoff, max 4 pogingen).
 

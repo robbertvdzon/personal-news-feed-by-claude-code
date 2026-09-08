@@ -359,6 +359,43 @@ class NewsRequest {
       );
 }
 
+/// De statussen waarin een podcast nog "bezig" is.
+///
+/// Dit is de ENIGE plek waar deze lijst mag staan: de spinner/het statuslabel
+/// in het overzicht en de poll-timer (overzicht én detailscherm) moeten het per
+/// definitie met elkaar eens zijn. Liepen ze uiteen, dan bleef het rondje
+/// draaien zonder dat er nog ververst werd (zoals bij `TRANSLATING`).
+///
+/// Let op: `EpisodeLookup.translationInProgress` gebruikt bewust een smallere
+/// lijst — de statussen van de vertaalflow van één RSS-aflevering
+/// (`translatedPodcastStatus`), niet van de podcast zelf, want een vertaling
+/// doorloopt nooit de generatie-statussen. Die lijst staat als
+/// [kPodcastTranslationInProgressStatuses] hieronder en hoort hier dus niet bij.
+const kPodcastInProgressStatuses = <String>{
+  'PENDING',
+  'DETERMINING_TOPICS',
+  'GENERATING_SCRIPT',
+  'GENERATING_AUDIO',
+  'TRANSLATING',
+  'TTS_GENERATING',
+};
+
+/// De statussen waarin de vertaalflow van één RSS-podcast-aflevering nog loopt.
+///
+/// Dit is bewust een deelverzameling van [kPodcastInProgressStatuses]: een
+/// vertaling doorloopt nooit de generatie-statussen (`DETERMINING_TOPICS`,
+/// `GENERATING_SCRIPT`, `GENERATING_AUDIO`), dus die horen hier niet bij. Het
+/// is dus géén kopie van de gedeelde set maar een echte, kleinere subset —
+/// vastgelegd in `frontend/test/podcast_in_progress_statuses_test.dart`.
+///
+/// Gebruikt door `EpisodeLookup.translationInProgress`; het bijbehorende
+/// fase-label staat in `_phaseLabel` in `rss_podcast_detail_screen.dart`.
+const kPodcastTranslationInProgressStatuses = <String>{
+  'PENDING',
+  'TRANSLATING',
+  'TTS_GENERATING',
+};
+
 class Podcast {
   final String id;
   final String title;
@@ -496,98 +533,5 @@ class EpisodeLookup {
 
   /// True wanneer de vertaling op de achtergrond loopt.
   bool get translationInProgress => translatedPodcastStatus != null &&
-      const ['PENDING', 'TRANSLATING', 'TTS_GENERATING'].contains(translatedPodcastStatus);
-}
-
-/// KAN-65: een ontdekt tech-event. Wekelijks per gebruiker ontdekt met
-/// AI + web-search op basis van de categorie-settings. Getoond in de
-/// Events-tab, gesorteerd op datum met onderscheid aankomend/geweest.
-class Event {
-  final String id;
-  final String name;
-  final String? organization;
-  /// Begindatum YYYY-MM-DD; null wanneer onbekend.
-  final String? startDate;
-  final String? endDate;
-  final String location;
-  final String description;
-  final List<String> sourceLinks;
-  final String category;
-  final String? feedItemId;
-
-  Event({
-    required this.id,
-    required this.name,
-    this.organization,
-    this.startDate,
-    this.endDate,
-    this.location = '',
-    this.description = '',
-    this.sourceLinks = const [],
-    this.category = 'overig',
-    this.feedItemId,
-  });
-
-  /// True wanneer de begindatum vandaag of in de toekomst ligt. Events
-  /// zonder datum behandelen we als aankomend (gebruiker beslist).
-  bool get isUpcoming {
-    final d = startDate;
-    if (d == null || d.isEmpty) return true;
-    final parsed = DateTime.tryParse(d);
-    if (parsed == null) return true;
-    final today = DateTime.now();
-    final midnight = DateTime(today.year, today.month, today.day);
-    return !parsed.isBefore(midnight);
-  }
-
-  factory Event.fromJson(Map<String, dynamic> j) => Event(
-        id: j['id'] ?? '',
-        name: j['name'] ?? '',
-        organization: j['organization'],
-        startDate: j['startDate'],
-        endDate: j['endDate'],
-        location: j['location'] ?? '',
-        description: j['description'] ?? '',
-        sourceLinks: List<String>.from(j['sourceLinks'] ?? const []),
-        category: j['category'] ?? 'overig',
-        feedItemId: j['feedItemId'],
-      );
-}
-
-/// KAN-66: één online video (keynote/sessie) van een [Event]. Wekelijks
-/// ontdekt met AI + web-search.
-///
-/// KAN-67: voegt [summaryNl] toe — een Nederlandse on-demand samenvatting
-/// (transcript + Claude). Null tot de gebruiker op "Maak samenvatting"
-/// drukt; daarna voor altijd aanwezig (server-side gecachet).
-class EventVideo {
-  final String eventId;
-  final String videoUrl;
-  final String title;
-  final String? descriptionNl;
-  final String? summaryNl;
-
-  EventVideo({
-    required this.eventId,
-    required this.videoUrl,
-    required this.title,
-    this.descriptionNl,
-    this.summaryNl,
-  });
-
-  EventVideo copyWith({String? summaryNl}) => EventVideo(
-        eventId: eventId,
-        videoUrl: videoUrl,
-        title: title,
-        descriptionNl: descriptionNl,
-        summaryNl: summaryNl ?? this.summaryNl,
-      );
-
-  factory EventVideo.fromJson(Map<String, dynamic> j) => EventVideo(
-        eventId: j['eventId'] ?? '',
-        videoUrl: j['videoUrl'] ?? '',
-        title: j['title'] ?? '',
-        descriptionNl: j['descriptionNl'],
-        summaryNl: j['summaryNl'],
-      );
+      kPodcastTranslationInProgressStatuses.contains(translatedPodcastStatus);
 }

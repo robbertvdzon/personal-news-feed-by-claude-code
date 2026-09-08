@@ -4,7 +4,6 @@
 - Test de preview-omgeving via de URL-template uit `deployment.md`: `https://pnf-pr-{pr_num}.vdzonsoftware.nl`.
 - Rapporteer bugs met concrete reproductiestappen en verwacht/werkelijk gedrag.
 - Test zowel backend-endpoints (via de OpenAPI-spec) als de Flutter-frontend (via de browser op de preview-URL).
-- Bij events-functionaliteit: controleer dat verwijderde events niet terugkomen na een nieuwe discovery-run.
 
 ## Preview vs productie: je raakt uitsluitend de preview
 
@@ -55,7 +54,10 @@ ziet — **zonder** DB-mutatie, wachtwoord-reset of guard-check.
 Lukt het lezen van `TESTER_USERNAME`/`TESTER_PASSWORD` niet of zijn ze
 leeg/onleesbaar, dan — en alléén dan — val je terug op de vaste
 wegwerp-user `tester_<lowercase-STORY_ID>`: registreer/log in via de UI en
-`DELETE /api/account/me` aan het eind zodat de DB schoon blijft.
+`DELETE /api/account/me` aan het eind zodat de DB schoon blijft. Die naam
+voldoet aan de allowlist die registratie sinds SF-2207 afdwingt (3-64 tekens
+uit `[A-Za-z0-9._-]`); wijk er niet van af met spaties of andere tekens, want
+dan geeft `POST /api/auth/register` een `400`.
 **Meld expliciet** in je rapport dat je terugviel omdat de test-user-creds
 ontbraken — nooit een wachtwoord-reset of zelf-verzonnen login.
 

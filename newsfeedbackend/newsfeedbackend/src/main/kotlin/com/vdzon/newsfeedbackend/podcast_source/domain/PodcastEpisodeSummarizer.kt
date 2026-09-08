@@ -125,12 +125,12 @@ class PodcastEpisodeSummarizer(
         }
         return try {
             val tree = mapper.readTree(AiJson.extract(raw))
-            val shortSum = tree.path("shortSummary").asText("").trim()
-            val cat = tree.path("category").asText("overig").ifBlank { "overig" }
-            val topics = tree.path("topics").mapNotNull { it.asText().takeUnless { t -> t.isBlank() } }
-            val longSum = tree.path("longSummary").asText("").trim()
+            val shortSum = tree.path("shortSummary").asString("").trim()
+            val cat = tree.path("category").asString("overig").ifBlank { "overig" }
+            val topics = tree.path("topics").mapNotNull { it.asString().takeUnless { t -> t.isBlank() } }
+            val longSum = tree.path("longSummary").asString("").trim()
             val takeaways = tree.path("keyTakeaways")
-                .mapNotNull { it.asText().takeUnless { t -> t.isBlank() } }
+                .mapNotNull { it.asString().takeUnless { t -> t.isBlank() } }
                 .map { it.trim() }
             if (shortSum.isBlank()) {
                 log.warn("[PodcastEpisode] Claude gaf geen shortSummary voor guid={}", ep.guid)

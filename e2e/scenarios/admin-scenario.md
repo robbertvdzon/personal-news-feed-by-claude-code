@@ -9,7 +9,9 @@ de sectie **Beheer** is dan simpelweg afwezig in Instellingen.
 ## Voorwaarden
 - `start-scenario` is succesvol gedraaid: ingelogd als `e2e_…`.
 - **Admin-rechten vereist.** De sectie **Beheer** in Instellingen is alleen zichtbaar als het
-  ingelogde account `ROLE_ADMIN` heeft (`auth.isAdmin`). Een vers via "Account aanmaken"
+  ingelogde account de rol `admin` heeft (`auth.isAdmin`, d.w.z. `role == 'admin'` uit de
+  login-response — `ROLE_ADMIN` is alleen de naam van de Spring-autoriteit, niet de waarde die
+  de API teruggeeft). Een vers via "Account aanmaken"
   gemaakt e2e-account is een **gewone user** → dan is dit scenario **⏭ Skipped** (zie
   "Skipped-pad" onderaan). Het is alleen volledig te draaien met een testaccount dat al admin is.
 
@@ -45,6 +47,11 @@ de sectie **Beheer** is dan simpelweg afwezig in Instellingen.
   > vragen een bevestigingsdialoog ("Bevestig", knoppen "Annuleren"/"Doorgaan") — annuleer die altijd.
   > "Maak admin" kent **géén** bevestiging en past de rol **direct** toe (snackbar "<user> is nu
   > admin"); tik die optie daarom in de e2e-run **niet** aan — sluit het menu i.p.v. te kiezen.
+  > Faalt een beheeractie tóch (bijv. een verouderde lijst → 404 nadat een andere admin het account
+  > al verwijderde), dan verschijnt sinds SF-2242 een snackbar met **alleen de servermelding** uit
+  > het `error`-veld — dus zónder `{"error": …}`-JSON, zonder statuscode en zonder het voorvoegsel
+  > "Fout:". Bij een lege body staat er "Actie mislukt". Let op: sommige backend-meldingen zijn
+  > Engels (`User not found: <naam>`) — dat is bekend en geen faalconditie.
 
 ### 2. Kosten-overzicht (`AdminCostsScreen`)
 - Tik in de AppBar van het Admin-scherm op **"Kosten-overzicht"** (`payments`).
@@ -86,7 +93,7 @@ de sectie **Beheer** is dan simpelweg afwezig in Instellingen.
 - ⏭ **Skipped** — het e2e-testaccount is een gewone user (`auth.isAdmin == false`): de sectie
   **Beheer** ontbreekt in Instellingen, dus stap 1–2 zijn niet uitvoerbaar. Dit is **verwacht
   gedrag**, geen fout. Noteer in `report.md`: *"admin-scenario ⏭ Skipped — testaccount heeft geen
-  ROLE_ADMIN; sectie Beheer afwezig (correct)."*
+  rol admin; sectie Beheer afwezig (correct)."*
 - ⚠️ **Partial** — admin-account aanwezig maar de backend heeft nog geen externe calls
   geregistreerd: de Beheer-navigatie en de gebruikerslijst zijn te verifiëren, maar de
   kosten-tabbladen tonen hun lege-staat-placeholders i.p.v. data. Markeer als ⚠️ Partial.
@@ -94,7 +101,11 @@ de sectie **Beheer** is dan simpelweg afwezig in Instellingen.
 ## Faal-condities
 - ❌ De sectie **Beheer** verschijnt bij een **niet-admin** account (= `auth.isAdmin`-gate omzeild).
 - ❌ `AdminScreen` laadt niet (foutmelding **"Fout: …"** i.p.v. de gebruikerslijst) terwijl het
-  account admin is (= `/api/admin/users` faalt — check backend log).
+  account admin is (= `/api/admin/users` faalt — check backend log). Dit is de *lijst*-fout uit
+  `usersAsync.when`; die houdt bewust het "Fout: …"-formaat, want er is daar geen responsebody.
+- ❌ Een mislukte **beheeractie** toont een snackbar met rauwe JSON (`{"error": …}`), met een
+  HTTP-statuscode of met het voorvoegsel **"Fout:"** (= de `extractDutchMessage`-afhandeling uit
+  SF-2242 is weggevallen).
 - ❌ Het eigen account toont een **"Verwijderen"**-optie (= self-delete-guard ontbreekt).
 - ❌ `AdminCostsScreen` toont een fout i.p.v. de totaal-kaarten/tabs terwijl er een admin-sessie is
   (= `/api/admin/costs/…` faalt).

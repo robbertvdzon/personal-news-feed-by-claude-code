@@ -4,20 +4,27 @@ info:
   version: 1.0.0
   description: |
     REST API voor de Personal News Feed backend.
-    Alle endpoints (behalve /api/auth/**, /api/version en /ws/**) vereisen een JWT Bearer token.
+    Alle endpoints (behalve /api/auth/**, /api/version, /api/shared/**, /ws/** en /actuator/**) vereisen een JWT Bearer token.
+    /ws/** staat weliswaar op permitAll in SecurityConfig, maar authenticeert
+    zelf op de handshake — zie het WebSocket-blok hieronder.
 
     ## WebSocket
     Naast de REST API is er een WebSocket endpoint:
-    - **ws://{host}/ws/requests**
-    - Geen authenticatie vereist
-    - Alleen server → client (broadcast)
+    - **ws://{host}/ws/requests?token={jwt}**
+    - Authenticatie op de handshake: het JWT gaat als queryparameter `token` mee
+      (een browser-WebSocket kan geen `Authorization`-header zetten, net als bij
+      het audio-endpoint). Ontbreekt het token of is het ongeldig/verlopen, dan
+      weigert de server de handshake met **401** en komt er geen verbinding
+      (dus ook geen `serverVersion`-bericht) tot stand.
+    - Alleen server → client (berichten van de client worden genegeerd)
     - Direct na (re)connect stuurt de server een `serverVersion`-bericht met de
       backend-versie zodat clients tijdens lange sessies een nieuwe deploy
       kunnen detecteren zonder polling: `{ "type": "serverVersion", "sha": "...",
       "buildTime": "..." }`.
     - Bij elke statuswijziging van een NewsRequest stuurt de server het volledige
-      NewsRequest object als JSON naar alle verbonden clients (geen `type`-veld;
-      clients herkennen het op het `id`-veld).
+      NewsRequest object als JSON naar de verbindingen van **de eigenaar** van
+      dat verzoek (geen `type`-veld; clients herkennen het op het `id`-veld).
+      Andere ingelogde gebruikers ontvangen het bericht niet.
     - Clients hoeven niets te sturen
 
 servers:
@@ -44,8 +51,6 @@ tags:
     description: Verwerkingsverzoeken (ad-hoc en dagelijkse updates)
   - name: Podcasts
     description: Gegenereerde podcasts
-  - name: Events
-    description: Wekelijks AI-ontdekte tech-events (KAN-65)
   - name: System
     description: Algemene systeem-informatie (geen authenticatie vereist)
   - name: Account
@@ -109,7 +114,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/AuthResponse'
         '400':
-          description: Wachtwoord te kort (minimaal 4 tekens)
+          description: Wachtwoord te kort (minimaal 4 tekens) of ongeldige gebruikersnaam (3-64 tekens uit [A-Za-z0-9._-])
         '409':
           description: Gebruikersnaam al in gebruik
 
@@ -197,6 +202,12 @@ paths:
       tags: [RSS Feeds]
       operationId: saveRssFeeds
       summary: Sla RSS-feed URLs op
+      description: |
+        Elke URL wordt vóór opslag SSRF-gevalideerd (SF-1345): alleen
+        `http`/`https`-schemes zijn toegestaan en de host mag niet naar een
+        loopback-, link-local-, private- (RFC1918/ULA) of multicast-adres
+        resolven. Bij afwijzing komt er HTTP 400 met een Nederlandse
+        foutmelding en wordt er niets opgeslagen.
       requestBody:
         required: true
         content:
@@ -210,6 +221,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RssFeedsSettings'
+        '400':
+          description: Ongeldige RSS-feed-URL (verboden scheme of niet-publiek adres, zie message-veld)
 
   # ── Podcast Feeds (KAN-56) ────────────────────────────────────────────────────
 
@@ -234,6 +247,12 @@ paths:
         Per bron is een `transcribeEnabled`-toggle beschikbaar — uit betekent
         terugvallen op show-notes als input voor de AI-samenvatting.
 
+        Elke URL wordt vóór opslag SSRF-gevalideerd (SF-1387, analoog aan
+        RSS-feeds): alleen `http`/`https`-schemes zijn toegestaan en de host
+        mag niet naar een loopback-, link-local-, private- (RFC1918/ULA) of
+        multicast-adres resolven. Bij afwijzing komt er HTTP 400 met een
+        Nederlandse foutmelding en wordt er niets opgeslagen.
+
         Nieuwe URLs (die nog niet in de bestaande lijst staan) worden
         synchroon getoetst door de feed één keer op te halen. Bij een fout
         komt er HTTP 400 met een Nederlandse foutmelding zodat de UI binnen
@@ -256,150 +275,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PodcastFeedsSettings'
         '400':
-          description: Ongeldige podcast-RSS-URL (zie message-veld)
-
-  # ── Event Preferences (KAN-68) ────────────────────────────────────────────────
-
-  /api/settings/event-preferences:
-    get:
-      tags: [Settings]
-      operationId: getEventPreferences
-      summary: Haal de event-voorkeuren-lijst op
-      description: |
-        KAN-68: per-user lijst event-namen die als seed voor de
-        [EventDiscoveryPipeline] dient (vrije namen zoals "JavaOne",
-        "KotlinConf"). Bij de eerste call van een nieuwe gebruiker
-        wordt een sensible default geïnitialiseerd (JavaOne, KotlinConf,
-        Spring I/O, Code with Claude, OpenAI DevDay, Google I/O, Devoxx,
-        KubeCon) — zelfde patroon als `/api/settings`.
-      responses:
-        '200':
-          description: Event-voorkeuren
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/EventPreferences'
-    put:
-      tags: [Settings]
-      operationId: saveEventPreferences
-      summary: Vervang de event-voorkeuren-lijst
-      description: |
-        Vervangt de volledige lijst in één call. Lege of duplicate
-        namen worden door de service genegeerd.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/EventPreferences'
-      responses:
-        '200':
-          description: Opgeslagen event-voorkeuren
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/EventPreferences'
-    post:
-      tags: [Settings]
-      operationId: addEventPreference
-      summary: Voeg één event-voorkeur toe
-      description: |
-        Idempotent: bestaat de naam al, dan blijft de lijst onveranderd.
-        Returnt altijd de actuele lijst zodat de frontend niet apart hoeft
-        te refetchen.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [name]
-              properties:
-                name:
-                  type: string
-                  example: KotlinConf
-      responses:
-        '200':
-          description: Bijgewerkte event-voorkeuren
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/EventPreferences'
-        '400':
-          description: Lege naam
-
-  /api/settings/event-preferences/remove:
-    post:
-      tags: [Settings]
-      operationId: removeEventPreference
-      summary: Verwijder één event-voorkeur
-      description: |
-        Naam in de request body i.p.v. als path-variabele omdat default-
-        namen als "Spring I/O" en "Google I/O" een `/` bevatten; Spring/
-        Tomcat strippen `%2F` standaard, waardoor een path-variabele
-        DELETE die namen onbereikbaar maakt.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [name]
-              properties:
-                name:
-                  type: string
-                  description: De event-naam zoals 'ie in de lijst staat
-                  example: Spring I/O
-      responses:
-        '200':
-          description: Bijgewerkte event-voorkeuren
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/EventPreferences'
-        '400':
-          description: Lege naam
-
-  /api/settings/event-denylist:
-    get:
-      tags: [Settings]
-      operationId: getEventDenylist
-      summary: Haal de event-denylist op
-      description: |
-        KAN-68: per-user lijst met genormaliseerde event-ids van eerder
-        verwijderde events. De discovery-pipeline slaat ids op de
-        denylist over zodat verwijderde events bij de volgende run
-        niet opnieuw worden aangemaakt.
-      responses:
-        '200':
-          description: Event-denylist
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/EventDenylist'
-
-  /api/settings/event-denylist/{normalizedId}:
-    delete:
-      tags: [Settings]
-      operationId: removeFromEventDenylist
-      summary: Haal één event-id van de denylist
-      description: |
-        Na verwijdering vindt de eerstvolgende discovery het event weer
-        als seed/match.
-      parameters:
-        - name: normalizedId
-          in: path
-          required: true
-          schema:
-            type: string
-          description: De genormaliseerde event-id (zelfde slug als `events.id`, bv. 'javaone-2026')
-      responses:
-        '200':
-          description: Bijgewerkte event-denylist
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/EventDenylist'
+          description: Ongeldige podcast-RSS-URL (verboden scheme, niet-publiek adres of ophaal-fout, zie message-veld)
 
   # ── RSS Items ─────────────────────────────────────────────────────────────────
 
@@ -832,12 +708,17 @@ paths:
       summary: Verwijder een verzoek
       description: |
         Verzoeken met ID-prefix 'hourly-update-' of 'daily-summary-' kunnen niet
-        verwijderd worden.
+        verwijderd worden; zo'n vast verzoek geeft eveneens een 404 (een
+        beleidsweigering, niet 'bestaat niet').
       parameters:
         - $ref: '#/components/parameters/ItemId'
       responses:
         '204':
           description: Verwijderd
+        '404':
+          description: |
+            Verzoek niet gevonden (onbekend id, of het verzoek is van een andere gebruiker).
+            Ook een vast verzoek ('hourly-update-' / 'daily-summary-') geeft 404.
 
   /api/requests/{id}/rerun:
     post:
@@ -854,6 +735,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/NewsRequest'
+        '404':
+          description: Verzoek niet gevonden (onbekend id, of het verzoek is van een andere gebruiker)
 
   /api/requests/{id}/cancel:
     post:
@@ -862,12 +745,15 @@ paths:
       summary: Annuleer een actief verzoek
       description: |
         Als het verzoek PROCESSING is wordt de achtergrondtaak onderbroken
-        zodra dit veilig mogelijk is.
+        zodra dit veilig mogelijk is. Annuleren werkt alleen op je eigen
+        verzoeken.
       parameters:
         - $ref: '#/components/parameters/ItemId'
       responses:
         '204':
           description: Geannuleerd
+        '404':
+          description: Verzoek niet gevonden (onbekend id, of het verzoek is van een andere gebruiker)
 
   # ── Podcasts ──────────────────────────────────────────────────────────────────
 
@@ -892,7 +778,7 @@ paths:
       summary: Maak een nieuwe podcast aan
       description: |
         Start asynchroon de podcastgeneratie. Statusverloop:
-        PENDING → DETERMINING_TOPICS → GENERATING_SCRIPT → GENERATING_AUDIO → DONE
+        PENDING → DETERMINING_TOPICS → GENERATING_SCRIPT → GENERATING_AUDIO → DONE/FAILED
       requestBody:
         required: true
         content:
@@ -923,7 +809,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Podcast'
         '404':
-          description: Niet gevonden
+          description: Podcast niet gevonden (onbekend id, of de podcast is van een andere gebruiker)
     delete:
       tags: [Podcasts]
       operationId: deletePodcast
@@ -934,6 +820,8 @@ paths:
       responses:
         '204':
           description: Verwijderd
+        '404':
+          description: Podcast niet gevonden (onbekend id, of de podcast is van een andere gebruiker)
 
   /api/podcasts/{id}/audio:
     get:
@@ -995,7 +883,9 @@ paths:
                 type: string
                 format: binary
         '404':
-          description: Audio nog niet beschikbaar
+          description: |
+            Podcast niet gevonden (onbekend id, of de podcast is van een andere gebruiker),
+            of de audio is nog niet beschikbaar (er staat nog geen MP3 bij deze podcast).
 
   # ── Podcast-source translate (KAN-63) ────────────────────────────────────────
 
@@ -1023,7 +913,9 @@ paths:
               schema:
                 $ref: '#/components/schemas/EpisodeLookup'
         '404':
-          description: Geen podcast-aflevering gevonden voor dit rss-item
+          description: |
+            Geen podcast-aflevering gevonden voor dit rss-item (onbekend id, of het
+            rss-item/de aflevering is van een andere gebruiker).
 
   /api/podcast-source/{episodeGuid}/translate:
     post:
@@ -1059,169 +951,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/TranslationStart'
         '404':
-          description: Aflevering niet gevonden
+          description: |
+            Aflevering niet gevonden (onbekende guid, of de aflevering is van een
+            andere gebruiker) — het antwoord verraadt bewust niet welke van de twee.
         '409':
           description: |
             State-conflict: aflevering heeft (nog) geen transcript, of
             de episode-status is niet DONE. Body bevat `{ "error": "…" }`.
-
-  # ── Events ────────────────────────────────────────────────────────────────────
-
-  /api/events:
-    get:
-      tags: [Events]
-      operationId: getEvents
-      summary: Haal alle ontdekte tech-events op
-      description: |
-        KAN-65: per-gebruiker ontdekte tech-events, gesorteerd op
-        begindatum aflopend. De Flutter-app splitst de lijst zelf in
-        'Aankomend' en 'Geweest' op basis van `startDate`.
-      responses:
-        '200':
-          description: Lijst van events
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Event'
-
-  /api/events/discover:
-    post:
-      tags: [Events]
-      operationId: discoverEvents
-      summary: Trigger handmatig de event-zoekjob
-      description: |
-        KAN-65: start asynchroon de AI + web-search ontdekking van
-        tech-events voor de ingelogde gebruiker, op basis van de
-        ingeschakelde categorie-settings. Mirror van POST /api/rss/refresh:
-        de response komt direct terug, verwerking loopt op de achtergrond.
-        Dezelfde job draait wekelijks automatisch (zondag 02:00).
-      responses:
-        '200':
-          description: Zoekopdracht gestart
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StatusOk'
-
-  /api/events/videos/discover:
-    post:
-      tags: [Events]
-      operationId: discoverEventVideos
-      summary: Trigger handmatig de video-zoekjob
-      description: |
-        KAN-66: start asynchroon de AI + web-search ontdekking van video's
-        (keynotes/sessies) per al opgeslagen event. Aparte job van
-        /api/events/discover. De response komt direct terug, verwerking
-        loopt op de achtergrond. Dezelfde job draait wekelijks automatisch
-        (zondag 03:00).
-      responses:
-        '200':
-          description: Zoekopdracht gestart
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StatusOk'
-
-  /api/events/{id}/videos:
-    get:
-      tags: [Events]
-      operationId: getEventVideos
-      summary: Haal de video's van één event op
-      description: |
-        KAN-66: de ontdekte video's (keynotes/sessies) van een event,
-        nieuwste eerst. Optioneel veld `summaryNl` is gevuld als de
-        gebruiker eerder een samenvatting heeft aangevraagd (KAN-67).
-      parameters:
-        - $ref: '#/components/parameters/ItemId'
-      responses:
-        '200':
-          description: Lijst van video's
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/EventVideo'
-
-  /api/events/{id}/videos/summarize:
-    post:
-      tags: [Events]
-      operationId: summarizeEventVideo
-      summary: Maak (of geef bestaande) Nederlandse samenvatting van één video
-      description: |
-        KAN-67: synchrone on-demand-flow. De backend haalt het transcript
-        op (eerst YouTube-ondertiteling — nl/en/asr — anders Whisper na
-        yt-dlp audio-download), stuurt het naar de AI voor een
-        uitgebreide Nederlandse samenvatting en slaat die op in
-        `event_videos.summary_nl`. Idempotent: een tweede call met een
-        al opgeslagen samenvatting komt direct terug zonder AI-calls.
-        Duur: seconden tot enkele minuten — frontend toont een
-        laad-indicator.
-      parameters:
-        - $ref: '#/components/parameters/ItemId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [videoUrl]
-              properties:
-                videoUrl:
-                  type: string
-                  description: Canonieke video-URL (zoals teruggegeven door /videos).
-      responses:
-        '200':
-          description: De bijgewerkte video met gevulde `summaryNl`.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/EventVideo'
-        '400':
-          description: Lege of ontbrekende videoUrl in de request body.
-        '404':
-          description: Video bestaat niet voor deze gebruiker/event.
-        '502':
-          description: |
-            Zowel YouTube-transcript als Whisper konden niets opleveren.
-            Gebruiker mag opnieuw proberen — de knop blijft staan.
-
-  /api/events/{id}:
-    get:
-      tags: [Events]
-      operationId: getEvent
-      summary: Haal één event op
-      parameters:
-        - $ref: '#/components/parameters/ItemId'
-      responses:
-        '200':
-          description: Het event
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Event'
-        '404':
-          description: Event niet gevonden
-    delete:
-      tags: [Events]
-      operationId: deleteEvent
-      summary: Verwijder een event
-      description: |
-        KAN-68: bij verwijdering wordt ook het gekoppelde aankondigings-
-        FeedItem opgeruimd (het event verdwijnt uit alle views) en het
-        event-id op de per-user denylist gezet zodat de eerstvolgende
-        discovery-run het niet opnieuw toevoegt.
-      parameters:
-        - $ref: '#/components/parameters/ItemId'
-      responses:
-        '200':
-          description: Gelukt
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StatusOk'
 
   # ── Account ────────────────────────────────────────────────────────────────
 
@@ -1243,6 +979,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/StatusOk'
+        '400':
+          description: Nieuw wachtwoord te kort (minimaal 4 tekens)
+        '401':
+          description: |
+            Huidig wachtwoord klopt niet, of de gebruiker uit het token bestaat
+            niet meer (account elders verwijderd terwijl het token nog geldig is).
 
   /api/account/me:
     delete:
@@ -1264,7 +1006,10 @@ paths:
       tags: [Shared]
       operationId: getSharedFeed
       summary: Publieke, read-only feed van de gedeelde gebruiker
-      description: Geen authenticatie vereist. Items zijn altijd als ongelezen/niet-gesterd gemarkeerd.
+      description: >
+        Geen authenticatie vereist. De persoonlijke vlaggen `isRead`, `starred`
+        en `liked` worden niet meegestuurd, zodat het leesgedrag van de
+        bron-gebruiker niet kan lekken naar bezoekers.
       security: []
       responses:
         '200':
@@ -1274,7 +1019,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/FeedItem'
+                  $ref: '#/components/schemas/SharedFeedItem'
 
   /api/shared/categories:
     get:
@@ -1291,7 +1036,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/CategorySettings'
+                  $ref: '#/components/schemas/SharedCategory'
 
   # ── Admin (ROLE_ADMIN) ──────────────────────────────────────────────────────
 
@@ -1332,8 +1077,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/StatusOk'
+        '400':
+          description: Nieuw wachtwoord te kort (minimaal 4 tekens)
         '403':
           description: Geen ROLE_ADMIN
+        '404':
+          description: Gebruiker niet gevonden
 
   /api/admin/users/{username}/role:
     put:
@@ -1355,8 +1104,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/StatusOk'
+        '400':
+          description: >-
+            Twee bronnen: de rolwaarde is niet `user` of `admin`, of een admin trekt zijn
+            eigen adminrol in ("Je kunt je eigen admin-rol niet verwijderen")
         '403':
           description: Geen ROLE_ADMIN
+        '404':
+          description: Gebruiker niet gevonden
 
   /api/admin/users/{username}:
     delete:
@@ -1372,8 +1127,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/StatusOk'
+        '400':
+          description: Een admin probeert zichzelf te verwijderen ("Je kunt jezelf niet verwijderen")
         '403':
           description: Geen ROLE_ADMIN
+        '404':
+          description: Gebruiker niet gevonden
 
   # ── Admin Costs (ROLE_ADMIN) ────────────────────────────────────────────────
 
@@ -1415,6 +1174,8 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/DailyCostTotal'
+        '400':
+          description: '`days` valt buiten 1..365 (de controller valideert dit zelf)'
         '403':
           description: Geen ROLE_ADMIN
 
@@ -1440,6 +1201,8 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/UserCostTotal'
+        '400':
+          description: 'Onbekende `period`; toegestaan zijn `this_month`, `last_month`, `this_year` en `all`'
         '403':
           description: Geen ROLE_ADMIN
 
@@ -1490,6 +1253,8 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/ExternalCall'
+        '400':
+          description: '`from` en/of `to` is geen geldige ISO-8601-timestamp (`limit` wordt geclamped en geeft géén 400)'
         '403':
           description: Geen ROLE_ADMIN
 
@@ -1548,7 +1313,7 @@ components:
         springVersion:
           type: string
           description: Spring Boot-versie waarmee de backend draait
-          example: 4.0.6
+          example: 4.0.8
         environment:
           type: string
           description: Naam van de omgeving waarin de backend draait (uit env-var `APP_ENVIRONMENT`, fallback `"prod"`)
@@ -1562,6 +1327,9 @@ components:
       properties:
         username:
           type: string
+          pattern: '^[A-Za-z0-9._-]{3,64}$'
+          minLength: 3
+          maxLength: 64
           example: robbert
         password:
           type: string
@@ -1576,6 +1344,10 @@ components:
           description: JWT token, geldig 30 dagen
         username:
           type: string
+        role:
+          type: string
+          enum: [user, admin]
+          description: Rol van de gebruiker; de client leidt hier het admin-onderscheid uit af (bepaalt of de Beheer-sectie zichtbaar is)
 
     # Settings
 
@@ -1637,150 +1409,6 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/PodcastFeed'
-
-    # Event Preferences (KAN-68)
-
-    EventPreferences:
-      type: object
-      description: |
-        KAN-68: per-user lijst event-namen die als seed voor de
-        wekelijkse event-discovery dient. Vrije tekst — geen
-        autocomplete.
-      properties:
-        names:
-          type: array
-          items:
-            type: string
-          example:
-            - JavaOne
-            - KotlinConf
-            - Spring I/O
-            - Code with Claude
-            - OpenAI DevDay
-            - Google I/O
-            - Devoxx
-            - KubeCon
-
-    EventDenylistEntry:
-      type: object
-      required: [normalizedId, name, addedAt]
-      properties:
-        normalizedId:
-          type: string
-          example: javaone-2026
-          description: Zelfde slug-vorm als `events.id`
-        name:
-          type: string
-          example: JavaOne 2026
-          description: Snapshot van de display-naam op het moment van verwijderen
-        addedAt:
-          type: string
-          format: date-time
-
-    EventDenylist:
-      type: object
-      description: |
-        KAN-68: per-user denylist met eerder verwijderde events.
-        De discovery-pipeline slaat ids op de denylist over.
-      properties:
-        entries:
-          type: array
-          items:
-            $ref: '#/components/schemas/EventDenylistEntry'
-
-    # Events
-
-    Event:
-      type: object
-      description: |
-        KAN-65: een wekelijks AI-ontdekt tech-event. Per-gebruiker
-        opgeslagen; dedup op de stabiele `id` (genormaliseerde naam + jaar).
-      properties:
-        id:
-          type: string
-          example: javaone-2026
-          description: Stabiele identiteit — genormaliseerde naam + jaar
-        name:
-          type: string
-          example: JavaOne 2026
-        organization:
-          type: string
-          nullable: true
-          description: Organiserende partij; null wanneer onbekend
-        startDate:
-          type: string
-          nullable: true
-          example: '2026-03-17'
-          description: Begindatum YYYY-MM-DD; null wanneer AI geen datum vond
-        endDate:
-          type: string
-          nullable: true
-          example: '2026-03-20'
-          description: Einddatum YYYY-MM-DD; null voor één-dag-events of bij onbekend
-        location:
-          type: string
-          description: Stad/land/online; leeg wanneer onbekend
-        description:
-          type: string
-          description: Nederlandse beschrijving van het event en de onderwerpen
-        sourceLinks:
-          type: array
-          items:
-            type: string
-            format: uri
-          description: Bron-links waar de info vandaan komt
-        category:
-          type: string
-          description: Categorie-id waaronder dit event ontdekt is
-        feedItemId:
-          type: string
-          nullable: true
-          description: Gekoppeld aankondigings-FeedItem (gezet bij eerste ontdekking)
-        createdAt:
-          type: string
-          format: date-time
-        updatedAt:
-          type: string
-          format: date-time
-
-    EventVideo:
-      type: object
-      description: |
-        KAN-66: een wekelijks AI-ontdekte online video (keynote/sessie) van
-        een event. Dedup op de canonieke `videoUrl` per (gebruiker, event).
-        KAN-67: bevat optioneel `summaryNl` (on-demand Nederlandse
-        samenvatting); null tot de gebruiker er via
-        `POST /api/events/{id}/videos/summarize` om vraagt.
-      properties:
-        eventId:
-          type: string
-          example: javaone-2026
-          description: Id van het event waar deze video bij hoort
-        videoUrl:
-          type: string
-          format: uri
-          description: Canonieke video-URL — tevens de dedup-sleutel
-        title:
-          type: string
-          example: 'Keynote: the future of Java'
-        descriptionNl:
-          type: string
-          nullable: true
-          description: Nederlandse beschrijving van de video; null wanneer onbekend
-        summaryNl:
-          type: string
-          nullable: true
-          description: |
-            KAN-67: uitgebreide Nederlandse samenvatting van de video-
-            inhoud (de AI op basis van YouTube- of Whisper-transcript).
-            Null tot de gebruiker op "Maak samenvatting" drukt; daarna
-            voor altijd aanwezig (server-side gecachet).
-        createdAt:
-          type: string
-          format: date-time
-        updatedAt:
-          type: string
-          format: date-time
 
     # RSS Items
 
@@ -2000,10 +1628,118 @@ components:
             als het RSS-item geen afbeelding had. Gebruikt als
             header-banner op het detail-scherm.
 
+    SharedFeedItem:
+      type: object
+      description: >
+        Feed-item zoals `GET /api/shared/feed` het teruggeeft. Identiek aan
+        `FeedItem`, maar zonder de persoonlijke vlaggen `isRead`, `starred` en
+        `liked`: die worden bewust weggelaten zodat het leesgedrag van de
+        bron-gebruiker niet kan lekken.
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+          description: Originele titel uit de RSS-feed (vaak Engels)
+        titleNl:
+          type: string
+          description: |
+            Korte Nederlandse titel (max ~70 tekens), gegenereerd door de AI
+            tegelijk met de samenvatting. Leeg voor legacy items — de reader
+            valt dan terug op `title`.
+        summary:
+          type: string
+          description: |
+            Uitgebreide AI-samenvatting van 400-600 woorden in het Nederlands.
+            Mag markdown bevatten; wordt via een Markdown-renderer getoond.
+        shortSummary:
+          type: string
+          description: |
+            2-regel Nederlandse samenvatting (~30-50 woorden, **plain text**
+            — geen markdown). Leeg voor legacy items.
+        url:
+          type: string
+          format: uri
+          nullable: true
+        category:
+          type: string
+        source:
+          type: string
+        sourceRssIds:
+          type: array
+          items:
+            type: string
+          description: IDs van gekoppelde RssItems
+        sourceUrls:
+          type: array
+          items:
+            type: string
+            format: uri
+        topics:
+          type: array
+          items:
+            type: string
+        feedReason:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        publishedDate:
+          type: string
+          nullable: true
+          example: '2025-05-07'
+        isSummary:
+          type: boolean
+          default: false
+          description: >
+            true als dit de dagelijkse AI-samenvatting is. Het summary-veld
+            bevat dan Markdown-tekst (600-1000 woorden). ID-formaat: daily-summary-feed-{datum}.
+        mediaType:
+          type: string
+          enum: [ARTICLE, PODCAST]
+          default: ARTICLE
+          description: |
+            Discriminator tussen artikelen en podcast-afleveringen. Legacy
+            feed_items vallen terug op de default 'ARTICLE'.
+        imageUrl:
+          type: string
+          nullable: true
+          description: |
+            Afbeelding-URL overgenomen van het bron-RssItem. Null als het
+            RSS-item geen afbeelding had.
+
+    SharedCategory:
+      type: object
+      description: >
+        Categorie zoals `GET /api/shared/categories` die teruggeeft. Een
+        uitgeklede vorm van `CategorySettings`: `extraInstructions` en
+        `isSystem` worden bewust weggelaten. De extra instructies zijn privé
+        (de bron-gebruiker stuurt daarmee het taalmodel bij) en dit endpoint
+        is publiek; de reader-app leest alleen `id`, `name` en `enabled`.
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          example: kotlin
+        name:
+          type: string
+          example: Kotlin
+        enabled:
+          type: boolean
+          default: true
+          description: >
+            In deze response altijd `true` — het endpoint filtert op
+            ingeschakelde categorieën. Blijft in het contract omdat de
+            reader-app het veld parseert.
+
     # Requests
 
     NewsRequest:
       type: object
+      description: |
+        AI-kosten worden niet per verzoek bijgehouden, maar per externe aanroep
+        in de tabel `external_calls` (per-call kostenlog), opvraagbaar via de
+        admin-costs-endpoints (`/api/admin/costs/**`).
       properties:
         id:
           type: string
@@ -2038,10 +1774,6 @@ components:
         newItemCount:
           type: integer
           description: Aantal nieuw gevonden en opgeslagen items
-        costUsd:
-          type: number
-          format: double
-          description: Geschatte AI-kosten in USD
         isHourlyUpdate:
           type: boolean
           description: Automatische uurlijkse RSS-update (id-prefix 'hourly-update-')
@@ -2078,9 +1810,6 @@ components:
           type: string
         articleCount:
           type: integer
-        costUsd:
-          type: number
-          format: double
         searchResultCount:
           type: integer
         filteredCount:
@@ -2118,6 +1847,10 @@ components:
 
     Podcast:
       type: object
+      description: |
+        AI-kosten worden niet per podcast bijgehouden, maar per externe aanroep
+        in de tabel `external_calls` (per-call kostenlog), opvraagbaar via de
+        admin-costs-endpoints (`/api/admin/costs/**`).
       properties:
         id:
           type: string
@@ -2147,9 +1880,6 @@ components:
         durationSeconds:
           type: integer
           nullable: true
-        costUsd:
-          type: number
-          format: double
         customTopics:
           type: array
           items:
@@ -2185,6 +1915,12 @@ components:
           type: string
           nullable: true
           description: rss_items.id van de bron-aflevering — voor de tap-actie op de badge.
+        isTranslation:
+          type: boolean
+          description: |
+            Berekende property, alleen aanwezig in responses: true wanneer
+            `translatedFromEpisodeGuid` gevuld is. Wordt niet meegestuurd bij
+            het aanmaken van een podcast.
         errorMessage:
           type: string
           nullable: true
@@ -2231,6 +1967,16 @@ components:
         episodeStatus:
           type: string
           description: PodcastEpisodeStatus-naam (DONE = transcript klaar).
+          enum:
+            - PENDING
+            - SUMMARIZING_FROM_NOTES
+            - NEEDS_TRANSCRIPT
+            - SHOW_NOTES_DONE
+            - DOWNLOADING
+            - TRANSCRIBING
+            - SUMMARIZING
+            - DONE
+            - FAILED
         transcriptCharCount:
           type: integer
         feedUrl:
@@ -2247,6 +1993,15 @@ components:
           type: string
           nullable: true
           description: Indien een vertaling bestaat, de PodcastStatus daarvan.
+          enum:
+            - PENDING
+            - DETERMINING_TOPICS
+            - GENERATING_SCRIPT
+            - GENERATING_AUDIO
+            - TRANSLATING
+            - TTS_GENERATING
+            - DONE
+            - FAILED
         translatedPodcastTitle:
           type: string
           nullable: true
@@ -2261,7 +2016,17 @@ components:
         podcastId:
           type: string
         status:
-          $ref: '#/components/schemas/PodcastStatus'
+          type: string
+          description: PodcastStatus-naam van de (nieuwe of hergebruikte) vertaling.
+          enum:
+            - PENDING
+            - DETERMINING_TOPICS
+            - GENERATING_SCRIPT
+            - GENERATING_AUDIO
+            - TRANSLATING
+            - TTS_GENERATING
+            - DONE
+            - FAILED
         created:
           type: boolean
           description: |
@@ -2324,6 +2089,7 @@ components:
           type: string
         newPassword:
           type: string
+          minLength: 4
 
     DeleteAccountResult:
       type: object
@@ -2347,7 +2113,8 @@ components:
           type: string
         role:
           type: string
-          example: ROLE_USER
+          enum: [user, admin]
+          example: user
 
     ResetPasswordRequest:
       type: object
@@ -2355,6 +2122,7 @@ components:
       properties:
         newPassword:
           type: string
+          minLength: 4
 
     SetRoleRequest:
       type: object
@@ -2362,7 +2130,8 @@ components:
       properties:
         role:
           type: string
-          example: ROLE_ADMIN
+          enum: [user, admin]
+          example: admin
 
     # Admin Costs
 
@@ -2429,7 +2198,7 @@ components:
           description: "bijv. openai, elevenlabs, tavily, rss, web"
         action:
           type: string
-          description: "bijv. rss_summarize, podcast_transcribe, event_discovery"
+          description: "bijv. rss_summarize, podcast_transcribe, tavily_search"
         username:
           type: string
         startTime:

@@ -2,9 +2,11 @@ package com.vdzon.newsfeedbackend.podcast_source.domain
 
 import com.vdzon.newsfeedbackend.podcast_source.PodcastEpisode
 import com.vdzon.newsfeedbackend.podcast_source.PodcastEpisodeStatus
+import com.vdzon.newsfeedbackend.podcast_source.PodcastTranscriptRequested
 import com.vdzon.newsfeedbackend.podcast_source.infrastructure.PodcastEpisodeRepository
 import org.slf4j.LoggerFactory
 import org.slf4j.MDC
+import org.springframework.context.ApplicationEventPublisher
 import org.springframework.scheduling.annotation.Async
 import org.springframework.stereotype.Component
 import java.util.UUID
@@ -27,7 +29,8 @@ import java.util.UUID
 class PodcastShowNotesProcessor(
     private val episodeRepo: PodcastEpisodeRepository,
     private val summarizer: PodcastEpisodeSummarizer,
-    private val cardWriter: PodcastCardWriter
+    private val cardWriter: PodcastCardWriter,
+    private val events: ApplicationEventPublisher
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -47,7 +50,7 @@ class PodcastShowNotesProcessor(
             }
             // Idempotency: alleen in PENDING-staat verwerken; bij een refresh
             // die op een al-verwerkte episode landt (b.v. SUMMARIZING_FROM_NOTES
-            // door een vorige tick) niet opnieuw doen.
+            // door een vorige run) niet opnieuw doen.
             if (initial.status != PodcastEpisodeStatus.PENDING) {
                 log.debug("[PodcastEpisode] guid={} status={} — skip show-notes-fase", guid, initial.status)
                 return
@@ -107,6 +110,14 @@ class PodcastShowNotesProcessor(
             }
             log.info("[PodcastEpisode] show-notes-fase klaar guid={} → status={} rssItemId={}",
                 guid, nextStatus, rssItemId)
+
+            // SF-1739: event-driven start van fase 2. Vroeger pikte een
+            // 2-minuten-poll dit op; nu meldt de show-notes-fase zelf dat
+            // er transcriptwerk klaarstaat. De uurlijkse recovery-job is
+            // alleen nog het vangnet (restart / verlopen backoff).
+            if (nextStatus == PodcastEpisodeStatus.NEEDS_TRANSCRIPT) {
+                events.publishEvent(PodcastTranscriptRequested(username = username, guid = guid))
+            }
         } catch (e: Exception) {
             log.error("[PodcastEpisode] onverwachte fout in show-notes-fase guid={}: {}", guid, e.message, e)
             episodeRepo.get(username, guid)?.let {

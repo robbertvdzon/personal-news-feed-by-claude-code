@@ -46,11 +46,18 @@ abstract class E2eTestBase {
             // Transcript-worker niet laten ticken tijdens tests: de
             // transcript-fase (Whisper) hoort expliciet gescript te zijn.
             registry.add("app.podcast.transcript-worker.initial-delay-ms") { "3600000" }
+            // Recovery-job uit tijdens tests (`-` = Scheduled.CRON_DISABLED):
+            // de transcript-fase (Whisper) hoort expliciet gescript te zijn.
+            registry.add("app.podcast.recovery.cron") { "-" }
             // Base-URL's van externe services naar de fake-server zodat een
             // gemiste seam nooit het echte internet raakt.
             registry.add("app.openai.base-url") { E2eTestConfig.CONTENT.url("/openai") }
             registry.add("app.tavily.base-url") { E2eTestConfig.CONTENT.url("/tavily") }
             registry.add("app.elevenlabs.base-url") { E2eTestConfig.CONTENT.url("/elevenlabs") }
+            // FakeContentServer draait per definitie op 127.0.0.1 (zie url() hieronder) —
+            // zonder deze override blokkeert SsrfUrlValidator (SF-1345) elke RSS-feed-URL die
+            // ernaar wijst. Alleen hier aangezet; elke echte omgeving blijft loopback blokkeren.
+            registry.add("app.security.ssrf.allow-loopback") { "true" }
         }
     }
 
@@ -117,7 +124,7 @@ abstract class E2eTestBase {
         val password = "geheim123"
         val resp = post("/api/auth/register", body = """{"username": "$username", "password": "$password"}""")
         check(resp.status == 201) { "register faalde: ${resp.status} ${resp.body}" }
-        val token = resp.json(mapper).path("token").asText()
+        val token = resp.json(mapper).path("token").asString()
         check(token.isNotBlank()) { "register gaf geen token: ${resp.body}" }
         return TestUser(username, password, token)
     }

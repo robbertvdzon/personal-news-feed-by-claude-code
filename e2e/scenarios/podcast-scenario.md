@@ -29,7 +29,7 @@ De Podcast-tab doorlopen: de lijst met (gegenereerde) podcasts bekijken, een nie
 
 ### 3. Volg de generatie-status
 - Verwacht: bovenaan de lijst verschijnt een nieuwe kaart met een **spinner** als leading-icoon en een statuslabel dat doorloopt: **"In wachtrij…"** → **"Onderwerpen bepalen…"** → **"Script schrijven…"** → **"Audio genereren…"** → **"Klaar"**.
-- Het scherm pollt elke ~4 seconden zelf de status (geen handmatige refresh nodig).
+- Het scherm pollt elke ~4 seconden zelf de status (geen handmatige refresh nodig). Dat geldt sinds SF-2066 ook voor een podcast die uit een **vertaling** komt (statuslabel **"Vertalen…"**): de spinner verdwijnt daar nu vanzelf zodra de vertaling klaar is, zonder handmatig verversen.
 - Wacht tot het statuslabel **"Klaar"** is (1-3 min met key actief). Bij **"Mislukt"** (rood `error`-icoon) → zie "Graceful degradation".
 
 ### 4. Open de podcast in detail

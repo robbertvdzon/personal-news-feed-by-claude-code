@@ -1,5 +1,6 @@
 package com.vdzon.newsfeedbackend.auth.domain
 
+import com.vdzon.newsfeedbackend.auth.AuthenticatedUser
 import com.vdzon.newsfeedbackend.auth.AuthService
 import com.vdzon.newsfeedbackend.auth.AuthToken
 import com.vdzon.newsfeedbackend.auth.UserAccount
@@ -53,8 +54,25 @@ class AuthServiceImpl(
         return user
     }
 
+    /**
+     * Registreert een nieuwe gebruiker.
+     *
+     * De gebruikersnaam moet aan [USERNAME_PATTERN] voldoen. Die allowlist staat er om twee
+     * redenen: pad-veiligheid (de naam wordt gebruikt als padsegment onder `app.data-dir`, dus
+     * `/` en `\` mogen er nooit in zitten) en logveiligheid (een regeleinde in de naam
+     * maakt logvervalsing mogelijk). De validatie staat bewust ná de wachtwoordcheck en vóór de
+     * duplicaat-check, zodat een ongeldige naam altijd een `400` geeft en nooit een `409`.
+     *
+     * [login] en [changePassword] valideren de naam bewust niet: accounts die van vóór deze
+     * regel dateren moeten kunnen blijven inloggen.
+     */
     override fun register(username: String, password: String): AuthToken {
         if (password.length < 4) throw BadRequestException("Password must be at least 4 characters")
+        if (!USERNAME_PATTERN.matches(username)) {
+            throw BadRequestException(
+                "Username must be 3-64 characters and may only contain letters, digits, '.', '_' and '-'"
+            )
+        }
         if (users.findByUsername(username) != null) throw ConflictException("Username already in use")
         // Eerste user die zich registreert wanneer er nog geen admin bestaat,
         // wordt automatisch admin. Daarna krijgen nieuwe registraties role=user.
@@ -72,8 +90,6 @@ class AuthServiceImpl(
         log.info("User '{}' logged in (role={})", username, user.role)
         return AuthToken(jwt.create(username, user.role), username, user.role)
     }
-
-    override fun userExists(username: String): Boolean = users.findByUsername(username) != null
 
     override fun listUsernames(): List<String> = users.usernames()
 
@@ -94,6 +110,8 @@ class AuthServiceImpl(
         }
         return deleted
     }
+
+    override fun validateToken(token: String): AuthenticatedUser? = jwt.validate(token)
 
     override fun listAccounts(): List<UserAccount> =
         users.all().map { UserAccount(it.id, it.username, it.role) }
@@ -116,4 +134,18 @@ class AuthServiceImpl(
     }
 
     override fun deleteUser(username: String): Boolean = users.deleteByUsername(username)
+
+    companion object {
+        /**
+         * Allowlist voor nieuwe gebruikersnamen: 3-64 tekens uit `[A-Za-z0-9._-]`.
+         * Sluit in één regel de lege naam, `/`, `\`, spaties, null-bytes en
+         * regeleindes uit. `..` is bewust *niet* uitgesloten (de punt zit in de tekenset, dus
+         * `a..b` wordt geaccepteerd), maar kan door het ontbreken van `/` en `\` nooit een
+         * eigen padsegment worden; de containment-check op `<data-dir>/users/` in
+         * `AdminServiceImpl.deleteAudioDir` is de laag daaronder.
+         * Houd deze grenzen gelijk aan `AuthRequest.username` in
+         * `specs/openapi.yaml` en aan §3 van `specs/backend-functional-spec.md`.
+         */
+        private val USERNAME_PATTERN = Regex("^[A-Za-z0-9._-]{3,64}$")
+    }
 }
