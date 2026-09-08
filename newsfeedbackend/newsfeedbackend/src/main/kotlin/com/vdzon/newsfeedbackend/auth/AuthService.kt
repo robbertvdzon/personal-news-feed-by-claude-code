@@ -4,6 +4,7 @@ package com.vdzon.newsfeedbackend.auth
  * Public interface of the auth module.
  */
 interface AuthService {
+    fun loginWithGoogle(idToken: String): AuthToken
     fun register(username: String, password: String): AuthToken
     fun login(username: String, password: String): AuthToken
     fun userExists(username: String): Boolean

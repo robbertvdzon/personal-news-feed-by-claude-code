@@ -1,6 +1,9 @@
 package com.vdzon.newsfeedbackend.e2e
 
 import com.vdzon.newsfeedbackend.ai.OpenAiChatClient
+import com.vdzon.newsfeedbackend.auth.infrastructure.GoogleIdTokenVerifier
+import com.vdzon.newsfeedbackend.auth.infrastructure.GoogleIdentity
+import com.vdzon.newsfeedbackend.common.UnauthorizedException
 import org.springframework.boot.test.context.TestConfiguration
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Primary
@@ -37,4 +40,15 @@ class E2eTestConfig {
     @Bean
     @Primary
     fun fakeOpenAiChatClient(): OpenAiChatClient = OPENAI
+
+    @Bean
+    @Primary
+    fun fakeGoogleIdTokenVerifier(): GoogleIdTokenVerifier = GoogleIdTokenVerifier { token ->
+        when (token) {
+            "google-verified" -> GoogleIdentity("google@example.com", true)
+            "google-unverified" -> GoogleIdentity("google@example.com", false)
+            "google-intruder" -> GoogleIdentity("intruder@example.com", true)
+            else -> throw UnauthorizedException("Ongeldig Google ID-token")
+        }
+    }
 }

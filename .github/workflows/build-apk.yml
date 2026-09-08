@@ -46,10 +46,30 @@ jobs:
           java -version
           flutter doctor -v || true
 
+      - name: Release-keystore klaarzetten
+        working-directory: frontend/android
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          test -n "$ANDROID_KEYSTORE_BASE64"
+          test -n "$ANDROID_KEYSTORE_PASSWORD"
+          test -n "$ANDROID_KEY_ALIAS"
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > app/personal-news-feed-release.keystore
+          cat > keystore.properties <<EOF
+          storeFile=personal-news-feed-release.keystore
+          storePassword=${ANDROID_KEYSTORE_PASSWORD}
+          keyAlias=${ANDROID_KEY_ALIAS}
+          keyPassword=${ANDROID_KEYSTORE_PASSWORD}
+          EOF
+
       - name: Build APK
         working-directory: frontend
         env:
           BUILD_SHA: ${{ github.sha }}
+          GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
         run: |
           set -euo pipefail
           # Zelfde defines als frontend/Makefile build-apk-ext zodat de
@@ -57,7 +77,9 @@ jobs:
           # tonen in "Over deze app".
           flutter pub get
           flutter build apk --release \
+            --build-number=${{ github.run_number }} \
             --dart-define=API_BASE_URL="${PROD_API}" \
+            --dart-define=GOOGLE_CLIENT_ID="${GOOGLE_CLIENT_ID}" \
             --dart-define=BUILD_SHA="${BUILD_SHA}" \
             --dart-define=BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 

@@ -4,6 +4,8 @@ import com.vdzon.newsfeedbackend.auth.AuthService
 import com.vdzon.newsfeedbackend.auth.AuthToken
 import com.vdzon.newsfeedbackend.auth.UserAccount
 import com.vdzon.newsfeedbackend.auth.UserRegisteredEvent
+import com.vdzon.newsfeedbackend.auth.infrastructure.GoogleIdTokenVerifier
+import com.vdzon.newsfeedbackend.auth.infrastructure.GoogleLoginConfig
 import com.vdzon.newsfeedbackend.auth.infrastructure.JwtService
 import com.vdzon.newsfeedbackend.auth.infrastructure.UserRepository
 import com.vdzon.newsfeedbackend.common.BadRequestException
@@ -20,11 +22,36 @@ import java.util.UUID
 class AuthServiceImpl(
     private val users: UserRepository,
     private val jwt: JwtService,
-    private val events: ApplicationEventPublisher
+    private val events: ApplicationEventPublisher,
+    private val googleVerifier: GoogleIdTokenVerifier,
+    private val googleLoginConfig: GoogleLoginConfig,
 ) : AuthService {
 
     private val log = LoggerFactory.getLogger(javaClass)
     private val encoder = BCryptPasswordEncoder()
+
+    override fun loginWithGoogle(idToken: String): AuthToken {
+        val identity = googleVerifier.verify(idToken)
+        if (!identity.emailVerified) throw UnauthorizedException("Google-e-mailadres is niet geverifieerd")
+        val mapping = googleLoginConfig.userForEmail(identity.email)
+            ?: throw org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.FORBIDDEN,
+                "E-mailadres niet toegestaan"
+            )
+        val user = users.findByUsername(mapping.username) ?: provisionGoogleUser(mapping.username)
+        log.info("Google user '{}' logged in as '{}' (role={})", identity.email, user.username, user.role)
+        return AuthToken(jwt.create(user.username, user.role), user.username, user.role)
+    }
+
+    private fun provisionGoogleUser(username: String): User {
+        val role = if (!users.hasAdmin()) User.ROLE_ADMIN else User.ROLE_USER
+        // De random hash is alleen een NOT NULL legacy-waarde; er bestaat geen kenbaar wachtwoord.
+        val user = User(UUID.randomUUID().toString(), username, encoder.encode(UUID.randomUUID().toString())!!, role)
+        users.add(user)
+        events.publishEvent(UserRegisteredEvent(username))
+        log.info("Provisioned Google user '{}' with role '{}'", username, role)
+        return user
+    }
 
     override fun register(username: String, password: String): AuthToken {
         if (password.length < 4) throw BadRequestException("Password must be at least 4 characters")

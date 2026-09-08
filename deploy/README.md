@@ -110,6 +110,9 @@ Push naar `main`:
    oc rollout restart -n personal-news-feed deploy/backend
    ```
 
+Voor de eenmalige Google OAuth-, GitHub Actions- en Android signing-inrichting zie
+[`docs/google-login-setup.md`](../docs/google-login-setup.md).
+
 ### Status checken
 
 ```bash

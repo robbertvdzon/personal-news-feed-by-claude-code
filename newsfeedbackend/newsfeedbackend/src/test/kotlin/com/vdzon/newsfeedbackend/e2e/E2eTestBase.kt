@@ -40,6 +40,9 @@ abstract class E2eTestBase {
             registry.add("spring.datasource.username") { E2eTestConfig.POSTGRES.username }
             registry.add("spring.datasource.password") { E2eTestConfig.POSTGRES.password }
             registry.add("app.data-dir") { E2eTestConfig.DATA_DIR }
+            registry.add("app.auth.google-client-id") { "test-client-id.apps.googleusercontent.com" }
+            registry.add("app.auth.google-users") { "google@example.com=google-user" }
+            registry.add("app.auth.password-enabled") { "true" }
             // Transcript-worker niet laten ticken tijdens tests: de
             // transcript-fase (Whisper) hoort expliciet gescript te zijn.
             registry.add("app.podcast.transcript-worker.initial-delay-ms") { "3600000" }

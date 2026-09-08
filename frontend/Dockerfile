@@ -17,6 +17,8 @@ COPY . .
 # op een placeholder. Worden via String.fromEnvironment in Dart gelezen.
 ARG BUILD_SHA=unknown
 ARG BUILD_TIME=unknown
+ARG GOOGLE_CLIENT_ID=
+ARG SKIP_GOOGLE_AUTH=false
 
 # API_BASE_URL leeg: API-calls worden relatief (`/api/...`), nginx
 # proxy't ze door naar de backend-service in-cluster.
@@ -33,7 +35,9 @@ RUN flutter build web --release \
       --no-tree-shake-icons \
       --dart-define=API_BASE_URL= \
       --dart-define=BUILD_SHA=${BUILD_SHA} \
-      --dart-define=BUILD_TIME=${BUILD_TIME}
+      --dart-define=BUILD_TIME=${BUILD_TIME} \
+      --dart-define=GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID} \
+      --dart-define=SKIP_GOOGLE_AUTH=${SKIP_GOOGLE_AUTH}
 
 # Cache-busting via versie in de bestandsnaam. Flutter geeft 'main.dart.js'
 # een VASTE naam; samen met immutable-caching zou een browser eindeloos een

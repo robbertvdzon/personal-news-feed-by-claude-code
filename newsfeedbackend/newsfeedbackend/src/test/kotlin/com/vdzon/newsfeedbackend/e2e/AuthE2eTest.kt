@@ -7,6 +7,25 @@ import org.junit.jupiter.api.Test
 class AuthE2eTest : E2eTestBase() {
 
     @Test
+    fun `Google-login koppelt toegestaan e-mailadres aan interne username`() {
+        val response = post("/api/auth/google", body = """{"idToken":"google-verified"}""")
+
+        assertEquals(200, response.status)
+        assertEquals("google-user", response.json(mapper).path("username").asText())
+        val token = response.json(mapper).path("token").asText()
+        assertEquals(200, get("/api/feed", token).status)
+    }
+
+    @Test
+    fun `Google-login weigert niet-toegestaan of ongeverifieerd e-mailadres`() {
+        val intruder = post("/api/auth/google", body = """{"idToken":"google-intruder"}""")
+        val unverified = post("/api/auth/google", body = """{"idToken":"google-unverified"}""")
+
+        assertEquals(403, intruder.status)
+        assertEquals(401, unverified.status)
+    }
+
+    @Test
     fun `registreren geeft 201 met bruikbaar token`() {
         val user = registerUser()
         assertTrue(user.token.isNotBlank())

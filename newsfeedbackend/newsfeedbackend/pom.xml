@@ -27,6 +27,7 @@
         <maven.compiler.target>21</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <jjwt.version>0.12.6</jjwt.version>
+        <nimbus-jose-jwt.version>9.48</nimbus-jose-jwt.version>
         <rome.version>2.1.0</rome.version>
     </properties>
 
@@ -139,6 +140,13 @@
             <artifactId>jjwt-jackson</artifactId>
             <version>${jjwt.version}</version>
             <scope>runtime</scope>
+        </dependency>
+
+        <!-- Verificatie van Google OIDC ID-tokens (RS256 via Google's JWKS). -->
+        <dependency>
+            <groupId>com.nimbusds</groupId>
+            <artifactId>nimbus-jose-jwt</artifactId>
+            <version>${nimbus-jose-jwt.version}</version>
         </dependency>
 
         <!-- RSS / Atom parsing -->

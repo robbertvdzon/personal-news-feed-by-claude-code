@@ -43,10 +43,6 @@ class AdminUsersNotifier extends AsyncNotifier<List<AdminUser>> {
     await reload();
   }
 
-  Future<void> resetPassword(String username, String newPassword) async {
-    await _api.put('/api/admin/users/$username/password', {'newPassword': newPassword});
-  }
-
   Future<void> delete(String username) async {
     await _api.delete('/api/admin/users/$username');
     await reload();
@@ -120,7 +116,6 @@ class AdminScreen extends ConsumerWidget {
                     trailing: PopupMenuButton<String>(
                       onSelected: (action) => _handleAction(context, ref, u, action, isSelf),
                       itemBuilder: (ctx) => [
-                        const PopupMenuItem(value: 'reset', child: Text('Wachtwoord resetten')),
                         if (u.role == 'user')
                           const PopupMenuItem(value: 'make_admin', child: Text('Maak admin')),
                         if (u.role == 'admin' && !isSelf)
@@ -148,14 +143,6 @@ class AdminScreen extends ConsumerWidget {
     final notifier = ref.read(adminUsersProvider.notifier);
     try {
       switch (action) {
-        case 'reset':
-          final pw = await _promptPassword(context, u.username);
-          if (pw == null || pw.length < 4) return;
-          await notifier.resetPassword(u.username, pw);
-          if (context.mounted) {
-            _snack(context, 'Wachtwoord gereset voor ${u.username}');
-          }
-          break;
         case 'make_admin':
           await notifier.setRole(u.username, 'admin');
           if (context.mounted) _snack(context, '${u.username} is nu admin');
@@ -180,28 +167,6 @@ class AdminScreen extends ConsumerWidget {
     } catch (e) {
       if (context.mounted) _snack(context, 'Fout: $e');
     }
-  }
-
-  Future<String?> _promptPassword(BuildContext context, String username) async {
-    final ctrl = TextEditingController();
-    return showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Nieuw wachtwoord voor $username'),
-        content: TextField(
-          controller: ctrl,
-          obscureText: true,
-          decoration: const InputDecoration(labelText: 'Min. 4 tekens'),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annuleren')),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, ctrl.text),
-            child: const Text('Resetten'),
-          ),
-        ],
-      ),
-    );
   }
 
   Future<bool?> _confirm(BuildContext context, String message) {

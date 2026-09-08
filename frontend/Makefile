@@ -11,7 +11,8 @@ PROD_API ?= https://news.vdzonsoftware.nl
 # command-line dezelfde waarden mee zodat de app weet welke build dit is.
 BUILD_SHA ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 BUILD_TIME ?= $(shell date -u +%FT%TZ)
-BUILD_DEFINES = --dart-define=BUILD_SHA=$(BUILD_SHA) --dart-define=BUILD_TIME=$(BUILD_TIME)
+GOOGLE_CLIENT_ID ?=
+BUILD_DEFINES = --dart-define=BUILD_SHA=$(BUILD_SHA) --dart-define=BUILD_TIME=$(BUILD_TIME) --dart-define=GOOGLE_CLIENT_ID=$(GOOGLE_CLIENT_ID)
 
 # Lokaal: web-app op poort 3000 (alleen localhost), backend op localhost:8080.
 # Default doel — gebruik dit als de browser op dezelfde Mac draait.

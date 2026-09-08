@@ -87,6 +87,8 @@ jobs:
           build-args: |
             BUILD_SHA=${{ steps.meta.outputs.sha }}
             BUILD_TIME=${{ steps.meta.outputs.buildTime }}
+            GOOGLE_CLIENT_ID=${{ vars.GOOGLE_CLIENT_ID }}
+            SKIP_GOOGLE_AUTH=${{ github.event_name == 'pull_request' }}
           cache-from: type=gha,scope=backend
           cache-to: type=gha,mode=max,scope=backend
 

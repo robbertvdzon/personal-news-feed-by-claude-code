@@ -7,10 +7,14 @@ import '../models/models.dart';
 import 'auth_provider.dart';
 import 'version_provider.dart';
 
-/// Helper: probeer een list-API-call. Bij succes → cache + return. Bij
-/// netwerk- of HTTP-fout → val terug op de eerder gecachete waarde
-/// (per gebruiker), of gooi de fout als er nog niets gecached is.
+/// Helper: probeer een list-API-call. Bij succes → cache + return. Bij een
+/// 401/403 (token verlopen/ongeldig) forceren we uitloggen — geen stille
+/// fallback op oude cache, anders blijft de gebruiker eindeloos dezelfde
+/// verouderde data zien zonder te weten dat de sessie dood is (gebeurde
+/// echt: 30 dagen oude feed leek een kapotte backend, was een stille
+/// auth-fout). Bij andere fouten (offline, 5xx) wél terugvallen op cache.
 Future<List<dynamic>> _fetchListWithCache({
+  required Ref ref,
   required ApiClient api,
   required String path,
   required String? username,
@@ -20,6 +24,14 @@ Future<List<dynamic>> _fetchListWithCache({
     final list = await api.get(path) as List<dynamic>;
     await LocalCache.saveList(username, cacheName, list);
     return list;
+  } on ApiException catch (e) {
+    if (e.statusCode == 401 || e.statusCode == 403) {
+      await ref.read(authProvider.notifier).forceReauth();
+      rethrow;
+    }
+    final cached = await LocalCache.loadList(username, cacheName);
+    if (cached != null) return cached;
+    rethrow;
   } catch (_) {
     final cached = await LocalCache.loadList(username, cacheName);
     if (cached != null) return cached;
@@ -28,6 +40,7 @@ Future<List<dynamic>> _fetchListWithCache({
 }
 
 Future<Map<String, dynamic>> _fetchObjectWithCache({
+  required Ref ref,
   required ApiClient api,
   required String path,
   required String? username,
@@ -37,6 +50,14 @@ Future<Map<String, dynamic>> _fetchObjectWithCache({
     final r = await api.get(path) as Map<String, dynamic>;
     await LocalCache.saveObject(username, cacheName, r);
     return r;
+  } on ApiException catch (e) {
+    if (e.statusCode == 401 || e.statusCode == 403) {
+      await ref.read(authProvider.notifier).forceReauth();
+      rethrow;
+    }
+    final cached = await LocalCache.loadObject(username, cacheName);
+    if (cached != null) return cached;
+    rethrow;
   } catch (_) {
     final cached = await LocalCache.loadObject(username, cacheName);
     if (cached != null) return cached;
@@ -53,7 +74,7 @@ class FeedNotifier extends AsyncNotifier<List<FeedItem>> {
   @override
   Future<List<FeedItem>> build() async {
     final list = await _fetchListWithCache(
-      api: _api, path: '/api/feed', username: _user, cacheName: 'feed');
+      ref: ref, api: _api, path: '/api/feed', username: _user, cacheName: 'feed');
     return list.map((e) => FeedItem.fromJson(e as Map<String, dynamic>)).toList();
   }
 
@@ -107,7 +128,7 @@ class RssNotifier extends AsyncNotifier<List<RssItem>> {
   @override
   Future<List<RssItem>> build() async {
     final list = await _fetchListWithCache(
-      api: _api, path: '/api/rss', username: _user, cacheName: 'rss');
+      ref: ref, api: _api, path: '/api/rss', username: _user, cacheName: 'rss');
     return list.map((e) => RssItem.fromJson(e as Map<String, dynamic>)).toList();
   }
 
@@ -169,7 +190,7 @@ class SettingsNotifier extends AsyncNotifier<List<CategorySettings>> {
   @override
   Future<List<CategorySettings>> build() async {
     final list = await _fetchListWithCache(
-      api: _api, path: '/api/settings', username: _user, cacheName: 'settings');
+      ref: ref, api: _api, path: '/api/settings', username: _user, cacheName: 'settings');
     return list.map((e) => CategorySettings.fromJson(e as Map<String, dynamic>)).toList();
   }
 
@@ -190,7 +211,7 @@ class RssFeedsNotifier extends AsyncNotifier<List<String>> {
   @override
   Future<List<String>> build() async {
     final r = await _fetchObjectWithCache(
-      api: _api, path: '/api/rss-feeds', username: _user, cacheName: 'rss-feeds');
+      ref: ref, api: _api, path: '/api/rss-feeds', username: _user, cacheName: 'rss-feeds');
     return List<String>.from(r['feeds'] ?? []);
   }
 
@@ -215,6 +236,7 @@ class PodcastFeedsNotifier extends AsyncNotifier<List<PodcastFeed>> {
   @override
   Future<List<PodcastFeed>> build() async {
     final r = await _fetchObjectWithCache(
+      ref: ref,
       api: _api,
       path: '/api/podcast-feeds',
       username: _user,
@@ -252,7 +274,7 @@ class RequestNotifier extends AsyncNotifier<List<NewsRequest>> {
       _ws = null;
     });
     final list = await _fetchListWithCache(
-      api: _api, path: '/api/requests', username: _user, cacheName: 'requests');
+      ref: ref, api: _api, path: '/api/requests', username: _user, cacheName: 'requests');
     return list.map((e) => NewsRequest.fromJson(e as Map<String, dynamic>)).toList();
   }
 
@@ -329,7 +351,7 @@ class PodcastNotifier extends AsyncNotifier<List<Podcast>> {
   @override
   Future<List<Podcast>> build() async {
     final list = await _fetchListWithCache(
-      api: _api, path: '/api/podcasts', username: _user, cacheName: 'podcasts');
+      ref: ref, api: _api, path: '/api/podcasts', username: _user, cacheName: 'podcasts');
     return list.map((e) => Podcast.fromJson(e as Map<String, dynamic>)).toList();
   }
 
@@ -418,7 +440,7 @@ class EventsNotifier extends AsyncNotifier<List<Event>> {
   @override
   Future<List<Event>> build() async {
     final list = await _fetchListWithCache(
-      api: _api, path: '/api/events', username: _user, cacheName: 'events');
+      ref: ref, api: _api, path: '/api/events', username: _user, cacheName: 'events');
     return list.map((e) => Event.fromJson(e as Map<String, dynamic>)).toList();
   }
 
@@ -450,6 +472,7 @@ final eventVideosProvider =
   final api = ref.read(apiProvider);
   final user = ref.read(authProvider).username;
   final list = await _fetchListWithCache(
+    ref: ref,
     api: api,
     path: '/api/events/$eventId/videos',
     username: user,
