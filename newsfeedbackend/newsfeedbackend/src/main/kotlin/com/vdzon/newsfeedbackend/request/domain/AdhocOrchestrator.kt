@@ -1,7 +1,9 @@
 package com.vdzon.newsfeedbackend.request.domain
 
-import com.vdzon.newsfeedbackend.ai.AiModelProperties
-import com.vdzon.newsfeedbackend.ai.OpenAiChatClient
+import com.vdzon.newsfeedbackend.ai.AiClient
+import com.vdzon.newsfeedbackend.ai.AiRequest
+import com.vdzon.newsfeedbackend.ai.AiResponse
+import tools.jackson.databind.ObjectMapper
 import com.vdzon.newsfeedbackend.external_call.ExternalCall
 import com.vdzon.newsfeedbackend.feed.FeedItem
 import com.vdzon.newsfeedbackend.feed.FeedService
@@ -9,7 +11,6 @@ import com.vdzon.newsfeedbackend.request.RequestCreatedEvent
 import com.vdzon.newsfeedbackend.request.RequestRerunEvent
 import com.vdzon.newsfeedbackend.request.RequestStatus
 import com.vdzon.newsfeedbackend.request.infrastructure.RequestRepository
-import com.vdzon.newsfeedbackend.search.TavilyClient
 import io.micrometer.core.instrument.MeterRegistry
 import org.slf4j.LoggerFactory
 import org.slf4j.MDC
@@ -24,9 +25,8 @@ import java.util.UUID
 class AdhocOrchestrator(
     private val service: RequestServiceImpl,
     private val repo: RequestRepository,
-    private val tavily: TavilyClient,
-    private val openAi: OpenAiChatClient,
-    private val aiModels: AiModelProperties,
+    private val ai: AiClient,
+    private val mapper: ObjectMapper,
     private val feed: FeedService,
     private val meters: MeterRegistry
 ) {
@@ -51,52 +51,67 @@ class AdhocOrchestrator(
             val started = Instant.now()
             service.upsert(username, current.copy(status = RequestStatus.PROCESSING, processingStartedAt = started))
 
-            val results = tavily.search(username, current.subject, current.maxAgeDays, maxResults = current.maxCount * 3)
-            val urls = results.take(current.maxCount).map { it.url }
-            val texts = tavily.extract(username, urls)
-
-            var newItems = 0
-
-            for (r in results.take(current.maxCount)) {
-                if (service.isCancelled(username, requestId)) {
-                    service.upsert(username, current.copy(status = RequestStatus.CANCELLED, completedAt = Instant.now()))
-                    log.info("[Request] cancelled id={}", requestId)
-                    return
-                }
-                val text = texts[r.url] ?: r.snippet
-                val ai = openAi.complete(
-                    model = aiModels.modelOrDefault(ExternalCall.ACTION_ADHOC_SUMMARIZE),
+            // PNF-3: één agent-job die zelf zoekt (web search), de artikelen leest
+            // en samenvat — geen aparte zoek-API meer.
+            val response = ai.generate(
+                AiRequest(
                     action = ExternalCall.ACTION_ADHOC_SUMMARIZE,
                     username = username,
-                    subject = "Adhoc: ${current.subject.take(80)} — ${r.title.take(40)}",
-                    system = "Je bent een Nederlandstalige journalistieke samenvatter. Schrijf een heldere samenvatting van ~400 woorden in het Nederlands. Gebruik geen markdown headers maar wel paragrafen.",
-                    user = "Onderwerp: ${current.subject}\n\nArtikel: ${r.title}\nURL: ${r.url}\n\nTekst:\n$text"
+                    subject = "Adhoc: ${current.subject.take(80)}",
+                    resultSchema = mapper.readTree(SCHEMA),
+                    variant = "$requestId-$started",
+                    cancelled = { service.isCancelled(username, requestId) },
+                    instruction = """
+                        Je bent een Nederlandstalige journalistieke onderzoeker.
+                        Zoek met je web search tool naar actuele nieuwsartikelen over het onderwerp: "${current.subject}".
+                        Neem alleen artikelen die in de afgelopen ${current.maxAgeDays} dagen zijn gepubliceerd (vandaag is ${java.time.LocalDate.now()}).
+                        Lees elk gekozen artikel echt (web fetch) en gebruik uitsluitend URL's die je daadwerkelijk hebt gelezen; verzin nooit een URL of datum.
+                        Kies maximaal ${current.maxCount} verschillende, relevante artikelen van betrouwbare bronnen; geen dubbele verhalen.
+                        Schrijf per artikel een heldere samenvatting van ~400 woorden in het Nederlands, zonder markdown headers maar met paragrafen.
+                        publishedDate in formaat YYYY-MM-DD, of null als onbekend.
+                    """.trimIndent()
                 )
+            )
+            if (response.status == AiResponse.STATUS_CANCELLED || service.isCancelled(username, requestId)) {
+                repo.load(username).find { it.id == requestId }?.let {
+                    service.upsert(username, it.copy(status = RequestStatus.CANCELLED, completedAt = Instant.now()))
+                }
+                log.info("[Request] cancelled id={}", requestId)
+                return
+            }
+            if (!response.ok) throw IllegalStateException("AI-zoekopdracht mislukt: ${response.errorMessage}")
+
+            var newItems = 0
+            val seen = mutableSetOf<String>()
+            for (r in response.result!!.path("items").values().take(current.maxCount)) {
+                val url = r.path("url").asString("").trim()
+                if (!url.startsWith("http") || !seen.add(url)) continue
+                val publishedDate = r.path("publishedDate").asString(null)?.take(10)?.takeIf { it.matches(Regex("\\d{4}-\\d{2}-\\d{2}")) }
                 val feedItem = FeedItem(
                     id = UUID.randomUUID().toString(),
-                    title = r.title,
-                    summary = ai.text,
-                    url = r.url,
-                    source = extractDomain(r.url),
-                    sourceUrls = listOf(r.url),
+                    title = r.path("title").asString("").ifBlank { url },
+                    summary = r.path("summary").asString(""),
+                    url = url,
+                    source = r.path("source").asString("").ifBlank { extractDomain(url) },
+                    sourceUrls = listOf(url),
                     topics = listOf(current.subject),
                     feedReason = "Geselecteerd voor verzoek '${current.subject}'",
-                    publishedDate = r.publishedDate?.take(10),
+                    publishedDate = publishedDate,
                     createdAt = Instant.now()
                 )
                 feed.save(username, feedItem)
                 newItems++
-                // Null-safe: de request kan tussentijds geannuleerd/verwijderd
-                // zijn — voortgang bijwerken is dan niet meer nodig.
-                repo.load(username).find { it.id == requestId }?.let { req ->
-                    service.upsert(
-                        username,
-                        req.copy(
-                            newItemCount = newItems,
-                            durationSeconds = ChronoUnit.SECONDS.between(started, Instant.now()).toInt()
-                        )
+            }
+            // Null-safe: de request kan tussentijds geannuleerd/verwijderd
+            // zijn — voortgang bijwerken is dan niet meer nodig.
+            repo.load(username).find { it.id == requestId }?.let { req ->
+                service.upsert(
+                    username,
+                    req.copy(
+                        newItemCount = newItems,
+                        durationSeconds = ChronoUnit.SECONDS.between(started, Instant.now()).toInt()
                     )
-                }
+                )
             }
 
             val finalReq = repo.load(username).find { it.id == requestId }?.copy(
@@ -123,4 +138,13 @@ class AdhocOrchestrator(
 
     private fun extractDomain(url: String): String =
         Regex("https?://([^/]+)").find(url)?.groupValues?.get(1) ?: ""
+
+    companion object {
+        private val SCHEMA = """
+            {"type":"object","additionalProperties":false,"required":["items"],"properties":{
+              "items":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["title","url","source","publishedDate","summary"],"properties":{
+                "title":{"type":"string"},"url":{"type":"string"},"source":{"type":"string"},
+                "publishedDate":{"type":["string","null"]},"summary":{"type":"string"}}}}}}
+        """.trimIndent()
+    }
 }

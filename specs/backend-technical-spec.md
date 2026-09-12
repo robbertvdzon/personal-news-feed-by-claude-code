@@ -61,7 +61,7 @@ De backend gebruikt **Spring Modulith** voor het afdwingen van modulegescheiden 
 | `request` | `com.vdzon.newsfeedbackend.request` | Ad-hoc verzoeken en dagelijkse updates verwerken |
 | `podcast` | `com.vdzon.newsfeedbackend.podcast` | Podcast generatie (script + audio) |
 | `settings` | `com.vdzon.newsfeedbackend.settings` | Categorie-instellingen en RSS-feed URLs per gebruiker |
-| `ai` | `com.vdzon.newsfeedbackend.ai` | Gedeelde OpenAI-client + prijsconfiguratie (gebruikt door rss, feed, request, podcast) |
+| `ai` | `com.vdzon.newsfeedbackend.ai` | `AiClient`: al het AI-werk (structured generation, transcriptie, TTS) als job via de Agent Runtime v2 API, plus actie→uitvoering-config (PNF-3) |
 | `storage` | `com.vdzon.newsfeedbackend.storage` | Gedeelde PostgreSQL/JDBC-opslag-utilities |
 | `websocket` | `com.vdzon.newsfeedbackend.websocket` | WebSocket handler voor request-statusupdates; `JwtHandshakeInterceptor` authenticeert de handshake van `/ws/requests` en `broadcast(username, payload)` levert alleen aan de sessies van die gebruiker (SF-2165) |
 | `admin` | `com.vdzon.newsfeedbackend.admin` | Gebruikersbeheer en AI-kostenoverzicht (admin-only endpoints) |
@@ -69,8 +69,6 @@ De backend gebruikt **Spring Modulith** voor het afdwingen van modulegescheiden 
 | `podcast_source` | `com.vdzon.newsfeedbackend.podcast_source` | Ingest van podcast-RSS-bronnen en episode-verwerking (transcript-lookup); event-driven transcript-fase (`PodcastTranscriptPipeline`) met uurlijks vangnet (`PodcastRecoveryScheduler`); beheer van de feed-lijst incl. validatie van nieuwe feeds en ingestion-trigger achter `PodcastFeedsService` |
 | `version` | `com.vdzon.newsfeedbackend.version` | Build-/versie-info endpoint |
 | `common` | `com.vdzon.newsfeedbackend.common` | Gedeelde helpers (security, exceptions, Jackson-config, SSRF-URL-validatie) |
-| `media` | `com.vdzon.newsfeedbackend.media` | Comprimeert podcast-audio (mono, lage bitrate MP3) zodat bestanden onder Whisper's 25 MB-limiet blijven |
-| `search` | `com.vdzon.newsfeedbackend.search` | Tavily-websearch-integratie voor ad-hoc nieuws-verzoeken |
 | `shared` | `com.vdzon.newsfeedbackend.shared` | Publieke, read-only gedeelde-feed-endpoints (`/api/shared/feed`, `/api/shared/categories`) voor de reader-app, zonder authenticatie |
 
 ### Moduleregels (Spring Modulith)
@@ -126,7 +124,7 @@ Elke module volgt een strikte drielagenstructuur: **API → Domain → Infrastru
 
 ### Laag 3: Infrastructure (Repository / Adapter)
 - **Repository:** leest en schrijft naar PostgreSQL (JDBC); geeft domeinmodellen terug
-- **Externe adapters:** HTTP-clients voor OpenAI, Tavily, TTS-providers; geven domeinmodellen of primitieven terug
+- **Externe adapters:** HTTP-client voor de Agent Runtime (`ai/infrastructure/AgentRuntimeClient`), RSS/artikel-fetchers; geven domeinmodellen of primitieven terug
 - Bevat geen business logic
 - Is volledig privé binnen de module
 
@@ -177,9 +175,7 @@ Deze stap-voor-stap progress-logs zijn essentieel voor de gebruiker tijdens een 
 
 **Externe API-aanroepen (DEBUG):**
 ```
-[OpenAI] Aanroep '{operationNaam}' voor gebruiker '{username}' — {n} tokens
-  [Tavily] Zoeken op '{query}' — {n} resultaten
-[TTS] Audio segment gegenereerd: {n} tekens → {m}ms
+[AgentRuntime] job {jobId} voor {actie} ({vendor/model/MODE}) status={status}
 ```
 
 **Fouten (ERROR):**
@@ -300,10 +296,8 @@ sluiten de e2e-suite uit (`**/e2e/**`). De suite in
 - `rss/RssFetcherImageUrlTest.kt` — extractie van de afbeeldings-URL uit RSS
 - `rss/RssFetcherSsrfTest.kt` — SSRF-defense-in-depth-check vlak vóór `http.send(...)` in `RssFetcher.fetch()` (SF-1345); loopback, RFC1918 en het niet-http-schema leveren alle drie een lege itemlijst op met één `ExternalCall` (`status="error"`) waarvan de `errorMessage` `"geblokkeerd"` bevat. Die assertie kwam er in twee stappen: SF-2249 voegde hem toe voor het niet-http-schema (zolang het `HttpRequest` vóór de validatie werd gebouwd, ketste `file:///etc/passwd` af op de JDK — `invalid URI scheme file` — en zou de assertie falen; de test was groen om de verkeerde reden), SF-2285 voor de RFC1918-case. Alle drie de cases horen te falen zodra de afwijzing niet meer van `SsrfUrlValidator` komt
 - `rss/ArticleFetcherSsrfTest.kt` — SSRF-check op de artikel-URL uit een feed-item vlak vóór `http.send(...)` in `ArticleFetcher.fetchPlainText()`; loopback, RFC1918, niet-http-scheme en het link-local metadata-endpoint leveren `null` op met één `ExternalCall` (`status="error"`, `units=0`) (SF-1843). Alle vier de cases asserteren sinds SF-2285 óók dat de `errorMessage` `"geblokkeerd"` bevat — daarvóór deed alleen de loopback-case dat. Bij de drie toegevoegde asserties staat een comment met de twee motieven: de niet-http-case bewaakt dat `ArticleFetcher` valideert vóór het opbouwen van het `HttpRequest` (draait die volgorde om, dan faalt hij), de RFC1918- en link-local-case bewaken dat de `error`-status van onze eigen validator komt en niet van een netwerk- of DNS-fout. Ruim die asserties dus niet los op
-- `ai/AiJsonTest.kt` — JSON-hulpfuncties voor AI-responses
-- `ai/AiPricingPropertiesTest.kt` — OpenAI-prijsconfiguratie (`app.ai.pricing`)
+- `ai/infrastructure/AgentRuntimeClientTest.kt` — Agent Runtime-client tegen een nep-`/v2`-server: job aanmaken/pollen/resultaat, idempotency-key, uploads + idempotency-conflict, foutpad, transcriptie en TTS
 - `api/dto/ApiRequestDtoContractTest.kt` — contract van de request-DTO's
-- `podcast/domain/PodcastScriptParserTest.kt` — parser van INTERVIEWER/GAST-scripts
 - `common/SsrfUrlValidatorTest.kt` — scheme-afwijzing, elke geblokkeerde IP-range-categorie, geldige publieke URL, niet-resolvebare host (SF-1345)
 - `settings/domain/SettingsServiceImplSaveRssFeedsTest.kt` — `saveRssFeeds` wijst ongeldige/SSRF-risicovolle feed-URLs af vóór opslag (SF-1345)
 - `podcast_source/PodcastFeedFetcherSsrfTest.kt` — SSRF-defense-in-depth-check vlak vóór `http.send(...)` in `PodcastFeedFetcher.fetch()` (SF-1387); loopback, RFC1918 en het niet-http-schema leveren `FetchResult(ok=false)` op met een `errorMessage` die `"geblokkeerd"` bevat en `status="error"` in de `external_calls`-regel. Net als bij `RssFetcherSsrfTest` is de assertie op `"geblokkeerd"` in twee stappen compleet gemaakt: SF-2249 voor het niet-http-schema (die bewaakt de volgorde validatie-vóór-request-opbouw), SF-2285 voor de RFC1918-case
@@ -345,7 +339,7 @@ Naast de unit-tests bestaat er een e2e-suite onder
 harnas (`E2eTestBase`/`E2eTestConfig`) start
 de volledige Spring-app tegen een echte PostgreSQL via Testcontainers (met
 echte Flyway-migraties); alleen de externe diensten zijn gefaked
-(`FakeOpenAiChatClient`, `FakeContentServer`).
+(`FakeAiClient`, `FakeContentServer`).
 
 `E2eTestBase` zet `app.podcast.recovery.cron` op `-`
 (`Scheduled.CRON_DISABLED`), zodat de podcast-recovery-job niet meeloopt en de
@@ -364,7 +358,7 @@ reselect-tests. Items worden rechtstreeks geseed via `RssService.upsert(...)` en
 podcast-afleveringen via `PodcastEpisodeRepository.upsert(...)`; alleen de
 reselect-tests draaien eerst een echte refresh tegen `FakeContentServer`. Twee
 aandachtspunten voor wie deze tests uitbreidt: geseede item-id's moeten
-UUID-vorm hebben (`FakeOpenAiChatClient.extractCandidateIds` vist kandidaten met
+UUID-vorm hebben (`FakeAiClient.extractCandidateIds` vist kandidaten met
 een UUID-regex uit de selectie-prompt, anders doet reselect stil niets), en een
 reselect mag pas getriggerd worden nadat de refresh `DONE` is — `RssRefreshPipeline`
 gebruikt één `tryLock` per user en slaat een overlappende run stilzwijgend over.
@@ -380,8 +374,7 @@ komen niet in de prompt; (3) twee reruns op dezelfde dag houden één feed-item
 over, met de inhoud van de laatste run; (4) de routering in
 `FixedRequestRerunListener` is exclusief — het uurlijkse verzoek start alleen
 de RSS-refresh, het dagelijkse alleen de samenvatting — en de guard in
-`AdhocOrchestrator` houdt (nul `tavily_search`- en `adhoc_summarize`-rijen via
-`ExternalCallQuery`). Aandachtspunten voor wie deze tests uitbreidt: een rerun
+`AdhocOrchestrator` houdt (nul `adhoc_summarize`-calls op `FakeAiClient`). Aandachtspunten voor wie deze tests uitbreidt: een rerun
 geeft 404 zolang `UserRegisteredListener` de vaste verzoeken nog niet heeft
 aangemaakt, dus daar moet eerst op gewacht worden; `newItemCount` wordt door
 `rerun` eerst op 0 gezet en is daarmee het natuurlijke `await`-anker; en het
@@ -431,7 +424,7 @@ annuleervlag achter" injecteert `RequestServiceImpl` concreet met `@Autowired`
 de huidige sleutelvorm `"$username/$id"` — verandert die vorm, dan wordt die
 assertie stil triviaal-waar; en de aanvalspoging moet plaatsvinden terwijl de
 eigenaar écht nog verwerkt, waarvoor de test de eerste `adhoc_summarize` van
-`FakeOpenAiChatClient` met een `CountDownLatch` vasthoudt.
+`FakeAiClient` met een `CountDownLatch` vasthoudt.
 
 `RequestWebSocketE2eTest` (6 tests, SF-2109/SF-2166) dekt het WebSocket-endpoint
 `/ws/requests` zoals §5 van `backend-functional-spec.md` en de sectie
@@ -472,9 +465,7 @@ allang in B's queue gestaan — met daarbovenop een venster van 5 s voor nawerk.
 Asserteer per `id`: de
 hardcoded `RssScheduler`-cron (`0 0 * * * *`) is niet uit te schakelen, dus een
 run precies over het hele uur kan er een `hourly-update-*`-broadcast tussen
-zetten. De klasse zet net als `RequestsE2eTest` via een eigen
-`@DynamicPropertySource` een dummy `app.tavily.api-key`, anders doet
-`TavilyClient` geen HTTP-call naar `FakeContentServer`. Test 6 gebruikt twee
+zetten. Test 6 gebruikt twee
 verbindingen van **dezelfde** gebruiker (anders zou het eigenaarsfilter, en niet
 de close, de tweede verbinding stil houden) en bewijst alleen het waarneembare
 gedrag: bij een nette close haalt Spring de sessie al weg in

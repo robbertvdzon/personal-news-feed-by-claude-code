@@ -164,11 +164,8 @@ class RssItemsE2eTest : E2eTestBase() {
     }
 
     private fun scoreAll(inFeed: Boolean, reason: String) {
-        openAi.onAction(ExternalCall.ACTION_FEED_SCORE) { call ->
-            FakeOpenAiChatClient.extractCandidateIds(call.user)
-                .joinToString(prefix = "[", postfix = "]") {
-                    """{"id": "$it", "inFeed": $inFeed, "reason": "$reason"}"""
-                }
+        ai.onAction(ExternalCall.ACTION_FEED_SCORE) { call ->
+            FakeAiClient.verdicts(FakeAiClient.extractCandidateIds(call.prompt), inFeed, reason)
         }
     }
 
@@ -194,7 +191,7 @@ class RssItemsE2eTest : E2eTestBase() {
         assertTrue(rssItems(user).none { it.path("inFeed").asBoolean() })
         assertTrue(rssItems(user).all { it.path("feedReason").asString().contains("Eerste ronde afgewezen") })
         assertEquals(0, getJson("/api/feed", user.token).size())
-        assertTrue(openAi.callsFor(ExternalCall.ACTION_FEED_SUMMARIZE, user.username).isEmpty())
+        assertTrue(ai.callsFor(ExternalCall.ACTION_FEED_SUMMARIZE, user.username).isEmpty())
 
         // Ronde 2: AI accepteert alles met een herkenbaar andere reden.
         scoreAll(inFeed = true, reason = "Tweede ronde geselecteerd")
@@ -212,7 +209,7 @@ class RssItemsE2eTest : E2eTestBase() {
         }
         await { getJson("/api/feed", user.token).size() == 2 }
         assertTrue(
-            openAi.callsFor(ExternalCall.ACTION_FEED_SUMMARIZE, user.username).isNotEmpty(),
+            ai.callsFor(ExternalCall.ACTION_FEED_SUMMARIZE, user.username).isNotEmpty(),
             "reselect hoort feed-items te genereren (stap 4 van de pipeline)"
         )
     }
@@ -230,23 +227,23 @@ class RssItemsE2eTest : E2eTestBase() {
 
         val voor = rssItems(user).values()
             .associate { it.path("id").asString() to (it.path("inFeed").asBoolean() to it.path("feedReason").asString()) }
-        val scoreCallsVoor = openAi.callsFor(ExternalCall.ACTION_FEED_SCORE, user.username).size
-        val summarizeCallsVoor = openAi.callsFor(ExternalCall.ACTION_FEED_SUMMARIZE, user.username).size
+        val scoreCallsVoor = ai.callsFor(ExternalCall.ACTION_FEED_SCORE, user.username).size
+        val summarizeCallsVoor = ai.callsFor(ExternalCall.ACTION_FEED_SUMMARIZE, user.username).size
 
         // Ronde 2: AI geeft een lege lijst terug.
-        openAi.onAction(ExternalCall.ACTION_FEED_SCORE) { "[]" }
+        ai.onAction(ExternalCall.ACTION_FEED_SCORE) { """{"verdicts": []}""" }
         assertEquals(200, post("/api/rss/reselect", user.token).status)
 
         // Reselect laat (anders dan refresh) geen request-status achter; het
         // extra FEED_SCORE-call-record is hier het afrondingssignaal.
-        await { openAi.callsFor(ExternalCall.ACTION_FEED_SCORE, user.username).size == scoreCallsVoor + 1 }
+        await { ai.callsFor(ExternalCall.ACTION_FEED_SCORE, user.username).size == scoreCallsVoor + 1 }
 
         val na = rssItems(user).values()
             .associate { it.path("id").asString() to (it.path("inFeed").asBoolean() to it.path("feedReason").asString()) }
         assertEquals(voor, na, "zonder verdicts hoort inFeed/feedReason exact gelijk te blijven")
         assertEquals(
             summarizeCallsVoor,
-            openAi.callsFor(ExternalCall.ACTION_FEED_SUMMARIZE, user.username).size,
+            ai.callsFor(ExternalCall.ACTION_FEED_SUMMARIZE, user.username).size,
             "geen verdicts → geen nieuwe feed-items"
         )
     }

@@ -1,9 +1,9 @@
 package com.vdzon.newsfeedbackend.podcast_source.domain
 
 import tools.jackson.databind.ObjectMapper
-import com.vdzon.newsfeedbackend.ai.AiJson
-import com.vdzon.newsfeedbackend.ai.AiModelProperties
-import com.vdzon.newsfeedbackend.ai.OpenAiChatClient
+import com.vdzon.newsfeedbackend.ai.AiAttachment
+import com.vdzon.newsfeedbackend.ai.AiClient
+import com.vdzon.newsfeedbackend.ai.AiRequest
 import com.vdzon.newsfeedbackend.podcast_source.PodcastEpisode
 import com.vdzon.newsfeedbackend.settings.SettingsService
 import org.slf4j.LoggerFactory
@@ -19,8 +19,7 @@ import org.springframework.stereotype.Component
  */
 @Component
 class PodcastEpisodeSummarizer(
-    private val openAi: OpenAiChatClient,
-    private val aiModels: AiModelProperties,
+    private val ai: AiClient,
     private val settings: SettingsService,
     private val mapper: ObjectMapper
 ) {
@@ -37,6 +36,13 @@ class PodcastEpisodeSummarizer(
          * beide fasen zonder aparte logica.
          */
         internal const val MAX_CLAUDE_INPUT_CHARS = 80_000
+
+        private val SCHEMA = """
+            {"type":"object","additionalProperties":false,"required":["shortSummary","longSummary","keyTakeaways","topics","category"],"properties":{
+              "shortSummary":{"type":"string"},"longSummary":{"type":"string"},
+              "keyTakeaways":{"type":"array","items":{"type":"string"}},
+              "topics":{"type":"array","items":{"type":"string"}},"category":{"type":"string"}}}
+        """.trimIndent()
     }
 
     internal data class Summarized(
@@ -81,72 +87,51 @@ class PodcastEpisodeSummarizer(
             input
         }
         val episodeAction = com.vdzon.newsfeedbackend.external_call.ExternalCall.ACTION_PODCAST_EPISODE_SUMMARIZE
-        val ai = openAi.complete(
-            model = aiModels.modelOrDefault(episodeAction),
-            action = episodeAction,
-            username = username,
-            subject = "Podcast '${ep.podcastName.take(40)}' — ${ep.title.take(80)}",
-            maxOutputTokens = 4096,
-            system = """
-                Je vat podcast-afleveringen samen in het Nederlands.
+        val response = ai.generate(
+            AiRequest(
+                action = episodeAction,
+                username = username,
+                subject = "Podcast '${ep.podcastName.take(40)}' — ${ep.title.take(80)}",
+                resultSchema = mapper.readTree(SCHEMA),
+                attachments = listOf(AiAttachment.text("episode-input", sample, "text/plain")),
+                instruction = """
+                    Je vat een podcast-aflevering samen in het Nederlands. De input (transcript of show-notes; mogelijk afgekapt) staat in het invoerobject 'episode-input' (/job/input/objects/episode-input/content).
+                    Werk alleen met die input; zoek niets op internet op.
 
-                shortSummary: 1-2 zinnen (~30-50 woorden, plain text — geen markdown) die in 1 oogopslag duidelijk maken waar deze aflevering over gaat. Eindig met een punt.
+                    Podcast: ${ep.podcastName}
+                    Aflevering: ${ep.title}
+                    ${if (!ep.publishedDate.isNullOrBlank()) "Datum: ${ep.publishedDate}" else ""}
+                    ${if ((ep.durationSeconds ?: 0) > 0) "Duur: ${(ep.durationSeconds ?: 0) / 60} min" else ""}
 
-                longSummary: 3-5 alinea's plain-text Nederlands (~400-600 woorden) die gestructureerd beschrijven wat in de aflevering wordt besproken — chronologisch of thematisch. Reflecteer concrete inhoud uit het transcript (namen van tools/frameworks/personen, citaten, voorbeelden) i.p.v. marketing-platitudes. Scheid alinea's met een lege regel. Géén markdown-headers, géén bullet-list — gewone prose. Bij korte input (b.v. show-notes van <500 woorden) mag het korter — 2-3 alinea's volstaat dan, geen opgeklopte vulling.
+                    shortSummary: 1-2 zinnen (~30-50 woorden, plain text — geen markdown) die in 1 oogopslag duidelijk maken waar deze aflevering over gaat. Eindig met een punt.
 
-                keyTakeaways: 5-10 concrete takeaways/inzichten als JSON-array van strings. Eén bullet per regel, max ~20 woorden, géén sub-bullets, géén markdown-headers. Voor tech-podcasts: noem tools/concepts/frameworks in de bullet zelf. Bij hele korte input mag de lijst korter (3-4 takeaways). Niet alleen "ze bespraken X" — schrijf wat erover gezegd is.
+                    longSummary: 3-5 alinea's plain-text Nederlands (~400-600 woorden) die gestructureerd beschrijven wat in de aflevering wordt besproken — chronologisch of thematisch. Reflecteer concrete inhoud uit het transcript (namen van tools/frameworks/personen, citaten, voorbeelden) i.p.v. marketing-platitudes. Scheid alinea's met een lege regel. Géén markdown-headers, géén bullet-list — gewone prose. Bij korte input (b.v. show-notes van <500 woorden) mag het korter — 2-3 alinea's volstaat dan, geen opgeklopte vulling.
 
-                topics: 3-8 korte Nederlandse onderwerpen die in de aflevering aan bod zijn gekomen. Pak concrete inhoudelijke topics, geen marketing-woorden.
+                    keyTakeaways: 5-10 concrete takeaways/inzichten. Eén bullet per item, max ~20 woorden, géén sub-bullets, géén markdown. Voor tech-podcasts: noem tools/concepts/frameworks in de bullet zelf. Bij hele korte input mag de lijst korter (3-4 takeaways). Niet alleen "ze bespraken X" — schrijf wat erover gezegd is.
 
-                category: kies één id uit de gebruikersvoorkeuren hieronder (fallback "overig").
+                    topics: 3-8 korte Nederlandse onderwerpen die in de aflevering aan bod zijn gekomen. Pak concrete inhoudelijke topics, geen marketing-woorden.
 
-                Antwoord uitsluitend met geldig JSON, geen markdown-codefences (geen ```), geen prose ervoor of erna.
-            """.trimIndent(),
-            user = buildString {
-                appendLine("Podcast: ${ep.podcastName}")
-                appendLine("Aflevering: ${ep.title}")
-                if (!ep.publishedDate.isNullOrBlank()) appendLine("Datum: ${ep.publishedDate}")
-                if ((ep.durationSeconds ?: 0) > 0) appendLine("Duur: ${(ep.durationSeconds ?: 0) / 60} min")
-                appendLine()
-                appendLine("Beschikbare categorieën (id, naam, voorkeur):")
-                appendLine(catList)
-                appendLine()
-                appendLine("Input (transcript of show-notes; mogelijk afgekapt):")
-                appendLine(sample)
-                appendLine()
-                appendLine("Antwoord met JSON in dit schema:")
-                append("""{"shortSummary": "...", "longSummary": "...", "keyTakeaways": ["...", "..."], "topics": ["..."], "category": "kotlin"}""")
-            }
+                    category: kies één id uit de gebruikersvoorkeuren hieronder (fallback "overig").
+                    Beschikbare categorieën (id, naam, voorkeur):
+                """.trimIndent() + "\n" + catList
+            )
         )
-        val raw = ai.text.trim()
-        if (raw.isBlank()) {
-            log.warn("[PodcastEpisode] Claude gaf lege response voor guid={}", ep.guid)
+        if (!response.ok) {
+            log.warn("[PodcastEpisode] samenvatting mislukt voor guid={}: {}", ep.guid, response.errorMessage)
             return null
         }
-        return try {
-            val tree = mapper.readTree(AiJson.extract(raw))
-            val shortSum = tree.path("shortSummary").asString("").trim()
-            val cat = tree.path("category").asString("overig").ifBlank { "overig" }
-            val topics = tree.path("topics").mapNotNull { it.asString().takeUnless { t -> t.isBlank() } }
-            val longSum = tree.path("longSummary").asString("").trim()
-            val takeaways = tree.path("keyTakeaways")
-                .mapNotNull { it.asString().takeUnless { t -> t.isBlank() } }
-                .map { it.trim() }
-            if (shortSum.isBlank()) {
-                log.warn("[PodcastEpisode] Claude gaf geen shortSummary voor guid={}", ep.guid)
-                return null
-            }
-            Summarized(
-                shortSummary = shortSum,
-                category = cat,
-                topics = topics,
-                longSummary = longSum,
-                keyTakeaways = takeaways
-            )
-        } catch (e: Exception) {
-            log.warn("[PodcastEpisode] parse-fout in Claude-response voor guid={}: {} — head: {}",
-                ep.guid, e.message, raw.take(300))
-            null
+        val tree = response.result!!
+        val shortSum = tree.path("shortSummary").asString("").trim()
+        if (shortSum.isBlank()) {
+            log.warn("[PodcastEpisode] AI gaf geen shortSummary voor guid={}", ep.guid)
+            return null
         }
+        return Summarized(
+            shortSummary = shortSum,
+            category = tree.path("category").asString("overig").ifBlank { "overig" },
+            topics = tree.path("topics").values().mapNotNull { it.asString().takeUnless { t -> t.isBlank() } },
+            longSummary = tree.path("longSummary").asString("").trim(),
+            keyTakeaways = tree.path("keyTakeaways").values().mapNotNull { it.asString().takeUnless { t -> t.isBlank() } }.map { it.trim() }
+        )
     }
 }

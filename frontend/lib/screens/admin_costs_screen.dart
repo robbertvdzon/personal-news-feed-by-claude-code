@@ -304,6 +304,7 @@ class _DailyTab extends ConsumerWidget {
               columns: const [
                 DataColumn(label: Text('Datum')),
                 DataColumn(label: Text('Totaal'), numeric: true),
+                DataColumn(label: Text('Agent Runtime'), numeric: true),
                 DataColumn(label: Text('OpenAI'), numeric: true),
                 DataColumn(label: Text('ElevenLabs'), numeric: true),
                 DataColumn(label: Text('Tavily'), numeric: true),
@@ -313,6 +314,7 @@ class _DailyTab extends ConsumerWidget {
                     DataCell(Text(d.date)),
                     DataCell(Text(_fmtUsd(d.total),
                         style: const TextStyle(fontWeight: FontWeight.w600))),
+                    DataCell(Text(_fmtUsdOrDash(d.byProvider['agent-runtime']))),
                     DataCell(Text(_fmtUsdOrDash(d.byProvider['openai']))),
                     DataCell(Text(_fmtUsdOrDash(d.byProvider['elevenlabs']))),
                     DataCell(Text(_fmtUsdOrDash(d.byProvider['tavily']))),
@@ -369,6 +371,7 @@ class _ByUserTab extends ConsumerWidget {
                     columns: const [
                       DataColumn(label: Text('Gebruiker')),
                       DataColumn(label: Text('Totaal'), numeric: true),
+                      DataColumn(label: Text('Agent Runtime'), numeric: true),
                       DataColumn(label: Text('OpenAI'), numeric: true),
                       DataColumn(label: Text('ElevenLabs'), numeric: true),
                       DataColumn(label: Text('Tavily'), numeric: true),
@@ -378,6 +381,7 @@ class _ByUserTab extends ConsumerWidget {
                           DataCell(Text(u.username)),
                           DataCell(Text(_fmtUsd(u.total),
                               style: const TextStyle(fontWeight: FontWeight.w600))),
+                          DataCell(Text(_fmtUsdOrDash(u.byProvider['agent-runtime']))),
                           DataCell(Text(_fmtUsdOrDash(u.byProvider['openai']))),
                           DataCell(Text(_fmtUsdOrDash(u.byProvider['elevenlabs']))),
                           DataCell(Text(_fmtUsdOrDash(u.byProvider['tavily']))),
@@ -415,7 +419,7 @@ class _CallsTab extends ConsumerWidget {
               onTap: () => _pickFilter(
                 context,
                 'Provider',
-                ['(alle)', 'openai', 'elevenlabs', 'tavily', 'rss', 'web'],
+                ['(alle)', 'agent-runtime', 'openai', 'elevenlabs', 'tavily', 'rss', 'web'],
                 (v) => onFilterChanged(_copy(provider: v)),
               ),
             ),
@@ -443,11 +447,13 @@ class _CallsTab extends ConsumerWidget {
                   'feed_score',
                   'daily_summary',
                   'article_fetch',
-                  'podcast_topics',
                   'podcast_script',
                   'podcast_tts',
-                  'tavily_search',
-                  'tavily_extract',
+                  'podcast_tts_elevenlabs',
+                  'podcast_transcribe',
+                  'podcast_episode_summarize',
+                  'podcast_translate',
+                  'podcast_translate_tts',
                   'adhoc_summarize',
                 ],
                 (v) => onFilterChanged(_copy(action: v)),
@@ -546,6 +552,7 @@ class _CallsTab extends ConsumerWidget {
   static const _sentinel = Object();
 
   String _providerInitial(String provider) => switch (provider) {
+        'agent-runtime' => 'A',
         'openai' => 'O',
         'elevenlabs' => 'E',
         'tavily' => 'T',

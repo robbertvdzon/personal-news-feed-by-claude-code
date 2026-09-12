@@ -10,8 +10,6 @@ import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.fail
-import org.springframework.test.context.DynamicPropertyRegistry
-import org.springframework.test.context.DynamicPropertySource
 import java.net.http.WebSocketHandshakeException
 import java.time.Duration
 import java.util.concurrent.CopyOnWriteArrayList
@@ -35,15 +33,6 @@ import java.util.concurrent.ExecutionException
  * `serverVersion wordt niet gebroadcast naar bestaande verbindingen`.
  */
 class RequestWebSocketE2eTest : E2eTestBase() {
-
-    companion object {
-        /** Zonder api-key doet de TavilyClient geen HTTP-call; patroon [RequestsE2eTest]. */
-        @JvmStatic
-        @DynamicPropertySource
-        fun tavilyKey(registry: DynamicPropertyRegistry) {
-            registry.add("app.tavily.api-key") { "e2e-test-key" }
-        }
-    }
 
     /** Royale time-out voor berichten die er echt horen te komen. */
     private val messageTimeout = Duration.ofSeconds(20)
@@ -75,25 +64,11 @@ class RequestWebSocketE2eTest : E2eTestBase() {
          "preferredCount": 1, "maxCount": 1, "extraInstructions": "", "maxAgeDays": 3}
     """.trimIndent()
 
-    /** Serveert één Tavily-zoekresultaat plus de bijbehorende extract-tekst. */
-    private fun serveTavily() {
-        val result = FakeContentServer.TavilyTestSearchResult(
-            title = "Artikel 1",
-            url = "https://nieuws.example/artikel-1",
-            content = "Snippet van artikel 1",
-            publishedDate = "2026-07-01T08:00:00"
-        )
-        content.serve("/tavily/search", "application/json", content.tavilySearchJson(listOf(result)))
-        content.serve(
-            "/tavily/extract", "application/json",
-            content.tavilyExtractJson(mapOf(result.url to "Volledige tekst van ${result.title}."))
-        )
-    }
-
     /** Maakt een ad-hoc verzoek aan dat via de fakes gegarandeerd DONE wordt. */
     private fun createAdhocRequest(user: TestUser, subject: String): String {
-        serveTavily()
-        openAi.onAction(ExternalCall.ACTION_ADHOC_SUMMARIZE) { "Fake samenvatting voor de websocket-e2e-test." }
+        ai.onAction(ExternalCall.ACTION_ADHOC_SUMMARIZE) {
+            """{"items": [{"title": "Artikel", "url": "https://nieuws.example/ws", "source": "nieuws.example", "publishedDate": null, "summary": "Fake samenvatting voor de websocket-e2e-test."}]}"""
+        }
         val created = post("/api/requests", user.token, createBody(subject))
         assertEquals(201, created.status)
         return created.json(mapper).path("id").asString()

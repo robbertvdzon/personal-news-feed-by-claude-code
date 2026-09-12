@@ -1,7 +1,6 @@
 package com.vdzon.newsfeedbackend.e2e
 
 import com.vdzon.newsfeedbackend.external_call.ExternalCall
-import com.vdzon.newsfeedbackend.external_call.ExternalCallQuery
 import com.vdzon.newsfeedbackend.feed.FeedItem
 import com.vdzon.newsfeedbackend.feed.FeedService
 import com.vdzon.newsfeedbackend.rss.RssItem
@@ -43,9 +42,6 @@ class FixedRequestsE2eTest : E2eTestBase() {
 
     @Autowired
     private lateinit var rssService: RssService
-
-    @Autowired
-    private lateinit var externalCalls: ExternalCallQuery
 
     private val today: LocalDate get() = LocalDate.now()
     private val summaryFeedId: String get() = "daily-summary-feed-$today"
@@ -112,18 +108,15 @@ class FixedRequestsE2eTest : E2eTestBase() {
     }
 
     /**
-     * Criterium 5: de ad-hoc-tak (Tavily-search + adhoc_summarize) mag voor een
-     * vast verzoek helemaal niet gelopen hebben. `TavilyClient.search` logt óók
-     * zonder api-key een `tavily_search`-rij (status `error`), dus een lege
-     * lijst bewijst echt dat `AdhocOrchestrator.process` vroegtijdig teruggaf.
-     * Alleen aanroepen ná een positief await-anker, anders is het een race.
+     * Criterium 5: de ad-hoc-tak (adhoc_summarize-agentjob) mag voor een
+     * vast verzoek helemaal niet gelopen hebben. Alleen aanroepen ná een
+     * positief await-anker, anders is het een race.
      */
     private fun assertGeenAdhocVerwerking(user: TestUser) {
-        assertTrue(
-            externalCalls.query(username = user.username, action = ExternalCall.ACTION_TAVILY_SEARCH).isEmpty(),
+        assertEquals(
+            0, ai.callsFor(ExternalCall.ACTION_ADHOC_SUMMARIZE, user.username).size,
             "AdhocOrchestrator heeft het rerun-event van een vast verzoek toch opgepakt"
         )
-        assertEquals(0, openAi.callsFor(ExternalCall.ACTION_ADHOC_SUMMARIZE, user.username).size)
     }
 
     // ---- daily summary -------------------------------------------------
@@ -132,7 +125,7 @@ class FixedRequestsE2eTest : E2eTestBase() {
     fun `rerun van het dagelijkse verzoek maakt een samenvattings-feed-item en zet het verzoek op DONE`() {
         val user = registerUserWithFixedRequests()
         val markdown = "# Nieuwsbriefing\n\n- Eerste punt\n- Tweede punt\n"
-        openAi.onAction(ExternalCall.ACTION_DAILY_SUMMARY) { markdown }
+        ai.onAction(ExternalCall.ACTION_DAILY_SUMMARY) { """{"markdown": ${FakeAiClient.quote(markdown)}}""" }
 
         seedFeedItem(user, "Vers feed-artikel", Instant.now())
         seedRssItem(user, "Vers rss-artikel", Instant.now())
@@ -157,8 +150,8 @@ class FixedRequestsE2eTest : E2eTestBase() {
         assertEquals(today.toString(), summary.path("publishedDate").asString())
 
         // Criterium 4 (tegenhanger): de RSS-refresh-tak is niet gestart.
-        assertEquals(0, openAi.callsFor(ExternalCall.ACTION_RSS_SUMMARIZE, user.username).size)
-        assertEquals(0, openAi.callsFor(ExternalCall.ACTION_FEED_SCORE, user.username).size)
+        assertEquals(0, ai.callsFor(ExternalCall.ACTION_RSS_SUMMARIZE, user.username).size)
+        assertEquals(0, ai.callsFor(ExternalCall.ACTION_FEED_SCORE, user.username).size)
         assertEquals(1, getJson("/api/rss", user.token).size(), "alleen het geseede rss-item hoort er te staan")
         assertGeenAdhocVerwerking(user)
     }
@@ -166,7 +159,7 @@ class FixedRequestsE2eTest : E2eTestBase() {
     @Test
     fun `de dagelijkse samenvatting krijgt alleen feed-items van 24 uur en rss-items van 7 dagen mee`() {
         val user = registerUserWithFixedRequests()
-        openAi.onAction(ExternalCall.ACTION_DAILY_SUMMARY) { "Samenvatting op basis van de aangeboden context." }
+        ai.onAction(ExternalCall.ACTION_DAILY_SUMMARY) { """{"markdown": "Samenvatting op basis van de aangeboden context."}""" }
 
         // Onwaarschijnlijke, unieke titels zodat prompt-matching niet broos is.
         val versFeed = "Zeldzaam feed-artikel ${UUID.randomUUID()}"
@@ -186,9 +179,9 @@ class FixedRequestsE2eTest : E2eTestBase() {
             req.path("status").asString() == "DONE" && req.path("newItemCount").asInt() == 1
         }
 
-        val calls = openAi.callsFor(ExternalCall.ACTION_DAILY_SUMMARY, user.username)
+        val calls = ai.callsFor(ExternalCall.ACTION_DAILY_SUMMARY, user.username)
         assertEquals(1, calls.size)
-        val prompt = calls.single().user
+        val prompt = calls.single().prompt
         assertTrue(prompt.contains(versFeed), "recent feed-item ontbreekt in de prompt")
         assertTrue(prompt.contains(versRss), "recent rss-item ontbreekt in de prompt")
         assertFalse(prompt.contains(oudFeed), "feed-item ouder dan 24 uur zit toch in de prompt")
@@ -199,7 +192,7 @@ class FixedRequestsE2eTest : E2eTestBase() {
     fun `twee reruns op dezelfde dag leveren een samenvatting op, met de inhoud van de laatste run`() {
         val user = registerUserWithFixedRequests()
         val run = AtomicInteger(0)
-        openAi.onAction(ExternalCall.ACTION_DAILY_SUMMARY) { "Samenvatting van run ${run.incrementAndGet()}." }
+        ai.onAction(ExternalCall.ACTION_DAILY_SUMMARY) { """{"markdown": "Samenvatting van run ${run.incrementAndGet()}."}""" }
         seedFeedItem(user, "Vers feed-artikel", Instant.now())
 
         assertEquals(200, post("/api/requests/${dailyId(user)}/rerun", user.token).status)
@@ -211,7 +204,7 @@ class FixedRequestsE2eTest : E2eTestBase() {
         await { feedItemById(user, summaryFeedId).any { it.path("summary").asString() == "Samenvatting van run 2." } }
 
         assertEquals(1, feedItemById(user, summaryFeedId).size)
-        assertEquals(2, openAi.callsFor(ExternalCall.ACTION_DAILY_SUMMARY, user.username).size)
+        assertEquals(2, ai.callsFor(ExternalCall.ACTION_DAILY_SUMMARY, user.username).size)
         assertEquals(1, requestById(user, dailyId(user)).path("newItemCount").asInt())
     }
 
@@ -228,11 +221,11 @@ class FixedRequestsE2eTest : E2eTestBase() {
         // het vaste verzoek staat weer op DONE.
         await { getJson("/api/rss", user.token).size() == 2 }
         await { requestById(user, hourlyId(user)).path("status").asString() == "DONE" }
-        assertEquals(2, openAi.callsFor(ExternalCall.ACTION_RSS_SUMMARIZE, user.username).size)
-        assertEquals(1, openAi.callsFor(ExternalCall.ACTION_FEED_SCORE, user.username).size)
+        assertEquals(1, ai.callsFor(ExternalCall.ACTION_RSS_SUMMARIZE, user.username).size)
+        assertEquals(1, ai.callsFor(ExternalCall.ACTION_FEED_SCORE, user.username).size)
 
         // Criterium 4: de samenvattings-tak is niet meegelift.
-        assertEquals(0, openAi.callsFor(ExternalCall.ACTION_DAILY_SUMMARY, user.username).size)
+        assertEquals(0, ai.callsFor(ExternalCall.ACTION_DAILY_SUMMARY, user.username).size)
         assertTrue(feedItemById(user, summaryFeedId).isEmpty())
         assertGeenAdhocVerwerking(user)
     }

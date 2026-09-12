@@ -1,12 +1,15 @@
 package com.vdzon.newsfeedbackend.podcast.domain
 
-import com.vdzon.newsfeedbackend.ai.OpenAiChatClient
+import com.vdzon.newsfeedbackend.ai.AiAttachment
+import com.vdzon.newsfeedbackend.ai.AiClient
+import com.vdzon.newsfeedbackend.ai.AiRequest
+import com.vdzon.newsfeedbackend.ai.SpeechRequest
+import com.vdzon.newsfeedbackend.ai.SpeechSegment
+import tools.jackson.databind.ObjectMapper
 import com.vdzon.newsfeedbackend.external_call.ExternalCall
 import com.vdzon.newsfeedbackend.podcast.Podcast
 import com.vdzon.newsfeedbackend.podcast.PodcastStatus
-import com.vdzon.newsfeedbackend.podcast.infrastructure.Mp3Concatenator
 import com.vdzon.newsfeedbackend.podcast.infrastructure.PodcastRepository
-import com.vdzon.newsfeedbackend.podcast.infrastructure.TtsClient
 import com.vdzon.newsfeedbackend.podcast_source.PodcastEpisodeLookup
 import io.micrometer.core.instrument.MeterRegistry
 import org.slf4j.LoggerFactory
@@ -21,8 +24,8 @@ import java.time.Instant
  * een Nederlandse audio-podcast.
  *
  * Status-flow (zie [PodcastStatus]):
- *   PENDING → TRANSLATING       (gpt-4o-mini, Engels → Nederlands)
- *           → TTS_GENERATING    (tts-1 in chunks, ffmpeg concat)
+ *   PENDING → TRANSLATING       (Agent Runtime-job, Engels → Nederlands)
+ *           → TTS_GENERATING    (Agent Runtime SPEECH_SYNTHESIS-job, één MP3)
  *           → DONE / FAILED
  *
  * Lives als aparte bean (i.p.v. een method op [PodcastServiceImpl]) om
@@ -34,17 +37,13 @@ import java.time.Instant
 class PodcastTranslator(
     private val repo: PodcastRepository,
     private val episodeRepo: PodcastEpisodeLookup,
-    private val openai: OpenAiChatClient,
-    private val tts: TtsClient,
-    private val concatenator: Mp3Concatenator,
+    private val ai: AiClient,
+    private val mapper: ObjectMapper,
     private val meters: MeterRegistry
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
     companion object {
-        /** OpenAI tts-1 weigert input > 4096 chars. Wij houden marge. */
-        const val TTS_CHUNK_LIMIT = 4000
-
         /**
          * Doel-lengte van de vertaling. ~9000 woorden ≈ 1u audio bij
          * 150 wpm — verankerd in de KAN-63-story.
@@ -78,56 +77,46 @@ class PodcastTranslator(
 
             // === Fase 1: vertaling ===
             update(username, podcastId) { it.copy(status = PodcastStatus.TRANSLATING, errorMessage = null) }
-            val translation = openai.complete(
-                action = ExternalCall.ACTION_PODCAST_TRANSLATE,
-                username = username,
-                subject = "Podcast translate id=$podcastId guid=${episodeGuid.take(40)}",
-                system = TRANSLATE_SYSTEM_PROMPT,
-                user = transcript,
-                // Bovengrens: ~9000 NL-woorden ≈ ~13k tokens. Met marge
-                // voor token-densiteits-verschillen pakken we 16k.
-                maxOutputTokens = 16384
+            val translation = ai.generate(
+                AiRequest(
+                    action = ExternalCall.ACTION_PODCAST_TRANSLATE,
+                    username = username,
+                    subject = "Podcast translate id=$podcastId guid=${episodeGuid.take(40)}",
+                    resultSchema = mapper.readTree("""{"type":"object","additionalProperties":false,"required":["text"],"properties":{"text":{"type":"string"}}}"""),
+                    attachments = listOf(AiAttachment.text("transcript", transcript, "text/plain")),
+                    variant = podcastId,
+                    instruction = TRANSLATE_SYSTEM_PROMPT + "\n\nHet Engelse transcript staat in het invoerobject 'transcript' (/job/input/objects/transcript/content). " +
+                        "Zet de volledige Nederlandse tekst in het veld 'text'."
+                )
             )
-            if (translation.status != "ok" || translation.text.isBlank()) {
-                fail(username, podcastId, "Vertaal-call faalde: ${translation.errorMessage ?: "lege respons"}")
+            val translatedText = translation.result?.path("text")?.asString("")?.trim().orEmpty()
+            if (!translation.ok || translatedText.isBlank()) {
+                fail(username, podcastId, "Vertaal-job faalde: ${translation.errorMessage ?: "lege respons"}")
                 return
             }
-            val translatedText = translation.text.trim()
-            log.info(
-                "[PodcastTranslate] vertaling klaar id={} chars={} tokensIn={} tokensOut={} cost=${'$'}{}",
-                podcastId, translatedText.length, translation.inputTokens, translation.outputTokens,
-                "%.4f".format(translation.costUsd)
-            )
+            log.info("[PodcastTranslate] vertaling klaar id={} chars={} job={}", podcastId, translatedText.length, translation.jobId)
 
-            // === Fase 2: TTS-chunks + ffmpeg-concat ===
+            // === Fase 2: TTS via de runtime (chunking + concat gebeuren daar) ===
             update(username, podcastId) {
                 it.copy(
                     status = PodcastStatus.TTS_GENERATING,
                     scriptText = translatedText
                 )
             }
-            val chunks = chunkForTts(translatedText, TTS_CHUNK_LIMIT)
-            log.info("[PodcastTranslate] {} TTS-chunks voor id={}", chunks.size, podcastId)
-            val mp3Parts = mutableListOf<ByteArray>()
-            for ((idx, chunk) in chunks.withIndex()) {
-                val bytes = tts.generateOpenAiSingleVoice(
+            val speech = ai.synthesize(
+                SpeechRequest(
+                    action = ExternalCall.ACTION_PODCAST_TRANSLATE_TTS,
                     username = username,
-                    subjectId = podcastId,
-                    text = chunk,
-                    voice = OPENAI_VOICE,
-                    action = ExternalCall.ACTION_PODCAST_TRANSLATE_TTS
+                    subject = "Podcast id=$podcastId voice=$OPENAI_VOICE",
+                    segments = listOf(SpeechSegment(translatedText, OPENAI_VOICE, 1.0)),
+                    variant = podcastId
                 )
-                if (bytes == null) {
-                    fail(username, podcastId, "TTS-call faalde op chunk ${idx + 1}/${chunks.size}")
-                    return
-                }
-                mp3Parts += bytes
-            }
-            val audio = concatenator.concat(mp3Parts)
-            if (audio == null || audio.isEmpty()) {
-                fail(username, podcastId, "ffmpeg-concat van TTS-chunks faalde")
+            )
+            if (!speech.ok) {
+                fail(username, podcastId, "TTS-job faalde: ${speech.errorMessage ?: "geen audio"}")
                 return
             }
+            val audio = speech.audio!!
             repo.saveAudio(username, podcastId, audio)
 
             // === Klaar ===
@@ -166,65 +155,6 @@ class PodcastTranslator(
     private fun update(username: String, id: String, fn: (Podcast) -> Podcast) {
         val cur = repo.load(username).find { it.id == id } ?: return
         repo.upsert(username, fn(cur))
-    }
-
-    /**
-     * Splitst [text] in chunks van ≤[limit] tekens, brekend op
-     * zin-einden waar mogelijk. Een zin die zelf langer is dan [limit]
-     * wordt op spaties teruggehakt; in het uiterste geval pakt 'ie
-     * [limit] tekens hard af.
-     */
-    internal fun chunkForTts(text: String, limit: Int): List<String> {
-        val sentences = splitIntoSentences(text)
-        val chunks = mutableListOf<String>()
-        val buf = StringBuilder()
-        for (sentence in sentences) {
-            val s = sentence.trim()
-            if (s.isEmpty()) continue
-            if (s.length > limit) {
-                // Sentence too long on its own — flush the buffer first, then
-                // split this single sentence on word boundaries.
-                if (buf.isNotEmpty()) {
-                    chunks += buf.toString().trim()
-                    buf.setLength(0)
-                }
-                chunks += splitLongSentence(s, limit)
-                continue
-            }
-            val candidate = if (buf.isEmpty()) s else buf.toString() + " " + s
-            if (candidate.length > limit) {
-                chunks += buf.toString().trim()
-                buf.setLength(0)
-                buf.append(s)
-            } else {
-                if (buf.isEmpty()) buf.append(s) else { buf.append(' '); buf.append(s) }
-            }
-        }
-        if (buf.isNotEmpty()) chunks += buf.toString().trim()
-        return chunks.filter { it.isNotBlank() }
-    }
-
-    private fun splitIntoSentences(text: String): List<String> {
-        // Eenvoudige zin-splitter: na . ! ? gevolgd door whitespace en
-        // een hoofdletter / cijfer / aanhalingsteken. Werkt op
-        // alledaagse podcast-tekst; geen volledige NL-tokenizer nodig.
-        val regex = Regex("(?<=[.!?])\\s+(?=[\"'(\\[A-Z0-9])")
-        return text.split(regex)
-    }
-
-    private fun splitLongSentence(sentence: String, limit: Int): List<String> {
-        val out = mutableListOf<String>()
-        var remaining = sentence
-        while (remaining.length > limit) {
-            val window = remaining.substring(0, limit)
-            // Zoek de laatste spatie binnen het venster — als die bestaat,
-            // breek daar zodat we niet midden in een woord splitten.
-            val breakAt = window.lastIndexOf(' ').takeIf { it > limit / 2 } ?: limit
-            out += remaining.substring(0, breakAt).trim()
-            remaining = remaining.substring(breakAt).trim()
-        }
-        if (remaining.isNotBlank()) out += remaining
-        return out
     }
 
     private val TRANSLATE_SYSTEM_PROMPT = """

@@ -126,8 +126,7 @@ class PodcastTranscriptPipelineTest {
         val real = PodcastTranscriptProcessor(
             Mockito.mock(PodcastEpisodeRepository::class.java),
             Mockito.mock(com.vdzon.newsfeedbackend.podcast_source.infrastructure.PodcastAudioDownloader::class.java),
-            Mockito.mock(com.vdzon.newsfeedbackend.media.AudioTranscoder::class.java),
-            Mockito.mock(com.vdzon.newsfeedbackend.ai.WhisperClient::class.java),
+            Mockito.mock(com.vdzon.newsfeedbackend.ai.AiClient::class.java),
             Mockito.mock(PodcastEpisodeSummarizer::class.java),
             Mockito.mock(PodcastCardWriter::class.java)
         )

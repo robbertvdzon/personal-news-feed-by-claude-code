@@ -103,15 +103,9 @@ class RssRefreshPipeline(
                 .distinctBy { it.url }
 
             log.info("[RSS] {} nieuwe artikelen voor '{}'", fetched.size, username)
-            log.info("[RSS] stap 2/4: AI-samenvatting per artikel ({} stuks)", fetched.size)
-            val processed = mutableListOf<RssItem>()
-            fetched.forEachIndexed { idx, item ->
-                val summarized = summarizer.summarize(username, item, cats)
-                if (summarized != null) processed.add(summarized)
-                if ((idx + 1) % 5 == 0 || idx + 1 == fetched.size) {
-                    log.info("[RSS]   samengevat {}/{}", idx + 1, fetched.size)
-                }
-            }
+            log.info("[RSS] stap 2/4: AI-samenvatting ({} artikelen, gebatcht)", fetched.size)
+            val processed = summarizer.summarizeAll(username, fetched, cats)
+            log.info("[RSS]   samengevat {}/{}", processed.size, fetched.size)
             rssRepo.upsertAll(username, processed)
 
             log.info("[RSS] stap 3/4: AI-selectie voor de persoonlijke feed ({} kandidaten)", processed.size)
@@ -138,9 +132,9 @@ class RssRefreshPipeline(
             val toFeed = withSelection.filter { it.inFeed }
             log.info("[RSS] stap 4/4: uitgebreide feed-samenvattingen genereren ({} stuks)", toFeed.size)
             var feedCount = 0
-            for ((idx, rss) in toFeed.withIndex()) {
-                log.info("[RSS]   feed-item {}/{}: {}", idx + 1, toFeed.size, rss.title.take(80))
-                val feedItem = feedItemGenerator.generateFeedItem(username, rss, cats)
+            val generated = if (toFeed.isEmpty()) emptyMap() else feedItemGenerator.generateFeedItems(username, toFeed, cats)
+            for (rss in toFeed) {
+                val feedItem = generated[rss.id] ?: continue
                 feed.save(username, feedItem)
                 rssRepo.upsert(username, rss.copy(feedItemId = feedItem.id))
                 feedCount++
@@ -205,7 +199,7 @@ class RssRefreshPipeline(
             log.info("[RSS] reselect: {} items naar AI-selectie", all.size)
             val verdicts = selector.selectForFeed(username, all, cats, all)
             if (verdicts.isEmpty()) {
-                log.warn("[RSS] reselect: AI gaf geen verdicts terug — bestaande inFeed/feedReason ongewijzigd. Check PNF_OPENAI_API_KEY of de selectie-prompt.")
+                log.warn("[RSS] reselect: AI gaf geen verdicts terug — bestaande inFeed/feedReason ongewijzigd. Check de Agent Runtime (PNF_AGENT_RUNTIME_TOKEN) of de selectie-prompt.")
                 return
             }
             val newlySelectedIds = mutableListOf<String>()
@@ -227,11 +221,11 @@ class RssRefreshPipeline(
                 verdicts.size, updatedCount, newlySelectedIds.size)
 
             // Generate FeedItem for newly-selected items only.
-            for ((idx, id) in newlySelectedIds.withIndex()) {
-                val rss = all.find { it.id == id } ?: continue
-                if (rss.feedItemId != null) continue // already has one
-                log.info("[RSS] reselect feed-item {}/{}: {}", idx + 1, newlySelectedIds.size, rss.title.take(80))
-                val feedItem = feedItemGenerator.generateFeedItem(username, rss, cats)
+            val toGenerate = newlySelectedIds.mapNotNull { id -> all.find { it.id == id } }.filter { it.feedItemId == null }
+            log.info("[RSS] reselect: {} nieuwe feed-items genereren", toGenerate.size)
+            val generated = if (toGenerate.isEmpty()) emptyMap() else feedItemGenerator.generateFeedItems(username, toGenerate, cats)
+            for (rss in toGenerate) {
+                val feedItem = generated[rss.id] ?: continue
                 feed.save(username, feedItem)
                 rssRepo.upsert(username, rss.copy(feedItemId = feedItem.id))
             }
@@ -264,8 +258,8 @@ class RssRefreshPipeline(
         // tryLock-skip deze promotie PERMANENT laten vervallen — het
         // event wordt nooit opnieuw gepubliceerd. Gevonden door
         // PodcastIngestE2eTest (2 afleveringen → 1 kwam nooit in de feed).
-        if (!lock.tryLock(10, java.util.concurrent.TimeUnit.MINUTES)) {
-            log.warn("[RSS] podcast-promotie voor rssItemId={} opgegeven — lock voor '{}' bleef >10m bezet",
+        if (!lock.tryLock(3, java.util.concurrent.TimeUnit.HOURS)) {
+            log.warn("[RSS] podcast-promotie voor rssItemId={} opgegeven — lock voor '{}' bleef >3u bezet",
                 rssItemId, username)
             return
         }

@@ -34,7 +34,8 @@ import java.util.concurrent.TimeUnit
 @Component
 class PodcastBackfillRunner(
     private val episodeRepo: PodcastEpisodeRepository,
-    private val backfiller: PodcastLongSummaryBackfiller
+    private val backfiller: PodcastLongSummaryBackfiller,
+    @org.springframework.beans.factory.annotation.Value("\${app.schedulers.enabled:true}") private val schedulersEnabled: Boolean = true
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -48,6 +49,7 @@ class PodcastBackfillRunner(
 
     @EventListener(ApplicationReadyEvent::class)
     fun runOnStartup() {
+        if (!schedulersEnabled) return
         val pending = try {
             episodeRepo.findDoneNeedingLongSummary()
         } catch (e: Exception) {

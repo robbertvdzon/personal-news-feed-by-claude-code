@@ -56,23 +56,12 @@ spec:
                 secretKeyRef:
                   name: newsfeed-api-keys
                   key: PNF_DATABASE_URL
-            - name: PNF_OPENAI_API_KEY
+            # PNF-3: al het AI-werk loopt via de Agent Runtime; geen provider-keys meer.
+            - name: PNF_AGENT_RUNTIME_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: newsfeed-api-keys
-                  key: PNF_OPENAI_API_KEY
-                  optional: true
-            - name: PNF_TAVILY_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: newsfeed-api-keys
-                  key: PNF_TAVILY_API_KEY
-                  optional: true
-            - name: PNF_ELEVENLABS_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: newsfeed-api-keys
-                  key: PNF_ELEVENLABS_API_KEY
+                  key: PNF_AGENT_RUNTIME_TOKEN
                   optional: true
             - name: APP_JWT_SECRET
               valueFrom:

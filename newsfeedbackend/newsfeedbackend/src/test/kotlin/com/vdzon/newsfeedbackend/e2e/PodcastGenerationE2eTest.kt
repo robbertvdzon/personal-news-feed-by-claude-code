@@ -1,12 +1,12 @@
 package com.vdzon.newsfeedbackend.e2e
 
+import com.vdzon.newsfeedbackend.ai.AiResponse
+import com.vdzon.newsfeedbackend.ai.SpeechResponse
 import com.vdzon.newsfeedbackend.external_call.ExternalCall
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
-import org.springframework.test.context.DynamicPropertyRegistry
-import org.springframework.test.context.DynamicPropertySource
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -16,42 +16,27 @@ import java.time.Duration
 /**
  * De DevTalk-podcast-generatie door de echte app heen:
  * POST /api/podcasts → [com.vdzon.newsfeedbackend.podcast.domain.PodcastGenerator]
- * draait async → AI-script (action `podcast_script`) + AI-topics
- * (`podcast_topics`) via de fake OpenAI → TTS per dialoogregel via HTTP
- * naar de fake-server (OpenAI `/v1/audio/speech` of ElevenLabs
- * `/v1/text-to-speech/{voice}`) → status DONE → audio-endpoint.
- *
- * Buiten scope (bewust): de vertaalflow ([com.vdzon.newsfeedbackend.podcast.domain.PodcastTranslator])
- * — die hangt af van een lokale ffmpeg-installatie voor MP3-concatenatie
- * en is daarmee niet betrouwbaar te faken in deze suite.
+ * draait async → agent-job voor script + topics (action `podcast_script`)
+ * → één TTS-job met alle sprekerbeurten (`podcast_tts` of
+ * `podcast_tts_elevenlabs`) via de fake Agent Runtime-client → status DONE
+ * → audio-endpoint.
  */
 class PodcastGenerationE2eTest : E2eTestBase() {
 
-    companion object {
-        /**
-         * De TtsClient doet zonder api-key geen HTTP-call (returnt direct
-         * null); met dummy keys komen de TTS-calls echt bij de
-         * [FakeContentServer] uit.
-         */
-        @JvmStatic
-        @DynamicPropertySource
-        fun ttsKeys(registry: DynamicPropertyRegistry) {
-            registry.add("app.openai.api-key") { "e2e-openai-key" }
-            registry.add("app.elevenlabs.api-key") { "e2e-eleven-key" }
-        }
-    }
-
-    // 4 dialoogregels (I/G/I/G) — het canonieke format uit PodcastScriptParserTest.
-    private val script = """
-        INTERVIEWER: Welkom bij DevTalk.
-        GAST: Dank je, leuk om hier te zijn.
-        INTERVIEWER: Wat is recent het belangrijkste nieuws?
-        GAST: Kotlin 2.3 is uitgebracht met een sneller compilerbackend.
-    """.trimIndent()
+    private val turns = listOf(
+        "INTERVIEWER" to "Welkom bij DevTalk.",
+        "GAST" to "Dank je, leuk om hier te zijn.",
+        "INTERVIEWER" to "Wat is recent het belangrijkste nieuws?",
+        "GAST" to "Kotlin 2.3 is uitgebracht met een sneller compilerbackend."
+    )
+    private val script = turns.joinToString("\n") { "${it.first}: ${it.second}" }
 
     private fun scriptAi() {
-        openAi.onAction(ExternalCall.ACTION_PODCAST_SCRIPT) { script }
-        openAi.onAction(ExternalCall.ACTION_PODCAST_TOPICS) { """["Kotlin 2.3", "Spring Boot 4"]""" }
+        ai.onAction(ExternalCall.ACTION_PODCAST_SCRIPT) {
+            turns.joinToString(prefix = """{"topics": ["Kotlin 2.3", "Spring Boot 4"], "turns": [""", postfix = "]}") {
+                """{"speaker": "${it.first}", "text": "${it.second}"}"""
+            }
+        }
     }
 
     private fun createBody(provider: String = "OPENAI") =
@@ -75,8 +60,8 @@ class PodcastGenerationE2eTest : E2eTestBase() {
     fun `happy path - podcast genereren tot DONE en audio streamen inclusief JWT via query-param`() {
         val user = registerUser("podcast")
         scriptAi()
-        val segmentBytes = "FAKE-OPENAI-MP3-SEGMENT".toByteArray()
-        content.serveBytes("/openai/v1/audio/speech", "audio/mpeg", segmentBytes)
+        val audioBytes = "FAKE-OPENAI-MP3".toByteArray()
+        ai.speechHandler = { SpeechResponse(audioBytes, AiResponse.STATUS_OK) }
 
         val created = post("/api/podcasts", user.token, createBody("OPENAI"))
         assertEquals(201, created.status)
@@ -98,14 +83,20 @@ class PodcastGenerationE2eTest : E2eTestBase() {
         assertTrue(inList.path("scriptText").isNull)
 
         // Het custom topic zat in de script-prompt.
-        val scriptCalls = openAi.callsFor(ExternalCall.ACTION_PODCAST_SCRIPT, user.username)
+        val scriptCalls = ai.callsFor(ExternalCall.ACTION_PODCAST_SCRIPT, user.username)
         assertEquals(1, scriptCalls.size)
-        assertTrue(scriptCalls[0].user.contains("Onderwerpen: Kotlin"))
+        assertTrue(scriptCalls[0].prompt.contains("Onderwerpen: Kotlin"))
 
-        // Audio met Bearer-token: 4 dialoogregels → 4 aaneengeplakte TTS-segmenten.
+        // Eén TTS-job met 4 sprekerbeurten, OpenAI-stemmen per rol.
+        val speech = ai.speechCalls.single()
+        assertEquals(ExternalCall.ACTION_PODCAST_TTS, speech.action)
+        assertEquals(listOf("onyx", "alloy", "onyx", "alloy"), speech.segments.map { it.voice })
+        assertEquals(turns.map { it.second }, speech.segments.map { it.text })
+
+        // Audio met Bearer-token: de MP3 uit de runtime.
         val audio = getBytes("/api/podcasts/$id/audio", user.token)
         assertEquals(200, audio.statusCode())
-        assertEquals(4 * segmentBytes.size, audio.body().size)
+        assertArrayEquals(audioBytes, audio.body())
         assertEquals("audio/mpeg", audio.headers().firstValue("Content-Type").orElse(""))
         val inlineDisposition = audio.headers().firstValue("Content-Disposition").orElse("")
         assertTrue(inlineDisposition.startsWith("inline"))
@@ -124,56 +115,42 @@ class PodcastGenerationE2eTest : E2eTestBase() {
     }
 
     @Test
-    fun `elevenlabs-provider gebruikt beide stemmen en stript de ID3-tag per segment`() {
+    fun `elevenlabs-provider gebruikt beide stemmen via de elevenlabs-actie`() {
         val user = registerUser("podcast")
         scriptAi()
-        val interviewerAudio = "INTERVIEWER-AUDIO".toByteArray()
-        val guestAudio = "GUEST-AUDIO-BYTES".toByteArray()
-        // Voice-id's zijn de defaults uit application.properties.
-        content.serveBytes(
-            "/elevenlabs/v1/text-to-speech/Jn7U4vF8ZkmjZIZRn4Uk", "audio/mpeg", withId3Tag(interviewerAudio)
-        )
-        content.serveBytes(
-            "/elevenlabs/v1/text-to-speech/h6uBOiAjLKklte8hdYio", "audio/mpeg", withId3Tag(guestAudio)
-        )
 
         val id = post("/api/podcasts", user.token, createBody("ELEVENLABS"))
             .json(mapper).path("id").asString()
         await { statusOf(user, id) == "DONE" }
 
-        // Script is I/G/I/G → audio = interviewer+gast+interviewer+gast,
-        // telkens met de ID3-header van het segment eraf gestript.
-        val audio = getBytes("/api/podcasts/$id/audio", user.token)
-        assertEquals(200, audio.statusCode())
-        assertArrayEquals(
-            interviewerAudio + guestAudio + interviewerAudio + guestAudio,
-            audio.body()
+        // Voice-id's zijn de defaults uit application.properties.
+        val speech = ai.speechCalls.single()
+        assertEquals(ExternalCall.ACTION_PODCAST_TTS_ELEVENLABS, speech.action)
+        assertEquals(
+            listOf("Jn7U4vF8ZkmjZIZRn4Uk", "h6uBOiAjLKklte8hdYio", "Jn7U4vF8ZkmjZIZRn4Uk", "h6uBOiAjLKklte8hdYio"),
+            speech.segments.map { it.voice }
         )
+        assertArrayEquals(FakeAiClient.FAKE_AUDIO, getBytes("/api/podcasts/$id/audio", user.token).body())
     }
 
     @Test
-    fun `script zonder herkenbare sprekerlabels leidt tot status FAILED zonder audio`() {
+    fun `script zonder sprekerbeurten leidt tot status FAILED zonder audio`() {
         val user = registerUser("podcast")
-        openAi.onAction(ExternalCall.ACTION_PODCAST_SCRIPT) {
-            "Welkom bij de podcast.\nVandaag bespreken we AI.\nDat was het weer."
-        }
-        openAi.onAction(ExternalCall.ACTION_PODCAST_TOPICS) { """["AI"]""" }
-        // TTS staat klaar maar mag nooit aangeroepen worden.
-        content.serveBytes("/openai/v1/audio/speech", "audio/mpeg", "X".toByteArray())
+        ai.onAction(ExternalCall.ACTION_PODCAST_SCRIPT) { """{"topics": ["AI"], "turns": []}""" }
 
         val id = post("/api/podcasts", user.token, createBody("OPENAI"))
             .json(mapper).path("id").asString()
 
         await { statusOf(user, id) == "FAILED" }
         assertEquals(404, getBytes("/api/podcasts/$id/audio", user.token).statusCode())
+        assertTrue(ai.speechCalls.isEmpty(), "zonder script hoort er geen TTS-job te starten")
     }
 
     @Test
     fun `falende TTS leidt tot status FAILED en de podcast is daarna verwijderbaar`() {
         val user = registerUser("podcast")
         scriptAi()
-        // Bewust géén /openai/v1/audio/speech geserveerd: elke TTS-call
-        // krijgt een 404 van de fake-server → renderAudio levert niets op.
+        ai.speechHandler = { SpeechResponse(null, AiResponse.STATUS_ERROR, "TTS-provider onbereikbaar") }
 
         val id = post("/api/podcasts", user.token, createBody("OPENAI"))
             .json(mapper).path("id").asString()
@@ -188,19 +165,4 @@ class PodcastGenerationE2eTest : E2eTestBase() {
         assertEquals(404, delete("/api/podcasts/bestaat-niet", user.token).status)
     }
 
-    /**
-     * Verpakt [payload] achter een minimale ID3v2.3-header met een
-     * tag-body van 10 junk-bytes — precies wat [com.vdzon.newsfeedbackend.podcast.infrastructure.TtsClient.stripId3]
-     * eraf hoort te halen.
-     */
-    private fun withId3Tag(payload: ByteArray): ByteArray {
-        val tagBodySize = 10
-        val header = byteArrayOf(
-            'I'.code.toByte(), 'D'.code.toByte(), '3'.code.toByte(),
-            3, 0, // versie 2.3.0
-            0, // flags
-            0, 0, 0, tagBodySize.toByte() // syncsafe size
-        )
-        return header + ByteArray(tagBodySize) { 0x7f } + payload
-    }
 }

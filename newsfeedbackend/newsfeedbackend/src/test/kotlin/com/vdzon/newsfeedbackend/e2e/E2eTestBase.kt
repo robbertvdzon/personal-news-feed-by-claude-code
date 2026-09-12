@@ -51,9 +51,9 @@ abstract class E2eTestBase {
             registry.add("app.podcast.recovery.cron") { "-" }
             // Base-URL's van externe services naar de fake-server zodat een
             // gemiste seam nooit het echte internet raakt.
-            registry.add("app.openai.base-url") { E2eTestConfig.CONTENT.url("/openai") }
-            registry.add("app.tavily.base-url") { E2eTestConfig.CONTENT.url("/tavily") }
-            registry.add("app.elevenlabs.base-url") { E2eTestConfig.CONTENT.url("/elevenlabs") }
+            registry.add("app.agent-runtime.base-url") { E2eTestConfig.CONTENT.url("/agent-runtime") }
+            // Automatische jobs uit: tests triggeren alles expliciet.
+            registry.add("app.schedulers.enabled") { "false" }
             // FakeContentServer draait per definitie op 127.0.0.1 (zie url() hieronder) —
             // zonder deze override blokkeert SsrfUrlValidator (SF-1345) elke RSS-feed-URL die
             // ernaar wijst. Alleen hier aangezet; elke echte omgeving blijft loopback blokkeren.
@@ -69,12 +69,12 @@ abstract class E2eTestBase {
 
     private val http: HttpClient = HttpClient.newHttpClient()
 
-    protected val openAi get() = E2eTestConfig.OPENAI
+    protected val ai get() = E2eTestConfig.AI
     protected val content get() = E2eTestConfig.CONTENT
 
     @BeforeEach
     fun resetFakes() {
-        openAi.reset()
+        ai.reset()
         content.reset()
     }
 

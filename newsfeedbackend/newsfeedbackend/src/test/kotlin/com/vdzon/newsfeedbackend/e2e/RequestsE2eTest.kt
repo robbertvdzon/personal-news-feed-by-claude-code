@@ -6,8 +6,6 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
-import org.springframework.test.context.DynamicPropertyRegistry
-import org.springframework.test.context.DynamicPropertySource
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
@@ -24,19 +22,6 @@ class RequestsE2eTest : E2eTestBase() {
     @Autowired
     private lateinit var requestService: RequestServiceImpl
 
-    companion object {
-        /**
-         * De TavilyClient doet zonder api-key helemaal geen HTTP-call
-         * (hij returnt direct een lege lijst); zet daarom een dummy key
-         * zodat de calls echt bij de [FakeContentServer] uitkomen.
-         */
-        @JvmStatic
-        @DynamicPropertySource
-        fun tavilyKey(registry: DynamicPropertyRegistry) {
-            registry.add("app.tavily.api-key") { "e2e-test-key" }
-        }
-    }
-
     /** Complete DTO-body (alle velden expliciet, zoals de frontend doet). */
     private fun createBody(subject: String, maxCount: Int = 2) = """
         {"subject": "$subject", "sourceItemId": null, "sourceItemTitle": null,
@@ -44,21 +29,11 @@ class RequestsE2eTest : E2eTestBase() {
     """.trimIndent()
 
     /** Serveert een Tavily search- + extract-antwoord met [count] artikelen. */
-    private fun serveTavily(count: Int = 2) {
-        val results = (1..count).map { n ->
-            FakeContentServer.TavilyTestSearchResult(
-                title = "Artikel $n",
-                url = "https://nieuws.example/artikel-$n",
-                content = "Snippet van artikel $n",
-                publishedDate = "2026-07-0${n}T08:00:00"
-            )
+    /** Gescript agent-antwoord: [count] gevonden en samengevatte artikelen. */
+    private fun adhocResult(count: Int, summary: String = "Fake adhoc samenvatting voor de e2e-test."): String =
+        (1..count).joinToString(prefix = """{"items": [""", postfix = "]}") { n ->
+            """{"title": "Artikel $n", "url": "https://nieuws.example/artikel-$n", "source": "nieuws.example", "publishedDate": "2026-07-0${n}", "summary": "$summary"}"""
         }
-        content.serve("/tavily/search", "application/json", content.tavilySearchJson(results))
-        content.serve(
-            "/tavily/extract", "application/json",
-            content.tavilyExtractJson(results.associate { it.url to "Volledige tekst van ${it.title} over Kotlin." })
-        )
-    }
 
     private fun statusOf(user: TestUser, id: String): String =
         getJson("/api/requests", user.token).first { it.path("id").asString() == id }.path("status").asString()
@@ -86,10 +61,9 @@ class RequestsE2eTest : E2eTestBase() {
     }
 
     @Test
-    fun `adhoc request doorloopt tavily en AI en levert feed-items op`() {
+    fun `adhoc request laat de agent zoeken en samenvatten en levert feed-items op`() {
         val user = registerUser("req")
-        serveTavily(count = 2)
-        openAi.onAction(ExternalCall.ACTION_ADHOC_SUMMARIZE) { "Fake adhoc samenvatting voor de e2e-test." }
+        ai.onAction(ExternalCall.ACTION_ADHOC_SUMMARIZE) { adhocResult(count = 2) }
 
         val created = post("/api/requests", user.token, createBody("Kotlin nieuws", maxCount = 2))
         assertEquals(201, created.status)
@@ -100,7 +74,7 @@ class RequestsE2eTest : E2eTestBase() {
         val done = getJson("/api/requests", user.token).first { it.path("id").asString() == id }
         assertEquals(2, done.path("newItemCount").asInt())
 
-        // Per zoekresultaat één feed-item met de AI-samenvatting.
+        // Per gevonden artikel één feed-item met de AI-samenvatting.
         val feed = getJson("/api/feed", user.token)
         assertEquals(2, feed.size())
         assertTrue(feed.all { it.path("summary").asString() == "Fake adhoc samenvatting voor de e2e-test." })
@@ -108,20 +82,19 @@ class RequestsE2eTest : E2eTestBase() {
         assertTrue(feed.all { it.path("source").asString() == "nieuws.example" })
         val titels = feed.values().map { it.path("title").asString() }.toSet()
         assertEquals(setOf("Artikel 1", "Artikel 2"), titels)
-        // published_date uit Tavily wordt afgekapt tot YYYY-MM-DD.
         assertTrue(feed.any { it.path("publishedDate").asString() == "2026-07-01" })
 
-        // De volledige (extract-)tekst zat in de AI-prompt, niet alleen de snippet.
-        val calls = openAi.callsFor(ExternalCall.ACTION_ADHOC_SUMMARIZE, user.username)
-        assertEquals(2, calls.size)
-        assertTrue(calls.any { it.user.contains("Volledige tekst van Artikel 1") })
+        // Eén agent-job met onderwerp en limieten in de opdracht.
+        val calls = ai.callsFor(ExternalCall.ACTION_ADHOC_SUMMARIZE, user.username)
+        assertEquals(1, calls.size)
+        assertTrue(calls.single().prompt.contains("Kotlin nieuws"))
+        assertTrue(calls.single().prompt.contains("maximaal 2"))
     }
 
     @Test
     fun `adhoc request zonder zoekresultaten wordt DONE met nul items en is daarna verwijderbaar`() {
         val user = registerUser("req")
-        // Bewust géén /tavily/search geserveerd: de fake-server geeft 404
-        // en de TavilyClient vertaalt dat naar een lege resultatenlijst.
+        // Default-fake: de agent vindt niets.
 
         val created = post("/api/requests", user.token, createBody("Onvindbaar onderwerp"))
         val id = created.json(mapper).path("id").asString()
@@ -130,7 +103,7 @@ class RequestsE2eTest : E2eTestBase() {
         val done = getJson("/api/requests", user.token).first { it.path("id").asString() == id }
         assertEquals(0, done.path("newItemCount").asInt())
         assertEquals(0, getJson("/api/feed", user.token).size())
-        assertEquals(0, openAi.callsFor(ExternalCall.ACTION_ADHOC_SUMMARIZE, user.username).size)
+        assertEquals(1, ai.callsFor(ExternalCall.ACTION_ADHOC_SUMMARIZE, user.username).size)
 
         // Een niet-vaste request mag wél verwijderd worden.
         assertEquals(204, delete("/api/requests/$id", user.token).status)
@@ -140,39 +113,37 @@ class RequestsE2eTest : E2eTestBase() {
     @Test
     fun `lopende request annuleren zet de status op CANCELLED en stopt de verwerking`() {
         val user = registerUser("req")
-        serveTavily(count = 2)
 
-        // Blokkeer de eerste AI-samenvatting zodat de request gegarandeerd
-        // nog "onderweg" is op het moment van annuleren.
+        // Blokkeer de agent-job zodat de request gegarandeerd nog
+        // "onderweg" is op het moment van annuleren.
         val latch = CountDownLatch(1)
-        openAi.onAction(ExternalCall.ACTION_ADHOC_SUMMARIZE) {
+        ai.onAction(ExternalCall.ACTION_ADHOC_SUMMARIZE) {
             latch.await(20, TimeUnit.SECONDS)
-            "Vertraagde samenvatting."
+            adhocResult(count = 2, summary = "Vertraagde samenvatting.")
         }
 
         val id = post("/api/requests", user.token, createBody("Traag onderwerp", maxCount = 2))
             .json(mapper).path("id").asString()
 
-        // Wacht tot de orchestrator in de eerste AI-call hangt.
-        await { openAi.callsFor(ExternalCall.ACTION_ADHOC_SUMMARIZE, user.username).isNotEmpty() }
+        // Wacht tot de orchestrator in de agent-job hangt.
+        await { ai.callsFor(ExternalCall.ACTION_ADHOC_SUMMARIZE, user.username).isNotEmpty() }
 
         assertEquals(204, post("/api/requests/$id/cancel", user.token).status)
         await { statusOf(user, id) == "CANCELLED" }
 
-        // Laat de AI-call los: de orchestrator ziet vóór artikel 2 de
-        // annulering en mag de status niet meer naar DONE flippen.
+        // Laat de job los: de orchestrator ziet de annulering en mag de
+        // status niet meer naar DONE flippen of items opslaan.
         latch.countDown()
         Thread.sleep(1500)
         assertEquals("CANCELLED", statusOf(user, id))
-        assertEquals(1, openAi.callsFor(ExternalCall.ACTION_ADHOC_SUMMARIZE, user.username).size)
-        assertTrue(getJson("/api/feed", user.token).size() <= 1)
+        assertEquals(1, ai.callsFor(ExternalCall.ACTION_ADHOC_SUMMARIZE, user.username).size)
+        assertEquals(0, getJson("/api/feed", user.token).size())
     }
 
     @Test
     fun `rerun van een afgeronde request draait de pipeline opnieuw`() {
         val user = registerUser("req")
-        serveTavily(count = 1)
-        openAi.onAction(ExternalCall.ACTION_ADHOC_SUMMARIZE) { "Samenvatting run." }
+        ai.onAction(ExternalCall.ACTION_ADHOC_SUMMARIZE) { adhocResult(count = 1, summary = "Samenvatting run.") }
 
         val id = post("/api/requests", user.token, createBody("Herhaalbaar onderwerp", maxCount = 1))
             .json(mapper).path("id").asString()
@@ -189,7 +160,9 @@ class RequestsE2eTest : E2eTestBase() {
         val done = getJson("/api/requests", user.token).first { it.path("id").asString() == id }
         assertEquals(1, done.path("newItemCount").asInt())
         // De pipeline liep echt opnieuw: nogmaals een AI-call en een tweede feed-item.
-        assertEquals(2, openAi.callsFor(ExternalCall.ACTION_ADHOC_SUMMARIZE, user.username).size)
+        val runs = ai.callsFor(ExternalCall.ACTION_ADHOC_SUMMARIZE, user.username)
+        assertEquals(2, runs.size)
+        assertTrue(runs[0].variant != runs[1].variant, "een rerun hoort een nieuwe runtime-job te krijgen")
         assertEquals(2, getJson("/api/feed", user.token).size())
     }
 
@@ -210,19 +183,18 @@ class RequestsE2eTest : E2eTestBase() {
     fun `een andere gebruiker kan een lopend verzoek niet annuleren`() {
         val owner = registerUser("req")
         val attacker = registerUser("req")
-        serveTavily(count = 2)
 
-        // Blokkeer de eerste AI-samenvatting zodat het verzoek van de
-        // eigenaar echt nog onderweg is tijdens de annuleerpoging.
+        // Blokkeer de agent-job zodat het verzoek van de eigenaar echt nog
+        // onderweg is tijdens de annuleerpoging.
         val latch = CountDownLatch(1)
-        openAi.onAction(ExternalCall.ACTION_ADHOC_SUMMARIZE) {
+        ai.onAction(ExternalCall.ACTION_ADHOC_SUMMARIZE) {
             latch.await(20, TimeUnit.SECONDS)
-            "Vertraagde samenvatting."
+            adhocResult(count = 2, summary = "Vertraagde samenvatting.")
         }
 
         val id = post("/api/requests", owner.token, createBody("Traag onderwerp", maxCount = 2))
             .json(mapper).path("id").asString()
-        await { openAi.callsFor(ExternalCall.ACTION_ADHOC_SUMMARIZE, owner.username).isNotEmpty() }
+        await { ai.callsFor(ExternalCall.ACTION_ADHOC_SUMMARIZE, owner.username).isNotEmpty() }
 
         // De aanvaller kent het id (het lekt via /ws/requests) maar mag er niets mee.
         assertEquals(404, post("/api/requests/$id/cancel", attacker.token).status)

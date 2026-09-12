@@ -63,9 +63,9 @@ class PodcastIngestE2eTest : E2eTestBase() {
         assertTrue(getJson("/api/feed", user.token).all { it.path("mediaType").asString() == "PODCAST" })
 
         // De show-notes zaten in de AI-prompt (geen Whisper nodig).
-        val prompts = openAi.callsFor(ExternalCall.ACTION_PODCAST_EPISODE_SUMMARIZE, user.username)
+        val prompts = ai.callsFor(ExternalCall.ACTION_PODCAST_EPISODE_SUMMARIZE, user.username)
         assertEquals(2, prompts.size)
-        assertTrue(prompts.any { it.user.contains("teststrategie en Kotlin") })
+        assertTrue(prompts.any { it.prompt.contains("teststrategie en Kotlin") })
     }
 
     @Test
@@ -77,7 +77,7 @@ class PodcastIngestE2eTest : E2eTestBase() {
             """{"feeds": [{"url": "$feedUrl", "transcribeEnabled": false}]}"""
         )
         await { getJson("/api/rss", user.token).size() == 2 }
-        val aiCallsNaEersteRun = openAi.callsFor(ExternalCall.ACTION_PODCAST_EPISODE_SUMMARIZE, user.username).size
+        val aiCallsNaEersteRun = ai.callsFor(ExternalCall.ACTION_PODCAST_EPISODE_SUMMARIZE, user.username).size
 
         // RSS-refresh triggert ook de podcast-ingestion (zelfde knop in de UI).
         post("/api/rss/refresh", user.token)
@@ -89,7 +89,7 @@ class PodcastIngestE2eTest : E2eTestBase() {
         assertEquals(2, getJson("/api/rss", user.token).size())
         assertEquals(
             aiCallsNaEersteRun,
-            openAi.callsFor(ExternalCall.ACTION_PODCAST_EPISODE_SUMMARIZE, user.username).size,
+            ai.callsFor(ExternalCall.ACTION_PODCAST_EPISODE_SUMMARIZE, user.username).size,
             "geen nieuwe afleveringen → geen extra AI-samenvattingen"
         )
     }

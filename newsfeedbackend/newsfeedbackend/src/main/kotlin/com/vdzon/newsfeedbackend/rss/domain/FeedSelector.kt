@@ -1,9 +1,8 @@
 package com.vdzon.newsfeedbackend.rss.domain
 
 import tools.jackson.databind.ObjectMapper
-import com.vdzon.newsfeedbackend.ai.AiJson
-import com.vdzon.newsfeedbackend.ai.AiModelProperties
-import com.vdzon.newsfeedbackend.ai.OpenAiChatClient
+import com.vdzon.newsfeedbackend.ai.AiClient
+import com.vdzon.newsfeedbackend.ai.AiRequest
 import com.vdzon.newsfeedbackend.external_call.ExternalCall
 import com.vdzon.newsfeedbackend.rss.RssItem
 import com.vdzon.newsfeedbackend.settings.CategorySettings
@@ -18,8 +17,7 @@ import org.springframework.stereotype.Component
  */
 @Component
 class FeedSelector(
-    private val openAi: OpenAiChatClient,
-    private val aiModels: AiModelProperties,
+    private val ai: AiClient,
     private val mapper: ObjectMapper,
     private val topicHistory: TopicHistoryRepository
 ) {
@@ -53,75 +51,73 @@ class FeedSelector(
             "${c.id} (${c.name})$instr"
         }
 
-        val ai = openAi.complete(
-            model = aiModels.modelOrDefault(ExternalCall.ACTION_FEED_SCORE),
-            action = ExternalCall.ACTION_FEED_SCORE,
-            username = username,
-            subject = "${items.size} kandidaten",
-            maxOutputTokens = 16000,
-            system = """
-                Je bent een nieuwsredacteur die voor een softwareontwikkelaar bepaalt welke artikelen interessant genoeg zijn voor zijn persoonlijke feed.
+        val response = ai.generate(
+            AiRequest(
+                action = ExternalCall.ACTION_FEED_SCORE,
+                username = username,
+                subject = "${items.size} kandidaten",
+                resultSchema = mapper.readTree(SCHEMA),
+                instruction = """
+                    Je bent een nieuwsredacteur die voor een softwareontwikkelaar bepaalt welke artikelen interessant genoeg zijn voor zijn persoonlijke feed.
 
-                Belangrijk:
-                - Gebruik de 'voorkeur'-tekst per categorie actief: een artikel dat past bij de voorkeur is in principe relevant.
-                - Wees niet te streng. Twijfelgevallen die binnen de gebruikers­voorkeuren vallen mogen worden meegenomen.
-                - Schrijf de redenen in het Nederlands, max 1 zin.
-                - Beantwoord álle aangeleverde artikelen, in dezelfde volgorde.
-                - Antwoord met **alleen** de pure JSON-array, geen markdown-codefences (geen ```), geen prose ervoor of erna.
-            """.trimIndent(),
-            user = """
-                Categorieën en voorkeuren:
-                $catContext
+                    Belangrijk:
+                    - Gebruik de 'voorkeur'-tekst per categorie actief: een artikel dat past bij de voorkeur is in principe relevant.
+                    - Wees niet te streng. Twijfelgevallen die binnen de gebruikers­voorkeuren vallen mogen worden meegenomen.
+                    - Schrijf de redenen in het Nederlands, max 1 zin.
+                    - Beoordeel álle aangeleverde artikelen: voor élk id één entry in "verdicts", id exact overgenomen.
+                    - Werk alleen met de aangeleverde gegevens; zoek niets op internet op.
 
-                Recent gelezen onderwerpen: ${recentTopics.ifBlank { "(geen)" }}
+                    Categorieën en voorkeuren:
+                    $catContext
 
-                Eerder geliket:
-                ${likedTitles.ifBlank { "(geen)" }}
+                    Recent gelezen onderwerpen: ${recentTopics.ifBlank { "(geen)" }}
 
-                Eerder afgewezen:
-                ${dislikedTitles.ifBlank { "(geen)" }}
+                    Eerder geliket:
+                    ${likedTitles.ifBlank { "(geen)" }}
 
-                Eerder bewaard (sterren):
-                ${starredTitles.ifBlank { "(geen)" }}
+                    Eerder afgewezen:
+                    ${dislikedTitles.ifBlank { "(geen)" }}
 
-                Te beoordelen artikelen (id|category|title [topics] → samenvattingsbegin):
-                $titles
+                    Eerder bewaard (sterren):
+                    ${starredTitles.ifBlank { "(geen)" }}
 
-                Antwoord met een geldig JSON-array (geen prose ervoor of erna). Voor élk id één entry in dezelfde volgorde:
-                [{"id": "...", "inFeed": true, "reason": "korte Nederlandse uitleg"}]
-                Gebruik inFeed=true voor relevante artikelen, inFeed=false voor de rest.
-            """.trimIndent()
+                    Te beoordelen artikelen (id|category|title [topics] → samenvattingsbegin):
+                    $titles
+
+                    Gebruik inFeed=true voor relevante artikelen, inFeed=false voor de rest.
+                """.trimIndent()
+            )
         )
-        log.debug("[RSS] selectie ruwe AI-output ({} chars): {}", ai.text.length, ai.text.take(2000))
-        return try {
-            val tree = mapper.readTree(AiJson.extract(ai.text))
-            if (!tree.isArray) {
-                log.warn("[RSS] selectie: AI gaf geen JSON-array terug — eerste 500 chars: {}", ai.text.take(500))
-                return emptyMap()
-            }
-            val results = mutableMapOf<String, SelectionVerdict>()
-            var inFeedCount = 0
-            for (node in tree) {
-                val id = node.path("id").asString("")
-                if (id.isBlank()) continue
-                val inFeed = node.path("inFeed").asBoolean(false)
-                val reason = node.path("reason").asString("")
-                results[id] = SelectionVerdict(inFeed, reason)
-                if (inFeed) inFeedCount++
-            }
-            log.info("[RSS]   selectie response: {} entries beoordeeld ({} inFeed=true, {} inFeed=false)",
-                results.size, inFeedCount, results.size - inFeedCount)
-            if (inFeedCount == 0 && results.isNotEmpty()) {
-                val sampleReasons = results.entries.take(3).joinToString(" | ") { (id, v) ->
-                    val title = items.find { it.id == id }?.title?.take(40).orEmpty()
-                    "[$title] ${v.reason.take(80)}"
-                }
-                log.info("[RSS]   AI heeft alle artikelen afgewezen — voorbeelden: {}", sampleReasons)
-            }
-            results
-        } catch (e: Exception) {
-            log.warn("[RSS] selectie parse fout: {} — eerste 500 chars: {}", e.message, ai.text.take(500))
-            emptyMap()
+        if (!response.ok) {
+            log.warn("[RSS] selectie mislukt: {}", response.errorMessage)
+            return emptyMap()
         }
+        val results = mutableMapOf<String, SelectionVerdict>()
+        var inFeedCount = 0
+        for (node in response.result!!.path("verdicts").values()) {
+            val id = node.path("id").asString("")
+            if (id.isBlank()) continue
+            val inFeed = node.path("inFeed").asBoolean(false)
+            results[id] = SelectionVerdict(inFeed, node.path("reason").asString(""))
+            if (inFeed) inFeedCount++
+        }
+        log.info("[RSS]   selectie response: {} entries beoordeeld ({} inFeed=true, {} inFeed=false)",
+            results.size, inFeedCount, results.size - inFeedCount)
+        if (inFeedCount == 0 && results.isNotEmpty()) {
+            val sampleReasons = results.entries.take(3).joinToString(" | ") { (id, v) ->
+                val title = items.find { it.id == id }?.title?.take(40).orEmpty()
+                "[$title] ${v.reason.take(80)}"
+            }
+            log.info("[RSS]   AI heeft alle artikelen afgewezen — voorbeelden: {}", sampleReasons)
+        }
+        return results
+    }
+
+    companion object {
+        private val SCHEMA = """
+            {"type":"object","additionalProperties":false,"required":["verdicts"],"properties":{
+              "verdicts":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["id","inFeed","reason"],"properties":{
+                "id":{"type":"string"},"inFeed":{"type":"boolean"},"reason":{"type":"string"}}}}}}
+        """.trimIndent()
     }
 }

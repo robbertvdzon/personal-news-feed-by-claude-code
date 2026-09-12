@@ -48,14 +48,14 @@ class RssRefreshE2eTest : E2eTestBase() {
         assertTrue(feedItems.all { it.path("titleNl").asString() == "Fake NL titel" })
         assertTrue(feedItems.all { it.path("shortSummary").asString() == "Fake korte samenvatting." })
 
-        // De pipeline heeft de verwachte AI-stappen doorlopen.
-        assertEquals(2, openAi.callsFor(ExternalCall.ACTION_RSS_SUMMARIZE, user.username).size)
-        assertEquals(1, openAi.callsFor(ExternalCall.ACTION_FEED_SCORE, user.username).size)
-        assertEquals(2, openAi.callsFor(ExternalCall.ACTION_FEED_SUMMARIZE, user.username).size)
+        // De pipeline heeft de verwachte AI-stappen doorlopen, gebatcht (PNF-3).
+        assertEquals(1, ai.callsFor(ExternalCall.ACTION_RSS_SUMMARIZE, user.username).size)
+        assertEquals(1, ai.callsFor(ExternalCall.ACTION_FEED_SCORE, user.username).size)
+        assertEquals(1, ai.callsFor(ExternalCall.ACTION_FEED_SUMMARIZE, user.username).size)
 
         // De volledige artikeltekst (via ArticleFetcher) zat in de samenvattingsprompt.
-        val summarizePrompts = openAi.callsFor(ExternalCall.ACTION_FEED_SUMMARIZE, user.username)
-        assertTrue(summarizePrompts.any { it.user.contains("Kotlin 3.0 brengt nieuwe features") })
+        val summarizePrompts = ai.callsFor(ExternalCall.ACTION_FEED_SUMMARIZE, user.username)
+        assertTrue(summarizePrompts.any { it.prompt.contains("Kotlin 3.0 brengt nieuwe features") })
     }
 
     @Test
@@ -84,11 +84,8 @@ class RssRefreshE2eTest : E2eTestBase() {
         put("/api/rss-feeds", user.token, """{"feeds": ["$feedUrl"]}""")
 
         // Script: wijs alles af.
-        openAi.onAction(ExternalCall.ACTION_FEED_SCORE) { call ->
-            val ids = FakeOpenAiChatClient.extractCandidateIds(call.user)
-            ids.joinToString(prefix = "[", postfix = "]") {
-                """{"id": "$it", "inFeed": false, "reason": "Niet interessant voor deze test"}"""
-            }
+        ai.onAction(ExternalCall.ACTION_FEED_SCORE) { call ->
+            FakeAiClient.verdicts(FakeAiClient.extractCandidateIds(call.prompt), false, "Niet interessant voor deze test")
         }
 
         post("/api/rss/refresh", user.token)

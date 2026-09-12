@@ -22,9 +22,10 @@ en multi-user support. Spec-first gebouwd met Claude Code
   - `frontend/` → de volledige app (publiek op `news.vdzonsoftware.nl`)
   - `frontend-reader/` → read-only reader-variant
 - **DB:** PostgreSQL (Neon, cloud) — Flyway-migraties bij start
-- **AI:** OpenAI (samenvatting/selectie/podcast — de app draait volledig
-  op OpenAI) · Tavily (websearch) · ElevenLabs (podcast-TTS).
-- **Media:** `ffmpeg` (mp3-compressie) in het backend-image
+- **AI:** alles via de **Agent Runtime** (`agent-runtime.vdzonsoftware.nl`, v2 API, PNF-3):
+  tekstwerk en web search via het Claude-abonnement op de worker, transcriptie
+  lokaal met whisper.cpp op de worker, TTS (OpenAI/ElevenLabs) via de API-modus
+  van de runtime. De backend heeft zelf geen AI-provider-keys.
 
 ---
 
@@ -80,8 +81,8 @@ mvn -DskipTests package
 java -jar target/newsfeedbackend-*.jar      # poort 8080; Flyway migreert automatisch
 # health: curl http://localhost:8080/actuator/health   → "status":"UP"
 ```
-> AI-features werken lokaal alleen met echte API-keys (`PNF_OPENAI_API_KEY`
-> etc. uit `deploy/secrets-cluster.env`); de rest van de app werkt zonder.
+> AI-features werken lokaal alleen met `PNF_AGENT_RUNTIME_TOKEN` (uit
+> `deploy/secrets-cluster.env`); de rest van de app werkt zonder.
 > Zonder `APP_JWT_SECRET` genereert de backend een ephemeral JWT-secret —
 > prima lokaal, maar iedereen is na een herstart uitgelogd.
 >
@@ -118,8 +119,8 @@ mvn verify    # unit + volledige e2e-suite: start de hele app per testklasse
               # tegen een Testcontainers-Postgres; vereist Docker; ~7 min
 ```
 - De e2e-tests (`src/test/kotlin/.../e2e/`) draaien de échte app met echte
-  Postgres en Flyway; alleen externe diensten (OpenAI, Tavily, ElevenLabs,
-  RSS-feeds) zijn gefaked. Geen secrets of netwerk nodig.
+  Postgres en Flyway; alleen externe diensten (Agent Runtime via `FakeAiClient`,
+  RSS-feeds/artikelen via `FakeContentServer`) zijn gefaked. Geen secrets of netwerk nodig.
 - `ModuleStructureTest` bewaakt de Spring Modulith module-grenzen; de
   allowlist is leeg en hoort leeg te blijven.
 - Coverage-rapport na `mvn verify`: `target/site/jacoco-it/index.html`. Dat
@@ -166,9 +167,9 @@ Bestanden staan lokaal (gitignored). Voor de assistent worden ze read-only besch
   Alleen de productie-overlay koppelt deze door; PR-previews zetten
   `APP_JWT_SECRET` bewust leeg en draaien op een ephemeral sleutel per pod
   (SF-1542, zie `deploy/README.md`).
-- `PNF_OPENAI_API_KEY` — OpenAI (samenvatting/selectie/podcast/TTS-transcribe).
-- `PNF_TAVILY_API_KEY` — Tavily websearch (ad-hoc nieuws-verzoeken).
-- `PNF_ELEVENLABS_API_KEY` — ElevenLabs TTS voor podcast-audio.
+- `PNF_AGENT_RUNTIME_TOKEN` — bearer-token van tenant `personal-news-feed` in de
+  Agent Runtime (= `AR_PERSONAL_NEWS_FEED_TOKEN` in `agent-runtime/secrets.env`).
+  Alle AI-werk loopt hierover; provider-keys staan alleen in de runtime.
 - `TUNNEL_TOKEN` — Cloudflare-tunnel token (cloudflared-pod → publiceert `*.vdzonsoftware.nl`).
 - `GITHUB_TOKEN` — PAT voor `gh`/`git push` naar deze repo (CI + ArgoCD PR-preview-generator).
   De `preview-ns-labeller` gebruikt 'm ook voor zijn fail-closed PR-statuscheck: zonder
@@ -326,7 +327,7 @@ zetten — leg de meting waarop dat besluit rust hier vast.
   `insecureEdgeTerminationPolicy: Allow` (niet `Redirect`), omdat de
   Cloudflare-connector de router cluster-intern via HTTP bereikt;
   `deploy/base/backend-route.yaml` (debug) houdt bewust `Redirect`.
-- **AI/SaaS:** OpenAI, Tavily, ElevenLabs, Neon, YouTrack (story-tracking).
+- **AI/SaaS:** Agent Runtime (eigen platform; OpenAI/ElevenLabs/Claude achter de runtime), Neon, YouTrack (story-tracking).
 
 ---
 
@@ -421,3 +422,18 @@ matchte de Route wél en zit het probleem in de pod (zie `oc logs` hierboven).
   exposeert `/actuator/prometheus`.
 - **Specs/docs:** `specs/` is de source of truth (openapi + functional/technical).
 ```
+
+## AI via de Agent Runtime (PNF-3)
+
+- Elke AI-stap is een job op `https://agent-runtime.vdzonsoftware.nl` (tenant
+  `personal-news-feed`). Actie → `vendor/model/MODE` staat in
+  `app.ai.actions.*` (override via `PNF_AI_*`).
+- Jobs zijn te volgen in de runtime-monitor (zelfde URL, Google-login).
+- **Worker (laptop) uit:** abonnements- en transcriptiejobs wachten in de queue.
+  PNF wacht maximaal `PNF_AGENT_RUNTIME_MAX_WAIT_MINUTES` (120) en gaat door;
+  de volgende run met dezelfde invoer pakt dezelfde job weer op (idempotency-key
+  = hash over invoer), er gaat dus geen werk verloren of dubbel betaald.
+- **Kosten:** het dashboard telt onder `agent-runtime` alleen werkelijke kosten
+  (API-jobs zoals TTS); abonnementsjobs kosten 0 (API-equivalent staat in de runtime).
+- **Previews** draaien zonder automatische jobs (`PNF_SCHEDULERS_ENABLED=false`)
+  en met een eigen idempotency-ruimte (`PNF_AGENT_RUNTIME_ENV` = namespace).

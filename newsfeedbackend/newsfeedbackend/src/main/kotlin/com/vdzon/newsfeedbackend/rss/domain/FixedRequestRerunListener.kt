@@ -30,7 +30,12 @@ class FixedRequestRerunListener(
             }
             event.requestId.startsWith("daily-summary-") -> {
                 log.info("[Rerun] daily-summary -> regenerate for '{}'", event.username)
-                rssScheduler.generateDailySummary(event.username)
+                try {
+                    // Een rerun wil bewust een nieuwe tekst, ook bij identieke context.
+                    rssScheduler.generateDailySummary(event.username, variant = "rerun-${java.time.Instant.now()}")
+                } catch (e: Exception) {
+                    log.error("[Rerun] daily-summary voor '{}' mislukt: {}", event.username, e.message)
+                }
             }
         }
     }

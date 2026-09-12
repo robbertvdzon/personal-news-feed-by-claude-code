@@ -1,7 +1,9 @@
 package com.vdzon.newsfeedbackend.rss.domain
 
-import com.vdzon.newsfeedbackend.ai.AiModelProperties
-import com.vdzon.newsfeedbackend.ai.OpenAiChatClient
+import com.vdzon.newsfeedbackend.ai.AiClient
+import com.vdzon.newsfeedbackend.ai.AiRequest
+import tools.jackson.databind.ObjectMapper
+import org.springframework.beans.factory.annotation.Value
 import com.vdzon.newsfeedbackend.auth.AuthService
 import com.vdzon.newsfeedbackend.feed.FeedItem
 import com.vdzon.newsfeedbackend.feed.FeedService
@@ -24,15 +26,17 @@ class RssScheduler(
     private val rss: RssService,
     private val feed: FeedService,
     private val rssRepo: RssItemRepository,
-    private val openAi: OpenAiChatClient,
-    private val aiModels: AiModelProperties,
-    private val requests: RequestService
+    private val ai: AiClient,
+    private val mapper: ObjectMapper,
+    private val requests: RequestService,
+    @param:Value("\${app.schedulers.enabled:true}") private val schedulersEnabled: Boolean = true
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
     @Scheduled(cron = "0 0 * * * *")
     @SchedulerLock(name = "hourlyRefresh", lockAtMostFor = "59m", lockAtLeastFor = "1m")
     fun hourlyRefresh() {
+        if (!schedulersEnabled) return
         for (username in auth.listUsernames()) {
             log.info("[Scheduler] hourly refresh -> {}", username)
             rss.triggerRefresh(username)
@@ -42,6 +46,7 @@ class RssScheduler(
     @Scheduled(cron = "0 0 6 * * *")
     @SchedulerLock(name = "dailySummary", lockAtMostFor = "4h", lockAtLeastFor = "1m")
     fun dailySummary() {
+        if (!schedulersEnabled) return
         for (username in auth.listUsernames()) {
             try {
                 generateDailySummary(username)
@@ -51,7 +56,7 @@ class RssScheduler(
         }
     }
 
-    fun generateDailySummary(username: String) {
+    fun generateDailySummary(username: String, variant: String? = null) {
         val today = LocalDate.now()
         val id = "daily-summary-feed-$today"
         val now = Instant.now()
@@ -64,20 +69,28 @@ class RssScheduler(
             recentRss.forEach { append("- ${it.title} (${it.category}): ${it.snippet.take(200)}\n") }
         }
         val action = com.vdzon.newsfeedbackend.external_call.ExternalCall.ACTION_DAILY_SUMMARY
-        val ai = openAi.complete(
-            model = aiModels.modelOrDefault(action),
-            action = action,
-            username = username,
-            subject = "Daily summary $today",
-            system = "Je schrijft een dagelijkse Nederlandstalige nieuwsbriefing in Markdown (600-1000 woorden) met koppen, lijsten en duidingen.",
-            user = context
+        val response = ai.generate(
+            AiRequest(
+                action = action,
+                username = username,
+                subject = "Daily summary $today",
+                resultSchema = mapper.readTree("""{"type":"object","additionalProperties":false,"required":["markdown"],"properties":{"markdown":{"type":"string"}}}"""),
+                variant = variant,
+                instruction = "Je schrijft een dagelijkse Nederlandstalige nieuwsbriefing in Markdown (600-1000 woorden) met koppen, lijsten en duidingen, " +
+                    "op basis van de items hieronder. Werk alleen met deze items; zoek niets op internet op. Zet de volledige briefing in het veld 'markdown'.\n\n" + context
+            )
         )
+        val markdown = response.result?.path("markdown")?.asString("").orEmpty()
+        if (!response.ok || markdown.isBlank()) {
+            log.warn("[Summary] dagelijkse samenvatting voor '{}' mislukt: {}", username, response.errorMessage)
+            throw IllegalStateException("Dagelijkse samenvatting mislukt: ${response.errorMessage ?: "leeg antwoord"}")
+        }
         feed.delete(username, id)
         feed.save(
             username, FeedItem(
                 id = id,
                 title = "Dagelijkse samenvatting $today",
-                summary = ai.text,
+                summary = markdown,
                 isSummary = true,
                 createdAt = now,
                 publishedDate = today.toString()

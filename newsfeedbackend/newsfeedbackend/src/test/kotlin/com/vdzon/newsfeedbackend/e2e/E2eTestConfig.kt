@@ -1,6 +1,6 @@
 package com.vdzon.newsfeedbackend.e2e
 
-import com.vdzon.newsfeedbackend.ai.OpenAiChatClient
+import com.vdzon.newsfeedbackend.ai.AiClient
 import com.vdzon.newsfeedbackend.auth.infrastructure.GoogleIdTokenVerifier
 import com.vdzon.newsfeedbackend.auth.infrastructure.GoogleIdentity
 import com.vdzon.newsfeedbackend.common.UnauthorizedException
@@ -16,7 +16,7 @@ import java.nio.file.Files
  * Postgres (Testcontainers) en Flyway-migraties. Alleen de externe
  * dependencies zijn vervangen:
  *
- *  - OpenAI (chat/JSON): [FakeOpenAiChatClient] als @Primary-bean.
+ *  - Agent Runtime (alle AI-werk): [FakeAiClient] als @Primary-bean.
  *  - RSS-/podcast-feeds en artikelen: [FakeContentServer] — feeds zijn
  *    user-config, dus tests registreren gewoon een localhost-URL.
  *
@@ -30,7 +30,7 @@ class E2eTestConfig {
         val POSTGRES: PostgreSQLContainer<*> by lazy {
             PostgreSQLContainer("postgres:16-alpine").apply { start() }
         }
-        val OPENAI = FakeOpenAiChatClient()
+        val AI = FakeAiClient()
         val CONTENT = FakeContentServer()
         val DATA_DIR: String by lazy {
             Files.createTempDirectory("pnf-e2e-data").toAbsolutePath().toString()
@@ -39,7 +39,7 @@ class E2eTestConfig {
 
     @Bean
     @Primary
-    fun fakeOpenAiChatClient(): OpenAiChatClient = OPENAI
+    fun fakeAiClient(): AiClient = AI
 
     @Bean
     @Primary

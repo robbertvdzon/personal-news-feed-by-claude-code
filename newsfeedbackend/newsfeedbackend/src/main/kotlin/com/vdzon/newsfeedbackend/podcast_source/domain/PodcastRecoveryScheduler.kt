@@ -45,7 +45,8 @@ import java.time.Instant
 class PodcastRecoveryScheduler(
     private val episodeRepo: PodcastEpisodeRepository,
     private val events: ApplicationEventPublisher,
-    @Value("\${app.podcast.transcript-worker.promotion-timeout-hours:24}") promotionTimeoutHours: Long
+    @Value("\${app.podcast.transcript-worker.promotion-timeout-hours:24}") promotionTimeoutHours: Long,
+    @Value("\${app.schedulers.enabled:true}") private val schedulersEnabled: Boolean = true
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
     private val promotionTimeout: Duration = Duration.ofHours(promotionTimeoutHours)
@@ -62,6 +63,11 @@ class PodcastRecoveryScheduler(
 
     @Scheduled(cron = "\${app.podcast.recovery.cron:0 5 * * * *}")
     @SchedulerLock(name = "podcastRecovery", lockAtMostFor = "50m", lockAtLeastFor = "1m")
+    fun scheduledRecover() {
+        // PNF-3: previews zetten de automatische jobs uit (app.schedulers.enabled=false).
+        if (schedulersEnabled) recover()
+    }
+
     fun recover() {
         val now = Instant.now()
         try {

@@ -37,6 +37,9 @@ data class ExternalCall(
 ) {
     companion object {
         // Provider-constants
+        /** PNF-3: al het AI-werk loopt via de Agent Runtime. */
+        const val PROVIDER_AGENT_RUNTIME = "agent-runtime"
+        // Historische providers (vóór PNF-3) — blijven zichtbaar in het kostendashboard.
         const val PROVIDER_OPENAI = "openai"
         const val PROVIDER_ELEVENLABS = "elevenlabs"
         const val PROVIDER_TAVILY = "tavily"
@@ -52,6 +55,7 @@ data class ExternalCall(
         const val ACTION_PODCAST_TOPICS = "podcast_topics"
         const val ACTION_PODCAST_SCRIPT = "podcast_script"
         const val ACTION_PODCAST_TTS = "podcast_tts"
+        const val ACTION_PODCAST_TTS_ELEVENLABS = "podcast_tts_elevenlabs"
         const val ACTION_TAVILY_SEARCH = "tavily_search"
         const val ACTION_TAVILY_EXTRACT = "tavily_extract"
         const val ACTION_ADHOC_SUMMARIZE = "adhoc_summarize"

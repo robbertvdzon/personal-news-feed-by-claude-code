@@ -108,6 +108,22 @@ patches:
         value:
           name: PNF_PREVIEW_SKIP_GOOGLE_AUTH
           value: "true"
+      # PNF-3: previews draaien geen automatische jobs (uurlijkse refresh,
+      # dagelijkse samenvatting, podcast-recovery/backfill); die zouden de
+      # gedeelde Agent Runtime-worker belasten. Handmatige triggers werken wel.
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: PNF_SCHEDULERS_ENABLED
+          value: "false"
+      # Eigen idempotency-ruimte per preview in de Agent Runtime.
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: PNF_AGENT_RUNTIME_ENV
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
 
   # Backend: geen productie-JWT-sleutel in previews. De secretKeyRef naar
   # newsfeed-api-keys/JWT_SECRET vervalt (valueFrom: null) en APP_JWT_SECRET
