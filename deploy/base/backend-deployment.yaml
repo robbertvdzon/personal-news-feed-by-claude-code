@@ -13,11 +13,6 @@ spec:
       app: backend
   template:
     metadata:
-      annotations:
-        # Secrets worden alleen bij het starten van de pod ingelezen. Bump deze
-        # waarde na het opnieuw sealen van newsfeed-api-keys; Argo CD rolt dan
-        # een nieuwe pod uit.
-        vdzon.nl/secrets-revision: "2026-09-13-agent-runtime-token"
       labels:
         app: backend
     spec:
