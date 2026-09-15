@@ -1,12 +1,1 @@
-# ⚠️ VERHUISD (2026-07-08) — de RBAC voor de preview-ns-labeller wordt nu
-# via GitOps beheerd door de root-Application in robberts-infrastructure:
-#
-#   robberts-infrastructure/manifests/root-app/apps/preview-ns-labeller-rbac.yaml
-#
-# (Kon pas verhuizen toen de ArgoCD-instance cluster-scoped werd en dus zelf
-# ClusterRole/ClusterRoleBinding-objecten uit git mag syncen.) Dit bestand
-# is bewust leeggehaald in plaats van verwijderd, zodat oude verwijzingen
-# hier een pointer vinden in plaats van stilletjes een verouderde kopie te
-# applyen. De Deployment staat daar ook al:
-#   robberts-infrastructure/manifests/root-app/apps/preview-ns-labeller-deployment.yaml
-# De labeller-broncode (labeller.sh, Dockerfile) blijft gewoon hier in deze map.
+# Retired; namespace lifecycle is handled by preview-reconciler.

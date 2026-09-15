@@ -1,0 +1,15 @@
+---
+apiVersion: bitnami.com/v1alpha1
+kind: SealedSecret
+metadata:
+  annotations:
+    sealedsecrets.bitnami.com/cluster-wide: "true"
+  name: pnf-preview-runtime
+spec:
+  encryptedData:
+    PNF_AGENT_RUNTIME_TOKEN: AgAwKoDTajQ5XMRQ1iAPo+XVHTtk3RnUrGFyt+iWki6bVWcvwd8xBDjgr5bbrCo0/b/vmiwBW46VIJKTwz4zdB03aG+z8GrYejZlI+ELnBE4isG7JZzjFGjXvYYJEa/sJfApsqfe70oiqHTcymwNIUIH5z4bfEfZTjnq2+yGBQM8APhIScQDo1zAaEYwCLeDW9X86rY2uGD4/sWYqRw0wkJjFWuih5QGjzvVNsHtd2gT8m4ybLAcbvt0GDx60e95QXKI4ugS4b/Kz3hqzfgyZnExadjraZIzoQYc6qpd64mwsM6znBc4n5U4KkFZjr6R73831G0xE98G2i5daZmgWRL/KY/asbwCCHVRaQXAeRqO4DCWVSxy4fKMpJXNLe7U+/AzdlP6AWHjoovkJW9nquvD79dZwK+g56dWsNS0uWilUOS7xz3+oBl1sbHyaiqT9QtpR0OcG5YwpOpxHG0W1l7N2Qfy9//pPIA/TbyuPmuOifUnmPHX/Ttw7w5D3MIWvb/GplSN+baYTMF/YYGTcShQlCuQgfE7pL0t5fx7dBtoprFpB5IJpYMiXgA0INM5ky+2R33QRbJ8isRCz6hakfkZfsw1Em0u/oIfBW3jEUyVrNmYTc5C99Pey+lmXQyrokqLtmG2R2FSWnUziPCd6UGyoWvM6qDXHCA3ZnGOYBqrGBUjKFQ/USezFjeVV/aDY2545PqhjS36VF9vJIVcSLX1wjpDU7egjtcsQnpkIVdegfy5USMxJ2Ymei/JQTXsmwBWYgFtz3kUUApgLC0YbUk/
+  template:
+    metadata:
+      annotations:
+        sealedsecrets.bitnami.com/cluster-wide: "true"
+      name: pnf-preview-runtime

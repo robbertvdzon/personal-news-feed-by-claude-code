@@ -1,0 +1,87 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+spec:
+  template:
+    metadata:
+      labels:
+        postgres.vdzonsoftware.nl/client: 'true'
+    spec:
+      containers:
+      - name: backend
+        env:
+        - name: PNF_DATABASE_URL
+          value: null
+          valueFrom:
+            secretKeyRef:
+              name: preview-postgres
+              key: url
+            configMapKeyRef: null
+        - name: PNF_DATABASE_USER
+          value: null
+          valueFrom:
+            secretKeyRef:
+              name: preview-postgres
+              key: username
+            configMapKeyRef: null
+        - name: PNF_DATABASE_PASSWORD
+          value: null
+          valueFrom:
+            secretKeyRef:
+              name: preview-postgres
+              key: password
+            configMapKeyRef: null
+        - name: SPRING_DATASOURCE_URL
+          value: null
+          valueFrom:
+            secretKeyRef:
+              name: preview-postgres
+              key: url
+            configMapKeyRef: null
+        - name: SPRING_DATASOURCE_USERNAME
+          value: null
+          valueFrom:
+            secretKeyRef:
+              name: preview-postgres
+              key: username
+            configMapKeyRef: null
+        - name: SPRING_DATASOURCE_PASSWORD
+          value: null
+          valueFrom:
+            secretKeyRef:
+              name: preview-postgres
+              key: password
+            configMapKeyRef: null
+        - name: SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE
+          value: '5'
+        - name: SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE
+          value: '0'
+        - name: PNF_AGENT_RUNTIME_TOKEN
+          value: null
+          valueFrom:
+            secretKeyRef:
+              name: pnf-preview-runtime
+              key: PNF_AGENT_RUNTIME_TOKEN
+        - name: PNF_GOOGLE_CLIENT_ID
+          value: ''
+          valueFrom: null
+        - name: PNF_GOOGLE_USERS
+          value: preview@pnf.invalid=preview
+          valueFrom: null
+        - name: APP_JWT_SECRET
+          value: ''
+          valueFrom: null
+        - name: PNF_AGENT_RUNTIME_URL
+          value: https://agent-runtime-acceptance.vdzonsoftware.nl
+        volumeMounts:
+        - name: central-postgres-ca
+          mountPath: /etc/postgres-ca
+          readOnly: true
+      volumes:
+      - name: central-postgres-ca
+        secret:
+          secretName: preview-postgres
+          items:
+          - key: ca.crt
+            path: ca.crt

@@ -3,6 +3,7 @@ kind: Kustomization
 resources:
 - ../../base
 - sealed-secret-ai-access.yaml
+- sealed-preview-runtime.yaml
 patches:
 - target:
     kind: SealedSecret
@@ -61,3 +62,4 @@ patches:
 - path: backend-memory.yaml
 - path: frontend-memory.yaml
 - path: reader-memory.yaml
+- path: central-postgres-patch.yaml
