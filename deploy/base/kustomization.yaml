@@ -42,3 +42,7 @@ images:
 - name: reader
   newName: ghcr.io/robbertvdzon/personal-news-feed-reader
   newTag: sha-abfe4cc
+patches:
+- path: backend-memory.yaml
+- path: frontend-memory.yaml
+- path: reader-memory.yaml
