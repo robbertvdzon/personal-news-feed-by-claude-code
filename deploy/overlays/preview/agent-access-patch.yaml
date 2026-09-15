@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+spec:
+  template:
+    spec:
+      containers:
+      - name: backend
+        env:
+        - name: AI_ACCESS_TOKEN
+          value: null
+          valueFrom:
+            secretKeyRef:
+              name: ai-access-preview
+              key: AI_ACCESS_TOKEN
+        - name: AI_ACCESS_EMAILS
+          value: null
+          valueFrom:
+            secretKeyRef:
+              name: ai-access-preview
+              key: AI_ACCESS_EMAILS
+        - name: AI_ACCESS_ALLOWED_ORIGINS
+          value: null
+          valueFrom:
+            secretKeyRef:
+              name: ai-access-preview
+              key: AI_ACCESS_ALLOWED_ORIGINS

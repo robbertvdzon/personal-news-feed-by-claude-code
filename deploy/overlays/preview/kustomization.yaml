@@ -1,151 +1,60 @@
-# Preview-overlay: deploy't een feature-branch in een eigen namespace
-# `pnf-<id>`. De ArgoCD ApplicationSet
-# (robberts-infrastructure/manifests/root-app/apps/) vult de placeholders
-# in (namespace, image-tag, Route-host) per open PR.
-#
-# Verschillen met de productie-overlay:
-#   * Eén eigen frontend-Route met een per-PR host; de OpenShift-
-#     ingressrouter kiest 'm op de Host-header
-#   * Geen PVC voor audio (emptyDir; previews zijn throwaway)
-#   * Geen cloudflared (shared via main tunnel + wildcard hostname)
-#   * Geen SealedSecret (reflector mirror't 'm automatisch vanuit
-#     personal-news-feed naar pnf-*)
-#   * Geen preview-router
-#   * Geen productie-JWT-sleutel: APP_JWT_SECRET wordt leeggezet, waardoor
-#     de backend bij het opstarten zelf een ephemeral sleutel per pod
-#     genereert (tokens gelden alleen binnen die preview)
-#
-# De ApplicationSet patcht namespace, image-tag én de Route-host in (de
-# placeholder-host hieronder wordt per PR vervangen).
-
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-
-# Namespace wordt door de ApplicationSet via patch op {0} gezet — niet
-# hier hardcoden, want elke PR krijgt een eigen namespace.
-
 resources:
-  - ../../base
-
-# Resources die niet in een preview thuishoren — gewist via JSON-merge-patch
-# met `$patch: delete`. Deze patches verwijderen ze uit de gerenderde
-# manifest-set.
+- ../../base
+- sealed-secret-ai-access.yaml
 patches:
-  - target:
-      kind: SealedSecret
-      name: newsfeed-api-keys
-    patch: |-
-      $patch: delete
-      apiVersion: bitnami.com/v1alpha1
-      kind: SealedSecret
-      metadata:
-        name: newsfeed-api-keys
-  # De ApplicationSet vervangt deze onbruikbare veiligheidshost door
-  # pnf-pr-<nummer>.vdzonsoftware.nl. Zonder die patch kan een preview nooit
-  # per ongeluk de productiehost claimen.
-  - target:
-      kind: Route
-      name: frontend
-    patch: |-
-      - op: replace
-        path: /spec/host
-        value: preview-host-must-be-set.invalid
-  - target:
-      kind: Route
-      name: backend-debug
-    patch: |-
-      $patch: delete
-      apiVersion: route.openshift.io/v1
-      kind: Route
-      metadata:
-        name: backend-debug
-  - target:
-      kind: Route
-      name: reader
-    patch: |-
-      $patch: delete
-      apiVersion: route.openshift.io/v1
-      kind: Route
-      metadata:
-        name: reader
-  - target:
-      kind: PersistentVolumeClaim
-      name: backend-data
-    patch: |-
-      $patch: delete
-      apiVersion: v1
-      kind: PersistentVolumeClaim
-      metadata:
-        name: backend-data
-  - target:
-      kind: Deployment
-      name: cloudflared
-    patch: |-
-      $patch: delete
-      apiVersion: apps/v1
-      kind: Deployment
-      metadata:
-        name: cloudflared
-  # Backend: vervang PVC-mount door emptyDir (audio is throwaway in previews)
-  - target:
-      kind: Deployment
-      name: backend
-    patch: |-
-      - op: replace
-        path: /spec/template/spec/volumes/0
-        value:
-          name: data
-          emptyDir: {}
-      # Minder strikt rollout-gedrag — preview spawn moet snel zijn
-      - op: replace
-        path: /spec/strategy
-        value:
-          type: RollingUpdate
-      # Tester-agents hebben geen interactief Google-account. Dit staat alleen
-      # in de preview-overlay; productie blijft fail-closed achter Google-login.
-      - op: add
-        path: /spec/template/spec/containers/0/env/-
-        value:
-          name: PNF_PREVIEW_SKIP_GOOGLE_AUTH
-          value: "true"
-      # PNF-3: previews draaien geen automatische jobs (uurlijkse refresh,
-      # dagelijkse samenvatting, podcast-recovery/backfill); die zouden de
-      # gedeelde Agent Runtime-worker belasten. Handmatige triggers werken wel.
-      - op: add
-        path: /spec/template/spec/containers/0/env/-
-        value:
-          name: PNF_SCHEDULERS_ENABLED
-          value: "false"
-      # Eigen idempotency-ruimte per preview in de Agent Runtime.
-      - op: add
-        path: /spec/template/spec/containers/0/env/-
-        value:
-          name: PNF_AGENT_RUNTIME_ENV
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.namespace
-
-  # Backend: geen productie-JWT-sleutel in previews. De secretKeyRef naar
-  # newsfeed-api-keys/JWT_SECRET vervalt (valueFrom: null) en APP_JWT_SECRET
-  # blijft zichtbaar leeg achter, zodat de backend bij het opstarten zelf een
-  # ephemeral sleutel genereert. Bewust een strategic-merge-patch in een eigen
-  # entry: een positionele JSON6902-patch op de env-index zou meeschuiven zodra
-  # er een env-var in de base bijkomt, en kustomize mengt beide patch-vormen
-  # niet binnen één entry.
-  - target:
-      kind: Deployment
-      name: backend
-    patch: |-
-      apiVersion: apps/v1
-      kind: Deployment
-      metadata:
-        name: backend
-      spec:
-        template:
-          spec:
-            containers:
-              - name: backend
-                env:
-                  - name: APP_JWT_SECRET
-                    value: ""
-                    valueFrom: null
+- target:
+    kind: SealedSecret
+    name: newsfeed-api-keys
+  patch: "$patch: delete\napiVersion: bitnami.com/v1alpha1\nkind: SealedSecret\nmetadata:\n\
+    \  name: newsfeed-api-keys"
+- target:
+    kind: Route
+    name: frontend
+  patch: "- op: replace\n  path: /spec/host\n  value: preview-host-must-be-set.invalid"
+- target:
+    kind: Route
+    name: backend-debug
+  patch: "$patch: delete\napiVersion: route.openshift.io/v1\nkind: Route\nmetadata:\n\
+    \  name: backend-debug"
+- target:
+    kind: Route
+    name: reader
+  patch: "$patch: delete\napiVersion: route.openshift.io/v1\nkind: Route\nmetadata:\n\
+    \  name: reader"
+- target:
+    kind: PersistentVolumeClaim
+    name: backend-data
+  patch: "$patch: delete\napiVersion: v1\nkind: PersistentVolumeClaim\nmetadata:\n\
+    \  name: backend-data"
+- target:
+    kind: Deployment
+    name: cloudflared
+  patch: "$patch: delete\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name:\
+    \ cloudflared"
+- target:
+    kind: Deployment
+    name: backend
+  patch: "- op: replace\n  path: /spec/template/spec/volumes/0\n  value:\n    name:\
+    \ data\n    emptyDir: {}\n# Minder strikt rollout-gedrag \u2014 preview spawn\
+    \ moet snel zijn\n- op: replace\n  path: /spec/strategy\n  value:\n    type: RollingUpdate\n\
+    # Tester-agents hebben geen interactief Google-account. Dit staat alleen\n# in\
+    \ de preview-overlay; productie blijft fail-closed achter Google-login.\n- op:\
+    \ add\n  path: /spec/template/spec/containers/0/env/-\n  value:\n    name: PNF_PREVIEW_SKIP_GOOGLE_AUTH\n\
+    \    value: \"true\"\n# PNF-3: previews draaien geen automatische jobs (uurlijkse\
+    \ refresh,\n# dagelijkse samenvatting, podcast-recovery/backfill); die zouden\
+    \ de\n# gedeelde Agent Runtime-worker belasten. Handmatige triggers werken wel.\n\
+    - op: add\n  path: /spec/template/spec/containers/0/env/-\n  value:\n    name:\
+    \ PNF_SCHEDULERS_ENABLED\n    value: \"false\"\n# Eigen idempotency-ruimte per\
+    \ preview in de Agent Runtime.\n- op: add\n  path: /spec/template/spec/containers/0/env/-\n\
+    \  value:\n    name: PNF_AGENT_RUNTIME_ENV\n    valueFrom:\n      fieldRef:\n\
+    \        fieldPath: metadata.namespace"
+- target:
+    kind: Deployment
+    name: backend
+  patch: "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: backend\nspec:\n\
+    \  template:\n    spec:\n      containers:\n        - name: backend\n        \
+    \  env:\n            - name: APP_JWT_SECRET\n              value: \"\"\n     \
+    \         valueFrom: null"
+- path: agent-access-patch.yaml

@@ -44,13 +44,13 @@ class JwtService(
         Keys.hmacShaKeyFor(bytes)
     }
 
-    fun create(username: String, role: String): String {
+    fun create(username: String, role: String, ttlSeconds: Long = ttlDays * 24 * 3600): String {
         val now = System.currentTimeMillis()
         return Jwts.builder()
             .subject(username)
             .claim(CLAIM_ROLE, role)
             .issuedAt(Date(now))
-            .expiration(Date(now + ttlDays * 24 * 3600 * 1000))
+            .expiration(Date(now + ttlSeconds * 1000))
             .signWith(key)
             .compact()
     }
