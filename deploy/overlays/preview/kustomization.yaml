@@ -58,3 +58,6 @@ patches:
     \  env:\n            - name: APP_JWT_SECRET\n              value: \"\"\n     \
     \         valueFrom: null"
 - path: agent-access-patch.yaml
+- path: backend-memory.yaml
+- path: frontend-memory.yaml
+- path: reader-memory.yaml
