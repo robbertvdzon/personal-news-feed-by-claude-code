@@ -51,8 +51,8 @@ hadden, zijn allebei vervallen:
    `CreateNamespace=true` werkt echt sinds ArgoCD cluster-scoped draait
    (zie `robberts-infrastructure/docs/architecture.md`, "Historie" voor het
    oude kip-en-ei).
-2. preview-ns-labeller's RBAC applyen — verhuisd naar GitOps:
-   `robberts-infrastructure/manifests/root-app/apps/preview-ns-labeller-rbac.yaml`.
+2. De oude preview-ns-labeller installeren — vervallen. De centrale PostgreSQL-
+   controller wordt beheerd vanuit `robberts-infrastructure/manifests/postgresql/`.
 
 De ArgoCD `Application`, de `ApplicationSet`, de `github-pr-token`-SealedSecret
 en preview-ns-labeller's `Deployment` + `RBAC` staan allemaal in
