@@ -174,98 +174,43 @@ Wat je nog moet doen:
 
 Geen port-forwarding op je router nodig — alleen uitgaande connectie van het cluster naar Cloudflare.
 
-## Preview-deploys per PR (S-06)
+## Preview-deploys per PR
 
-Elke open PR met branch-prefix `ai/` krijgt automatisch een eigen
-preview op `https://pnf-pr-<N>.vdzonsoftware.nl` (waar `<N>` het
-PR-nummer is). Bij merge/close wordt de preview opgeruimd.
+GitHub Actions bouwt de PR-image. De ApplicationSet in `robberts-infrastructure`
+maakt `pnf-pr-<N>` en de route `https://pnf-pr-<N>.vdzonsoftware.nl`.
 
-**Hoe het werkt:**
+### Preview-database op de gedeelde non-productionserver
 
-1. **GitHub Actions** bouwt op elke `pull_request` event een image en
-   tagt 'm met `sha-<short-sha>` van de PR's HEAD.
-2. **ApplicationSet** (sinds 2026-07-08 in
-   `robberts-infrastructure/manifests/root-app/apps/personal-news-feed-applicationset.yaml`)
-   pollt elke 3 min GitHub voor open PR's matching `^ai/.+$` en spawnt per
-   PR een ArgoCD Application.
-3. **Preview-ns-labeller** (RBAC én Deployment sinds 2026-07-08 in
-   `robberts-infrastructure/manifests/root-app/apps/preview-ns-labeller-rbac.yaml`
-   respectievelijk `…/preview-ns-labeller-deployment.yaml`; in
-   `deploy/preview-ns-labeller/` staan alleen `labeller.sh` en `Dockerfile`
-   nog echt — `rbac.yaml` is daar een leeggehaald pointer-bestand)
-   zorgt dat de bijbehorende namespace `pnf-pr-<N>` bestaat met de
-   `argocd.argoproj.io/managed-by`-label (anders blokkeert de
-   argocd-operator). Vóór élke creatiehandeling — dus ook vóór het
-   (opnieuw) aanmaken en labelen van die namespace — checkt de labeller
-   eerst bij GitHub of PR `<N>` echt open is; die check is fail-closed
-   (zie "Beperkingen" hieronder).
-4. **Reflector** mirror't de `newsfeed-api-keys` Secret automatisch
-   naar elke nieuwe `pnf-*`-namespace.
-5. **Routering via de OpenShift-ingressrouter.** Cloudflare stuurt de
-   wildcard `*.vdzonsoftware.nl` naar de ingressrouter van het cluster;
-   die kiest op de oorspronkelijke Host-header de bijbehorende Route.
-   Er zit dus géén extra nginx-tussenlaag meer in het pad. De
-   productiehosts staan declaratief in de manifests:
-   `deploy/base/frontend-route.yaml` (`news.vdzonsoftware.nl`) en
-   `deploy/base/reader-route.yaml` (`reader.vdzonsoftware.nl`). Voor
-   previews zet de `preview`-overlay op de frontend-Route de
-   placeholder-host `preview-host-must-be-set.invalid`, die de
-   ApplicationSet per PR vervangt door `pnf-pr-<N>.vdzonsoftware.nl`.
-   Op de frontend- en reader-Route staat
-   `insecureEdgeTerminationPolicy` op `Allow` (niet `Redirect`), omdat de
-   Cloudflare-connector de router cluster-intern via HTTP bereikt — een
-   redirect naar HTTPS zou dat verkeer laten stuiteren.
-   `deploy/base/backend-route.yaml` (debug, niet via de gedeelde
-   wildcard) houdt bewust `Redirect`.
+Sinds 15 september 2026 krijgt iedere preview een lege database
+`pnf_pr_<nummer>_<namespace-uid-hash>` op `postgres.postgres-nonproduction.svc`.
+De controller in `robberts-infrastructure` maakt de rol en het Secret
+`preview-postgres` aan. De backend wacht op dat Secret en gebruikt TLS met
+`verify-full`. Flyway maakt het schema; er wordt geen productiedata gekopieerd.
 
-**Geen productie-JWT-sleutel in previews (SF-1542).** De
-`preview`-overlay overschrijft `APP_JWT_SECRET` op de backend-Deployment
-naar een lege waarde (strategic-merge-patch met `valueFrom: null`), zodat
-de `secretKeyRef` naar `newsfeed-api-keys`/`JWT_SECRET` daar vervalt. De
-backend genereert dan bij het opstarten zelf een random ephemeral sleutel
-per pod: tokens uit een preview zijn alleen binnen die preview geldig, niet
-op productie, en vervallen bij pod-herstart. Dat is prima — previews zijn
-wegwerp en de e2e-runner logt per run opnieuw in. De
-`openshift`-(productie)overlay blijft de vaste sleutel uit de SealedSecret
-gebruiken. De rest van het `newsfeed-api-keys`-secret wordt nog steeds
-volledig gespiegeld (o.a. `PNF_DATABASE_URL`); alleen de koppeling van de
-JWT-sleutel aan de preview-Deployment is verbroken.
+De ApplicationSet maakt de namespace. De bestaande preview-reconciler verwijdert
+haar na de PR-lifecyclecontrole. De databasecontroller verwijdert vervolgens de
+bij die namespace-UID behorende database na een uur grace. Een heropende PR met
+een nieuwe namespace krijgt een andere database en een ander wachtwoord.
 
-**Beperkingen:**
+`newsfeed-api-keys` blijft uitsluitend in `personal-news-feed`. De oude Neon-labeller
+is uitgeschakeld en heeft geen secretrechten. Preview-AI-verkeer gebruikt de
+Agent Runtime-acceptatieomgeving met een eigen, daarvoor gescopete credential.
+Productie blijft op Neon.
 
-- **Een preview verschijnt niet meteen.** De ArgoCD ApplicationSet pollt
-  GitHub elke ~3 min voor nieuwe/gewijzigde PR's, dus tussen het openen
-  van de PR en een draaiende preview zit al gauw een paar minuten
-  ("Pending"). Even wachten lost dit meestal op. Elke `pull_request`-event
-  bouwt wél altijd een image: het trigger-blok in `build-images.yml` heeft
-  bewust **geen** `paths:`-filter, zodat ook docs-only PR's een image met
-  hun eigen SHA krijgen en de preview niet op `ImagePullBackOff` blijft
-  staan.
+### Tester-login en testdata
 
-- **Database per preview.** De `preview-ns-labeller` maakt per
-  preview een Neon-branch `pr-<N>` aan en patcht `PNF_DATABASE_URL`
-  in het namespace-secret (KAN-55/SF-229) — previews migreren/testen
-  dus op een eigen kopie, niet op prod. Restrisico's: (a) de eerste
-  boot van een verse preview kan kort de prod-URL uit het base-secret
-  zien totdat de labeller (30s-poll) gepatcht en de pod herstart
-  heeft; (b) zonder `NEON_API_KEY`/`NEON_PROJECT_ID` degradeert de
-  labeller naar labeling-only en draaien previews wél op prod; (c) de
-  labeller heeft daarnaast `GITHUB_TOKEN` nodig voor de fail-closed
-  PR-statuscheck — ontbreekt dat token, faalt de GitHub-call of komt er
-  geen HTTP 200, dan is de PR-status "onbekend" en doet de labeller voor
-  die preview helemaal niets: geen namespace-label, geen Neon-branch,
-  geen secret-patch en geen cleanup.
+Test uitsluitend de preview-URL. Gebruik de bestaande preview-AI-toegang als de
+harness die veilig aanbiedt, of registreer via de UI een wegwerpaccount
+`tester_<lowercase-story-id>`. Maak benodigde synthetische data via de preview-UI
+of de daarvoor bedoelde preview-API. Verwijder het wegwerpaccount na de test.
+Er bestaat geen uit productie gekopieerde testgebruiker en er is geen
+`TESTER_USERNAME`/`TESTER_PASSWORD` uit `newsfeed-api-keys` nodig. Geen
+productielogins, productiecredentials, rechtstreekse wachtwoordresets of SQL-datawijzigingen.
 
-- **Geen automatic preview cleanup van orphan namespaces.** Bij merge/close
-  ruimt ArgoCD de gegenereerde Application + resources netjes op
-  (`prune: true`), maar de namespace zelf **altijd**: `CreateNamespace=true`
-  wordt door ArgoCD niet als resource getrackt en dus nooit geprund (geen
-  uitzondering-scenario, structureel — zie
-  `robberts-infrastructure/docs/cluster-inventory.md` §8). Dit veroorzaakte
-  29 stale `pnf-pr-*`-namespaces (opgeruimd 2026-07-08), nog niet
-  structureel gefixt. Voor een schone start: handmatig
-  `oc delete ns pnf-pr-<N>` als de PR echt afgesloten is, of periodiek
-  cross-checken met `gh pr list --state open`.
+De JWT-sleutel is tijdelijk en uniek per backendpod. Na een podherstart logt
+een tester opnieuw in. Eerste provisioning kan enkele minuten duren; ontbreekt
+`preview-postgres`, controleer de databasecontroller in `postgres-nonproduction`.
+Er wordt nooit teruggevallen op de productieverbinding.
 
 ## Bestanden in deze map
 

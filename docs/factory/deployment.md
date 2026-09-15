@@ -4,19 +4,8 @@ branch_prefix: ai/
 preview_url_template: "https://pnf-pr-{pr_num}.vdzonsoftware.nl"
 preview_namespace_template: "pnf-pr-{pr_num}"
 preview_db_secret_recipe: |
-  # Previews draaien op een EIGEN per-PR Neon-branch (pr-<N>), niet op prod.
-  # Het basis-secret wordt via Reflector naar elke pnf-pr-* namespace
-  # gespiegeld; de preview-ns-labeller patcht daarin vervolgens
-  # PNF_DATABASE_URL naar de branch-specifieke URL en zet de marker-key
-  # PREVIEW_DB_BRANCH=pr-<N> (die marker voedt nog steeds de geïsoleerde
-  # per-PR branch-DB, maar wordt sinds SF-282 niet meer door de
-  # tester-login gebruikt). De tester logt in met een vaste test-user uit
-  # hetzelfde secret (TESTER_USERNAME/TESTER_PASSWORD) — read-only, geen
-  # DB-mutatie en geen guard-check meer. De claude-tester-SA heeft per
-  # pnf-pr-* namespace secrets-read.
-  echo "Test-user:            oc get secret newsfeed-api-keys -n pnf-pr-<N> -o jsonpath='{.data.TESTER_USERNAME}' | base64 -d"
-  echo "Preview-branch-DB-URL: oc get secret newsfeed-api-keys -n pnf-pr-<N> -o jsonpath='{.data.PNF_DATABASE_URL}' | base64 -d"
-  echo "Branch-marker:        oc get secret newsfeed-api-keys -n pnf-pr-<N> -o jsonpath='{.data.PREVIEW_DB_BRANCH}' | base64 -d"
+  echo "Database: preview-postgres in de eigen pnf-pr-<N>-namespace; TLS verify-full."
+  echo "Geen productiecredentials of database-URL in prompts, logs of artifacts."
 ---
 
 # Deployment — Personal News Feed
@@ -96,80 +85,33 @@ opstarten zelf een random ephemeral sleutel. Gevolgen voor de factory:
 - Productie (`openshift`-overlay) blijft de vaste sleutel uit de
   SealedSecret gebruiken; er is geen nieuw secret of her-sealen nodig.
 
-### Preview-DB — eigen per-PR Neon-branch (NIET prod)
+### Preview-database op de gedeelde non-productionserver
 
-Elke preview krijgt een **eigen, wegwerp-Neon-branch** `pr-<N>`, afgesplitst
-van de productie-branch. Dat betekent:
+Sinds 15 september 2026 krijgt iedere preview een lege database
+`pnf_pr_<nummer>_<namespace-uid-hash>` op `postgres.postgres-nonproduction.svc`.
+De controller in `robberts-infrastructure` maakt de rol en het Secret
+`preview-postgres` aan. De backend wacht op dat Secret en gebruikt TLS met
+`verify-full`. Flyway maakt het schema; er wordt geen productiedata gekopieerd.
 
-- Flyway-migraties in een PR draaien op de **branch**, niet op prod-data.
-- De branch levert de geïsoleerde testdata waarmee de tester de feature
-  realistisch ziet. De tester muteert die branch niet meer: inloggen gaat
-  via een vaste test-user uit het secret (zie "Tester-login" hieronder).
-- Bij PR-close ruimt de `preview-ns-labeller` de branch (incl. testdata) op —
-  maar pas nadat de preview-namespace daadwerkelijk verdwenen is **én** GitHub
-  bevestigt dat de PR gesloten is. Zolang één van beide niet vaststaat blijft
-  de branch staan.
+De ApplicationSet maakt de namespace. De bestaande preview-reconciler verwijdert
+haar na de PR-lifecyclecontrole. De databasecontroller verwijdert vervolgens de
+bij die namespace-UID behorende database na een uur grace. Een heropende PR met
+een nieuwe namespace krijgt een andere database en een ander wachtwoord.
 
-Wiring (door `deploy/preview-ns-labeller/labeller.sh`):
+`newsfeed-api-keys` blijft uitsluitend in `personal-news-feed`. De oude Neon-labeller
+is uitgeschakeld en heeft geen secretrechten. Preview-AI-verkeer gebruikt de
+Agent Runtime-acceptatieomgeving met een eigen, daarvoor gescopete credential.
+Productie blijft op Neon.
 
-1. Vraagt eerst bij GitHub de actuele PR-status op (`GET /repos/…/pulls/<N>`).
-   Alleen bij een bevestigd open PR volgen de creatiestappen; deze check staat
-   vóór élke creatiehandeling, dus ook vóór het (opnieuw) aanmaken en labelen
-   van de namespace `pnf-pr-<N>`.
-2. Maakt de namespace `pnf-pr-<N>` aan als die nog niet bestaat en (her)zet het
-   label `argocd.argoproj.io/managed-by=argocd` (`kubectl create ns` /
-   `kubectl label ns`), anders blokkeert de argocd-operator de preview.
-3. Maakt de Neon-branch `pr-<N>` aan (parent = productie-branch).
-4. Patcht `PNF_DATABASE_URL` in het `newsfeed-api-keys`-secret van
-   `pnf-pr-<N>` naar de branch-URL, en zet de marker `PREVIEW_DB_BRANCH=pr-<N>`
-   (`kubectl patch secret`).
-5. Herstart de backend-pod (`kubectl delete pod -l app=backend`) zodat die de
-   gepatchte `PNF_DATABASE_URL` oppikt; het Deployment respawnt 'm.
+### Tester-login en testdata
 
-Het script maakt zélf **geen** RBAC aan: de Role/RoleBinding waarmee de
-`claude-tester`-SA het secret in een `pnf-pr-*`-namespace mag lezen wordt via
-GitOps beheerd in de repo `robberts-infrastructure`
-(`manifests/root-app/apps/preview-ns-labeller-rbac.yaml`). De overige
-kubectl-aanroepen in `labeller.sh` zijn read-only (`get ns`, `get secret`,
-`get app`).
-
-Vereist dat drie sleutels in het secret aanwezig zijn: `NEON_API_KEY`,
-`NEON_PROJECT_ID` **en** `GITHUB_TOKEN`. De eerste twee zetten de Neon-mode
-aan; ontbreken die, dan valt de labeller terug op alleen namespace-labeling
-(geen branch, geen marker) en deelt de preview geen geïsoleerde branch-DB.
-
-`GITHUB_TOKEN` is strenger, want de PR-statuscheck is **fail-closed**:
-ontbreekt het token, faalt de curl of komt er geen HTTP 200 terug, dan is de
-PR-status "onbekend" en voert de labeller voor die preview **géén enkele
-mutatie** uit — geen namespace-label, geen Neon-branch, geen secret-patch en
-geen cleanup. De preview blijft dan hangen op wat er al stond (in het ergste
-geval dus zonder namespace en zonder branch-DB).
-
-De tester-login zelf raakt de DB niet en blijft ongewijzigd werken via de
-test-user-creds (zie "Tester-login" hieronder).
-
-**Tester-login (vaste test-user, sinds SF-282).** De tester krijgt een
-bruikbare preview-URL (`https://pnf-pr-<N>.vdzonsoftware.nl`) en logt daarop
-via de Flutter-UI in met een vaste, dedicated test-user. De creds
-`TESTER_USERNAME` / `TESTER_PASSWORD` staan in het `newsfeed-api-keys`-secret
-(via Reflector in elke `pnf-pr-*`-namespace beschikbaar). Draait de tester
-onder de claude-runner, dan leest `runner.sh` ze runtime read-only uit het
-secret en exporteert `TESTER_USERNAME` / `TESTER_PASSWORD`. Draait de tester
-onder een andere harness (bv. softwarefactory's `agent:local`-image, waar
-`runner.sh` nooit draait), dan blijven die env-vars leeg en **leest de tester
-ze zélf** read-only uit het namespace-secret (namespace/PR uit
-`SF_PREVIEW_NAMESPACE` / `SF_PR_NUMBER` met fallback op `pnf-pr-<N>`). De login
-doet **geen DB-mutatie, geen wachtwoord-reset en geen guard-check**. Ontbreken
-of falen de creds, dan valt de tester terug op de wegwerp-account-flow
-(`tester_<story-id>` registreren via de UI + `DELETE /api/account/me` aan het
-eind). Zie `docs/factory/agents/tester.md`.
-
-> De oude SF-229-flow (robbert-wachtwoord-reset + fail-closed
-> `PREVIEW_DB_GUARD`-check) is hiermee vervallen. De per-PR Neon-branch en
-> `preview-db-guard.py` zelf blijven ongewijzigd bestaan (geïsoleerde testdata
-> per PR), maar zijn niet meer onderdeel van de tester-login. De optionele
-> `PROD_DB_HOST`-env-var op de `jira-poller` voedde die guard en is daarmee
-> legacy: ze speelt geen rol meer in de loginflow.
+Test uitsluitend de preview-URL. Gebruik de bestaande preview-AI-toegang als de
+harness die veilig aanbiedt, of registreer via de UI een wegwerpaccount
+`tester_<lowercase-story-id>`. Maak benodigde synthetische data via de preview-UI
+of de daarvoor bedoelde preview-API. Verwijder het wegwerpaccount na de test.
+Er bestaat geen uit productie gekopieerde testgebruiker en er is geen
+`TESTER_USERNAME`/`TESTER_PASSWORD` uit `newsfeed-api-keys` nodig. Geen
+productielogins, productiecredentials, rechtstreekse wachtwoordresets of SQL-datawijzigingen.
 
 ## Deploy-flow (dagelijks gebruik)
 

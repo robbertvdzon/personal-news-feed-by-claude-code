@@ -51,7 +51,7 @@ Data:  Postgres (Neon, extern) — audio-bytes sinds V5 óók in Postgres.
 - **PR-previews:** elke `ai/*`-PR krijgt `https://pnf-pr-<N>.vdzonsoftware.nl`
   via een ArgoCD ApplicationSet (`robberts-infrastructure/manifests/root-app/apps/`,
   zie `deploy/README.md` voor het volledige verhaal) + de
-  `preview-ns-labeller` (Neon DB-branch per preview).
+  `postgres-preview-controller` (eigen centrale database per preview).
 
 ---
 
@@ -174,26 +174,19 @@ Bestanden staan lokaal (gitignored). Voor de assistent worden ze read-only besch
 - `GITHUB_TOKEN` — PAT voor `gh`/`git push` naar deze repo (CI + ArgoCD PR-preview-generator).
   De `preview-ns-labeller` gebruikt 'm ook voor zijn fail-closed PR-statuscheck: zonder
   (werkend) token doet die voor een preview géén enkele mutatie — zie §6.
-- `NEON_API_KEY` / `NEON_PROJECT_ID` — Neon API (DB-branches/beheer, o.a. preview-branches en `deploy/neon-endpoint-config.sh`, zie §6.1).
+- `NEON_API_KEY` / `NEON_PROJECT_ID` — Neon API voor productiebeheer, zoals `deploy/neon-endpoint-config.sh`, zie §6.1).
 - `OPENSHIFT_API_TOKEN` — `oc login`-token voor het SNO-lab.
 
 ---
 
 ## 6. Database
 
-- **Type:** PostgreSQL, gehost bij **Neon** (cloud). Prod draait op de
-  default-branch; **elke PR-preview krijgt een eigen Neon-branch** (`pr-<N>`,
-  aangemaakt/opgeruimd door de `preview-ns-labeller`, zie
-  `deploy/preview-ns-labeller/`). Previews kunnen dus vrij migreren/testen
-  zonder prod-data te raken. Kanttekening: de allereerste boot van een verse
-  preview kan (max ~30s, tot de labeller het secret gepatcht heeft) nog de
-  prod-URL uit het base-secret zien; zonder `NEON_API_KEY`/`NEON_PROJECT_ID`
-  valt de labeller terug op namespace-labeling-only — dan draaien previews
-  wél op prod; en de labeller heeft daarnaast `GITHUB_TOKEN` nodig voor zijn
-  fail-closed PR-statuscheck — ontbreekt dat token, faalt de GitHub-call of
-  komt er geen HTTP 200, dan is de PR-status "onbekend" en doet de labeller
-  voor die preview géén enkele mutatie: geen namespace-label, geen
-  Neon-branch, geen secret-patch en geen cleanup.
+- **Productie:** PostgreSQL bij Neon; productiecredentials blijven alleen in
+  `personal-news-feed`.
+- **Previews:** lege, afzonderlijke databases op de centrale non-productionserver,
+  beheerd door `postgres-preview-controller`. Secret `preview-postgres`, eigen rol,
+  TLS `verify-full`, geen productiegegevens of gereflecteerde productiecredentials.
+  Zie `docs/factory/deployment.md` voor lifecycle en testdata.
 - **Migraties:** Flyway, automatisch bij backend-start
   (`src/main/resources/db/migration/`, t/m `V16`).
 - **Belangrijke tabellen:** `users`, `rss_feeds`, `rss_items`, `feed_items`,
@@ -376,19 +369,11 @@ oc rollout restart -n personal-news-feed deploy/frontend
 **Webapp openen/screenshotten:** `https://news.vdzonsoftware.nl` (full),
 `https://reader.vdzonsoftware.nl` (reader). Health: `/actuator/health`.
 
-**Preview hangt op "Pending":** de ArgoCD ApplicationSet pollt elke ~3 min
-GitHub voor nieuwe/gewijzigde PR's (zie `deploy/README.md`
-§"Preview-deploys per PR (S-06)") — even wachten lost dit meestal op. Orphan-namespace
-opruimen: `oc delete ns pnf-pr-<N>`.
-
-Blijft de namespace ook daarna weg (of komt er geen branch-DB), check dan de
-labeller-logs op regels als "PR-status … onbekend": zijn PR-statuscheck is
-fail-closed, dus bij een ontbrekend/ongeldig `GITHUB_TOKEN` of een GitHub-call
-zonder HTTP 200 slaat hij álle mutaties over (geen namespace-label, geen
-Neon-branch, geen secret-patch, geen cleanup). Het labeller-Deployment én zijn
-RBAC staan in `robberts-infrastructure` (zie `deploy/README.md`
-§"Preview-deploys per PR (S-06)"); in `deploy/preview-ns-labeller/` staan alleen
-`labeller.sh` en het `Dockerfile` nog echt.
+**Preview hangt op "Pending":** de ApplicationSet pollt iedere circa drie minuten.
+Controleer imagebeschikbaarheid, namespace-events en het bestaan van
+`preview-postgres` zonder secretwaarden te tonen. Bekijk de controllerlogs in
+`postgres-nonproduction`; `preview_capacity_exceeded` betekent dat acht databases
+al gereserveerd zijn. Productiecredentials toevoegen is geen herstelactie.
 
 **HTTP 503 "Application is not available" op een `*.vdzonsoftware.nl`-host:**
 dat is de foutpagina van de OpenShift-ingressrouter, niet van de app. Omdat de
